@@ -3,8 +3,9 @@
 Painel lateral autohide para Windows: ao tocar a borda da tela com o mouse, ele se expande sobre as
 outras janelas para consultar, adicionar e editar referências (markdown, imagens, páginas web).
 
-Fonte única de instruções para Claude, Codex e Gemini. `CLAUDE.md` e `GEMINI.md` só importam este
-arquivo. Ele é carregado em toda sessão: mantenha-o curto.
+Fonte única de instruções para Claude, Codex e Antigravity. O Codex e o Antigravity leem este arquivo
+direto, e `CLAUDE.md` só o importa. Não crie `GEMINI.md`: o Antigravity não expande importações com
+`@`. Este arquivo é carregado em toda sessão: mantenha-o curto.
 
 ## Por onde começar
 
