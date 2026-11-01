@@ -11,7 +11,7 @@ Nada.
 
 **Objetivo:** responder, com um protótipo descartável, se o Tauri entrega a experiência de painel.
 
-- [ ] (padrão) Máquina de estados pura do painel, com testes
+- [x] (padrão) Máquina de estados pura do painel, com testes
 - [ ] (avançado) Gatilho de borda por consulta ao cursor, sem janela na borda
 - [ ] (avançado) Janela sobre as demais, fora da barra de tarefas e do Alt+Tab, sem roubar foco ao abrir
 - [ ] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior

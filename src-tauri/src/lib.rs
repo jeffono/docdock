@@ -1,6 +1,7 @@
 //! Composição do app: registra módulos e comandos, sem regras de negócio.
 
 mod commands;
+pub mod panel;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
