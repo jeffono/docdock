@@ -1,20 +1,20 @@
 //! Camada fina sobre o Win32. Todas as coordenadas são pixels físicos: o processo roda com
 //! consciência de DPI por monitor (PMv2), ativada pelo tao ao iniciar o laço de eventos.
 
-use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
-    CreateRectRgn, GetMonitorInfoW, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint,
-    SetWindowRgn,
+    CreateRectRgn, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetAsyncKeyState, VK_ESCAPE};
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
     GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, SWP_NOACTIVATE,
     SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
     SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
+use windows::core::BOOL;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Point {
@@ -63,10 +63,32 @@ pub fn cursor_pos() -> Option<Point> {
     Some(Point { x: p.x, y: p.y })
 }
 
-/// O monitor principal é, por definição, o que contém a origem.
-pub fn primary_monitor() -> Option<Monitor> {
+/// Só o bit de "pressionada agora": o bit de "pressionada desde a última leitura" pegaria um Esc
+/// antigo, dado quando ninguém estava consultando.
+pub fn escape_pressed() -> bool {
+    unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) as u16 & 0x8000 != 0 }
+}
+
+unsafe extern "system" fn collect_monitor(
+    handle: HMONITOR,
+    _: HDC,
+    _: *mut RECT,
+    list: LPARAM,
+) -> BOOL {
+    unsafe { &mut *(list.0 as *mut Vec<HMONITOR>) }.push(handle);
+    true.into()
+}
+
+/// Todos os monitores conectados.
+pub fn monitors() -> Vec<Monitor> {
+    let mut handles: Vec<HMONITOR> = Vec::new();
+    let list = LPARAM(&raw mut handles as isize);
+    let _ = unsafe { EnumDisplayMonitors(None, None, Some(collect_monitor), list) };
+    handles.into_iter().filter_map(monitor_info).collect()
+}
+
+fn monitor_info(handle: HMONITOR) -> Option<Monitor> {
     unsafe {
-        let handle = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
         let mut info = MONITORINFO {
             cbSize: size_of::<MONITORINFO>() as u32,
             ..Default::default()

@@ -1,5 +1,5 @@
 //! Página web em janela própria, sobre o painel. O conteúdo é não confiável: a janela fica fora da
-//! capability do app, não abre popups e só navega por http(s).
+//! capability do app, só navega por http(s) e nunca abre outra janela.
 
 use std::sync::mpsc::Sender;
 
@@ -23,6 +23,16 @@ fn parse_url(raw: &str) -> Result<Url, String> {
     }
 }
 
+/// Links para nova janela, como `target=_blank`, abrem na própria janela da página.
+fn navigate_here(app: &AppHandle, url: Url) {
+    if is_web(&url)
+        && let Some(window) = app.get_webview_window(LABEL)
+        && let Err(error) = window.navigate(url)
+    {
+        eprintln!("[painel] navegar: {error}");
+    }
+}
+
 /// Navega a janela existente ou cria uma, invisível: quem a posiciona e mostra é a thread do painel.
 pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Result<(), String> {
     let url = parse_url(raw_url)?;
@@ -32,7 +42,8 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     let main = app
         .get_webview_window("main")
         .ok_or("janela principal ausente")?;
-    let build = || {
+    let handle = app.clone();
+    let build = move || {
         // Possuída pelo painel: fica sempre acima dele e morre com ele.
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
             .owner(&main)?
@@ -42,7 +53,10 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
             .resizable(false)
             .shadow(false)
             .on_navigation(is_web)
-            .on_new_window(|_, _| NewWindowResponse::Deny)
+            .on_new_window(move |url, _| {
+                navigate_here(&handle, url);
+                NewWindowResponse::Deny
+            })
             .build()
     };
     let window = build().map_err(|error| error.to_string())?;

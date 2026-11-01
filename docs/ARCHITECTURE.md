@@ -45,14 +45,14 @@ Oculto → Armando (cursor na borda, aguardando) → Aberto → Fixado
 Assim, abrir, fechar e animar não disputam entre si. Coordenadas são pixels físicos, com consciência de
 DPI por monitor (PMv2).
 
-- **Gatilho:** consulta do cursor a cada 50 ms; a borda é a última coluna de pixels do monitor principal,
-  com pausa de 150 ms. Uma janela fina na borda roubaria cliques de barras de rolagem e botões de
-  janelas maximizadas. Pontos fora do monitor principal são ignorados.
+- **Gatilho:** consulta do cursor a cada 50 ms; a borda é a última coluna de pixels do monitor mais à
+  direita, a única que segura o cursor, com pausa de 150 ms. Uma janela fina na borda roubaria cliques de
+  barras de rolagem e botões de janelas maximizadas. Pontos fora desse monitor são ignorados.
 - **Expansão:** a janela já existe com o tamanho final, estacionada logo após a borda, e desliza com
   `SetWindowPos`, sem redimensionar o WebView. Cada quadro espera o `DwmFlush` e a posição vem do tempo
   real, com alvo de 150 ms.
-- **Monitor vizinho:** a região da janela é recortada na borda do monitor a cada quadro; estacionada,
-  ela fica vazia. Assim o painel não aparece em um monitor à direita.
+- **Monitor vizinho:** a posição estacionada fica fora de todas as telas, porque não há monitor à direita
+  do escolhido. A região da janela ainda é recortada a cada quadro; estacionada, ela fica vazia.
 - **Foco:** a janela usa `WS_EX_NOACTIVATE` e `WS_EX_TOOLWINDOW` e abre sem ativar. O `pointerdown` na UI
   pede a ativação. A cada consulta do cursor, o painel guarda o último app em primeiro plano fora dele;
   ao fechar, o foco volta a esse app, salvo se o usuário já estiver em outro. Se ele não existir mais, o
@@ -61,7 +61,11 @@ DPI por monitor (PMv2).
   painel a posiciona e a move com `DeferWindowPos`, na mesma transação da janela principal. Sem
   `WS_EX_NOACTIVATE`, porque a página não fala com o Rust: o clique ativa a janela pelo Windows.
   Fica fora da capability `main` e o Tauri recusa comandos de origem remota; `__TAURI_INTERNALS__` existe
-  na página, mas `invoke` falha. Só navega por http(s) e popups são negados: `target=_blank` não abre.
+  na página, mas `invoke` falha. Só navega por http(s) e nunca abre outra janela: `target=_blank` e
+  `window.open` navegam na própria janela da página.
+- **Página em foco:** segura o painel aberto, como a edição na UI. Com o cursor fora, Esc devolve o foco
+  ao app anterior e o painel fecha; com o cursor sobre ela, o Esc é da página. Como a página não fala com
+  o Rust, a tecla é lida na consulta do cursor.
 - **Painel oculto:** a janela fica desabilitada. Só `WS_EX_NOACTIVATE` não basta: ao fechar o app em
   primeiro plano, o Windows ativava o painel fora da tela e o teclado ia para uma janela invisível.
 - **Painel recolhido (_planejado_):** o WebView2 reduz o uso de memória enquanto oculto.

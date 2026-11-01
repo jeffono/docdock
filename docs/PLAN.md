@@ -5,9 +5,7 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-M0: deslize medido (152 a 177 ms), falta o usuário aprovar a olho. DPIs diferentes: os dois monitores
-têm 120 DPI, então o caso não pôde ser testado. Página web: janela própria venceu a comparação, falta
-o usuário aprovar antes do registro em `docs/decisions/0003-*.md`.
+Fechamento da M0: revisão de outro fornecedor e CI manual. Com isso, a etapa atual passa a ser a M1.
 
 ## Etapa atual: M0 — Provar o painel
 
@@ -17,11 +15,11 @@ o usuário aprovar antes do registro em `docs/decisions/0003-*.md`.
 - [x] (avançado) Gatilho de borda por consulta ao cursor, sem janela na borda
 - [x] (avançado) Janela sobre as demais, fora da barra de tarefas e do Alt+Tab, sem roubar foco ao abrir
 - [x] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
-- [ ] (avançado) Animação de deslize sem engasgos visíveis
-- [ ] (avançado) Dois monitores com DPIs diferentes
+- [x] (avançado) Animação de deslize sem engasgos visíveis
+- [x] (avançado) Dois monitores com DPIs diferentes
 - [x] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
 - [x] (básico) Medir o uso de memória com o painel aberto e oculto
-- [ ] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
+- [x] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
 
 **Memória (release):** cerca de 160 MB oculto e 168 MB aberto (privada, 7 processos, sem página web).
 
@@ -37,6 +35,7 @@ foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de co
 - [ ] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
 - [ ] (padrão) Listar e abrir notas
 - [ ] (padrão) Renderizar markdown com tabelas e imagens locais
+- [ ] (padrão) Reagir à troca de resolução, DPI e layout de monitores sem reiniciar o app
 - [ ] (padrão) Atalho global, ícone na bandeja, instância única e início com o Windows
 - [ ] (avançado) Primeira definição visual, usando `tokens.css`
 - [ ] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento
@@ -81,6 +80,6 @@ Valores padrão usados até você decidir o contrário.
 | Questão                         | Padrão                                                                            |
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | Lado da tela                    | Direito, configurável na M1                                                       |
-| Monitor                         | Principal; suporte a mais monitores definido na M0                                |
-| Fechar ao tirar o mouse         | Sim, exceto se fixado ou com edição ativa                                         |
+| Monitor                         | O mais à direita, cuja borda segura o cursor                                      |
+| Fechar ao tirar o mouse         | Sim, exceto se fixado, com edição ativa ou com a página em foco                   |
 | Página sobre apps em tela cheia | Funciona em janela e tela cheia sem bordas; jogos em modo exclusivo ficam de fora |

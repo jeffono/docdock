@@ -42,6 +42,16 @@ fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
     }
 }
 
+/// Só a borda direita do monitor mais à direita segura o cursor; em outro monitor, ele atravessaria
+/// para o vizinho. É também o que deixa a posição estacionada fora de qualquer tela. Em empate, como
+/// em monitores empilhados, vale o principal, que tem origem em (0, 0).
+fn edge_monitor(monitors: Vec<Monitor>) -> Option<Monitor> {
+    monitors.into_iter().max_by_key(|monitor| {
+        let primary = monitor.bounds.left == 0 && monitor.bounds.top == 0;
+        (monitor.bounds.right, primary)
+    })
+}
+
 /// Traduz a posição do cursor. Pontos fora do monitor nunca abrem nem seguram o painel.
 fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect) -> CursorZone {
     if !monitor.contains(cursor) {
@@ -157,9 +167,15 @@ impl Dock {
         };
         self.track_focus();
         let zone = cursor_zone(cursor, self.monitor.bounds, self.rect);
+        // Quem digita na página pode tirar o mouse sem perder o painel. A página não fala com o Rust,
+        // então o Esc é lido do teclado; com o cursor sobre ela, ele continua sendo da página.
+        let page_focused = self.web.is_some_and(|web| web.is_foreground());
+        if page_focused && zone == CursorZone::Outside && platform::escape_pressed() {
+            platform::restore_focus(self.previous_focus);
+        }
         let tick = Input::Tick {
             zone,
-            editing: self.editing,
+            editing: self.editing || page_focused,
         };
         let action = self.panel.step(tick, Instant::now());
         self.apply(action);
@@ -254,7 +270,7 @@ impl Dock {
 
 /// Prepara a janela fora da tela e inicia a thread do painel.
 pub fn start(raw_window: isize, requests: Receiver<Request>) {
-    let monitor = platform::primary_monitor().expect("monitor principal indisponível");
+    let monitor = edge_monitor(platform::monitors()).expect("nenhum monitor disponível");
     let rect = panel_rect(&monitor);
     let parked_x = monitor.bounds.right;
     let right = monitor.bounds.right;
@@ -279,6 +295,20 @@ pub fn start(raw_window: isize, requests: Receiver<Request>) {
 mod tests {
     use super::*;
 
+    fn monitor(left: i32, right: i32) -> Monitor {
+        let bounds = Rect {
+            left,
+            top: 0,
+            right,
+            bottom: 2160,
+        };
+        Monitor {
+            bounds,
+            work: bounds,
+            dpi: 120,
+        }
+    }
+
     const PRIMARY: Rect = Rect {
         left: 0,
         top: 0,
@@ -297,7 +327,16 @@ mod tests {
     }
 
     #[test]
-    fn so_o_ultimo_pixel_do_monitor_principal_e_borda() {
+    fn painel_fica_no_monitor_mais_a_direita() {
+        let principal = monitor(0, 3840);
+        let chosen = edge_monitor(vec![principal, monitor(3840, 7680)]).unwrap();
+        assert_eq!(chosen.bounds.right, 7680);
+        let chosen = edge_monitor(vec![monitor(-3840, 0), principal]).unwrap();
+        assert_eq!(chosen.bounds.right, 3840);
+    }
+
+    #[test]
+    fn so_o_ultimo_pixel_do_monitor_e_borda() {
         assert_eq!(zone(3839, 0), CursorZone::Edge);
         assert_eq!(zone(3839, 2159), CursorZone::Edge);
         assert_eq!(zone(3838, 0), CursorZone::Outside);
@@ -305,9 +344,7 @@ mod tests {
 
     #[test]
     fn pontos_em_outros_monitores_sao_ignorados() {
-        // Monitor à esquerda e um eventual vizinho à direita, sob o painel estacionado.
         assert_eq!(zone(-1, 500), CursorZone::Outside);
-        assert_eq!(zone(3840, 500), CursorZone::Outside);
     }
 
     #[test]
