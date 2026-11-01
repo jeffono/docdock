@@ -16,3 +16,11 @@ export function panelSetPinned(pinned: boolean): Promise<void> {
 export function panelSetEditing(editing: boolean): Promise<void> {
   return invoke("panel_set_editing", { editing });
 }
+
+export function webOpen(url: string): Promise<void> {
+  return invoke("web_open", { url });
+}
+
+export function webClose(): Promise<void> {
+  return invoke("web_close");
+}

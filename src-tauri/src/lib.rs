@@ -4,6 +4,7 @@ mod commands;
 mod dock;
 pub mod panel;
 mod platform;
+mod web;
 
 use std::sync::mpsc;
 
@@ -26,6 +27,8 @@ pub fn run() {
             commands::panel_activate,
             commands::panel_set_pinned,
             commands::panel_set_editing,
+            commands::web_open,
+            commands::web_close,
         ])
         .run(tauri::generate_context!())
         .expect("falha ao iniciar o aplicativo");

@@ -3,5 +3,6 @@
 mod windows;
 
 pub use self::windows::{
-    Monitor, PanelWindow, Point, Rect, cursor_pos, primary_monitor, restore_focus, wait_frame,
+    Activation, Monitor, PanelWindow, Point, Rect, cursor_pos, foreground_window, primary_monitor,
+    restore_focus, slide_windows, wait_frame,
 };

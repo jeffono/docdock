@@ -1,7 +1,19 @@
 <script lang="ts">
-import { panelActivate, panelSetEditing, panelSetPinned } from "./lib/ipc";
+import { panelActivate, panelSetEditing, panelSetPinned, webClose, webOpen } from "./lib/ipc";
 
 let pinned = $state(false);
+let url = $state("https://github.com");
+let webError = $state("");
+
+async function openPage(event: SubmitEvent) {
+  event.preventDefault();
+  try {
+    webError = "";
+    await webOpen(url);
+  } catch (error) {
+    webError = String(error);
+  }
+}
 
 function togglePin() {
   pinned = !pinned;
@@ -20,6 +32,20 @@ function leaveField(event: KeyboardEvent) {
 <main>
   <h1>DocDock</h1>
   <button onclick={togglePin}>{pinned ? "Desafixar" : "Fixar"}</button>
+  <form onsubmit={openPage}>
+    <input
+      bind:value={url}
+      aria-label="Endereço da página"
+      onfocus={() => panelSetEditing(true)}
+      onblur={() => panelSetEditing(false)}
+      onkeydown={leaveField}
+    />
+    <button type="submit">Abrir</button>
+    <button type="button" onclick={webClose}>Fechar página</button>
+  </form>
+  {#if webError}
+    <p>{webError}</p>
+  {/if}
   <textarea
     placeholder="Clique para digitar; Esc sai do campo"
     onfocus={() => panelSetEditing(true)}
@@ -41,6 +67,21 @@ function leaveField(event: KeyboardEvent) {
   h1 {
     margin: 0;
     font-size: var(--font-size-lg);
+  }
+
+  form {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  p {
+    margin: 0;
+    font-size: var(--font-size-sm);
   }
 
   textarea {

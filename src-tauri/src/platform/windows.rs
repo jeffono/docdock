@@ -10,10 +10,10 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetShellWindow, GetWindowLongPtrW,
-    HWND_TOPMOST, IsWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
+    GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,7 +87,22 @@ pub fn wait_frame() {
     let _ = unsafe { DwmFlush() };
 }
 
-/// A janela do painel. Guarda o HWND como inteiro porque a thread do painel é dona dela.
+/// Janela em primeiro plano. `None` em transições do sistema.
+pub fn foreground_window() -> Option<isize> {
+    let raw = unsafe { GetForegroundWindow() }.0 as isize;
+    (raw != 0).then_some(raw)
+}
+
+/// Como uma janela do painel recebe o foco.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activation {
+    /// Nunca pelo clique: a UI pede com [`PanelWindow::activate`].
+    OnRequest,
+    /// Pelo clique, como qualquer janela. É o caso da página web, que não fala com o Rust.
+    OnClick,
+}
+
+/// Uma janela do painel. Guarda o HWND como inteiro porque a thread do painel é dona dela.
 #[derive(Debug, Clone, Copy)]
 pub struct PanelWindow {
     raw: isize,
@@ -99,8 +114,14 @@ pub struct PanelWindow {
 }
 
 impl PanelWindow {
-    /// Aplica os estilos e mostra a janela já no tamanho final, fora da tela e sem ativar.
-    pub fn prepare(raw: isize, rect: Rect, clip_right: i32, parked_x: i32) -> Self {
+    /// Aplica os estilos e mostra a janela já no tamanho final, na posição `x` e sem ativar.
+    pub fn prepare(
+        raw: isize,
+        rect: Rect,
+        clip_right: i32,
+        x: i32,
+        activation: Activation,
+    ) -> Self {
         let window = Self {
             raw,
             clip_right,
@@ -109,14 +130,20 @@ impl PanelWindow {
             height: rect.bottom - rect.top,
         };
         let hwnd = window.hwnd();
+        window.set_enabled(false);
+        window.clip(x);
         unsafe {
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            let style = (style | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+            let style = (style | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
+            let style = match activation {
+                Activation::OnRequest => style | WS_EX_NOACTIVATE.0,
+                Activation::OnClick => style,
+            };
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
             let result = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
-                parked_x,
+                x,
                 rect.top,
                 window.width,
                 window.height,
@@ -124,8 +151,6 @@ impl PanelWindow {
             );
             log_failure("SetWindowPos", result);
         }
-        window.set_x(parked_x);
-        window.set_enabled(false);
         window
     }
 
@@ -133,23 +158,24 @@ impl PanelWindow {
         HWND(self.raw as *mut _)
     }
 
-    /// Volta ao topo das janelas sempre visíveis, sem ativar.
+    pub fn exists(&self) -> bool {
+        unsafe { IsWindow(Some(self.hwnd())) }.as_bool()
+    }
+
+    /// Volta ao topo das janelas sempre visíveis, sem ativar. Janelas possuídas sobem junto.
     pub fn raise(&self) {
         let flags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE;
         let result = unsafe { SetWindowPos(self.hwnd(), Some(HWND_TOPMOST), 0, 0, 0, 0, flags) };
         log_failure("SetWindowPos", result);
     }
 
-    /// Move a janela e recorta o que passar da borda, para nunca aparecer em um monitor vizinho.
-    pub fn set_x(&self, x: i32) {
+    /// Recorta o que passar da borda, para nunca aparecer em um monitor vizinho.
+    fn clip(&self, x: i32) {
         let visible = (self.clip_right - x).clamp(0, self.width);
-        let flags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER;
         unsafe {
             let region = CreateRectRgn(0, 0, visible, self.height);
             // O sistema passa a ser dono da região.
             SetWindowRgn(self.hwnd(), Some(region), false);
-            let result = SetWindowPos(self.hwnd(), None, x, self.top, 0, 0, flags);
-            log_failure("SetWindowPos", result);
         }
     }
 
@@ -164,20 +190,28 @@ impl PanelWindow {
         unsafe { GetForegroundWindow() }.0 as isize == self.raw
     }
 
-    /// Ativa o painel e devolve quem tinha o foco, para restaurar depois.
-    pub fn activate(&self) -> Option<isize> {
-        let previous = unsafe { GetForegroundWindow() }.0 as isize;
-        if previous == self.raw {
-            return None;
-        }
+    pub fn activate(&self) {
         let activated = unsafe { SetForegroundWindow(self.hwnd()) }.as_bool();
-        eprintln!("[painel] ativar: anterior={previous:#x} ok={activated}");
-        Some(previous)
+        eprintln!("[painel] ativar: ok={activated}");
     }
 }
 
-/// Devolve o foco à janela guardada por [`PanelWindow::activate`] ou, se ela não existe mais, à
-/// área de trabalho, para o teclado não ficar em um painel oculto.
+/// Move as janelas para `x` em uma só transação, para a página não descolar do painel.
+pub fn slide_windows(windows: &[PanelWindow], x: i32) {
+    let flags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER;
+    let moved = || unsafe {
+        let mut batch = BeginDeferWindowPos(windows.len() as i32)?;
+        for window in windows {
+            window.clip(x);
+            batch = DeferWindowPos(batch, window.hwnd(), None, x, window.top, 0, 0, flags)?;
+        }
+        EndDeferWindowPos(batch)
+    };
+    log_failure("DeferWindowPos", moved());
+}
+
+/// Devolve o foco à janela guardada ou, se ela não existe mais, à área de trabalho, para o teclado
+/// não ficar em um painel oculto.
 pub fn restore_focus(previous: Option<isize>) {
     unsafe {
         let hwnd = previous

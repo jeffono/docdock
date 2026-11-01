@@ -6,7 +6,8 @@ cada etapa quando ela for a próxima.
 ## Em andamento
 
 M0: deslize medido (152 a 177 ms), falta o usuário aprovar a olho. DPIs diferentes: os dois monitores
-têm 120 DPI, então o caso não pôde ser testado.
+têm 120 DPI, então o caso não pôde ser testado. Página web: janela própria venceu a comparação, falta
+o usuário aprovar antes do registro em `docs/decisions/0003-*.md`.
 
 ## Etapa atual: M0 — Provar o painel
 
@@ -18,7 +19,7 @@ têm 120 DPI, então o caso não pôde ser testado.
 - [x] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
 - [ ] (avançado) Animação de deslize sem engasgos visíveis
 - [ ] (avançado) Dois monitores com DPIs diferentes
-- [ ] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
+- [x] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
 - [ ] (básico) Medir o uso de memória com o painel aberto e oculto
 - [ ] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
 
@@ -26,7 +27,7 @@ têm 120 DPI, então o caso não pôde ser testado.
 foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de construir o resto.
 
 **Fato verificado:** no Tauri 2.12.5, vários WebViews na mesma janela seguem atrás da feature
-`unstable`. Por isso, a primeira opção a testar é uma janela própria sobre o painel.
+`unstable`. A janela própria sobre o painel dispensa essa feature.
 
 ## M1 — Consultar referências
 

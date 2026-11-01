@@ -4,14 +4,16 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use crate::panel::{Action, CursorZone, Delays, Input, Panel};
-use crate::platform::{self, Monitor, PanelWindow, Point, Rect};
+use crate::panel::{Action, CursorZone, Delays, Input, Panel, State};
+use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 
 const POLL: Duration = Duration::from_millis(50);
 const SLIDE: Duration = Duration::from_millis(150);
 /// Largura em pixels lógicos; no monitor vira `largura * dpi / 96`.
 const PANEL_WIDTH: u32 = 420;
 const BASE_DPI: u32 = 96;
+/// Altura da barra acima da página, em pixels lógicos.
+const WEB_TOP: u32 = 150;
 
 /// Pedidos da UI para a thread do painel.
 #[derive(Debug, Clone, Copy)]
@@ -19,6 +21,8 @@ pub enum Request {
     Activate,
     SetPinned(bool),
     SetEditing(bool),
+    /// A janela da página web foi criada, ainda invisível.
+    AttachWeb(isize),
 }
 
 /// Retângulo do painel aberto, colado à direita da área de trabalho.
@@ -27,6 +31,14 @@ fn panel_rect(monitor: &Monitor) -> Rect {
     Rect {
         left: monitor.work.right - width,
         ..monitor.work
+    }
+}
+
+/// Retângulo da página web: o painel, menos a barra do topo.
+fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
+    Rect {
+        top: panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32,
+        ..panel
     }
 }
 
@@ -94,13 +106,15 @@ impl Slide {
 
 struct Dock {
     window: PanelWindow,
+    /// Janela da página web, enquanto houver uma.
+    web: Option<PanelWindow>,
     monitor: Monitor,
     rect: Rect,
     parked_x: i32,
     x: i32,
     panel: Panel,
     editing: bool,
-    /// Quem tinha o foco quando o painel foi ativado.
+    /// Último app em primeiro plano fora do painel, para devolver o foco ao fechar.
     previous_focus: Option<isize>,
     slide: Option<Slide>,
 }
@@ -110,14 +124,25 @@ impl Dock {
         let now = Instant::now();
         let action = match request {
             Request::Activate => {
-                if let Some(previous) = self.window.activate() {
-                    self.previous_focus = Some(previous);
+                if !self.window.is_foreground() {
+                    self.window.activate();
                 }
                 Action::None
             }
             Request::SetEditing(editing) => {
                 eprintln!("[painel] editing={editing}");
                 self.editing = editing;
+                Action::None
+            }
+            Request::AttachWeb(raw) => {
+                let rect = web_rect(&self.monitor, self.rect);
+                let right = self.monitor.bounds.right;
+                let web = PanelWindow::prepare(raw, rect, right, self.x, Activation::OnClick);
+                web.set_enabled(matches!(
+                    self.panel.state,
+                    State::Open { .. } | State::Pinned
+                ));
+                self.web = Some(web);
                 Action::None
             }
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
@@ -130,6 +155,7 @@ impl Dock {
         let Some(cursor) = platform::cursor_pos() else {
             return;
         };
+        self.track_focus();
         let zone = cursor_zone(cursor, self.monitor.bounds, self.rect);
         let tick = Input::Tick {
             zone,
@@ -139,21 +165,44 @@ impl Dock {
         self.apply(action);
     }
 
+    /// As janelas do painel. A da página some sozinha se for destruída, como por Alt+F4.
+    fn windows(&mut self) -> Vec<PanelWindow> {
+        self.web = self.web.filter(PanelWindow::exists);
+        std::iter::once(self.window).chain(self.web).collect()
+    }
+
+    fn is_foreground(&mut self) -> bool {
+        self.windows().iter().any(PanelWindow::is_foreground)
+    }
+
+    /// A página recebe o foco direto do Windows, sem passar pela UI: por isso o painel observa quem
+    /// está em primeiro plano, em vez de guardar a janela anterior só ao pedir a ativação.
+    fn track_focus(&mut self) {
+        if !self.is_foreground() {
+            self.previous_focus = platform::foreground_window().or(self.previous_focus);
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        for window in self.windows() {
+            window.set_enabled(enabled);
+        }
+    }
+
     fn apply(&mut self, action: Action) {
         match action {
             Action::None => {}
             Action::Show => {
-                self.window.set_enabled(true);
+                self.set_enabled(true);
                 self.window.raise();
                 self.slide = Some(Slide::new(self.x, self.rect.left));
             }
             Action::Hide => {
                 // Se o usuário já clicou em outro app, o foco é dele e não se toca nele.
-                let previous = self.previous_focus.take();
-                if self.window.is_foreground() {
-                    platform::restore_focus(previous);
+                if self.is_foreground() {
+                    platform::restore_focus(self.previous_focus);
                 }
-                self.window.set_enabled(false);
+                self.set_enabled(false);
                 self.slide = Some(Slide::new(self.x, self.parked_x));
             }
         }
@@ -161,11 +210,12 @@ impl Dock {
 
     /// Desenha um quadro, se houver deslize em curso.
     fn animate(&mut self) {
+        let windows = self.windows();
         let Some(slide) = &mut self.slide else {
             return;
         };
         let (x, done) = slide.advance(Instant::now());
-        self.window.set_x(x);
+        platform::slide_windows(&windows, x);
         self.x = x;
         if done {
             let label = if x == self.parked_x {
@@ -207,10 +257,12 @@ pub fn start(raw_window: isize, requests: Receiver<Request>) {
     let monitor = platform::primary_monitor().expect("monitor principal indisponível");
     let rect = panel_rect(&monitor);
     let parked_x = monitor.bounds.right;
-    let window = PanelWindow::prepare(raw_window, rect, monitor.bounds.right, parked_x);
+    let right = monitor.bounds.right;
+    let window = PanelWindow::prepare(raw_window, rect, right, parked_x, Activation::OnRequest);
     eprintln!("[painel] monitor {monitor:?}, painel {rect:?}");
     let dock = Dock {
         window,
+        web: None,
         monitor,
         rect,
         parked_x,

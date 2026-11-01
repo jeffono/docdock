@@ -2,9 +2,10 @@
 
 use std::sync::mpsc::Sender;
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::dock::Request;
+use crate::web;
 
 #[tauri::command]
 pub fn app_version() -> &'static str {
@@ -29,4 +30,19 @@ pub fn panel_set_pinned(requests: State<'_, Sender<Request>>, pinned: bool) {
 #[tauri::command]
 pub fn panel_set_editing(requests: State<'_, Sender<Request>>, editing: bool) {
     send(requests, Request::SetEditing(editing));
+}
+
+/// Assíncrono porque criar uma janela em comando síncrono trava no Windows.
+#[tauri::command]
+pub async fn web_open(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    url: String,
+) -> Result<(), String> {
+    web::open(&app, &requests, &url)
+}
+
+#[tauri::command]
+pub fn web_close(app: AppHandle) -> Result<(), String> {
+    web::close(&app)
 }

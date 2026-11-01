@@ -14,7 +14,8 @@ src/                     UI (Svelte 5 + Vite)
 src-tauri/src/           Backend (Rust)
   lib.rs                 Só monta o app e registra módulos
   panel.rs               Máquina de estados pura do painel
-  dock.rs                Thread que liga cursor, máquina de estados e janela
+  dock.rs                Thread que liga cursor, máquina de estados e janelas
+  web.rs                 Janela da página web, com conteúdo não confiável
   commands/              Comandos Tauri: camada fina que delega
   platform/              Código específico de sistema operacional
 ```
@@ -53,8 +54,14 @@ DPI por monitor (PMv2).
 - **Monitor vizinho:** a região da janela é recortada na borda do monitor a cada quadro; estacionada,
   ela fica vazia. Assim o painel não aparece em um monitor à direita.
 - **Foco:** a janela usa `WS_EX_NOACTIVATE` e `WS_EX_TOOLWINDOW` e abre sem ativar. O `pointerdown` na UI
-  pede a ativação, que guarda a janela anterior; ao fechar, o foco volta a ela, salvo se o usuário já
-  estiver em outro app. Se ela não existir mais, o foco vai para a área de trabalho.
+  pede a ativação. A cada consulta do cursor, o painel guarda o último app em primeiro plano fora dele;
+  ao fechar, o foco volta a esse app, salvo se o usuário já estiver em outro. Se ele não existir mais, o
+  foco vai para a área de trabalho.
+- **Página web:** janela própria (`web.rs`), possuída pelo painel, abaixo da barra do topo. A thread do
+  painel a posiciona e a move com `DeferWindowPos`, na mesma transação da janela principal. Sem
+  `WS_EX_NOACTIVATE`, porque a página não fala com o Rust: o clique ativa a janela pelo Windows.
+  Fica fora da capability `main` e o Tauri recusa comandos de origem remota; `__TAURI_INTERNALS__` existe
+  na página, mas `invoke` falha. Só navega por http(s) e popups são negados: `target=_blank` não abre.
 - **Painel oculto:** a janela fica desabilitada. Só `WS_EX_NOACTIVATE` não basta: ao fechar o app em
   primeiro plano, o Windows ativava o painel fora da tela e o teclado ia para uma janela invisível.
 - **Painel recolhido (_planejado_):** o WebView2 reduz o uso de memória enquanto oculto.
