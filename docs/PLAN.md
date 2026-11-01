@@ -5,16 +5,17 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-Nada.
+M0: deslize medido (152 a 177 ms), falta o usuário aprovar a olho. DPIs diferentes: os dois monitores
+têm 120 DPI, então o caso não pôde ser testado.
 
 ## Etapa atual: M0 — Provar o painel
 
 **Objetivo:** responder, com um protótipo descartável, se o Tauri entrega a experiência de painel.
 
 - [x] (padrão) Máquina de estados pura do painel, com testes
-- [ ] (avançado) Gatilho de borda por consulta ao cursor, sem janela na borda
-- [ ] (avançado) Janela sobre as demais, fora da barra de tarefas e do Alt+Tab, sem roubar foco ao abrir
-- [ ] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
+- [x] (avançado) Gatilho de borda por consulta ao cursor, sem janela na borda
+- [x] (avançado) Janela sobre as demais, fora da barra de tarefas e do Alt+Tab, sem roubar foco ao abrir
+- [x] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
 - [ ] (avançado) Animação de deslize sem engasgos visíveis
 - [ ] (avançado) Dois monitores com DPIs diferentes
 - [ ] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`

@@ -143,16 +143,17 @@ impl Dock {
         match action {
             Action::None => {}
             Action::Show => {
+                self.window.set_enabled(true);
                 self.window.raise();
                 self.slide = Some(Slide::new(self.x, self.rect.left));
             }
             Action::Hide => {
                 // Se o usuário já clicou em outro app, o foco é dele e não se toca nele.
-                if let Some(previous) = self.previous_focus.take()
-                    && self.window.is_foreground()
-                {
+                let previous = self.previous_focus.take();
+                if self.window.is_foreground() {
                     platform::restore_focus(previous);
                 }
+                self.window.set_enabled(false);
                 self.slide = Some(Slide::new(self.x, self.parked_x));
             }
         }

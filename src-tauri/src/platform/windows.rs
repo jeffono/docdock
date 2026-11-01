@@ -8,11 +8,12 @@ use windows::Win32::Graphics::Gdi::{
     SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW,
+    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetShellWindow, GetWindowLongPtrW,
+    HWND_TOPMOST, IsWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
+    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +125,7 @@ impl PanelWindow {
             log_failure("SetWindowPos", result);
         }
         window.set_x(parked_x);
+        window.set_enabled(false);
         window
     }
 
@@ -151,6 +153,13 @@ impl PanelWindow {
         }
     }
 
+    /// Janela desabilitada não recebe ativação. Sem isso, o painel fora da tela herda o foco quando
+    /// o app em primeiro plano fecha, porque o Windows escolhe a próxima da ordem Z, mesmo com
+    /// `WS_EX_NOACTIVATE`, e o teclado iria para uma janela invisível.
+    pub fn set_enabled(&self, enabled: bool) {
+        let _ = unsafe { EnableWindow(self.hwnd(), enabled) };
+    }
+
     pub fn is_foreground(&self) -> bool {
         unsafe { GetForegroundWindow() }.0 as isize == self.raw
     }
@@ -167,14 +176,19 @@ impl PanelWindow {
     }
 }
 
-/// Devolve o foco a uma janela guardada por [`PanelWindow::activate`].
-pub fn restore_focus(previous: isize) {
-    let hwnd = HWND(previous as *mut _);
+/// Devolve o foco à janela guardada por [`PanelWindow::activate`] ou, se ela não existe mais, à
+/// área de trabalho, para o teclado não ficar em um painel oculto.
+pub fn restore_focus(previous: Option<isize>) {
     unsafe {
-        if IsWindow(Some(hwnd)).as_bool() {
-            let restored = SetForegroundWindow(hwnd).as_bool();
-            eprintln!("[painel] restaurar: janela={previous:#x} ok={restored}");
-        }
+        let hwnd = previous
+            .map(|raw| HWND(raw as *mut _))
+            .filter(|&hwnd| IsWindow(Some(hwnd)).as_bool())
+            .unwrap_or_else(|| GetShellWindow());
+        let restored = SetForegroundWindow(hwnd).as_bool();
+        eprintln!(
+            "[painel] restaurar: janela={:#x} ok={restored}",
+            hwnd.0 as isize
+        );
     }
 }
 
