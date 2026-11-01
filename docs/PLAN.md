@@ -20,8 +20,10 @@ o usuário aprovar antes do registro em `docs/decisions/0003-*.md`.
 - [ ] (avançado) Animação de deslize sem engasgos visíveis
 - [ ] (avançado) Dois monitores com DPIs diferentes
 - [x] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
-- [ ] (básico) Medir o uso de memória com o painel aberto e oculto
+- [x] (básico) Medir o uso de memória com o painel aberto e oculto
 - [ ] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
+
+**Memória (release):** oculto 160 MB, aberto 167 MB (privada, 7 processos; média de 3 amostras; abertura não confirmada por janela).
 
 **Pronto quando:** você usar o protótipo com seus apps normais e aprovar a sensação do painel. Se
 foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de construir o resto.
