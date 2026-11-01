@@ -60,8 +60,8 @@ DPI por monitor (PMv2).
 - **Página web:** janela própria (`web.rs`), possuída pelo painel, abaixo da barra do topo. A thread do
   painel a posiciona e a move com `DeferWindowPos`, na mesma transação da janela principal. Sem
   `WS_EX_NOACTIVATE`, porque a página não fala com o Rust: o clique ativa a janela pelo Windows.
-  Fica fora da capability `main` e o Tauri recusa comandos de origem remota; `__TAURI_INTERNALS__` existe
-  na página, mas `invoke` falha. Só navega por http(s) e nunca abre outra janela: `target=_blank` e
+  Fica fora da capability `main`, o Tauri recusa comandos de origem remota e `lib.rs` só aceita comandos da
+  janela `main`; `__TAURI_INTERNALS__` existe na página, mas `invoke` falha. Só navega por http(s), fora das origens `*.localhost` do Tauri, e nunca abre outra janela: `target=_blank` e
   `window.open` navegam na própria janela da página.
 - **Página em foco:** segura o painel aberto, como a edição na UI. Com o cursor fora, Esc devolve o foco
   ao app anterior e o painel fecha; com o cursor sobre ela, o Esc é da página. Como a página não fala com

@@ -15,10 +15,10 @@ sites o bloqueiam.
 **Consequências:**
 
 - O `invoke` de origem remota é recusado pelo ACL do Tauri, mas `__TAURI_INTERNALS__` existe na página.
-  Nunca conceda capability `remote` a essa janela.
+  Nunca conceda capability `remote` a essa janela. Comandos próprios dispensam capability em origem
+  local, por isso `lib.rs` só os aceita da janela `main` e a página não navega para origens do app.
 - A página compartilha o perfil WebView2 da UI; só o processo de renderização é separado.
-- `add_child` exigiria tirar `WS_EX_NOACTIVATE` da janela principal, por isso foi
-  descartado.
+- `add_child` exigiria tirar `WS_EX_NOACTIVATE` da janela principal, por isso foi descartado.
 - A página não fala com o Rust: foco e Esc são observados pela thread do painel.
 - Sem página web, o app usa cerca de 160 MB de memória privada oculto; a página soma o que o site exigir
   (github.com passou de 450 MB em desenvolvimento).

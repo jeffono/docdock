@@ -170,12 +170,15 @@ impl Dock {
         // Quem digita na página pode tirar o mouse sem perder o painel. A página não fala com o Rust,
         // então o Esc é lido do teclado; com o cursor sobre ela, ele continua sendo da página.
         let page_focused = self.web.is_some_and(|web| web.is_foreground());
-        if page_focused && zone == CursorZone::Outside && platform::escape_pressed() {
+        let escape = platform::escape_pressed();
+        if page_focused && zone == CursorZone::Outside && escape {
             platform::restore_focus(self.previous_focus);
         }
+        // O campo pode seguir focado no documento depois de o usuário trocar de app.
+        let editing = self.editing && self.window.is_foreground();
         let tick = Input::Tick {
             zone,
-            editing: self.editing || page_focused,
+            editing: editing || page_focused,
         };
         let action = self.panel.step(tick, Instant::now());
         self.apply(action);

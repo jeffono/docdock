@@ -5,7 +5,7 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-Fechamento da M0: revisão de outro fornecedor e CI manual. Com isso, a etapa atual passa a ser a M1.
+Fechamento da M0: falta o usuário repetir o teste com um monitor à direita e fazer o merge.
 
 ## Etapa atual: M0 — Provar o painel
 
@@ -58,6 +58,7 @@ foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de co
 ## M4 — Páginas web
 
 - [ ] (padrão) Salvar páginas como referências, usando a solução escolhida na M0
+- [ ] (avançado) Testar se iframes da página disparam esquemas externos sem passar por `on_navigation`
 
 ## M5 — Distribuir
 

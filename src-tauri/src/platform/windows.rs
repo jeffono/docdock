@@ -4,7 +4,8 @@
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
-    CreateRectRgn, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, SetWindowRgn,
+    CreateRectRgn, DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+    SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetAsyncKeyState, VK_ESCAPE};
@@ -63,10 +64,10 @@ pub fn cursor_pos() -> Option<Point> {
     Some(Point { x: p.x, y: p.y })
 }
 
-/// Só o bit de "pressionada agora": o bit de "pressionada desde a última leitura" pegaria um Esc
-/// antigo, dado quando ninguém estava consultando.
+/// Se o Esc está pressionado ou foi tocado desde a última leitura. Leia a cada consulta do cursor:
+/// assim um toque curto não escapa entre duas leituras e o bit de "desde a última" nunca fica velho.
 pub fn escape_pressed() -> bool {
-    unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) as u16 & 0x8000 != 0 }
+    unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) as u16 & 0x8001 != 0 }
 }
 
 unsafe extern "system" fn collect_monitor(
@@ -196,8 +197,10 @@ impl PanelWindow {
         let visible = (self.clip_right - x).clamp(0, self.width);
         unsafe {
             let region = CreateRectRgn(0, 0, visible, self.height);
-            // O sistema passa a ser dono da região.
-            SetWindowRgn(self.hwnd(), Some(region), false);
+            // O sistema só vira dono da região se a chamada der certo.
+            if SetWindowRgn(self.hwnd(), Some(region), false) == 0 {
+                let _ = DeleteObject(region.into());
+            }
         }
     }
 

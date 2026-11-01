@@ -10,8 +10,12 @@ use crate::dock::Request;
 
 const LABEL: &str = "web";
 
+/// Só http(s), fora das origens internas do Tauri, como `tauri.localhost` e `ipc.localhost`.
 fn is_web(url: &Url) -> bool {
-    matches!(url.scheme(), "http" | "https")
+    let internal = url
+        .host_str()
+        .is_some_and(|host| host.ends_with(".localhost"));
+    matches!(url.scheme(), "http" | "https") && !internal
 }
 
 fn parse_url(raw: &str) -> Result<Url, String> {
@@ -19,7 +23,7 @@ fn parse_url(raw: &str) -> Result<Url, String> {
     if is_web(&url) {
         Ok(url)
     } else {
-        Err(format!("Só páginas http(s): {}", url.scheme()))
+        Err(format!("Endereço não permitido: {url}"))
     }
 }
 
@@ -83,5 +87,7 @@ mod tests {
         assert!(parse_url("file:///C:/Windows/win.ini").is_err());
         assert!(parse_url("javascript:alert(1)").is_err());
         assert!(parse_url("github.com").is_err());
+        assert!(parse_url("http://tauri.localhost/").is_err());
+        assert!(parse_url("https://ipc.localhost/").is_err());
     }
 }
