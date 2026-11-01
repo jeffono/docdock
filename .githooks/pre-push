@@ -1,0 +1,4 @@
+#!/bin/sh
+PATH="$HOME/.cargo/bin:$PATH"
+export PATH
+exec pnpm --silent check

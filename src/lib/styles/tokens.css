@@ -1,0 +1,22 @@
+/* Decisões visuais do app. Componentes usam estas variáveis, nunca valores fixos. */
+:root {
+  color-scheme: light dark;
+
+  --color-bg: light-dark(#fafafa, #1c1c1e);
+  --color-fg: light-dark(#1c1c1e, #f2f2f7);
+  --color-muted: light-dark(#6e6e73, #98989d);
+
+  --space-2: 0.5rem;
+  --space-4: 1rem;
+
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-size-sm: 0.8125rem;
+  --font-size-lg: 1.25rem;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}
