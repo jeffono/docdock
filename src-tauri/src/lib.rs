@@ -2,8 +2,13 @@
 
 mod commands;
 mod dock;
+mod main_window;
+mod markdown;
+mod notes;
 pub mod panel;
 mod platform;
+mod shortcut;
+mod tray;
 mod web;
 
 use std::sync::mpsc;
@@ -19,13 +24,32 @@ pub fn run() {
         commands::panel_set_editing,
         commands::web_open,
         commands::web_close,
+        commands::notes_folder,
+        commands::notes_choose,
+        commands::notes_list,
+        commands::notes_open,
+        commands::open_external,
     ];
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_dialog::init())
+        // O padrão injeta em toda janela um script que desvia `target=_blank`: na janela da página,
+        // sem capability, ele cancelaria o link e falharia.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
+        .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
-            let window = app
-                .get_webview_window("main")
-                .expect("janela principal ausente");
+            let window = main_window::create(app)?;
+            tray::setup(app)?;
             let (requests, receiver) = mpsc::channel();
+            shortcut::setup(app, requests.clone());
             app.manage(requests);
             dock::start(window.hwnd()?.0 as isize, receiver);
             Ok(())

@@ -1,22 +1,64 @@
-/* Decisões visuais do app. Componentes usam estas variáveis, nunca valores fixos. */
+/* Decisões visuais do app, explicadas em docs/DESIGN.md. Componentes usam estas variáveis, nunca
+   valores fixos. O tema segue o Windows pelo `light-dark`. */
 :root {
   color-scheme: light dark;
 
-  --color-bg: light-dark(#fafafa, #1c1c1e);
-  --color-fg: light-dark(#1c1c1e, #f2f2f7);
-  --color-muted: light-dark(#6e6e73, #98989d);
+  --color-bg: light-dark(#f7f8fa, #17191d);
+  --color-surface: light-dark(#ffffff, #1f2228);
+  --color-fg: light-dark(#1b1e23, #e8eaed);
+  --color-muted: light-dark(#5d6470, #9aa1ac);
+  --color-line: light-dark(#dfe2e7, #2c3038);
+  --color-accent: light-dark(#1f63d6, #6aa5ff);
+  --color-accent-fg: light-dark(#ffffff, #10151d);
+  --color-selected: light-dark(#e3edfd, #1f2d44);
+  --color-danger: light-dark(#b3261e, #f2857d);
 
+  --space-1: 0.25rem;
   --space-2: 0.5rem;
+  --space-3: 0.75rem;
   --space-4: 1rem;
 
+  --radius-sm: 5px;
+
+  /* Duas barras somam `WEB_TOP` em `src-tauri/src/dock.rs`, onde a página web começa. */
+  --size-bar: 2.75rem;
+  --size-control: 1.75rem;
+  --size-icon: 1rem;
+
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-size-sm: 0.8125rem;
-  --font-size-lg: 1.25rem;
+  --font-mono: "Cascadia Mono", Consolas, monospace;
+  --font-size-sm: 0.75rem;
+  --font-size-md: 0.8125rem;
+  --font-size-lg: 0.875rem;
+  --font-size-xl: 1.125rem;
+  --line-height: 1.5;
+  --line-height-tight: 1.25;
+  --tracking-tight: -0.01em;
+
+  --duration: 120ms;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
   background: var(--color-bg);
   color: var(--color-fg);
   font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+* {
+  scrollbar-color: var(--color-line) transparent;
+  scrollbar-width: thin;
 }

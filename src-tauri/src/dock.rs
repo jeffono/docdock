@@ -4,7 +4,7 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use crate::panel::{Action, CursorZone, Delays, Input, Panel, State};
+use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
 use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 
 const POLL: Duration = Duration::from_millis(50);
@@ -12,8 +12,8 @@ const SLIDE: Duration = Duration::from_millis(150);
 /// Largura em pixels lógicos; no monitor vira `largura * dpi / 96`.
 const PANEL_WIDTH: u32 = 420;
 const BASE_DPI: u32 = 96;
-/// Altura da barra acima da página, em pixels lógicos.
-const WEB_TOP: u32 = 150;
+/// Duas barras acima da página, em pixels lógicos: o dobro de `--size-bar` em `tokens.css`.
+const WEB_TOP: u32 = 88;
 
 /// Pedidos da UI para a thread do painel.
 #[derive(Debug, Clone, Copy)]
@@ -21,8 +21,11 @@ pub enum Request {
     Activate,
     SetPinned(bool),
     SetEditing(bool),
+    SetDialog(bool),
     /// A janela da página web foi criada, ainda invisível.
     AttachWeb(isize),
+    /// Atalho global.
+    Shortcut,
 }
 
 /// Retângulo do painel aberto, colado à direita da área de trabalho.
@@ -130,14 +133,20 @@ struct Dock {
     x: i32,
     panel: Panel,
     editing: bool,
+    dialog: bool,
     /// Último app em primeiro plano fora do painel, para devolver o foco ao fechar.
     previous_focus: Option<isize>,
+    /// Este toque de Esc já foi visto ou já teve dono.
+    escape_spent: bool,
     slide: Option<Slide>,
 }
 
 impl Dock {
     fn is_open(&self) -> bool {
-        matches!(self.panel.state, State::Open { .. } | State::Pinned)
+        matches!(
+            self.panel.state,
+            State::Open { .. } | State::Summoned { .. } | State::Pinned
+        )
     }
 
     /// Leva as janelas ao novo monitor, sem animar. O deslize em curso se aplicava ao monitor antigo.
@@ -170,6 +179,12 @@ impl Dock {
             Request::SetEditing(editing) => {
                 eprintln!("[painel] editing={editing}");
                 self.editing = editing;
+                self.spend_escape();
+                Action::None
+            }
+            Request::SetDialog(dialog) => {
+                self.dialog = dialog;
+                self.spend_escape();
                 Action::None
             }
             Request::AttachWeb(raw) => {
@@ -182,6 +197,10 @@ impl Dock {
             }
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
             Request::SetPinned(false) => self.panel.step(Input::Unpin, now),
+            Request::Shortcut => {
+                let dialog = self.dialog;
+                self.panel.step(Input::Shortcut { dialog }, now)
+            }
         };
         self.apply(action);
     }
@@ -196,20 +215,51 @@ impl Dock {
         self.track_focus();
         let zone = cursor_zone(cursor, self.monitor.bounds, self.rect);
         // Quem digita na página pode tirar o mouse sem perder o painel. A página não fala com o Rust,
-        // então o Esc é lido do teclado; com o cursor sobre ela, ele continua sendo da página.
-        let page_focused = self.web.is_some_and(|web| web.is_foreground());
-        let escape = platform::escape_pressed();
+        // então o Esc é lido do teclado; com o cursor sobre ela, ele continua sendo da página. Com o
+        // foco devolvido, o painel fecha como em qualquer perda de foco.
+        let focus = self.focus();
+        let page_focused = focus == Focus::Page;
+        let escape = self.escape_tap();
         if page_focused && zone == CursorZone::Outside && escape {
             platform::restore_focus(self.previous_focus);
         }
         // O campo pode seguir focado no documento depois de o usuário trocar de app.
-        let editing = self.editing && self.window.is_foreground();
+        let editing = self.editing && focus == Focus::Panel;
         let tick = Input::Tick {
             zone,
-            editing: editing || page_focused,
+            editing: editing || page_focused || self.dialog,
+            focus,
+            escape,
         };
         let action = self.panel.step(tick, Instant::now());
         self.apply(action);
+    }
+
+    fn focus(&self) -> Focus {
+        if self.window.is_foreground() {
+            Focus::Panel
+        } else if self.web.is_some_and(|web| web.is_foreground()) {
+            Focus::Page
+        } else if platform::foreground_window().is_some() {
+            Focus::Elsewhere
+        } else {
+            Focus::Unknown
+        }
+    }
+
+    /// Um toque novo de Esc. Ler a tecla a cada consulta garante que nenhum toque se perca, e cada
+    /// um conta uma vez, mesmo com a tecla presa.
+    fn escape_tap(&mut self) -> bool {
+        let pressed = platform::escape_pressed();
+        let tap = pressed && !self.escape_spent;
+        self.escape_spent = pressed;
+        tap
+    }
+
+    /// O Esc que saiu de um campo ou fechou o seletor chega aqui antes da consulta. Ele já teve dono:
+    /// contá-lo fecharia o painel junto, com um toque só.
+    fn spend_escape(&mut self) {
+        self.escape_spent = platform::escape_pressed();
     }
 
     /// As janelas do painel. A da página some sozinha se for destruída, como por Alt+F4.
@@ -225,7 +275,8 @@ impl Dock {
     /// A página recebe o foco direto do Windows, sem passar pela UI: por isso o painel observa quem
     /// está em primeiro plano, em vez de guardar a janela anterior só ao pedir a ativação.
     fn track_focus(&mut self) {
-        if !self.is_foreground() {
+        // O seletor nativo é do painel e some ao fechar: não é para ele que o foco volta.
+        if !self.dialog && !self.is_foreground() {
             self.previous_focus = platform::foreground_window().or(self.previous_focus);
         }
     }
@@ -236,13 +287,25 @@ impl Dock {
         }
     }
 
+    fn show(&mut self) {
+        self.set_enabled(true);
+        self.window.raise();
+        self.slide = Some(Slide::new(self.x, self.rect.left));
+    }
+
     fn apply(&mut self, action: Action) {
         match action {
             Action::None => {}
-            Action::Show => {
-                self.set_enabled(true);
-                self.window.raise();
-                self.slide = Some(Slide::new(self.x, self.rect.left));
+            Action::Show => self.show(),
+            Action::Summon => {
+                // A consulta pode estar até 50 ms atrás, e depois da ativação seria tarde.
+                self.track_focus();
+                // Ativar exige a janela habilitada. Confirmar aqui separa a falha do foco perdido logo
+                // depois, antes da próxima consulta.
+                self.show();
+                if self.window.activate() {
+                    self.panel.step(Input::Activated, Instant::now());
+                }
             }
             Action::Hide => {
                 // Se o usuário já clicou em outro app, o foco é dele e não se toca nele.
@@ -316,7 +379,9 @@ pub fn start(raw_window: isize, requests: Receiver<Request>) {
         x: parked_x,
         panel: Panel::new(Delays::default()),
         editing: false,
+        dialog: false,
         previous_focus: None,
+        escape_spent: false,
         slide: None,
     };
     std::thread::spawn(move || dock.run(requests));

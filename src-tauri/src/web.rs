@@ -10,12 +10,18 @@ use crate::dock::Request;
 
 const LABEL: &str = "web";
 
-/// Só http(s), fora das origens internas do Tauri, como `tauri.localhost` e `ipc.localhost`.
+/// O WebView2 entrega ao protocolo interno qualquer `http://tauri.*`, `ipc.*` ou `note-asset.*`, com
+/// ou sem `.localhost`.
+fn is_internal(url: &Url) -> bool {
+    let host = url.host_str().unwrap_or_default().trim_end_matches('.');
+    let label = host.split('.').next().unwrap_or_default();
+    host.ends_with(".localhost")
+        || (url.scheme() == "http" && matches!(label, "tauri" | "ipc" | "note-asset"))
+}
+
+/// Só http(s), fora das origens internas do Tauri.
 fn is_web(url: &Url) -> bool {
-    let internal = url
-        .host_str()
-        .is_some_and(|host| host.ends_with(".localhost"));
-    matches!(url.scheme(), "http" | "https") && !internal
+    matches!(url.scheme(), "http" | "https") && !is_internal(url)
 }
 
 fn parse_url(raw: &str) -> Result<Url, String> {
@@ -89,5 +95,9 @@ mod tests {
         assert!(parse_url("github.com").is_err());
         assert!(parse_url("http://tauri.localhost/").is_err());
         assert!(parse_url("https://ipc.localhost/").is_err());
+        assert!(parse_url("http://tauri.localhost./").is_err());
+        assert!(parse_url("http://tauri.app/").is_err());
+        assert!(parse_url("http://note-asset.example/").is_err());
+        assert!(parse_url("https://tauri.app/").is_ok());
     }
 }

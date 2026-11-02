@@ -24,3 +24,12 @@ export function webOpen(url: string): Promise<void> {
 export function webClose(): Promise<void> {
   return invoke("web_close");
 }
+
+export type NotesFolder = { path: string; available: boolean };
+export type Note = { path: string; name: string };
+export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
+export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
+export const notesList = () => invoke<Note[]>("notes_list");
+export const notesOpen = (path: string) => invoke<string>("notes_open", { path });
+
+export const openExternal = (url: string) => invoke<void>("open_external", { url });
