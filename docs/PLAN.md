@@ -5,7 +5,8 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-Nada.
+M1 na branch de integração `tarefa/m1`. Primeira leva, em paralelo: notas, sistema e trava de cor. Depois:
+CSP, markdown, atalho global (avançado: abre sem o cursor e mexe no foco) e identidade visual.
 
 ## Concluídas
 
@@ -17,7 +18,8 @@ Nada.
 - [ ] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
 - [ ] (padrão) Listar e abrir notas
 - [ ] (padrão) Renderizar markdown com tabelas e imagens locais
-- [ ] (padrão) Atalho global, ícone na bandeja, instância única e início com o Windows
+- [ ] (padrão) Ícone na bandeja, instância única e início com o Windows
+- [ ] (avançado) Atalho global que abre e fecha o painel
 - [ ] (avançado) Primeira definição visual, usando `tokens.css`
 - [ ] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento
 - [ ] (básico) Reprovar cor fixa fora de `tokens.css` no `check:fast`
