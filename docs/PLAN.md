@@ -5,32 +5,13 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-Fechamento da M0: falta o usuário repetir a troca de monitores com o app aberto e fazer o merge.
+Nada.
 
-## Etapa atual: M0 — Provar o painel
+## Concluídas
 
-**Objetivo:** responder, com um protótipo descartável, se o Tauri entrega a experiência de painel.
+- M0 — Painel provado e aprovado com o Tauri; ver `docs/decisions/0003-painel-e-paginas-web.md`.
 
-- [x] (padrão) Máquina de estados pura do painel, com testes
-- [x] (avançado) Gatilho de borda por consulta ao cursor, sem janela na borda
-- [x] (avançado) Janela sobre as demais, fora da barra de tarefas e do Alt+Tab, sem roubar foco ao abrir
-- [x] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
-- [x] (avançado) Animação de deslize sem engasgos visíveis
-- [x] (avançado) Dois monitores com DPIs diferentes
-- [x] (avançado) Reagir à troca de resolução, DPI e layout de monitores sem reiniciar o app
-- [x] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
-- [x] (básico) Medir o uso de memória com o painel aberto e oculto
-- [x] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
-
-**Memória (release):** cerca de 160 MB oculto e 168 MB aberto (privada, 7 processos, sem página web).
-
-**Pronto quando:** você usar o protótipo com seus apps normais e aprovar a sensação do painel. Se
-foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de construir o resto.
-
-**Fato verificado:** no Tauri 2.12.5, vários WebViews na mesma janela seguem atrás da feature
-`unstable`. A janela própria sobre o painel dispensa essa feature.
-
-## M1 — Consultar referências
+## Etapa atual: M1 — Consultar referências
 
 - [ ] (padrão) Escolher a pasta de notas e lembrar da escolha
 - [ ] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
