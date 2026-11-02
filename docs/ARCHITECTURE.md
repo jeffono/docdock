@@ -16,6 +16,7 @@ src-tauri/src/           Backend (Rust)
   panel.rs               Máquina de estados pura do painel
   dock.rs                Thread que liga cursor, máquina de estados e janelas
   tray.rs                Bandeja, saída e início com o Windows
+  shortcut.rs            Atalho global do painel
   web.rs                 Janela da página web, com conteúdo não confiável
   notes.rs               Pasta, listagem e leitura segura de notas
   commands/              Comandos Tauri: camada fina que delega
@@ -43,6 +44,7 @@ Protótipo da M0. `panel.rs` é uma máquina de estados pura, sem acesso ao Win3
 
 ```text
 Oculto → Armando (cursor na borda, aguardando) → Aberto → Fixado
+Oculto → Chamado (pelo atalho) → Dispensado (cursor ainda na borda) → Oculto
 ```
 
 `dock.rs` a liga à janela em uma única thread, que consulta o cursor, recebe os pedidos da UI e anima.
@@ -52,15 +54,28 @@ DPI por monitor (PMv2).
 - **Gatilho:** consulta do cursor a cada 50 ms; a borda é a última coluna de pixels do monitor mais à
   direita, a única que segura o cursor, com pausa de 150 ms. Uma janela fina na borda roubaria cliques de
   barras de rolagem e botões de janelas maximizadas. Pontos fora desse monitor são ignorados.
+- **Atalho:** `Ctrl+Alt+Espaço`, registrado pelo Rust, sem permissão na capability. Se o registro falhar,
+  a falha vai para o log e o painel segue abrindo pelo cursor. Abre na hora e dá o foco ao painel; aberto
+  pelo cursor, fecha; fixado ou com o seletor nativo aberto, não faz nada. O seletor é modal e religaria
+  a janela do painel oculto.
+- **Aberto pelo atalho:** quem manda é o foco, não o cursor. Fecha pelo atalho, por Esc com o painel em
+  primeiro plano e sem campo em edição, ou quando o foco vai para outro app. A página em foco conta como
+  foco no painel, e o seletor nativo o mantém aberto. Foco nulo, comum em transições do sistema, é
+  ignorado. Depois de fechar assim, a borda só volta a valer quando o cursor sair dela.
+- **Ativação pelo atalho:** a tecla dá ao processo o direito de usar `SetForegroundWindow`, desde que a
+  janela já esteja habilitada. Se a ativação falhar, sem foco a perder, o painel passa a seguir a regra do
+  cursor e não fica preso sobre as outras janelas.
+- **Esc:** cada toque conta uma vez. O toque que sai de um campo ou fecha o seletor já teve dono e não
+  fecha o painel junto, mesmo que a UI avise antes da consulta seguinte.
 - **Expansão:** a janela já existe com o tamanho final, estacionada logo após a borda, e desliza com
   `SetWindowPos`, sem redimensionar o WebView. Cada quadro espera o `DwmFlush` e a posição vem do tempo
   real, com alvo de 150 ms.
 - **Monitor vizinho:** a posição estacionada fica fora de todas as telas, porque não há monitor à direita
   do escolhido. A região da janela ainda é recortada a cada quadro; estacionada, ela fica vazia.
-- **Foco:** a janela usa `WS_EX_NOACTIVATE` e `WS_EX_TOOLWINDOW` e abre sem ativar. O `pointerdown` na UI
-  pede a ativação. A cada consulta do cursor, o painel guarda o último app em primeiro plano fora dele;
-  ao fechar, o foco volta a esse app, salvo se o usuário já estiver em outro. Se ele não existir mais, o
-  foco vai para a área de trabalho.
+- **Foco:** a janela usa `WS_EX_NOACTIVATE` e `WS_EX_TOOLWINDOW` e, pelo cursor, abre sem ativar. O
+  `pointerdown` na UI pede a ativação. A cada consulta do cursor, o painel guarda o último app em primeiro
+  plano fora dele e do seletor nativo; ao fechar, o foco volta a esse app, salvo se o usuário já estiver
+  em outro. Se ele não existir mais, o foco vai para a área de trabalho.
 - **Página web:** janela própria (`web.rs`), possuída pelo painel, abaixo da barra do topo. A thread do
   painel a posiciona e a move com `DeferWindowPos`, na mesma transação da janela principal. Sem
   `WS_EX_NOACTIVATE`, porque a página não fala com o Rust: o clique ativa a janela pelo Windows.
