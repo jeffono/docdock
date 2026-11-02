@@ -46,6 +46,7 @@ visual. Falta o usuário testar "Sair" e "Iniciar com o Windows" na bandeja e o 
 ## M5 — Distribuir
 
 - [ ] (padrão) Instalador, atualização automática e definição sobre assinatura de código
+- [ ] (avançado) Pôr entre aspas o caminho do autostart: `auto-launch` grava o `Run` sem aspas
 
 ## Depois
 

@@ -3,6 +3,7 @@
 mod commands;
 mod dock;
 mod main_window;
+mod markdown;
 mod notes;
 pub mod panel;
 mod platform;
@@ -27,6 +28,7 @@ pub fn run() {
         commands::notes_choose,
         commands::notes_list,
         commands::notes_open,
+        commands::open_external,
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
@@ -35,6 +37,13 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
+        // O padrão injeta em toda janela um script que desvia `target=_blank`: na janela da página,
+        // sem capability, ele cancelaria o link e falharia.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
             let window = main_window::create(app)?;

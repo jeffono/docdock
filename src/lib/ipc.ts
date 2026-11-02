@@ -31,3 +31,5 @@ export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
 export const notesList = () => invoke<Note[]>("notes_list");
 export const notesOpen = (path: string) => invoke<string>("notes_open", { path });
+
+export const openExternal = (url: string) => invoke<void>("open_external", { url });
