@@ -24,7 +24,7 @@ for (const file of files) {
   const lines = withoutComments(readFileSync(file, "utf8")).split(/\r?\n/);
   lines.forEach((line, index) => {
     const color =
-      /(?:^|[;{])\s*[a-z-]+\s*:\s*[^;{}]*#[\da-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch|hwb|color-mix)\s*\(/i;
+      /(?:^|[;{"'\s])[a-z-]+\s*:\s*[^;{}]*#[\da-f]{3,8}\b(?![^;]*\{)|\b(?:rgb|rgba|hsl|hsla|oklch|oklab|lab|lch|hwb|color-mix)\s*\(/i;
     if (color.test(line)) {
       console.error(`${relative(process.cwd(), file)}:${index + 1}: ${line.trim()}`);
       failed = true;
