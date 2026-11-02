@@ -15,7 +15,7 @@ src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
   panel.rs               Pure panel state machine
   dock.rs                Thread connecting cursor, state machine and windows
-  tray.rs                Tray, exit and Windows startup
+  tray.rs                Tray: screen side, exit and Windows startup
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
@@ -26,7 +26,8 @@ src-tauri/src/           Backend (Rust)
 
 Create folders when the first feature needs them.
 
-The tray allows exiting the app and controlling Windows startup; a second instance simply exits.
+The tray chooses the screen side, exits the app and controls Windows startup; a second instance simply
+exits.
 
 ## Flow
 
@@ -52,8 +53,11 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
 animates. Thus opening, closing and animating do not compete. Coordinates are physical pixels, with
 per-monitor DPI awareness (PMv2).
 
-- **Trigger:** cursor polling every 50 ms; the edge is the last pixel column of the rightmost monitor,
-  the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
+- **Side:** right by default, or left, chosen in the tray and saved in `settings.json`; a missing or
+  unknown value means right. Everything below mirrors on the left. Switching moves the windows at once,
+  without animation, keeping the panel open or closed.
+- **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
+  the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
   from scrollbars and maximized window buttons. Points outside that monitor are ignored.
 - **Shortcut:** `Ctrl+Alt+Space`, registered by Rust, without permission in the capability. If registration
   fails, the failure is logged and the panel still opens by cursor. It opens immediately and focuses the
@@ -71,8 +75,9 @@ per-monitor DPI awareness (PMv2).
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
   time, targeting 150 ms.
-- **Neighboring monitor:** the parked position is outside all screens, because there is no monitor to the
-  right of the chosen one. The window region is still clipped each frame; when parked, it is empty.
+- **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
+  the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
+  when parked, it is empty.
 - **Focus:** the window uses `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW` and opens without activation by
   cursor. UI `pointerdown` requests activation. At each cursor poll, the panel remembers the last foreground
   app outside itself and the native picker; on close, focus returns to that app unless the user is already
@@ -95,7 +100,7 @@ per-monitor DPI awareness (PMv2).
 
 ## Notes
 
-`notes.rs` stores the chosen folder in `settings.json`, in the app configuration, and lists `.md` files
+`notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust converts and sanitizes
 markdown before sending it to the UI, which has no filesystem permission.

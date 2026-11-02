@@ -4,6 +4,8 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
 use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 
@@ -14,6 +16,15 @@ const PANEL_WIDTH: u32 = 420;
 const BASE_DPI: u32 = 96;
 /// Two bars above the page, in logical pixels: twice `--size-bar` in `tokens.css`.
 const WEB_TOP: u32 = 88;
+
+/// Screen side the panel docks to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Left,
+    #[default]
+    Right,
+}
 
 /// UI requests to the panel thread.
 #[derive(Debug, Clone, Copy)]
@@ -26,14 +37,30 @@ pub enum Request {
     AttachWeb(isize),
     /// Global shortcut.
     Shortcut,
+    /// Side chosen in the tray.
+    SetSide(Side),
 }
 
-/// Open panel rectangle, aligned with the right edge of the work area.
-fn panel_rect(monitor: &Monitor) -> Rect {
+/// Open panel rectangle, aligned with the work area edge on `side`.
+fn panel_rect(monitor: &Monitor, side: Side) -> Rect {
     let width = (PANEL_WIDTH * monitor.dpi / BASE_DPI) as i32;
-    Rect {
-        left: monitor.work.right - width,
-        ..monitor.work
+    match side {
+        Side::Right => Rect {
+            left: monitor.work.right - width,
+            ..monitor.work
+        },
+        Side::Left => Rect {
+            right: monitor.work.left + width,
+            ..monitor.work
+        },
+    }
+}
+
+/// X of the closed panel: just beyond the monitor edge on `side`.
+fn parked_x(monitor: &Monitor, side: Side, panel: Rect) -> i32 {
+    match side {
+        Side::Right => monitor.bounds.right,
+        Side::Left => monitor.bounds.left - (panel.right - panel.left),
     }
 }
 
@@ -45,27 +72,35 @@ fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
     }
 }
 
-/// Only the right edge of the rightmost monitor holds the cursor; elsewhere it would cross into a
-/// neighboring monitor. It also puts the parked position outside every screen. On a tie, such as
-/// stacked monitors, prefer the primary monitor, whose origin is (0, 0).
-fn edge_monitor(monitors: Vec<Monitor>) -> Option<Monitor> {
+/// Only the outer edge of the outermost monitor on `side` holds the cursor; elsewhere it would cross
+/// into a neighboring monitor. It also puts the parked position outside every screen. On a tie, such
+/// as stacked monitors, prefer the primary monitor, whose origin is (0, 0).
+fn edge_monitor(monitors: Vec<Monitor>, side: Side) -> Option<Monitor> {
     monitors.into_iter().max_by_key(|monitor| {
         let primary = monitor.bounds.left == 0 && monitor.bounds.top == 0;
-        (monitor.bounds.right, primary)
+        let outer = match side {
+            Side::Right => monitor.bounds.right,
+            Side::Left => -monitor.bounds.left,
+        };
+        (outer, primary)
     })
 }
 
 /// The new panel monitor if a layout, resolution, DPI, or taskbar change changed the current one.
 /// If no monitors are available, as during a transition, retain the current one.
-fn monitor_change(current: &Monitor, monitors: Vec<Monitor>) -> Option<Monitor> {
-    edge_monitor(monitors).filter(|monitor| monitor != current)
+fn monitor_change(current: &Monitor, monitors: Vec<Monitor>, side: Side) -> Option<Monitor> {
+    edge_monitor(monitors, side).filter(|monitor| monitor != current)
 }
 
 /// Translates the cursor position. Points outside the monitor never open or hold the panel.
-fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect) -> CursorZone {
+fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect, side: Side) -> CursorZone {
+    let edge = match side {
+        Side::Right => monitor.right - 1,
+        Side::Left => monitor.left,
+    };
     if !monitor.contains(cursor) {
         CursorZone::Outside
-    } else if cursor.x == monitor.right - 1 {
+    } else if cursor.x == edge {
         CursorZone::Edge
     } else if panel.contains(cursor) {
         CursorZone::Inside
@@ -127,6 +162,7 @@ struct Dock {
     window: PanelWindow,
     /// Web page window, if present.
     web: Option<PanelWindow>,
+    side: Side,
     monitor: Monitor,
     rect: Rect,
     parked_x: i32,
@@ -149,21 +185,21 @@ impl Dock {
         )
     }
 
-    /// Moves windows to the new monitor without animation. Any ongoing slide used the old monitor.
+    /// Moves windows to the monitor and side without animation. Any ongoing slide used the old ones.
     fn relocate(&mut self, monitor: Monitor) {
-        eprintln!("[panel] monitor changed: {monitor:?}");
+        eprintln!("[panel] placed on {:?}: {monitor:?}", self.side);
         self.monitor = monitor;
-        self.rect = panel_rect(&monitor);
-        self.parked_x = monitor.bounds.right;
+        self.rect = panel_rect(&monitor, self.side);
+        self.parked_x = parked_x(&monitor, self.side, self.rect);
         self.slide = None;
         self.x = if self.is_open() {
             self.rect.left
         } else {
             self.parked_x
         };
-        self.window.place(self.rect, self.parked_x, self.x);
+        self.window.place(self.rect, monitor.bounds, self.x);
         if let Some(web) = &mut self.web {
-            web.place(web_rect(&monitor, self.rect), self.parked_x, self.x);
+            web.place(web_rect(&monitor, self.rect), monitor.bounds, self.x);
         }
     }
 
@@ -189,8 +225,8 @@ impl Dock {
             }
             Request::AttachWeb(raw) => {
                 let rect = web_rect(&self.monitor, self.rect);
-                let right = self.monitor.bounds.right;
-                let web = PanelWindow::prepare(raw, rect, right, self.x, Activation::OnClick);
+                let bounds = self.monitor.bounds;
+                let web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
                 web.set_enabled(self.is_open());
                 self.web = Some(web);
                 Action::None
@@ -201,6 +237,13 @@ impl Dock {
                 let dialog = self.dialog;
                 self.panel.step(Input::Shortcut { dialog }, now)
             }
+            Request::SetSide(side) => {
+                self.side = side;
+                // Without monitors, as during a transition, the current one still flips side.
+                let monitor = edge_monitor(platform::monitors(), side).unwrap_or(self.monitor);
+                self.relocate(monitor);
+                Action::None
+            }
         };
         self.apply(action);
     }
@@ -209,11 +252,11 @@ impl Dock {
         let Some(cursor) = platform::cursor_pos() else {
             return;
         };
-        if let Some(monitor) = monitor_change(&self.monitor, platform::monitors()) {
+        if let Some(monitor) = monitor_change(&self.monitor, platform::monitors(), self.side) {
             self.relocate(monitor);
         }
         self.track_focus();
-        let zone = cursor_zone(cursor, self.monitor.bounds, self.rect);
+        let zone = cursor_zone(cursor, self.monitor.bounds, self.rect, self.side);
         // A user typing on the page can move the mouse away without losing the panel. The page does
         // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
         // Once focus is restored, the panel closes as with any other focus loss.
@@ -359,16 +402,17 @@ impl Dock {
 }
 
 /// Prepares the window off-screen and starts the panel thread.
-pub fn start(raw_window: isize, requests: Receiver<Request>) {
-    let monitor = edge_monitor(platform::monitors()).expect("no monitor available");
-    let rect = panel_rect(&monitor);
-    let parked_x = monitor.bounds.right;
-    let right = monitor.bounds.right;
-    let window = PanelWindow::prepare(raw_window, rect, right, parked_x, Activation::OnRequest);
-    eprintln!("[panel] monitor {monitor:?}, panel {rect:?}");
+pub fn start(raw_window: isize, requests: Receiver<Request>, side: Side) {
+    let monitor = edge_monitor(platform::monitors(), side).expect("no monitor available");
+    let rect = panel_rect(&monitor, side);
+    let parked_x = parked_x(&monitor, side, rect);
+    let bounds = monitor.bounds;
+    let window = PanelWindow::prepare(raw_window, rect, bounds, parked_x, Activation::OnRequest);
+    eprintln!("[panel] {side:?} of monitor {monitor:?}, panel {rect:?}");
     let dock = Dock {
         window,
         web: None,
+        side,
         monitor,
         rect,
         parked_x,
@@ -414,39 +458,93 @@ mod tests {
         bottom: 2100,
     };
 
-    fn zone(x: i32, y: i32) -> CursorZone {
-        cursor_zone(Point { x, y }, PRIMARY, PANEL)
+    fn zone(x: i32, y: i32, side: Side) -> CursorZone {
+        let panel = match side {
+            Side::Right => PANEL,
+            Side::Left => Rect {
+                left: 0,
+                right: 525,
+                ..PANEL
+            },
+        };
+        cursor_zone(Point { x, y }, PRIMARY, panel, side)
     }
 
     #[test]
-    fn panel_stays_on_rightmost_monitor() {
+    fn panel_stays_on_outermost_monitor_of_its_side() {
         let principal = monitor(0, 3840);
-        let chosen = edge_monitor(vec![principal, monitor(3840, 7680)]).unwrap();
+        let pair = vec![principal, monitor(3840, 7680)];
+        let chosen = edge_monitor(pair.clone(), Side::Right).unwrap();
         assert_eq!(chosen.bounds.right, 7680);
-        let chosen = edge_monitor(vec![monitor(-3840, 0), principal]).unwrap();
-        assert_eq!(chosen.bounds.right, 3840);
+        assert_eq!(edge_monitor(pair, Side::Left).unwrap(), principal);
+        let pair = vec![monitor(-3840, 0), principal];
+        assert_eq!(edge_monitor(pair.clone(), Side::Right).unwrap(), principal);
+        let chosen = edge_monitor(pair, Side::Left).unwrap();
+        assert_eq!(chosen.bounds.left, -3840);
+        // Stacked monitors tie on both sides: the primary wins in any order.
+        let below = Monitor {
+            bounds: Rect {
+                top: 2160,
+                bottom: 4320,
+                ..PRIMARY
+            },
+            ..principal
+        };
+        for side in [Side::Right, Side::Left] {
+            assert_eq!(
+                edge_monitor(vec![principal, below], side).unwrap(),
+                principal
+            );
+            assert_eq!(
+                edge_monitor(vec![below, principal], side).unwrap(),
+                principal
+            );
+        }
     }
 
     #[test]
     fn swapping_monitors_while_app_is_open_moves_panel() {
         let atual = monitor(3840, 7680);
         let invertido = vec![monitor(-3840, 0), monitor(0, 3840)];
-        let novo = monitor_change(&atual, invertido).unwrap();
+        let novo = monitor_change(&atual, invertido, Side::Right).unwrap();
         assert_eq!(novo.bounds.right, 3840);
-        assert!(monitor_change(&atual, vec![monitor(0, 3840), atual]).is_none());
-        assert!(monitor_change(&atual, Vec::new()).is_none());
+        let pair = vec![monitor(0, 3840), atual];
+        assert!(monitor_change(&atual, pair.clone(), Side::Right).is_none());
+        assert!(monitor_change(&atual, Vec::new(), Side::Right).is_none());
+        let novo = monitor_change(&atual, pair, Side::Left).unwrap();
+        assert_eq!(novo.bounds.left, 0);
     }
 
     #[test]
-    fn only_last_monitor_pixel_is_edge() {
-        assert_eq!(zone(3839, 0), CursorZone::Edge);
-        assert_eq!(zone(3839, 2159), CursorZone::Edge);
-        assert_eq!(zone(3838, 0), CursorZone::Outside);
+    fn only_outer_pixel_column_of_monitor_is_edge() {
+        assert_eq!(zone(3839, 0, Side::Right), CursorZone::Edge);
+        assert_eq!(zone(3839, 2159, Side::Right), CursorZone::Edge);
+        assert_eq!(zone(3838, 0, Side::Right), CursorZone::Outside);
+        assert_eq!(zone(0, 0, Side::Left), CursorZone::Edge);
+        assert_eq!(zone(0, 2159, Side::Left), CursorZone::Edge);
+        assert_eq!(zone(1, 0, Side::Left), CursorZone::Outside);
+        assert_eq!(zone(3839, 0, Side::Left), CursorZone::Outside);
+        // Points on other monitors are ignored.
+        assert_eq!(zone(-1, 500, Side::Right), CursorZone::Outside);
+        assert_eq!(zone(-1, 500, Side::Left), CursorZone::Outside);
     }
 
     #[test]
-    fn points_on_other_monitors_are_ignored() {
-        assert_eq!(zone(-1, 500), CursorZone::Outside);
+    fn left_side_mirrors_open_and_parked_positions() {
+        let mut screen = monitor(-3840, 0);
+        screen.work = Rect {
+            left: -3800,
+            top: 47,
+            right: -40,
+            bottom: 2160,
+        };
+        let rect = panel_rect(&screen, Side::Right);
+        assert_eq!((rect.left, rect.right, rect.top), (-565, -40, 47));
+        assert_eq!(parked_x(&screen, Side::Right, rect), 0);
+        let rect = panel_rect(&screen, Side::Left);
+        assert_eq!((rect.left, rect.right, rect.top), (-3800, -3275, 47));
+        // Parked entirely beyond the left edge, touching it.
+        assert_eq!(parked_x(&screen, Side::Left, rect), -3840 - 525);
     }
 
     #[test]
