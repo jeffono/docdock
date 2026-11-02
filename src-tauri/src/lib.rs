@@ -28,6 +28,7 @@ pub fn run() {
         commands::notes_choose,
         commands::notes_list,
         commands::notes_open,
+        commands::notes_save,
         commands::open_external,
     ];
     tauri::Builder::default()

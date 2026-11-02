@@ -4,8 +4,10 @@ use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    hash::{DefaultHasher, Hasher},
+    io::{self, Write},
     path::{Component, Path, PathBuf},
-    sync::mpsc::Sender,
+    sync::{Mutex, mpsc::Sender},
 };
 use tauri::http::header::{CACHE_CONTROL, CONTENT_TYPE, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{Response, StatusCode};
@@ -17,6 +19,9 @@ pub const IMAGE_SCHEME: &str = "note-asset";
 
 /// A third-party note must not block the UI: conversion and inserting HTML into the DOM are costly.
 const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Appended to the replaced file's name. The extension is no longer `.md`, so `collect` skips it.
+const TEMP_SUFFIX: &str = ".docdock-tmp";
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
@@ -31,6 +36,18 @@ pub struct Folder {
 pub struct Note {
     path: String,
     name: String,
+}
+#[derive(Serialize)]
+pub struct OpenNote {
+    html: String,
+    text: String,
+    version: String,
+}
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum Saved {
+    Saved { version: String },
+    Conflict,
 }
 fn config(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
@@ -52,13 +69,43 @@ pub fn folder(app: &AppHandle) -> Result<Option<Folder>, String> {
 fn save(path: &Path, folder: PathBuf) -> Result<(), String> {
     fs::create_dir_all(path.parent().ok_or("Pasta de configuração inválida")?)
         .map_err(|e| e.to_string())?;
-    let temp = path.with_extension("json.tmp");
-    fs::write(
-        &temp,
-        serde_json::to_vec(&Settings { folder }).map_err(|e| e.to_string())?,
+    write_atomic(
+        path,
+        &serde_json::to_vec(&Settings { folder }).map_err(|e| e.to_string())?,
     )
-    .map_err(|e| e.to_string())?;
-    fs::rename(&temp, path).map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())
+}
+/// Writes a complete temporary file next to `path` and renames it over `path`. Any failure leaves the
+/// previous file intact. `fs::rename` replaces in one step; `ReplaceFileW` keeps more metadata but has
+/// failure modes that leave nothing under the original name, so only the creation time is carried over.
+fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut name = path
+        .file_name()
+        .ok_or(io::ErrorKind::InvalidInput)?
+        .to_os_string();
+    name.push(TEMP_SUFFIX);
+    let temp = path.with_file_name(name);
+    // A leftover could be a planted link; `create_new` does not open through it.
+    let _ = fs::remove_file(&temp);
+    let result = write_temp(&temp, path, bytes).and_then(|()| fs::rename(&temp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn write_temp(temp: &Path, original: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(temp)?;
+    file.write_all(bytes)?;
+    #[cfg(windows)]
+    if let Ok(created) = fs::metadata(original).and_then(|m| m.created()) {
+        use std::os::windows::fs::FileTimesExt;
+        file.set_times(fs::FileTimes::new().set_created(created))?;
+    }
+    file.sync_all()
 }
 struct DialogGuard(Sender<Request>);
 impl Drop for DialogGuard {
@@ -155,19 +202,64 @@ fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<Pa
     }
     Ok(target)
 }
-fn read_note(path: &Path) -> Result<String, String> {
-    let size = fs::metadata(path).map_err(|e| e.to_string())?.len();
+fn too_large(size: u64) -> Result<(), String> {
     if size > MAX_NOTE_BYTES {
         return Err(format!(
-            "A nota tem {} MB; o limite para exibir é {} MB",
+            "A nota tem {} MB; o limite é {} MB",
             size / 1_048_576,
             MAX_NOTE_BYTES / 1_048_576
         ));
     }
-    fs::read_to_string(path).map_err(|e| format!("Não foi possível ler a nota como UTF-8: {e}"))
+    Ok(())
 }
-pub fn open(app: &AppHandle, path: &str) -> Result<String, String> {
-    read_note(&resolve(&root(app)?, path, markdown)?)
+fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    too_large(fs::metadata(path).map_err(|e| e.to_string())?.len())?;
+    fs::read(path).map_err(|e| e.to_string())
+}
+fn read_note(path: &Path) -> Result<String, String> {
+    String::from_utf8(read_bytes(path)?)
+        .map_err(|e| format!("Não foi possível ler a nota como UTF-8: {e}"))
+}
+/// Identifies the exact bytes the editor loaded. Hashing the content, rather than using mtime and size,
+/// also catches same-size edits and tools that preserve mtime. Tokens are never persisted, so the
+/// unspecified `DefaultHasher` algorithm only needs to be stable within one run.
+fn version(bytes: &[u8]) -> String {
+    let mut hasher = DefaultHasher::new();
+    hasher.write(bytes);
+    format!("{:016x}", hasher.finish())
+}
+pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, String> {
+    let text = read_note(&resolve(&root(app)?, path, markdown)?)?;
+    Ok(OpenNote {
+        html: crate::markdown::render(&text, path),
+        version: version(text.as_bytes()),
+        text,
+    })
+}
+/// Serializes saves so the conflict check and the write are not interleaved within the app.
+static SAVING: Mutex<()> = Mutex::new(());
+/// Writes `content` only if the file still holds the version identified by `base`. An external writer
+/// can still slip in between the check and the rename; the window is a few milliseconds.
+fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, String> {
+    too_large(content.len() as u64)?;
+    let target = resolve(root, relative, markdown)?;
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let current = read_bytes(&target)?;
+    let saved = Saved::Saved {
+        version: version(content.as_bytes()),
+    };
+    if current == content.as_bytes() {
+        return Ok(saved);
+    }
+    if version(&current) != base {
+        return Ok(Saved::Conflict);
+    }
+    write_atomic(&target, content.as_bytes())
+        .map_err(|e| format!("Não foi possível salvar a nota: {e}"))?;
+    Ok(saved)
+}
+pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, String> {
+    save_note_in(&root(app)?, path, content, base)
 }
 /// SVG is excluded because it can contain scripts.
 fn image_type(path: &Path) -> Option<&'static str> {
@@ -352,6 +444,57 @@ mod tests {
         assert!(read_note(&p).is_ok());
         fs::write(&p, vec![b'x'; MAX_NOTE_BYTES as usize + 1]).unwrap();
         assert!(read_note(&p).is_err());
+    }
+    #[test]
+    fn save_refuses_conflicts_and_paths_outside_folder() {
+        let t = Temp::new();
+        let (notas, fora) = (t.0.join("notas"), t.0.join("fora.md"));
+        fs::create_dir(&notas).unwrap();
+        fs::write(&fora, "fora").unwrap();
+        let p = notas.join("a.md");
+        fs::write(&p, "um\r\n").unwrap();
+        let base = version(b"um\r\n");
+        fs::write(&p, "externo").unwrap();
+        let conflict = save_note_in(&notas, "a.md", "meu", &base);
+        assert_eq!(conflict, Ok(Saved::Conflict));
+        assert_eq!(fs::read_to_string(&p).unwrap(), "externo");
+
+        let saved = save_note_in(&notas, "a.md", "dois\r\n", &version(b"externo"));
+        let version_dois = version(b"dois\r\n");
+        assert_eq!(fs::read_to_string(&p).unwrap(), "dois\r\n");
+        assert_eq!(
+            saved,
+            Ok(Saved::Saved {
+                version: version_dois.clone()
+            })
+        );
+
+        let grande = "x".repeat(MAX_NOTE_BYTES as usize + 1);
+        assert!(save_note_in(&notas, "a.md", &grande, &version_dois).is_err());
+        assert!(save_note_in(&notas, "../fora.md", "x", &version(b"fora")).is_err());
+        assert_eq!(fs::read_to_string(&fora).unwrap(), "fora");
+    }
+    #[test]
+    fn failed_save_keeps_original_and_removes_temp() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let t = Temp::new();
+        let p = t.0.join("a.md");
+        fs::write(&p, "original").unwrap();
+        // Another app holding the note without delete sharing makes the rename fail.
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1) // FILE_SHARE_READ
+            .open(&p)
+            .unwrap();
+        let error = save_note_in(&t.0, "a.md", "novo", &version(b"original")).unwrap_err();
+        assert!(error.contains("salvar"), "{error}");
+        drop(lock);
+        assert_eq!(fs::read_to_string(&p).unwrap(), "original");
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 1);
+        // A temp left by a crash is never listed as a note.
+        fs::write(t.0.join(format!("a.md{TEMP_SUFFIX}")), "novo").unwrap();
+        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        assert_eq!(paths, ["a.md"]);
     }
     #[test]
     fn replaces_configuration() {
