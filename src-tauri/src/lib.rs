@@ -4,6 +4,7 @@ mod commands;
 mod dock;
 pub mod panel;
 mod platform;
+mod tray;
 mod web;
 
 use std::sync::mpsc;
@@ -21,7 +22,13 @@ pub fn run() {
         commands::web_close,
     ];
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
+            tray::setup(app)?;
             let window = app
                 .get_webview_window("main")
                 .expect("janela principal ausente");
