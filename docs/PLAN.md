@@ -17,7 +17,7 @@ detail each stage when it is next.
 - [x] (advanced) Screen side configurable from the tray, right by default; independent of the rest
 - [ ] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
   language; Rust errors become codes
-- [ ] (advanced) Atomic writes and autosave
+- [x] (advanced) Atomic writes and autosave
 - [ ] (advanced) React to external changes without content loss
 - [ ] (standard) Frontmatter: hide the block and show title and tags
 - [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside

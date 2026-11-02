@@ -64,8 +64,18 @@ pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, String> {
 }
 /// `async` moves reading and sanitization off the main thread.
 #[tauri::command(async)]
-pub fn notes_open(app: AppHandle, path: String) -> Result<String, String> {
-    crate::notes::open(&app, &path).map(|text| crate::markdown::render(&text, &path))
+pub fn notes_open(app: AppHandle, path: String) -> Result<crate::notes::OpenNote, String> {
+    crate::notes::open(&app, &path)
+}
+/// `async` keeps file I/O off the main thread.
+#[tauri::command(async)]
+pub fn notes_save(
+    app: AppHandle,
+    path: String,
+    content: String,
+    base: String,
+) -> Result<crate::notes::Saved, String> {
+    crate::notes::save_note(&app, &path, &content, &base)
 }
 
 #[tauri::command]

@@ -19,7 +19,7 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
-  notes.rs               Folder, listing, safe reading of notes and local images
+  notes.rs               Folder, listing, safe reading and atomic saving of notes, local images
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
@@ -104,6 +104,24 @@ per-monitor DPI awareness (PMv2).
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust converts and sanitizes
 markdown before sending it to the UI, which has no filesystem permission.
+
+**Saving.** `notes_open` returns the sanitized HTML, the raw text and a version: a hash of the file's bytes,
+opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
+opening, writes only if the file still has version `base` and returns the new version; otherwise it
+answers `conflict` and writes nothing. Content equal to the file counts as saved without writing. Text
+goes to disk exactly as received, without touching line endings. Saves are serialized in Rust; an external
+writer can still slip in between the check and the rename, a window of milliseconds.
+
+**Atomic writes.** Notes and `settings.json` are written to `<name>.docdock-tmp` in the same folder, synced
+to disk and renamed over the original with `fs::rename`, which replaces in one step: any failure leaves the
+original intact and the temporary file is removed. `ReplaceFileW` would keep more metadata, but some of its
+failures leave nothing under the original name; only the creation time is carried over. The temporary
+extension is not `.md`, so listing ignores leftovers. A file another app holds open without delete sharing
+cannot be replaced, and the save fails.
+
+**Autosave.** `features/notes/autosave.ts` saves the whole text after a pause in edits, with one save in
+flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps
+the edit in `unsaved()`, and after an error the next edit or `flush` retries.
 
 ## Untrusted content
 
