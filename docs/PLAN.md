@@ -5,8 +5,9 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-M1 na branch de integração `tarefa/m1`. Em curso: markdown e revisão de segurança. Depois: identidade
-visual. Falta o usuário testar "Sair" e "Iniciar com o Windows" na bandeja e o atalho no teclado físico.
+M1 na branch de integração `tarefa/m1`. Falta a identidade visual, que depende da escolha do usuário, e
+`DESIGN.md`. O usuário ainda testa "Sair" e "Iniciar com o Windows" na bandeja, o atalho no teclado físico
+e a escolha de uma pasta real.
 
 ## Concluídas
 
@@ -17,7 +18,7 @@ visual. Falta o usuário testar "Sair" e "Iniciar com o Windows" na bandeja e o 
 - [x] (padrão) Escolher a pasta de notas e lembrar da escolha
 - [x] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
 - [x] (padrão) Listar e abrir notas
-- [ ] (padrão) Renderizar markdown com tabelas e imagens locais
+- [x] (padrão) Renderizar markdown com tabelas e imagens locais
 - [x] (padrão) Ícone na bandeja, instância única e início com o Windows
 - [x] (avançado) Atalho global que abre e fecha o painel
 - [ ] (avançado) Primeira definição visual, usando `tokens.css`
