@@ -2,7 +2,7 @@
 
 use std::sync::mpsc::Sender;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, UriSchemeContext, UriSchemeResponder, Wry, http};
 
 use crate::dock::Request;
 use crate::web;
@@ -65,4 +65,22 @@ pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, String> {
 #[tauri::command]
 pub fn notes_open(app: AppHandle, path: String) -> Result<String, String> {
     crate::notes::open(&app, &path)
+}
+
+/// Fora da barreira de comandos de `lib.rs`: o protocolo existe em todas as janelas e o Tauri informa
+/// qual delas pediu. Roda em outra thread para a leitura do arquivo não travar o WebView.
+pub fn note_image(
+    context: UriSchemeContext<'_, Wry>,
+    request: http::Request<Vec<u8>>,
+    responder: UriSchemeResponder,
+) {
+    let app = context.app_handle().clone();
+    let webview = context.webview_label().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        responder.respond(crate::notes::image_for(
+            &app,
+            &webview,
+            request.uri().path(),
+        ));
+    });
 }

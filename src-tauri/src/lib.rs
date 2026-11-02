@@ -2,6 +2,7 @@
 
 mod commands;
 mod dock;
+mod main_window;
 mod notes;
 pub mod panel;
 mod platform;
@@ -33,11 +34,10 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
+            let window = main_window::create(app)?;
             tray::setup(app)?;
-            let window = app
-                .get_webview_window("main")
-                .expect("janela principal ausente");
             let (requests, receiver) = mpsc::channel();
             app.manage(requests);
             dock::start(window.hwnd()?.0 as isize, receiver);

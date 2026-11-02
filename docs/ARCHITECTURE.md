@@ -16,8 +16,9 @@ src-tauri/src/           Backend (Rust)
   panel.rs               Máquina de estados pura do painel
   dock.rs                Thread que liga cursor, máquina de estados e janelas
   tray.rs                Bandeja, saída e início com o Windows
+  main_window.rs         Cria a janela principal e limita sua navegação
   web.rs                 Janela da página web, com conteúdo não confiável
-  notes.rs               Pasta, listagem e leitura segura de notas
+  notes.rs               Pasta, listagem, leitura segura de notas e imagens locais
   commands/              Comandos Tauri: camada fina que delega
   platform/              Código específico de sistema operacional
 ```
@@ -82,3 +83,13 @@ DPI por monitor (PMv2).
 recursivamente, sem pastas ocultas, symlinks ou junctions. A abertura valida o caminho e confere se o
 destino canônico fica dentro da pasta. O seletor nativo mantém o painel aberto. A UI recebe texto cru pelo
 IPC e não tem permissão de sistema de arquivos.
+
+## Conteúdo não confiável
+
+Decisões em [0004](decisions/0004-conteudo-nao-confiavel.md).
+
+- **CSP:** em `tauri.conf.json`, vale só no build final. Em dev, a página vem direto do Vite, sem CSP.
+- **Janela `main`:** `main_window.rs` a cria, navega só na origem da UI e não abre outra janela. Links em
+  conteúdo renderizado não saem dela.
+- **Imagens locais:** `http://note-asset.localhost/<caminho relativo>`, servidas por `notes.rs` só para a
+  janela `main`. Imagens remotas ficam bloqueadas.
