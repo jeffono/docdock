@@ -1,111 +1,111 @@
-# DocDock — instruções para agentes
+# DocDock — agent instructions
 
-Painel lateral autohide para Windows: ao tocar a borda da tela com o mouse, ele se expande sobre as
-outras janelas para consultar, adicionar e editar referências (markdown, imagens, páginas web).
+Autohide sidebar for Windows: touching the screen edge with the mouse expands it over other windows to
+browse, add and edit references (markdown, images, web pages).
 
-Fonte única de instruções para Claude, Codex e Antigravity. O Codex e o Antigravity leem este arquivo
-direto, e `CLAUDE.md` só o importa. Não crie `GEMINI.md`: o Antigravity não expande importações com
-`@`. Este arquivo é carregado em toda sessão: mantenha-o curto.
+Single source of instructions for Claude, Codex and Antigravity. Codex and Antigravity read this file
+directly, and `CLAUDE.md` only imports it. Do not create `GEMINI.md`: Antigravity does not expand `@`
+imports. This file is loaded every session: keep it short.
 
-## Por onde começar
+## Where to start
 
-`docs/PLAN.md` diz o que fazer agora. Consulte `docs/ARCHITECTURE.md` e `docs/decisions/` só quando a
-tarefa exigir. Não reabra decisões registradas sem um fato novo.
+`docs/PLAN.md` says what to do now. Consult `docs/ARCHITECTURE.md` and `docs/decisions/` only when the
+task requires it. Do not reopen recorded decisions without new evidence.
 
-## Comandos
+## Commands
 
-| Comando           | Para quê                                         |
-| ----------------- | ------------------------------------------------ |
-| `pnpm install`    | Instala dependências e ativa os hooks            |
-| `pnpm tauri dev`  | Roda o app com hot reload da UI                  |
-| `pnpm format`     | Formata TypeScript, Svelte e Rust                |
-| `pnpm check:fast` | Lint, tipos e formatação; use durante o trabalho |
-| `pnpm check`      | Verificação completa; use ao concluir a tarefa   |
-| `pnpm test`       | Testes do frontend                               |
+| Command           | Purpose                                     |
+| ----------------- | ------------------------------------------- |
+| `pnpm install`    | Install dependencies and activate hooks     |
+| `pnpm tauri dev`  | Run the app with UI hot reload              |
+| `pnpm format`     | Format TypeScript, Svelte and Rust          |
+| `pnpm check:fast` | Lint, types and formatting; use during work |
+| `pnpm check`      | Full verification; use on task completion   |
+| `pnpm test`       | Frontend tests                              |
 
-Use somente pnpm. Os hooks rodam `check:fast` no commit e `check` no push: nunca use `--no-verify`.
+Use only pnpm. Hooks run `check:fast` on commit and `check` on push: never use `--no-verify`.
 
-## Simplicidade
+## Simplicity
 
-Resolva o problema de hoje com a solução mais simples que seja robusta. Sem abstração antes do segundo
-uso real, sem configuração especulativa. Antes de adicionar, veja se dá para remover. Dependência nova
-precisa de motivo claro na mensagem de commit.
+Solve today's problem with the simplest robust solution. No abstraction before the second real use,
+no speculative configuration. Before adding, see if something can be removed. A new dependency needs
+a clear reason in the commit message.
 
-## Arquitetura
+## Architecture
 
-- A UI só fala com o Rust por `src/lib/ipc.ts`.
-- Win32 e outras APIs de sistema ficam em `src-tauri/src/platform/`.
-- Separe decisão de efeito: regras são funções puras; a chamada ao sistema é uma camada fina.
-- O conteúdo do usuário são arquivos `.md` comuns. Tudo o que for derivado precisa ser reconstruível.
-- Nunca perca conteúdo: grave de forma atômica e não sobrescreva alterações externas sem avisar.
-- Visual: use tokens e `src/lib/ui/`, nunca valores fixos. Só o usuário muda a identidade; crie token
-  ou componente apenas se nada existente servir. Em UI, leia `docs/DESIGN.md` e entregue uma captura de
-  tela para aprovação. Protótipos ficam de fora.
-- Conteúdo renderizado (markdown, HTML, páginas web) é não confiável.
+- The UI talks to Rust only through `src/lib/ipc.ts`.
+- Win32 and other system APIs belong in `src-tauri/src/platform/`.
+- Separate decisions from effects: rules are pure functions; system calls are a thin layer.
+- User content is ordinary `.md` files. Everything derived must be reconstructible.
+- Never lose content: write atomically and do not overwrite external changes without warning.
+- Visuals: use tokens and `src/lib/ui/`, never fixed values. Only the user changes the identity; create a
+  token or component only if nothing existing works. For UI, read `docs/DESIGN.md` and deliver a
+  screenshot for approval. Prototypes are excluded.
+- Rendered content (markdown, HTML, web pages) is untrusted.
 
-## Testes
+## Tests
 
-Teste o que custa caro quando quebra: perda de conteúdo, máquina de estados, caminhos de arquivo e
-segurança. Não teste repasses triviais, aparência ou o framework. Antes de criar um teste, responda
-qual bug real ele pegaria. Correção de bug ganha teste de regressão, se o bug puder voltar. Se a suíte
-passar de 30 testes ou 30 segundos, revise-a. Prefira rodar só o teste relevante durante o trabalho.
+Test what is costly when it breaks: content loss, state machines, file paths and security. Do not test
+trivial forwarding, appearance or the framework. Before adding a test, answer what real bug it would
+catch. Bug fixes get a regression test if the bug can recur. If the suite exceeds 30 tests or 30 seconds,
+review it. Prefer running only the relevant test during work.
 
-## Definição de pronto
+## Definition of done
 
-- `pnpm check` passa.
-- Comportamento visual (janela, foco, animação) tem roteiro de verificação manual na entrega.
-- O que não pôde ser verificado é declarado na entrega.
-- Os documentos afetados estão atualizados.
+- `pnpm check` passes.
+- Visual behavior (window, focus, animation) has a manual verification script in the delivery.
+- Anything that could not be verified is stated in the delivery.
+- Affected documents are updated.
 
-## Uso eficiente de cota
+## Efficient quota use
 
-Cada tarefa do plano tem um nível; use o modelo mais barato que a resolva bem.
+Each plan task has a level; use the cheapest model that can resolve it well.
 
-| Nível      | Uso                                                              |
-| ---------- | ---------------------------------------------------------------- |
-| `básico`   | Ajustes mecânicos, renomeações, texto, tarefa bem especificada   |
-| `padrão`   | Funcionalidade com padrão já definido                            |
-| `avançado` | Arquitetura, Win32, foco, concorrência, segurança, bugs difíceis |
+| Level      | Use                                                          |
+| ---------- | ------------------------------------------------------------ |
+| `basic`    | Mechanical changes, renames, text, well-specified tasks      |
+| `standard` | Functionality with an established pattern                    |
+| `advanced` | Architecture, Win32, focus, concurrency, security, hard bugs |
 
-- Leia só o necessário. Delegue apenas quando compensar: subagente começa sem contexto.
-- Depois de duas tentativas sem sucesso, pare e suba de nível em vez de insistir.
+- Read only what is necessary. Delegate only when worthwhile: a subagent starts without context.
+- After two unsuccessful attempts, stop and move up a level instead of persisting.
 
-## Contexto e documentação
+## Context and documentation
 
-Todo contexto durável fica no repositório. Memória privada de agente não é compartilhada.
+All durable context stays in the repository. Private agent memory is not shared.
 
-| Informação                                  | Local                  |
-| ------------------------------------------- | ---------------------- |
-| Estado atual, próximo passo, tarefa aberta  | `docs/PLAN.md`         |
-| Como o sistema funciona hoje                | `docs/ARCHITECTURE.md` |
-| Por que uma decisão cara de reverter existe | `docs/decisions/`      |
-| Detalhe de uma mudança                      | Mensagem de commit     |
+| Information                             | Location               |
+| --------------------------------------- | ---------------------- |
+| Current state, next step, open task     | `docs/PLAN.md`         |
+| How the system works today              | `docs/ARCHITECTURE.md` |
+| Why a costly-to-reverse decision exists | `docs/decisions/`      |
+| Details of a change                     | Commit message         |
 
-- Ao pausar uma tarefa, deixe uma linha em "Em andamento" no plano; ao concluir, remova-a.
-- Cada informação fica em um só lugar. Atualizar substitui o texto antigo.
-- Etapa concluída vira uma linha. Sem changelog, diário ou README por pasta.
+- When pausing a task, leave a line in "In progress" in the plan; remove it when done.
+- Each piece of information lives in one place. Updating replaces the old text.
+- A completed stage becomes one line. No changelog, journal or README per folder.
 
-## Trabalho entre agentes
+## Work between agents
 
-- Uma tarefa por branch, com nome curto e descritivo em inglês, como `atomic-save`. Em paralelo, use um
-  worktree por agente em `../docdock-wt/<branch>`.
-- Confira `git status` e `git log -10` antes de começar e não mexa em mudanças alheias.
-- Só faça merge em `main` quando o usuário pedir.
-- Revisão por agente de outro fornecedor, só do diff: ao fechar cada etapa e antes de mudanças em
-  persistência, segurança ou plugins. Protótipos ficam de fora.
-- Ao fechar uma etapa, dispare o CI manual, se houver remoto.
-- `pnpm tauri dev` usa a porta 1420 e o app ocupa a borda da tela: uma instância por vez na máquina.
+- One task per branch, with a short descriptive English name, such as `atomic-save`. In parallel, use one
+  worktree per agent in `../docdock-wt/<branch>`.
+- Check `git status` and `git log -10` before starting and do not touch others' changes.
+- Merge into `main` only when the user asks.
+- Review by an agent from another provider, diff only: when closing each stage and before changes to
+  persistence, security or plugins. Prototypes are excluded.
+- When closing a stage, trigger CI manually if there is a remote.
+- `pnpm tauri dev` uses port 1420 and the app occupies the screen edge: one instance per machine.
 
-## Decisões
+## Decisions
 
-Registre em `docs/decisions/` só o que for caro de reverter: formato de dados, segurança, plugins ou
-biblioteca central. Use o próximo número e as seções Contexto, Decisão e Consequências.
+Record in `docs/decisions/` only what is costly to reverse: data format, security, plugins or a central
+library. Use the next number and the sections Context, Decision and Consequences.
 
-Decida sozinho questões técnicas reversíveis. Pergunte ao usuário apenas sobre comportamento do
-produto, aparência sem referência definida, custos e ações difíceis de desfazer.
+Decide reversible technical matters yourself. Ask the user only about product behavior, appearance without
+a defined reference, costs and actions that are hard to undo.
 
-## Idioma
+## Language
 
-Tudo no repositório em inglês: código, comentários, commits, PRs, branches e documentação. Respostas ao
-usuário em português do Brasil. Textos da interface passam pela internacionalização, com inglês como
-padrão e pt-BR.
+Everything in the repository is in English: code, comments, commits, PRs, branches and documentation.
+Replies to the user are in Brazilian Portuguese. UI text goes through internationalization, with English
+as the default and pt-BR.
