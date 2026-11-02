@@ -46,3 +46,23 @@ pub async fn web_open(
 pub fn web_close(app: AppHandle) -> Result<(), String> {
     web::close(&app)
 }
+
+#[tauri::command]
+pub fn notes_folder(app: AppHandle) -> Result<Option<crate::notes::Folder>, String> {
+    crate::notes::folder(&app)
+}
+#[tauri::command]
+pub async fn notes_choose(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+) -> Result<Option<crate::notes::Folder>, String> {
+    crate::notes::choose(&app, &requests)
+}
+#[tauri::command]
+pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, String> {
+    crate::notes::list_for(&app)
+}
+#[tauri::command]
+pub fn notes_open(app: AppHandle, path: String) -> Result<String, String> {
+    crate::notes::open(&app, &path)
+}

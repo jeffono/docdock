@@ -2,6 +2,7 @@
 
 mod commands;
 mod dock;
+mod notes;
 pub mod panel;
 mod platform;
 mod tray;
@@ -20,6 +21,10 @@ pub fn run() {
         commands::panel_set_editing,
         commands::web_open,
         commands::web_close,
+        commands::notes_folder,
+        commands::notes_choose,
+        commands::notes_list,
+        commands::notes_open,
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
@@ -27,6 +32,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             tray::setup(app)?;
             let window = app
