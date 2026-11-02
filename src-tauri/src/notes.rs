@@ -1,7 +1,7 @@
 //! Local note storage and validation.
-use crate::dock::Request;
+use crate::dock::{Request, Side};
 use percent_encoding::percent_decode_str;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     fs,
     path::{Component, Path, PathBuf},
@@ -18,9 +18,16 @@ pub const IMAGE_SCHEME: &str = "note-asset";
 /// A third-party note must not block the UI: conversion and inserting HTML into the DOM are costly.
 const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 struct Settings {
-    folder: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<PathBuf>,
+    #[serde(default, deserialize_with = "side_or_default")]
+    side: Side,
+}
+/// An unknown side must not make the folder unreadable.
+fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
+    Ok(Side::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 #[derive(Serialize)]
 pub struct Folder {
@@ -38,10 +45,26 @@ fn config(app: &AppHandle) -> Result<PathBuf, String> {
         .map(|p| p.join("settings.json"))
         .map_err(|e| e.to_string())
 }
-fn read_settings(path: &Path) -> Option<PathBuf> {
-    serde_json::from_slice::<Settings>(&fs::read(path).ok()?)
+/// Missing or corrupt settings read as the defaults.
+fn load(path: &Path) -> Settings {
+    fs::read(path)
         .ok()
-        .map(|s| s.folder)
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+fn read_settings(path: &Path) -> Option<PathBuf> {
+    load(path).folder
+}
+pub fn side(app: &AppHandle) -> Side {
+    config(app).map(|p| load(&p).side).unwrap_or_default()
+}
+pub fn set_side(app: &AppHandle, side: Side) -> Result<(), String> {
+    let path = config(app)?;
+    let settings = Settings {
+        side,
+        ..load(&path)
+    };
+    save(&path, &settings)
 }
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, String> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
@@ -49,13 +72,13 @@ pub fn folder(app: &AppHandle) -> Result<Option<Folder>, String> {
         available: p.is_dir(),
     }))
 }
-fn save(path: &Path, folder: PathBuf) -> Result<(), String> {
+fn save(path: &Path, settings: &Settings) -> Result<(), String> {
     fs::create_dir_all(path.parent().ok_or("Pasta de configuração inválida")?)
         .map_err(|e| e.to_string())?;
     let temp = path.with_extension("json.tmp");
     fs::write(
         &temp,
-        serde_json::to_vec(&Settings { folder }).map_err(|e| e.to_string())?,
+        serde_json::to_vec(settings).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     fs::rename(&temp, path).map_err(|e| e.to_string())
@@ -77,8 +100,15 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     // Owned by the panel, the picker stays above it and does not open a second picker.
     let dialog = app.dialog().file().set_parent(&window);
     if let Some(path) = dialog.blocking_pick_folder() {
-        let path = path.into_path().map_err(|e| e.to_string())?;
-        save(&config(app)?, path)?;
+        let folder = Some(path.into_path().map_err(|e| e.to_string())?);
+        let config = config(app)?;
+        save(
+            &config,
+            &Settings {
+                folder,
+                ..load(&config)
+            },
+        )?;
     }
     folder(app)
 }
@@ -357,8 +387,17 @@ mod tests {
     fn replaces_configuration() {
         let t = Temp::new();
         let p = t.0.join("settings.json");
-        save(&p, t.0.join("a")).unwrap();
-        save(&p, t.0.join("b")).unwrap();
+        let settings = |name| Settings {
+            folder: Some(t.0.join(name)),
+            side: Side::Left,
+        };
+        save(&p, &settings("a")).unwrap();
+        save(&p, &settings("b")).unwrap();
         assert_eq!(read_settings(&p), Some(t.0.join("b")));
+        assert_eq!(load(&p).side, Side::Left);
+        // Older files have no side; an unknown side reads as right and keeps the folder.
+        fs::write(&p, r#"{"folder":"x","side":"top"}"#).unwrap();
+        assert_eq!(load(&p).side, Side::Right);
+        assert_eq!(read_settings(&p), Some(PathBuf::from("x")));
     }
 }
