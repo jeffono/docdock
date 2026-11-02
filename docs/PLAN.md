@@ -5,9 +5,9 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-M1 na branch de integração `tarefa/m1`. Falta a identidade visual, que depende da escolha do usuário, e
-`DESIGN.md`. O usuário ainda testa "Sair" e "Iniciar com o Windows" na bandeja, o atalho no teclado físico
-e a escolha de uma pasta real.
+M1 na branch de integração `tarefa/m1`. Falta aprovar a captura da identidade A e testar com referências
+reais: bandeja, atalho no teclado físico, escolha de pasta e link externo. Revisão do atalho e do markdown
+em curso.
 
 ## Concluídas
 
@@ -21,8 +21,8 @@ e a escolha de uma pasta real.
 - [x] (padrão) Renderizar markdown com tabelas e imagens locais
 - [x] (padrão) Ícone na bandeja, instância única e início com o Windows
 - [x] (avançado) Atalho global que abre e fecha o painel
-- [ ] (avançado) Primeira definição visual, usando `tokens.css`
-- [ ] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento
+- [x] (avançado) Primeira definição visual, usando `tokens.css`
+- [x] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento
 - [x] (básico) Reprovar cor fixa fora de `tokens.css` no `check:fast`
 
 **Pronto quando:** você consultar suas referências reais pelo painel no dia a dia.

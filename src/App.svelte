@@ -1,94 +1,64 @@
 <script lang="ts">
 import Notes from "./lib/features/notes/Notes.svelte";
-import { panelActivate, panelSetEditing, panelSetPinned, webClose, webOpen } from "./lib/ipc";
+import WebBar from "./lib/features/web/WebBar.svelte";
+import { panelActivate, panelSetPinned, webClose } from "./lib/ipc";
+import IconButton from "./lib/ui/IconButton.svelte";
 
 let pinned = $state(false);
-let url = $state("https://github.com");
-let webError = $state("");
-
-async function openPage(event: SubmitEvent) {
-  event.preventDefault();
-  try {
-    webError = "";
-    await webOpen(url);
-  } catch (error) {
-    webError = String(error);
-  }
-}
+let web = $state(false);
 
 function togglePin() {
   pinned = !pinned;
   panelSetPinned(pinned);
 }
 
-function leaveField(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    (event.currentTarget as HTMLElement).blur();
+function toggleWeb() {
+  if (web) {
+    webClose();
   }
+  web = !web;
 }
 </script>
 
 <svelte:window onpointerdown={panelActivate} />
 
 <main>
-  <h1>DocDock</h1>
-  <button onclick={togglePin}>{pinned ? "Desafixar" : "Fixar"}</button>
-  <form onsubmit={openPage}>
-    <input
-      bind:value={url}
-      aria-label="Endereço da página"
-      onfocus={() => panelSetEditing(true)}
-      onblur={() => panelSetEditing(false)}
-      onkeydown={leaveField}
-    />
-    <button type="submit">Abrir</button>
-    <button type="button" onclick={webClose}>Fechar página</button>
-  </form>
-  {#if webError}
-    <p>{webError}</p>
+  <header>
+    <h1>DocDock</h1>
+    <IconButton icon="globe" label="Página web" pressed={web} onclick={toggleWeb} />
+    <IconButton icon="pin" label="Fixar painel" pressed={pinned} onclick={togglePin} />
+  </header>
+  {#if web}
+    <WebBar />
   {/if}
   <Notes />
-  <textarea
-    placeholder="Clique para digitar; Esc sai do campo"
-    onfocus={() => panelSetEditing(true)}
-    onblur={() => panelSetEditing(false)}
-    onkeydown={leaveField}
-  ></textarea>
 </main>
 
 <style>
   main {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    height: 100vh;
     box-sizing: border-box;
-    padding: var(--space-4);
+    height: 100%;
+    border-left: 1px solid var(--color-line);
+  }
+
+  header {
+    display: flex;
+    flex: none;
+    gap: var(--space-2);
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--size-bar);
+    padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--color-line);
   }
 
   h1 {
+    flex: 1;
     margin: 0;
     font-size: var(--font-size-lg);
-  }
-
-  form {
-    display: flex;
-    gap: var(--space-2);
-  }
-
-  input {
-    flex: 1;
-    min-width: 0;
-  }
-
-  p {
-    margin: 0;
-    font-size: var(--font-size-sm);
-  }
-
-  textarea {
-    flex: 1;
-    resize: none;
-    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: var(--tracking-tight);
   }
 </style>

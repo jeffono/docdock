@@ -12,8 +12,8 @@ const SLIDE: Duration = Duration::from_millis(150);
 /// Largura em pixels lógicos; no monitor vira `largura * dpi / 96`.
 const PANEL_WIDTH: u32 = 420;
 const BASE_DPI: u32 = 96;
-/// Altura da barra acima da página, em pixels lógicos.
-const WEB_TOP: u32 = 150;
+/// Duas barras acima da página, em pixels lógicos: o dobro de `--size-bar` em `tokens.css`.
+const WEB_TOP: u32 = 88;
 
 /// Pedidos da UI para a thread do painel.
 #[derive(Debug, Clone, Copy)]
