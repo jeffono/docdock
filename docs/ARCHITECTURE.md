@@ -109,15 +109,23 @@ markdown before sending it to the UI, which has no filesystem permission.
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
 opening, writes only if the file still has version `base` and returns the new version; otherwise it
 answers `conflict` and writes nothing. Content equal to the file counts as saved without writing. Text
-goes to disk exactly as received, without touching line endings. Saves are serialized in Rust; an external
-writer can still slip in between the check and the rename, a window of milliseconds.
+goes to disk exactly as received, without touching line endings. Saves are serialized in Rust, and the
+check is confirmed against the version actually replaced, so an external write that slips in is never
+overwritten.
 
-**Atomic writes.** Notes and `settings.json` are written to `<name>.docdock-tmp` in the same folder, synced
-to disk and renamed over the original with `fs::rename`, which replaces in one step: any failure leaves the
-original intact and the temporary file is removed. `ReplaceFileW` would keep more metadata, but some of its
-failures leave nothing under the original name; only the creation time is carried over. The temporary
-extension is not `.md`, so listing ignores leftovers. A file another app holds open without delete sharing
-cannot be replaced, and the save fails.
+**Atomic writes.** Each write creates its files next to the target with unique names,
+`<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
+leftovers, and a write never deletes a file it did not create. `settings.json` is written to a synced
+temporary file and renamed over the original; folder and side updates run load, change and save under one
+lock. A note goes through `ReplaceFileW`, which keeps the file's identity, ACL and creation time and moves
+the replaced file to the backup name. The backup is then opened without sharing: if it is still the base
+version (or our text), it is deleted through that handle and the save succeeds. Otherwise, or if another
+app still has it open, an external write slipped in: two renames put it back at the note, which works
+while the other app holds it, our copy is deleted only if it still matches the text the editor keeps, and
+the answer is `conflict`. When `ReplaceFileW` fails, the note keeps its name, or it is renamed back from
+the backup (`ERROR_UNABLE_TO_MOVE_REPLACEMENT_2`). Any version that cannot be put back stays on disk and
+the error names it. A file another app holds open without delete sharing cannot be replaced, and the save
+fails.
 
 **Autosave.** `features/notes/autosave.ts` saves the whole text after a pause in edits, with one save in
 flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps

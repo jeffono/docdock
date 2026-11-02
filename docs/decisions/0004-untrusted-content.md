@@ -43,3 +43,6 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
   `on_new_window` for this.
 - The `note-asset` path is relative to the notes folder, with percent-encoding. The renderer rewrites
   `src` to `http://note-asset.localhost/<path>`.
+- Accepted risk: swapping a folder in the notes tree for a junction between `resolve` and the write can
+  redirect a save; it needs concurrent local write access to the tree and a target holding the same bytes
+  as the base version. Handle-based validation is deferred.

@@ -64,6 +64,17 @@ describe("autosave", () => {
     expect(autosave.unsaved()).toBeNull();
   });
 
+  it("reports the text in flight as unsaved until the save is confirmed", async () => {
+    const { autosave, calls } = setup();
+    autosave.edit("a");
+    await wait(100);
+    expect(calls).toHaveLength(1);
+    expect(autosave.unsaved()).toBe("a");
+    calls[0].resolve({ status: "saved", version: "v1" });
+    await wait();
+    expect(autosave.unsaved()).toBeNull();
+  });
+
   it("flush waits for the save in flight and saves the queued edit", async () => {
     const { autosave, calls } = setup();
     autosave.edit("a");

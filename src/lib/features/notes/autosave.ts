@@ -34,6 +34,8 @@ export function createAutosave({
 }: AutosaveOptions): Autosave {
   let state: AutosaveState = "saved";
   let pending: string | null = null;
+  /** Text of the save in flight, until the file is confirmed to hold it. */
+  let sending: string | null = null;
   let inFlight: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -54,6 +56,7 @@ export function createAutosave({
   function start(): Promise<void> {
     const content = pending as string;
     pending = null;
+    sending = content;
     set("saving");
     const saving = (async () => {
       try {
@@ -70,6 +73,7 @@ export function createAutosave({
         pending ??= content;
         set("error", error);
       }
+      sending = null;
     })();
     // `then` runs after this assignment even if `save` throws synchronously.
     inFlight = saving.then(() => {
@@ -99,6 +103,6 @@ export function createAutosave({
         if (state === "error") return state;
       }
     },
-    unsaved: () => pending,
+    unsaved: () => pending ?? sending,
   };
 }

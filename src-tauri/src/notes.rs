@@ -1,13 +1,20 @@
 //! Local note storage and validation.
 use crate::dock::{Request, Side};
+use crate::platform;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     fs,
     hash::{DefaultHasher, Hasher},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
-    sync::{Mutex, mpsc::Sender},
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc::Sender,
+    },
+    thread,
+    time::Duration,
 };
 use tauri::http::header::{CACHE_CONTROL, CONTENT_TYPE, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{Response, StatusCode};
@@ -20,8 +27,10 @@ pub const IMAGE_SCHEME: &str = "note-asset";
 /// A third-party note must not block the UI: conversion and inserting HTML into the DOM are costly.
 const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
 
-/// Appended to the replaced file's name. The extension is no longer `.md`, so `collect` skips it.
-const TEMP_SUFFIX: &str = ".docdock-tmp";
+/// Extensions of the files a write creates next to its target. They are not `.md`, so `collect` skips
+/// them.
+const TEMP_SUFFIX: &str = "docdock-tmp";
+const BACKUP_SUFFIX: &str = "docdock-bak";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
@@ -75,13 +84,17 @@ fn read_settings(path: &Path) -> Option<PathBuf> {
 pub fn side(app: &AppHandle) -> Side {
     config(app).map(|p| load(&p).side).unwrap_or_default()
 }
-pub fn set_side(app: &AppHandle, side: Side) -> Result<(), String> {
+/// Held across load, change and save, so a folder change and a side change do not undo each other.
+static SETTINGS: Mutex<()> = Mutex::new(());
+fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<(), String> {
     let path = config(app)?;
-    let settings = Settings {
-        side,
-        ..load(&path)
-    };
+    let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = load(&path);
+    change(&mut settings);
     save(&path, &settings)
+}
+pub fn set_side(app: &AppHandle, side: Side) -> Result<(), String> {
+    update(app, |settings| settings.side = side)
 }
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, String> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
@@ -98,37 +111,54 @@ fn save(path: &Path, settings: &Settings) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())
 }
-/// Writes a complete temporary file next to `path` and renames it over `path`. Any failure leaves the
-/// previous file intact. `fs::rename` replaces in one step; `ReplaceFileW` keeps more metadata but has
-/// failure modes that leave nothing under the original name, so only the creation time is carried over.
+/// Writes a complete temporary file next to `path` and renames it over `path` in one step. Any failure
+/// leaves the previous file intact. Only for the app's own settings; notes use `replace_note`.
 fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let mut name = path
-        .file_name()
-        .ok_or(io::ErrorKind::InvalidInput)?
-        .to_os_string();
-    name.push(TEMP_SUFFIX);
-    let temp = path.with_file_name(name);
-    // A leftover could be a planted link; `create_new` does not open through it.
-    let _ = fs::remove_file(&temp);
-    let result = write_temp(&temp, path, bytes).and_then(|()| fs::rename(&temp, path));
-    if result.is_err() {
+    let temp = write_temp(path, bytes)?;
+    fs::rename(&temp, path).inspect_err(|_| {
         let _ = fs::remove_file(&temp);
-    }
-    result
+    })
 }
-#[cfg_attr(not(windows), allow(unused_variables))]
-fn write_temp(temp: &Path, original: &Path, bytes: &[u8]) -> io::Result<()> {
+fn exists(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+/// Distinguishes the files of concurrent operations within the process; the process id distinguishes
+/// processes.
+static NEXT_SIBLING: AtomicU64 = AtomicU64::new(0);
+/// An unused name next to `path`: `<name>.<pid>-<n>.<suffix>`. Leftovers of a crash are skipped, never
+/// reused or deleted: they may hold the only copy of a version.
+fn sibling(path: &Path, suffix: &str) -> io::Result<PathBuf> {
+    let name = path.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+    loop {
+        let n = NEXT_SIBLING.fetch_add(1, Ordering::Relaxed);
+        let mut unique = name.to_os_string();
+        unique.push(format!(".{}-{n}.{suffix}", std::process::id()));
+        let candidate = path.with_file_name(unique);
+        match fs::symlink_metadata(&candidate) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(candidate),
+            Err(e) => return Err(e),
+            Ok(_) => {}
+        }
+    }
+}
+/// Creates a temporary file next to `path` holding `bytes`, synced to disk. On failure it is removed:
+/// this operation created it.
+fn write_temp(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
+    let temp = sibling(path, TEMP_SUFFIX)?;
+    // `create_new` does not open through a link planted under the name.
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(temp)?;
-    file.write_all(bytes)?;
-    #[cfg(windows)]
-    if let Ok(created) = fs::metadata(original).and_then(|m| m.created()) {
-        use std::os::windows::fs::FileTimesExt;
-        file.set_times(fs::FileTimes::new().set_created(created))?;
+        .open(&temp)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    match written {
+        Ok(()) => Ok(temp),
+        Err(e) => {
+            let _ = fs::remove_file(&temp);
+            Err(e)
+        }
     }
-    file.sync_all()
 }
 struct DialogGuard(Sender<Request>);
 impl Drop for DialogGuard {
@@ -148,14 +178,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     let dialog = app.dialog().file().set_parent(&window);
     if let Some(path) = dialog.blocking_pick_folder() {
         let folder = Some(path.into_path().map_err(|e| e.to_string())?);
-        let config = config(app)?;
-        save(
-            &config,
-            &Settings {
-                folder,
-                ..load(&config)
-            },
-        )?;
+        update(app, |settings| settings.folder = folder)?;
     }
     folder(app)
 }
@@ -268,25 +291,111 @@ pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, String> {
 }
 /// Serializes saves so the conflict check and the write are not interleaved within the app.
 static SAVING: Mutex<()> = Mutex::new(());
-/// Writes `content` only if the file still holds the version identified by `base`. An external writer
-/// can still slip in between the check and the rename; the window is a few milliseconds.
+/// Writes `content` only if the file still holds the version identified by `base`. The early check
+/// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, String> {
     too_large(content.len() as u64)?;
     let target = resolve(root, relative, markdown)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     let current = read_bytes(&target)?;
-    let saved = Saved::Saved {
-        version: version(content.as_bytes()),
-    };
     if current == content.as_bytes() {
-        return Ok(saved);
+        return Ok(Saved::Saved {
+            version: version(&current),
+        });
     }
     if version(&current) != base {
         return Ok(Saved::Conflict);
     }
-    write_atomic(&target, content.as_bytes())
-        .map_err(|e| format!("Não foi possível salvar a nota: {e}"))?;
-    Ok(saved)
+    replace_note(&target, content.as_bytes(), base)
+}
+/// Replaces `target` with `content` through `ReplaceFileW`, which moves the replaced file to a backup:
+/// those are exactly the bytes that were overwritten, even if another app wrote after the check above.
+fn replace_note(target: &Path, content: &[u8], base: &str) -> Result<Saved, String> {
+    let fail = |e: io::Error| format!("Não foi possível salvar a nota: {e}");
+    let backup = sibling(target, BACKUP_SUFFIX).map_err(fail)?;
+    let temp = write_temp(target, content).map_err(fail)?;
+    if let Err(e) = replace(target, &temp, &backup) {
+        // Still ours: the target never took it.
+        let _ = fs::remove_file(&temp);
+        return Err(fail(e));
+    }
+    settle(target, &backup, content, base)
+}
+/// `ReplaceFileW` with its failures undone. `ERROR_UNABLE_TO_REMOVE_REPLACED` and
+/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT` (with a backup name) leave every file under its own name;
+/// `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` leaves `target` under the `backup` name, so it is moved back.
+/// Checking the names instead of the code also covers undocumented failures.
+fn replace(target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
+    let Err(error) = platform::replace_file(target, replacement, backup) else {
+        return Ok(());
+    };
+    // `move_new` refuses to overwrite: if something took the name meanwhile, both files stay.
+    if exists(backup)
+        && let Err(undo) = platform::move_new(backup, target)
+    {
+        return Err(io::Error::other(format!(
+            "{error}; a versão anterior ficou em {}: {undo}",
+            backup.display()
+        )));
+    }
+    Err(error)
+}
+/// Decides the save after the replace: `target` holds `content` and `backup` the replaced file. If the
+/// backup is not `base`, an external write slipped in: it goes back to `target`, our copy is discarded
+/// (the editor keeps the text) and the answer is a conflict. A version is deleted only once an identical
+/// copy is at `target` or, for `content`, in the editor; anything else stays on disk and is reported.
+fn settle(target: &Path, backup: &Path, content: &[u8], base: &str) -> Result<Saved, String> {
+    if discard_if(backup, |old| old == content || version(old) == base) {
+        return Ok(Saved::Saved {
+            version: version(content),
+        });
+    }
+    let kept = |e: &dyn std::fmt::Display| {
+        format!(
+            "A nota mudou fora do app; a versão externa ficou em {}: {e}",
+            backup.display()
+        )
+    };
+    let ours = sibling(target, BACKUP_SUFFIX).map_err(|e| kept(&e))?;
+    swap_back(target, backup, &ours).map_err(|e| kept(&e))?;
+    if discard_if(&ours, |copy| copy == content) {
+        return Ok(Saved::Conflict);
+    }
+    Err(format!(
+        "A nota mudou fora do app durante o salvamento; uma cópia ficou em {}",
+        ours.display()
+    ))
+}
+/// Moves `target` aside to `ours` and `backup` back to `target`. The backup is the original file itself,
+/// so its identity returns with it, and renaming works while another app still has it open, where
+/// `ReplaceFileW` fails with a sharing violation. The name is absent for an instant between the renames.
+fn swap_back(target: &Path, backup: &Path, ours: &Path) -> io::Result<()> {
+    platform::move_new(target, ours)?;
+    platform::move_new(backup, target).map_err(|error| match platform::move_new(ours, target) {
+        Ok(()) => error,
+        Err(undo) => io::Error::other(format!(
+            "{error}; o texto salvo ficou em {}: {undo}",
+            ours.display()
+        )),
+    })
+}
+/// Deletes `path` only if `matches` accepts its bytes, read through a handle no other process shares,
+/// so nothing writes between the check and the delete. A file still open elsewhere may still change, so
+/// it is kept; a few short retries let a scanner or sync client close it first.
+fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
+    for _ in 0..5 {
+        match platform::open_exclusive(path) {
+            Ok(Some(mut file)) => {
+                let mut bytes = Vec::new();
+                return file.read_to_end(&mut bytes).is_ok()
+                    && matches(&bytes)
+                    && platform::delete_on_close(&file).is_ok();
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(20)),
+            Err(_) => return false,
+        }
+    }
+    false
 }
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, String> {
     save_note_in(&root(app)?, path, content, base)
@@ -374,14 +483,6 @@ mod tests {
             .success()
     }
     #[test]
-    fn corrupt_and_missing_configuration() {
-        let t = Temp::new();
-        let p = t.0.join("settings.json");
-        assert!(read_settings(&p).is_none());
-        fs::write(&p, "{").unwrap();
-        assert!(read_settings(&p).is_none());
-    }
-    #[test]
     fn list_filters_and_sorts() {
         let t = Temp::new();
         fs::create_dir(t.0.join(".oculta")).unwrap();
@@ -467,12 +568,14 @@ mod tests {
         }
     }
     #[test]
-    fn rejects_oversized_note() {
+    fn oversized_notes_are_neither_read_nor_saved() {
         let t = Temp::new();
         let p = t.0.join("grande.md");
         fs::write(&p, vec![b'x'; MAX_NOTE_BYTES as usize]).unwrap();
         assert!(read_note(&p).is_ok());
-        fs::write(&p, vec![b'x'; MAX_NOTE_BYTES as usize + 1]).unwrap();
+        let grande = "x".repeat(MAX_NOTE_BYTES as usize + 1);
+        assert!(save_note_in(&t.0, "grande.md", &grande, "").is_err());
+        fs::write(&p, &grande).unwrap();
         assert!(read_note(&p).is_err());
     }
     #[test]
@@ -499,10 +602,21 @@ mod tests {
             })
         );
 
-        let grande = "x".repeat(MAX_NOTE_BYTES as usize + 1);
-        assert!(save_note_in(&notas, "a.md", &grande, &version_dois).is_err());
         assert!(save_note_in(&notas, "../fora.md", "x", &version(b"fora")).is_err());
         assert_eq!(fs::read_to_string(&fora).unwrap(), "fora");
+
+        // An external write between the check and the replace ends up in the backup: it goes back to
+        // the note, our copy is discarded and nothing else is left.
+        let backup = notas.join("a.md.0-0.docdock-bak");
+        fs::write(&backup, "externo2").unwrap();
+        let conflict = settle(&p, &backup, b"dois\r\n", &version(b"externo"));
+        assert_eq!(conflict, Ok(Saved::Conflict));
+        assert_eq!(fs::read_to_string(&p).unwrap(), "externo2");
+        assert_eq!(fs::read_dir(&notas).unwrap().count(), 1);
+        fs::write(&backup, "externo2").unwrap();
+        let saved = settle(&p, &backup, b"tres", &version(b"externo2"));
+        assert!(matches!(saved, Ok(Saved::Saved { .. })));
+        assert_eq!(fs::read_dir(&notas).unwrap().count(), 1);
     }
     #[test]
     fn failed_save_keeps_original_and_removes_temp() {
@@ -510,7 +624,11 @@ mod tests {
         let t = Temp::new();
         let p = t.0.join("a.md");
         fs::write(&p, "original").unwrap();
-        // Another app holding the note without delete sharing makes the rename fail.
+        // A temp left by a crash is never deleted, reused or listed as a note.
+        let leftover =
+            t.0.join(format!("a.md.{}-0.{TEMP_SUFFIX}", std::process::id()));
+        fs::write(&leftover, "novo").unwrap();
+        // Another app holding the note without delete sharing makes the replace fail.
         let lock = fs::OpenOptions::new()
             .read(true)
             .share_mode(1) // FILE_SHARE_READ
@@ -520,9 +638,8 @@ mod tests {
         assert!(error.contains("salvar"), "{error}");
         drop(lock);
         assert_eq!(fs::read_to_string(&p).unwrap(), "original");
-        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 1);
-        // A temp left by a crash is never listed as a note.
-        fs::write(t.0.join(format!("a.md{TEMP_SUFFIX}")), "novo").unwrap();
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 2);
+        assert_eq!(fs::read_to_string(&leftover).unwrap(), "novo");
         let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
         assert_eq!(paths, ["a.md"]);
     }
@@ -530,6 +647,10 @@ mod tests {
     fn replaces_configuration() {
         let t = Temp::new();
         let p = t.0.join("settings.json");
+        // Missing or corrupt settings read as the defaults.
+        assert!(read_settings(&p).is_none());
+        fs::write(&p, "{").unwrap();
+        assert!(read_settings(&p).is_none());
         let settings = |name| Settings {
             folder: Some(t.0.join(name)),
             side: Side::Left,

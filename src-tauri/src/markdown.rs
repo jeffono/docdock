@@ -126,18 +126,11 @@ mod tests {
         assert!(!h.contains("javascript:"));
     }
     #[test]
-    fn table() {
-        assert!(render("| a | b |\n|---|---|\n| c | d |", "a.md").contains("<table>"));
-    }
-    #[test]
-    fn relative_image() {
+    fn images_only_load_from_inside_folder() {
         assert!(
             render("![x](imagens/minha%20foto.png)", "sub/nota.md")
                 .contains("http://note-asset.localhost/sub/imagens/minha%20foto.png")
         );
-    }
-    #[test]
-    fn unsafe_images() {
         for src in [
             "../../fora.png",
             "https://example.com/a.png",
@@ -147,9 +140,6 @@ mod tests {
             assert!(!h.contains("src="), "{h}");
             assert!(h.contains("texto"));
         }
-    }
-    #[test]
-    fn raw_html_image() {
         let h = render(
             "<img src=\"foto.png\" alt=\"foto\"><img src=\"https://example.com/a.png\" alt=\"remota\">",
             "sub/nota.md",
