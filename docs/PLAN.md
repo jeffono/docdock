@@ -5,11 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing.
-
-## Before M2
-
-- [ ] (basic) Migrate documentation, plan, comments and test names to English; commit history stays as is
+- `screen-side` and `atomic-save` in parallel worktrees.
 
 ## Completed
 
