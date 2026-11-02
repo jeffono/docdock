@@ -1,4 +1,5 @@
 <script lang="ts">
+import Notes from "./lib/features/notes/Notes.svelte";
 import { panelActivate, panelSetEditing, panelSetPinned, webClose, webOpen } from "./lib/ipc";
 
 let pinned = $state(false);
@@ -46,6 +47,7 @@ function leaveField(event: KeyboardEvent) {
   {#if webError}
     <p>{webError}</p>
   {/if}
+  <Notes />
   <textarea
     placeholder="Clique para digitar; Esc sai do campo"
     onfocus={() => panelSetEditing(true)}

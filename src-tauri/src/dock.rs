@@ -21,6 +21,7 @@ pub enum Request {
     Activate,
     SetPinned(bool),
     SetEditing(bool),
+    SetDialog(bool),
     /// A janela da página web foi criada, ainda invisível.
     AttachWeb(isize),
 }
@@ -130,6 +131,7 @@ struct Dock {
     x: i32,
     panel: Panel,
     editing: bool,
+    dialog: bool,
     /// Último app em primeiro plano fora do painel, para devolver o foco ao fechar.
     previous_focus: Option<isize>,
     slide: Option<Slide>,
@@ -172,6 +174,10 @@ impl Dock {
                 self.editing = editing;
                 Action::None
             }
+            Request::SetDialog(dialog) => {
+                self.dialog = dialog;
+                Action::None
+            }
             Request::AttachWeb(raw) => {
                 let rect = web_rect(&self.monitor, self.rect);
                 let right = self.monitor.bounds.right;
@@ -206,7 +212,7 @@ impl Dock {
         let editing = self.editing && self.window.is_foreground();
         let tick = Input::Tick {
             zone,
-            editing: editing || page_focused,
+            editing: editing || page_focused || self.dialog,
         };
         let action = self.panel.step(tick, Instant::now());
         self.apply(action);
@@ -316,6 +322,7 @@ pub fn start(raw_window: isize, requests: Receiver<Request>) {
         x: parked_x,
         panel: Panel::new(Delays::default()),
         editing: false,
+        dialog: false,
         previous_focus: None,
         slide: None,
     };

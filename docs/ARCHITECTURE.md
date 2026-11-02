@@ -16,6 +16,7 @@ src-tauri/src/           Backend (Rust)
   panel.rs               Máquina de estados pura do painel
   dock.rs                Thread que liga cursor, máquina de estados e janelas
   web.rs                 Janela da página web, com conteúdo não confiável
+  notes.rs               Pasta, listagem e leitura segura de notas
   commands/              Comandos Tauri: camada fina que delega
   platform/              Código específico de sistema operacional
 ```
@@ -71,3 +72,7 @@ DPI por monitor (PMv2).
 - **Painel recolhido (_planejado_):** o WebView2 reduz o uso de memória enquanto oculto.
 - **Troca de monitores:** a cada consulta do cursor, o painel relê os monitores. Se layout, resolução, DPI
   ou barra de tarefas mudarem o monitor escolhido, as janelas vão para o novo lugar sem animação.
+
+## Notas
+
+`notes.rs` guarda a pasta escolhida em `settings.json` na configuração do app e lista arquivos Markdown recursivamente, sem pastas ocultas ou pontos de reanálise. A abertura valida o caminho e confere o destino canônico dentro da pasta. O seletor nativo mantém o painel aberto; a interface recebe apenas texto cru pelo IPC.
