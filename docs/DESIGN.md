@@ -1,63 +1,63 @@
 # Design
 
-Identidade escolhida pelo usuário: utilitário do sistema, neutro e compacto. Valores ficam em
-`src/lib/styles/tokens.css`; este arquivo diz como usá-los. Só o usuário muda a identidade.
+Identity chosen by the user: a neutral, compact system utility. Values live in
+`src/lib/styles/tokens.css`; this file says how to use them. Only the user changes the identity.
 
-## Princípios
+## Principles
 
-- **Consulta rápida:** o painel é estreito e abre por instantes. Conteúdo primeiro, e o mínimo de controles.
-- **Densidade:** mais conteúdo por tela, sem apertar a leitura.
-- **Discreto:** cor é sinal, não decoração.
+- **Quick reference:** the panel is narrow and opens briefly. Content first, with minimal controls.
+- **Density:** more content per screen, without crowding the text.
+- **Subtle:** color is a signal, not decoration.
 
-## Cor
+## Color
 
-- Neutros para quase tudo. O destaque azul marca só seleção, estado ligado, link, foco e ação principal.
-- Tema claro e escuro seguem o Windows. Toda cor nova nasce nos dois temas, em `light-dark`.
-- Vermelho só para erro. Cor fixa fora de `tokens.css` reprova no `check:fast`.
+- Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
+- Light and dark themes follow Windows. Every new color starts in both themes, in `light-dark`.
+- Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
 
-## Tipografia
+## Typography
 
-- Segoe UI em tudo, e Cascadia Mono só em código.
-- Corpo em `--font-size-md`. Listas, campos e tabelas em `--font-size-sm`.
-- Pesos 400 e 600, sem itálico decorativo.
+- Segoe UI throughout, and Cascadia Mono only for code.
+- Body in `--font-size-md`. Lists, fields and tables in `--font-size-sm`.
+- Weights 400 and 600, no decorative italics.
 
-## Espaço e forma
+## Space and shape
 
-- Espaços só da escala `--space-*`, de 4 px em 4 px.
-- Controles com `--size-control`, barras com `--size-bar` e cantos com `--radius-sm`.
-- Linhas de `--color-line` separam áreas; sem sombras.
+- Spacing only from the `--space-*` scale, in 4 px increments.
+- Controls use `--size-control`, bars use `--size-bar` and corners use `--radius-sm`.
+- `--color-line` lines separate areas; no shadows.
 
-## Componentes
+## Components
 
-Use `src/lib/ui/` antes de criar algo. Criar componente só se nada existente servir.
+Use `src/lib/ui/` before creating anything. Create a component only if nothing existing works.
 
-| Componente   | Uso                                                |
-| ------------ | -------------------------------------------------- |
-| `Button`     | Ação principal, no máximo uma por área             |
-| `IconButton` | Ação secundária, sempre com rótulo; liga e desliga |
-| `TextField`  | Entrada de uma linha; Esc sai do campo             |
-| `Icon`       | Traçado do Lucide, cor do texto, largura 2         |
+| Component    | Use                                                  |
+| ------------ | ---------------------------------------------------- |
+| `Button`     | Primary action, at most one per area                 |
+| `IconButton` | Secondary action, always labeled; toggles on and off |
+| `TextField`  | Single-line input; Esc leaves the field              |
+| `Icon`       | Lucide stroke, text color, width 2                   |
 
-## Estados
+## States
 
-- **Hover:** superfície mais clara, sem deslocar nada.
-- **Foco:** contorno de 2 px do destaque, só no teclado.
-- **Selecionado ou ligado:** fundo `--color-selected` com texto em destaque.
-- **Vazio:** uma frase do que fazer e a ação logo abaixo.
-- **Erro:** em vermelho, perto da causa, dizendo o que houve.
+- **Hover:** lighter surface, without shifting anything.
+- **Focus:** 2 px accent outline, keyboard only.
+- **Selected or enabled:** `--color-selected` background with accent text.
+- **Empty:** one sentence explaining what to do and the action immediately below.
+- **Error:** in red, near the cause, saying what happened.
 
-## Movimento
+## Motion
 
-- Deslize do painel em 150 ms, definido em `dock.rs`. Hover em `--duration`.
-- Nada anima por enfeite nem atrasa a consulta.
+- Panel slides in 150 ms, defined in `dock.rs`. Hover uses `--duration`.
+- Nothing animates for decoration or delays access.
 
-## Texto
+## Text
 
-- Português do Brasil, frases curtas e diretas.
-- Botões com verbo no infinitivo: "Abrir", "Escolher pasta".
-- Sem exclamação, sem jargão técnico e sem culpar o usuário.
+- Brazilian Portuguese, short and direct sentences.
+- Buttons with infinitive verbs: "Open", "Choose folder".
+- No exclamation marks, technical jargon or blaming the user.
 
-## Conteúdo renderizado
+## Rendered content
 
-A nota usa só estes tokens, em seletores `:global` dentro de `.note`. A CSP proíbe estilo inline: nenhum
-componente depende de atributo `style`.
+The note uses only these tokens, in `:global` selectors inside `.note`. CSP forbids inline styles: no
+component depends on a `style` attribute.

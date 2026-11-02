@@ -1,110 +1,109 @@
-# Arquitetura
+# Architecture
 
-Estado atual e direção da etapa em curso. O que ainda não existe está marcado como _planejado_.
+Current state and direction of the current stage. What does not yet exist is marked as _planned_.
 
-## Estrutura
+## Structure
 
 ```text
 src/                     UI (Svelte 5 + Vite)
-  App.svelte             Composição da tela, sem regra de negócio
-  lib/ipc.ts             Único ponto que chama o Rust
-  lib/features/<nome>/   Componentes, estado e testes de cada funcionalidade
-  lib/ui/                Componentes visuais genéricos
-  lib/styles/tokens.css  Cores, espaçamentos e tipografia
+  App.svelte             Screen composition, no business rules
+  lib/ipc.ts             Only entry point that calls Rust
+  lib/features/<name>/   Components, state and tests for each feature
+  lib/ui/                Generic visual components
+  lib/styles/tokens.css  Colors, spacing and typography
 src-tauri/src/           Backend (Rust)
-  lib.rs                 Só monta o app e registra módulos
-  panel.rs               Máquina de estados pura do painel
-  dock.rs                Thread que liga cursor, máquina de estados e janelas
-  tray.rs                Bandeja, saída e início com o Windows
-  main_window.rs         Cria a janela principal e limita sua navegação
-  shortcut.rs            Atalho global do painel
-  web.rs                 Janela da página web, com conteúdo não confiável
-  notes.rs               Pasta, listagem, leitura segura de notas e imagens locais
-  commands/              Comandos Tauri: camada fina que delega
-  platform/              Código específico de sistema operacional
+  lib.rs                 Only assembles the app and registers modules
+  panel.rs               Pure panel state machine
+  dock.rs                Thread connecting cursor, state machine and windows
+  tray.rs                Tray, exit and Windows startup
+  main_window.rs         Creates the main window and limits its navigation
+  shortcut.rs            Global panel shortcut
+  web.rs                 Web page window, with untrusted content
+  notes.rs               Folder, listing, safe reading of notes and local images
+  commands/              Tauri commands: thin delegating layer
+  platform/              Operating-system-specific code
 ```
 
-Crie pastas quando a primeira funcionalidade precisar delas.
+Create folders when the first feature needs them.
 
-A bandeja permite encerrar o app e controlar o início com o Windows; uma segunda instância apenas sai.
+The tray allows exiting the app and controlling Windows startup; a second instance simply exits.
 
-## Fluxo
+## Flow
 
 ```mermaid
 flowchart LR
   F["features/*"] --> IPC["lib/ipc.ts"]
-  IPC -- "invoke / eventos" --> C["commands/"]
-  C --> D["regras puras"]
+  IPC -- "invoke / events" --> C["commands/"]
+  C --> D["pure rules"]
   C --> P["platform/ (Win32)"]
-  D --> V[("Pasta de notas .md")]
+  D --> V[(".md notes folder")]
 ```
 
-## Painel
+## Panel
 
-Protótipo da M0. `panel.rs` é uma máquina de estados pura, sem acesso ao Win32:
+M0 prototype. `panel.rs` is a pure state machine, without Win32 access:
 
 ```text
-Oculto → Armando (cursor na borda, aguardando) → Aberto → Fixado
-Oculto → Chamado (pelo atalho) → Dispensado (cursor ainda na borda) → Oculto
+Hidden → Arming (cursor at edge, waiting) → Open → Pinned
+Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidden
 ```
 
-`dock.rs` a liga à janela em uma única thread, que consulta o cursor, recebe os pedidos da UI e anima.
-Assim, abrir, fechar e animar não disputam entre si. Coordenadas são pixels físicos, com consciência de
-DPI por monitor (PMv2).
+`dock.rs` connects it to the window on a single thread, which polls the cursor, receives UI requests and
+animates. Thus opening, closing and animating do not compete. Coordinates are physical pixels, with
+per-monitor DPI awareness (PMv2).
 
-- **Gatilho:** consulta do cursor a cada 50 ms; a borda é a última coluna de pixels do monitor mais à
-  direita, a única que segura o cursor, com pausa de 150 ms. Uma janela fina na borda roubaria cliques de
-  barras de rolagem e botões de janelas maximizadas. Pontos fora desse monitor são ignorados.
-- **Atalho:** `Ctrl+Alt+Espaço`, registrado pelo Rust, sem permissão na capability. Se o registro falhar,
-  a falha vai para o log e o painel segue abrindo pelo cursor. Abre na hora e dá o foco ao painel; aberto
-  pelo cursor, fecha; fixado ou com o seletor nativo aberto, não faz nada. O seletor é modal e religaria
-  a janela do painel oculto.
-- **Aberto pelo atalho:** quem manda é o foco, não o cursor. Fecha pelo atalho, por Esc com o painel em
-  primeiro plano e sem campo em edição, ou quando o foco vai para outro app. A página em foco conta como
-  foco no painel, e o seletor nativo o mantém aberto. Foco nulo, comum em transições do sistema, é
-  ignorado. Depois de fechar assim, a borda só volta a valer quando o cursor sair dela.
-- **Ativação pelo atalho:** a tecla dá ao processo o direito de usar `SetForegroundWindow`, desde que a
-  janela já esteja habilitada. Se a ativação falhar, sem foco a perder, o painel passa a seguir a regra do
-  cursor e não fica preso sobre as outras janelas.
-- **Esc:** cada toque conta uma vez. O toque que sai de um campo ou fecha o seletor já teve dono e não
-  fecha o painel junto, mesmo que a UI avise antes da consulta seguinte.
-- **Expansão:** a janela já existe com o tamanho final, estacionada logo após a borda, e desliza com
-  `SetWindowPos`, sem redimensionar o WebView. Cada quadro espera o `DwmFlush` e a posição vem do tempo
-  real, com alvo de 150 ms.
-- **Monitor vizinho:** a posição estacionada fica fora de todas as telas, porque não há monitor à direita
-  do escolhido. A região da janela ainda é recortada a cada quadro; estacionada, ela fica vazia.
-- **Foco:** a janela usa `WS_EX_NOACTIVATE` e `WS_EX_TOOLWINDOW` e, pelo cursor, abre sem ativar. O
-  `pointerdown` na UI pede a ativação. A cada consulta do cursor, o painel guarda o último app em primeiro
-  plano fora dele e do seletor nativo; ao fechar, o foco volta a esse app, salvo se o usuário já estiver
-  em outro. Se ele não existir mais, o foco vai para a área de trabalho.
-- **Página web:** janela própria (`web.rs`), possuída pelo painel, abaixo da barra do topo. A thread do
-  painel a posiciona e a move com `DeferWindowPos`, na mesma transação da janela principal. Sem
-  `WS_EX_NOACTIVATE`, porque a página não fala com o Rust: o clique ativa a janela pelo Windows.
-  Fica fora da capability `main`, o Tauri recusa comandos de origem remota e `lib.rs` só aceita comandos da
-  janela `main`; `__TAURI_INTERNALS__` existe na página, mas `invoke` falha. Só navega por http(s), fora das origens `*.localhost` do Tauri, e nunca abre outra janela: `target=_blank` e
-  `window.open` navegam na própria janela da página.
-- **Página em foco:** segura o painel aberto, como a edição na UI. Com o cursor fora, Esc devolve o foco
-  ao app anterior e o painel fecha; com o cursor sobre ela, o Esc é da página. Como a página não fala com
-  o Rust, a tecla é lida na consulta do cursor.
-- **Painel oculto:** a janela fica desabilitada. Só `WS_EX_NOACTIVATE` não basta: ao fechar o app em
-  primeiro plano, o Windows ativava o painel fora da tela e o teclado ia para uma janela invisível.
-- **Painel recolhido (_planejado_):** o WebView2 reduz o uso de memória enquanto oculto.
-- **Troca de monitores:** a cada consulta do cursor, o painel relê os monitores. Se layout, resolução, DPI
-  ou barra de tarefas mudarem o monitor escolhido, as janelas vão para o novo lugar sem animação.
+- **Trigger:** cursor polling every 50 ms; the edge is the last pixel column of the rightmost monitor,
+  the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
+  from scrollbars and maximized window buttons. Points outside that monitor are ignored.
+- **Shortcut:** `Ctrl+Alt+Space`, registered by Rust, without permission in the capability. If registration
+  fails, the failure is logged and the panel still opens by cursor. It opens immediately and focuses the
+  panel; if opened by cursor, it closes; if pinned or the native picker is open, it does nothing. The
+  picker is modal and would re-enable the hidden panel window.
+- **Opened by shortcut:** focus governs, not the cursor. It closes via the shortcut, Esc with the panel in
+  the foreground and no field being edited, or when focus moves to another app. A focused page counts as
+  panel focus, and the native picker keeps it open. Null focus, common during system transitions, is
+  ignored. After closing this way, the edge only takes effect again once the cursor leaves it.
+- **Shortcut activation:** the key gives the process the right to use `SetForegroundWindow`, provided the
+  window is already enabled. If activation fails, with no focus to lose, the panel follows the cursor rule
+  and does not get stuck over other windows.
+- **Esc:** each press counts once. The press that leaves a field or closes the picker has already been
+  handled and does not also close the panel, even if the UI reports it before the next poll.
+- **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
+  `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
+  time, targeting 150 ms.
+- **Neighboring monitor:** the parked position is outside all screens, because there is no monitor to the
+  right of the chosen one. The window region is still clipped each frame; when parked, it is empty.
+- **Focus:** the window uses `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW` and opens without activation by
+  cursor. UI `pointerdown` requests activation. At each cursor poll, the panel remembers the last foreground
+  app outside itself and the native picker; on close, focus returns to that app unless the user is already
+  in another. If it no longer exists, focus goes to the desktop.
+- **Web page:** its own window (`web.rs`), owned by the panel, below the top bar. The panel thread positions
+  and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
+  because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
+  capability, Tauri rejects remote-origin commands and `lib.rs` accepts commands only from the `main`
+  window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
+  outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
+  navigate in the page window itself.
+- **Focused page:** keeps the panel open, like editing in the UI. With the cursor outside, Esc returns focus
+  to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
+  does not talk to Rust, the key is read during cursor polling.
+- **Hidden panel:** the window is disabled. `WS_EX_NOACTIVATE` alone is not enough: when the foreground app
+  closed, Windows activated the off-screen panel and the keyboard went to an invisible window.
+- **Collapsed panel (_planned_):** WebView2 reduces memory use while hidden.
+- **Monitor changes:** at each cursor poll, the panel re-reads the monitors. If layout, resolution, DPI or
+  taskbar changes the chosen monitor, the windows move to the new position without animation.
 
-## Notas
+## Notes
 
-`notes.rs` guarda a pasta escolhida em `settings.json`, na configuração do app, e lista os `.md`
-recursivamente, sem pastas ocultas, symlinks ou junctions. A abertura valida o caminho e confere se o
-destino canônico fica dentro da pasta. O seletor nativo mantém o painel aberto. O Rust converte e sanitiza
-o markdown antes de enviá-lo à UI, que não tem permissão de sistema de arquivos.
+`notes.rs` stores the chosen folder in `settings.json`, in the app configuration, and lists `.md` files
+recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
+canonical target is inside the folder. The native picker keeps the panel open. Rust converts and sanitizes
+markdown before sending it to the UI, which has no filesystem permission.
 
-## Conteúdo não confiável
+## Untrusted content
 
-Decisões em [0004](decisions/0004-conteudo-nao-confiavel.md).
+Decisions in [0004](decisions/0004-untrusted-content.md).
 
-- **CSP:** em `tauri.conf.json`, vale só no build final. Em dev, a página vem direto do Vite, sem CSP.
-- **Janela `main`:** `main_window.rs` a cria, navega só na origem da UI e não abre outra janela. Links em
-  conteúdo renderizado não saem dela.
-- **Imagens locais:** `http://note-asset.localhost/<caminho relativo>`, servidas por `notes.rs` só para a
-  janela `main`. Imagens remotas ficam bloqueadas.
+- **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
+- **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
+- **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.

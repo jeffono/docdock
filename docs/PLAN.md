@@ -1,77 +1,76 @@
-# Plano
+# Plan
 
-Cada tarefa indica o nível de modelo (ver `AGENTS.md`). Marque `[x]` no commit que a conclui e detalhe
-cada etapa quando ela for a próxima.
+Each task indicates the model level (see `AGENTS.md`). Mark `[x]` in the commit that completes it and
+detail each stage when it is next.
 
-## Em andamento
+## In progress
 
-Nada.
+Nothing.
 
-## Antes da M2
+## Before M2
 
-- [ ] (básico) Migrar para o inglês documentação, plano, comentários e nomes de testes; o histórico de
-  commits fica como está
+- [ ] (basic) Migrate documentation, plan, comments and test names to English; commit history stays as is
 
-## Concluídas
+## Completed
 
-- M0 — Painel provado e aprovado com o Tauri; ver `docs/decisions/0003-painel-e-paginas-web.md`.
-- M1 — Consulta de notas em markdown, bandeja, atalho global, CSP e identidade visual; ver `docs/DESIGN.md`.
+- M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
+- M1 — Browse markdown notes, tray, global shortcut, CSP and visual identity; see `docs/DESIGN.md`.
 
-## Etapa atual: M2 — Criar e editar
+## Current stage: M2 — Create and edit
 
-- [ ] (avançado) Lado da tela configurável pela bandeja, direito por padrão; independe do resto
-- [ ] (padrão) Internacionalização da interface e dos textos do Rust: inglês padrão, pt-BR pelo idioma do
-  Windows; erros do Rust viram códigos
-- [ ] (avançado) Gravação atômica e autosave
-- [ ] (avançado) Reação a alterações externas, sem perda de conteúdo
-- [ ] (padrão) Frontmatter: esconder o bloco e mostrar título e tags
-- [ ] (padrão) Editor CodeMirror 6 com formatação ao vivo: títulos, ênfase e marcações escondidas fora da
-  linha atual. Sem WYSIWYG, que reescreveria o arquivo
-- [ ] (padrão) Colar imagens como anexos
+- [ ] (advanced) Screen side configurable from the tray, right by default; independent of the rest
+- [ ] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
+  language; Rust errors become codes
+- [ ] (advanced) Atomic writes and autosave
+- [ ] (advanced) React to external changes without content loss
+- [ ] (standard) Frontmatter: hide the block and show title and tags
+- [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
+  the current line. No WYSIWYG, which would rewrite the file
+- [ ] (standard) Paste images as attachments
 
-## M3 — Encontrar e fixar
+## M3 — Find and pin
 
-- [ ] (padrão) Busca no conteúdo com índice em memória; FTS5 só se medir lentidão
-- [ ] (padrão) Barra única: buscar notas e criar nota com o texto digitado, como no Notational Velocity
-- [ ] (padrão) Notas fixadas em acordeão no topo, abertas por padrão; ver
-  `docs/decisions/0005-itens-fixados.md`
-- [ ] (padrão) Restaurar `_pinned.md` apagado
+- [ ] (standard) Content search with an in-memory index; FTS5 only if slowness is measured
+- [ ] (standard) Unified bar: search notes and create a note with the typed text, as in Notational Velocity
+- [ ] (standard) Pinned notes in an accordion at the top, open by default; see
+  `docs/decisions/0005-pinned-items.md`
+- [ ] (standard) Restore deleted `_pinned.md`
 
-## M4 — Páginas web
+## M4 — Web pages
 
-- [ ] (padrão) Navegador no lugar das notas, com botão de voltar; a página fica escondida, não fechada
-- [ ] (padrão) Barra única como endereço, com histórico local e sugestões; ver
-  `docs/decisions/0006-sugestoes-de-busca.md`
-- [ ] (padrão) Fixar páginas em `_pinned.md`
-- [ ] (padrão) Salvar páginas como notas com `url:` no frontmatter
-- [ ] (padrão) Cores no código com os analisadores do CodeMirror
-- [ ] (avançado) Testar se iframes da página disparam esquemas externos sem passar por `on_navigation`
+- [ ] (standard) Browser in place of notes, with a back button; the page is hidden, not closed
+- [ ] (standard) Unified bar as address bar, with local history and suggestions; see
+  `docs/decisions/0006-search-suggestions.md`
+- [ ] (standard) Pin pages in `_pinned.md`
+- [ ] (standard) Save pages as notes with `url:` in frontmatter
+- [ ] (standard) Code colors with CodeMirror parsers
+- [ ] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
 
-## M5 — Distribuir
+## M5 — Distribute
 
-- [ ] (básico) README em inglês, com link para a versão em pt-BR
-- [ ] (padrão) Instalador, atualização automática e definição sobre assinatura de código
-- [ ] (avançado) Pôr entre aspas o caminho do autostart: `auto-launch` grava o `Run` sem aspas
+- [ ] (basic) README in English, with a link to the pt-BR version
+- [ ] (standard) Installer, automatic updates and decision on code signing
+- [ ] (advanced) Quote the autostart path: `auto-launch` writes `Run` without quotes
 
-## Depois
+## Later
 
-Sem ordem definida:
+In no defined order:
 
-- Equações em MathML com Temml; KaTeX depende de estilo inline, bloqueado pela CSP.
-- Diagramas Mermaid: exigem decisão sobre a CSP, que bloqueia o `<style>` que ele injeta.
-- Post-its como janelas soltas na área de trabalho.
-- Captura de tela.
-- Ditado com modelos locais, baixados à parte do instalador.
-- Plugins: exigem uma decisão registrada antes de começar.
-- macOS e Linux: nova implementação de `platform/`. No Wayland, o painel depende de layer-shell, que o
-  GNOME não oferece.
+- MathML equations with Temml; KaTeX depends on inline styling, blocked by CSP.
+- Mermaid diagrams: require a decision on CSP, which blocks the `<style>` it injects.
+- Post-its as floating desktop windows.
+- Screenshots.
+- Dictation with local models, downloaded separately from the installer.
+- Plugins: require a recorded decision before starting.
+- macOS and Linux: new `platform/` implementation. On Wayland, the panel depends on layer-shell, which
+  GNOME does not provide.
 
-## Questões em aberto
+## Open questions
 
-Valores padrão usados até você decidir o contrário.
+Defaults used until you decide otherwise.
 
-| Questão                         | Padrão                                                                            |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| Monitor                         | O mais à direita, cuja borda segura o cursor                                      |
-| Fechar ao tirar o mouse         | Sim, exceto se fixado, com edição ativa ou com a página em foco                   |
-| Página sobre apps em tela cheia | Funciona em janela e tela cheia sem bordas; jogos em modo exclusivo ficam de fora |
+| Question                   | Default                                                                     |
+| -------------------------- | --------------------------------------------------------------------------- |
+| Monitor                    | The rightmost, whose edge holds the cursor                                  |
+| Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
+| Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |

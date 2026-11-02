@@ -1,15 +1,15 @@
-# 0001 — Tauri 2 com Svelte 5 e Vite
+# 0001 — Tauri 2 with Svelte 5 and Vite
 
-**Contexto:** o app precisa exibir markdown completo e páginas web, acessar APIs Win32 com facilidade
-e, no futuro, rodar modelos locais de voz. O ciclo de desenvolvimento precisa ser rápido.
+**Context:** the app needs to display full markdown and web pages, access Win32 APIs easily and, in the
+future, run local voice models. The development cycle needs to be fast.
 
-**Decisão:** usar Tauri 2 (Rust) com WebView2 e UI em Svelte 5 com Vite, sem SvelteKit: um painel sem
-rotas não precisa de framework de aplicação.
+**Decision:** use Tauri 2 (Rust) with WebView2 and a Svelte 5 UI with Vite, without SvelteKit: a panel
+without routes does not need an application framework.
 
-**Consequências:**
+**Consequences:**
 
-- Instalador pequeno e acesso direto ao Win32 e a bibliotecas Rust de IA local.
-- O uso de memória fica próximo ao de outros apps Chromium; a redução depende de medidas como baixar a
-  prioridade de memória do WebView2 enquanto o painel estiver oculto.
-- O motor web varia entre sistemas, e o Linux será a plataforma mais trabalhosa.
-- Se a validação da etapa M0 falhar, a alternativa é o Electron. A UI pode ser reaproveitada.
+- Small installer and direct access to Win32 and local AI Rust libraries.
+- Memory use is close to other Chromium apps; reducing it depends on measures such as lowering WebView2
+  memory priority while the panel is hidden.
+- The web engine varies across systems, and Linux will be the most labor-intensive platform.
+- If M0 validation fails, the alternative is Electron. The UI can be reused.
