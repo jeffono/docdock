@@ -13,7 +13,7 @@
     "test": "vitest run --passWithNoTests --reporter=dot",
     "format": "biome check --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm --silent check:fast && pnpm --silent test && pnpm --silent check:rust",
-    "check:fast": "biome check . && pnpm --silent check:types && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "check:fast": "biome check . && node scripts/check-colors.mjs && pnpm --silent check:types && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
     "check:types": "svelte-check --tsconfig ./tsconfig.json --output human",
     "check:rust": "cargo clippy -q --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings && cargo test -q --manifest-path src-tauri/Cargo.toml"
   },
