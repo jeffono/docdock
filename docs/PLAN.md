@@ -7,6 +7,11 @@ cada etapa quando ela for a próxima.
 
 Nada.
 
+## Antes da M2
+
+- [ ] (básico) Migrar para o inglês documentação, plano, comentários e nomes de testes; o histórico de
+  commits fica como está
+
 ## Concluídas
 
 - M0 — Painel provado e aprovado com o Tauri; ver `docs/decisions/0003-painel-e-paginas-web.md`.
@@ -15,6 +20,8 @@ Nada.
 ## Etapa atual: M2 — Criar e editar
 
 - [ ] (avançado) Lado da tela configurável pela bandeja, direito por padrão; independe do resto
+- [ ] (padrão) Internacionalização da interface e dos textos do Rust: inglês padrão, pt-BR pelo idioma do
+  Windows; erros do Rust viram códigos
 - [ ] (avançado) Gravação atômica e autosave
 - [ ] (avançado) Reação a alterações externas, sem perda de conteúdo
 - [ ] (padrão) Frontmatter: esconder o bloco e mostrar título e tags
@@ -42,6 +49,7 @@ Nada.
 
 ## M5 — Distribuir
 
+- [ ] (básico) README em inglês, com link para a versão em pt-BR
 - [ ] (padrão) Instalador, atualização automática e definição sobre assinatura de código
 - [ ] (avançado) Pôr entre aspas o caminho do autostart: `auto-launch` grava o `Run` sem aspas
 

@@ -87,8 +87,8 @@ Todo contexto durável fica no repositório. Memória privada de agente não é 
 
 ## Trabalho entre agentes
 
-- Uma tarefa por branch: `tarefa/<assunto-curto>`. Em paralelo, use um worktree por agente em
-  `../docdock-wt/<assunto>`.
+- Uma tarefa por branch, com nome curto e descritivo em inglês, como `atomic-save`. Em paralelo, use um
+  worktree por agente em `../docdock-wt/<branch>`.
 - Confira `git status` e `git log -10` antes de começar e não mexa em mudanças alheias.
 - Só faça merge em `main` quando o usuário pedir.
 - Revisão por agente de outro fornecedor, só do diff: ao fechar cada etapa e antes de mudanças em
@@ -106,5 +106,6 @@ produto, aparência sem referência definida, custos e ações difíceis de desf
 
 ## Idioma
 
-Respostas, commits, PRs, branches, comentários no código e documentação em português do Brasil.
-Nomes de variáveis, funções e tipos podem ficar em inglês.
+Tudo no repositório em inglês: código, comentários, commits, PRs, branches e documentação. Respostas ao
+usuário em português do Brasil. Textos da interface passam pela internacionalização, com inglês como
+padrão e pt-BR.
