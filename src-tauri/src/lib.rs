@@ -1,4 +1,4 @@
-//! Composição do app: registra módulos e comandos, sem regras de negócio.
+//! App composition: registers modules and commands, without business logic.
 
 mod commands;
 mod dock;
@@ -37,8 +37,8 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
-        // O padrão injeta em toda janela um script que desvia `target=_blank`: na janela da página,
-        // sem capability, ele cancelaria o link e falharia.
+        // By default a script intercepting `target=_blank` is injected into every window. In the
+        // page window, which has no capability, it would cancel the link and fail.
         .plugin(
             tauri_plugin_opener::Builder::new()
                 .open_js_links_on_click(false)
@@ -54,8 +54,8 @@ pub fn run() {
             dock::start(window.hwnd()?.0 as isize, receiver);
             Ok(())
         })
-        // Comandos do app dispensam capability em origem local: sem esta barreira, a janela da página
-        // alcançaria todos eles se chegasse a carregar uma origem do app.
+        // App commands need no capability from a local origin. Without this barrier, the page
+        // window could reach all of them if it loaded an app origin.
         .invoke_handler(move |invoke| {
             if invoke.message.webview().label() == "main" {
                 commands(invoke)
@@ -67,5 +67,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("falha ao iniciar o aplicativo");
+        .expect("failed to start application");
 }

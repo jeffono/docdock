@@ -1,4 +1,4 @@
-//! Markdown não confiável para HTML seguro. Regras em `docs/decisions/0004-conteudo-nao-confiavel.md`.
+//! Convert untrusted Markdown to safe HTML. Rules: `docs/decisions/0004-untrusted-content.md`.
 
 use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use pulldown_cmark::{Options, Parser, html};
@@ -116,7 +116,7 @@ pub fn render(text: &str, note: &str) -> String {
 mod tests {
     use super::*;
     #[test]
-    fn remove_codigo_perigoso() {
+    fn removes_dangerous_code() {
         let h = render(
             "<script>alert(1)</script><a href=\"javascript:alert(1)\" onclick=\"alert(1)\">x</a>",
             "a.md",
@@ -126,18 +126,18 @@ mod tests {
         assert!(!h.contains("javascript:"));
     }
     #[test]
-    fn tabela() {
+    fn table() {
         assert!(render("| a | b |\n|---|---|\n| c | d |", "a.md").contains("<table>"));
     }
     #[test]
-    fn imagem_relativa() {
+    fn relative_image() {
         assert!(
             render("![x](imagens/minha%20foto.png)", "sub/nota.md")
                 .contains("http://note-asset.localhost/sub/imagens/minha%20foto.png")
         );
     }
     #[test]
-    fn imagens_inseguras() {
+    fn unsafe_images() {
         for src in [
             "../../fora.png",
             "https://example.com/a.png",
@@ -149,7 +149,7 @@ mod tests {
         }
     }
     #[test]
-    fn imagem_html_cru() {
+    fn raw_html_image() {
         let h = render(
             "<img src=\"foto.png\" alt=\"foto\"><img src=\"https://example.com/a.png\" alt=\"remota\">",
             "sub/nota.md",

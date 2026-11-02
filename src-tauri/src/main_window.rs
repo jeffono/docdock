@@ -1,17 +1,17 @@
-//! Janela principal. Ela exibe conteúdo renderizado, que é não confiável: nunca sai da origem da UI
-//! nem abre outra janela. Por isso é criada aqui, e não pelo `tauri.conf.json`.
+//! The main window displays untrusted rendered content: it never leaves the UI origin or opens
+//! another window. It is created here instead of in `tauri.conf.json` for that reason.
 
 use tauri::webview::NewWindowResponse;
 use tauri::{App, Url, WebviewWindow, WebviewWindowBuilder};
 
-/// O `freezePrototype` do Tauri vale para toda janela: na `web`, quebraria sites.
+/// Tauri's `freezePrototype` applies to every window and would break sites in `web`.
 const FREEZE_PROTOTYPE: &str = "Object.freeze(Object.prototype)";
 
-/// Em dev a UI vem do Vite; no build final, do protocolo `tauri`, que no Windows é este endereço.
+/// In development the UI comes from Vite; in production, from the `tauri` protocol at this Windows URL.
 fn ui_url(dev_url: Option<&Url>) -> Url {
     dev_url
         .cloned()
-        .unwrap_or_else(|| Url::parse("http://tauri.localhost").expect("endereço fixo válido"))
+        .unwrap_or_else(|| Url::parse("http://tauri.localhost").expect("valid fixed URL"))
 }
 
 fn stays_in_ui(url: &Url, ui: &Url) -> bool {
@@ -39,7 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn so_navega_na_origem_da_ui() {
+    fn only_navigates_within_ui_origin() {
         const DEV: Option<&str> = Some("http://localhost:1420");
         assert!(stays("http://tauri.localhost/", None));
         assert!(stays("http://tauri.localhost/index.html#nota", None));

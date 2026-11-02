@@ -1,4 +1,4 @@
-# Manual para poupar a cota: a verificação do dia a dia roda nos hooks locais.
+# Manual to conserve quota: everyday checks run in local hooks.
 name: CI
 
 on:

@@ -1,4 +1,4 @@
-//! Comandos expostos à UI. Mantenha-os finos: a lógica fica nos módulos de domínio.
+//! Commands exposed to the UI. Keep them thin: logic belongs in domain modules.
 
 use std::sync::mpsc::Sender;
 
@@ -13,7 +13,7 @@ pub fn app_version() -> &'static str {
 }
 
 fn send(requests: State<'_, Sender<Request>>, request: Request) {
-    // Só falha se a thread do painel morreu, e aí não há o que fazer pela UI.
+    // This only fails if the panel thread has stopped, in which case the UI cannot help.
     let _ = requests.send(request);
 }
 
@@ -32,7 +32,7 @@ pub fn panel_set_editing(requests: State<'_, Sender<Request>>, editing: bool) {
     send(requests, Request::SetEditing(editing));
 }
 
-/// Assíncrono porque criar uma janela em comando síncrono trava no Windows.
+/// Asynchronous because creating a window in a synchronous command hangs on Windows.
 #[tauri::command]
 pub async fn web_open(
     app: AppHandle,
@@ -62,7 +62,7 @@ pub async fn notes_choose(
 pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, String> {
     crate::notes::list_for(&app)
 }
-/// `async` tira a leitura e a sanitização da thread principal.
+/// `async` moves reading and sanitization off the main thread.
 #[tauri::command(async)]
 pub fn notes_open(app: AppHandle, path: String) -> Result<String, String> {
     crate::notes::open(&app, &path).map(|text| crate::markdown::render(&text, &path))
@@ -80,8 +80,8 @@ pub fn open_external(app: AppHandle, url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Fora da barreira de comandos de `lib.rs`: o protocolo existe em todas as janelas e o Tauri informa
-/// qual delas pediu. Roda em outra thread para a leitura do arquivo não travar o WebView.
+/// Outside the command barrier in `lib.rs`: the protocol exists in every window and Tauri identifies
+/// the requester. Runs on another thread so file reads do not block the WebView.
 pub fn note_image(
     context: UriSchemeContext<'_, Wry>,
     request: http::Request<Vec<u8>>,

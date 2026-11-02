@@ -1,4 +1,4 @@
-// Único ponto de contato entre a UI e o backend Rust.
+// The only point of contact between the UI and the Rust backend.
 import { invoke } from "@tauri-apps/api/core";
 
 export function appVersion(): Promise<string> {
