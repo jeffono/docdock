@@ -5,8 +5,8 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-M1 na branch de integração `tarefa/m1`. Próximas: CSP, markdown, atalho global (abre sem o cursor e mexe no
-foco) e identidade visual. Falta o usuário testar a bandeja: "Sair" e "Iniciar com o Windows".
+M1 na branch de integração `tarefa/m1`. Em curso: markdown e revisão de segurança. Depois: identidade
+visual. Falta o usuário testar "Sair" e "Iniciar com o Windows" na bandeja e o atalho no teclado físico.
 
 ## Concluídas
 
@@ -15,11 +15,11 @@ foco) e identidade visual. Falta o usuário testar a bandeja: "Sair" e "Iniciar 
 ## Etapa atual: M1 — Consultar referências
 
 - [x] (padrão) Escolher a pasta de notas e lembrar da escolha
-- [ ] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
+- [x] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
 - [x] (padrão) Listar e abrir notas
 - [ ] (padrão) Renderizar markdown com tabelas e imagens locais
 - [x] (padrão) Ícone na bandeja, instância única e início com o Windows
-- [ ] (avançado) Atalho global que abre e fecha o painel
+- [x] (avançado) Atalho global que abre e fecha o painel
 - [ ] (avançado) Primeira definição visual, usando `tokens.css`
 - [ ] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento
 - [x] (básico) Reprovar cor fixa fora de `tokens.css` no `check:fast`
