@@ -5,28 +5,14 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-M1 na branch de integração `tarefa/m1`. Falta aprovar a captura da identidade A e testar com referências
-reais: bandeja, atalho no teclado físico, escolha de pasta e link externo.
+Nada.
 
 ## Concluídas
 
 - M0 — Painel provado e aprovado com o Tauri; ver `docs/decisions/0003-painel-e-paginas-web.md`.
+- M1 — Consulta de notas em markdown, bandeja, atalho global, CSP e identidade visual; ver `docs/DESIGN.md`.
 
-## Etapa atual: M1 — Consultar referências
-
-- [x] (padrão) Escolher a pasta de notas e lembrar da escolha
-- [x] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
-- [x] (padrão) Listar e abrir notas
-- [x] (padrão) Renderizar markdown com tabelas e imagens locais
-- [x] (padrão) Ícone na bandeja, instância única e início com o Windows
-- [x] (avançado) Atalho global que abre e fecha o painel
-- [x] (avançado) Primeira definição visual, usando `tokens.css`
-- [x] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento
-- [x] (básico) Reprovar cor fixa fora de `tokens.css` no `check:fast`
-
-**Pronto quando:** você consultar suas referências reais pelo painel no dia a dia.
-
-## M2 — Criar e editar
+## Etapa atual: M2 — Criar e editar
 
 - [ ] (padrão) Editor CodeMirror 6 com pré-visualização
 - [ ] (avançado) Gravação atômica e autosave
@@ -64,7 +50,7 @@ Valores padrão usados até você decidir o contrário.
 
 | Questão                         | Padrão                                                                            |
 | ------------------------------- | --------------------------------------------------------------------------------- |
-| Lado da tela                    | Direito, configurável na M1                                                       |
+| Lado da tela                    | Direito, ainda fixo                                                               |
 | Monitor                         | O mais à direita, cuja borda segura o cursor                                      |
 | Fechar ao tirar o mouse         | Sim, exceto se fixado, com edição ativa ou com a página em foco                   |
 | Página sobre apps em tela cheia | Funciona em janela e tela cheia sem bordas; jogos em modo exclusivo ficam de fora |
