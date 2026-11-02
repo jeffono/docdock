@@ -81,8 +81,7 @@ DPI por monitor (PMv2).
 
 `notes.rs` guarda a pasta escolhida em `settings.json`, na configuração do app, e lista os `.md`
 recursivamente, sem pastas ocultas, symlinks ou junctions. A abertura valida o caminho e confere se o
-destino canônico fica dentro da pasta. O seletor nativo mantém o painel aberto. A UI recebe texto cru pelo
-IPC e não tem permissão de sistema de arquivos.
+destino canônico fica dentro da pasta. O seletor nativo mantém o painel aberto. O Rust converte e sanitiza o markdown antes de enviá-lo à UI, que não tem permissão de sistema de arquivos.
 
 ## Conteúdo não confiável
 

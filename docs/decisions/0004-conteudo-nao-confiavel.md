@@ -40,6 +40,6 @@ impede navegação e `tauri.conf.json` não oferece controle de navegação por 
 - A CSP cobre subframes e `on_navigation` cobre o frame principal. Esse controle falha aberto para uma URL
   que o crate `url` não consiga interpretar, o que o Chromium não deveria produzir.
 - Links em conteúdo renderizado não navegam. Para abri-los no navegador padrão, a UI intercepta o clique
-  e chama um comando que valida http(s). Nunca afrouxe `on_navigation` nem `on_new_window` para isso.
+  e chama um comando que valida http(s) e mailto. Nunca afrouxe `on_navigation` nem `on_new_window` para isso.
 - O caminho de `note-asset` é relativo à pasta de notas, com percent-encoding. O renderizador reescreve os
   `src` para `http://note-asset.localhost/<caminho>`.

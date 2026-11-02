@@ -7,6 +7,7 @@ import {
   notesFolder,
   notesList,
   notesOpen,
+  openExternal,
 } from "../../ipc";
 
 let folder = $state<NotesFolder | null>(null);
@@ -38,6 +39,17 @@ async function open(path: string) {
     error = String(e);
   }
 }
+function linkClick(event: MouseEvent) {
+  const link = (event.target as Element).closest("a");
+  if (!link) return;
+  event.preventDefault();
+  const href = link.getAttribute("href") ?? "";
+  if (href.startsWith("#")) document.getElementById(`note-${href.slice(1)}`)?.scrollIntoView();
+  else if (/^(https?:|mailto:)/i.test(href))
+    void openExternal(href).catch((e) => {
+      error = String(e);
+    });
+}
 onMount(() => {
   notesFolder()
     .then(refresh)
@@ -55,11 +67,16 @@ onMount(() => {
   {#if error}<p role="alert">{error}</p>{/if}
   {#if folder?.available && notes.length === 0}<p>Nenhuma nota encontrada.</p>{/if}
   <ul>{#each notes as note}<li><button onclick={() => open(note.path)} title={note.path}>{note.name}</button></li>{/each}</ul>
-  {#if selected}<h2>{selected}</h2><pre>{content}</pre>{/if}
+  {#if selected}<h2>{selected}</h2><div class="note" onclick={linkClick} role="presentation">
+    <!-- O HTML já foi sanitizado no Rust. -->
+    {@html content}
+  </div>{/if}
 </section>
 <style>
   section { overflow: auto; }
   p, h2 { margin: var(--space-2) 0; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
   ul { padding-left: var(--space-4); }
-  pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .note { overflow-wrap: anywhere; }
+  .note :global(img) { max-width: 100%; }
+  .note :global(table), .note :global(pre) { display: block; overflow-x: auto; }
 </style>

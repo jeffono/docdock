@@ -64,7 +64,19 @@ pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, String> {
 }
 #[tauri::command]
 pub fn notes_open(app: AppHandle, path: String) -> Result<String, String> {
-    crate::notes::open(&app, &path)
+    crate::notes::open(&app, &path).map(|text| crate::markdown::render(&text, &path))
+}
+
+#[tauri::command]
+pub fn open_external(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto") {
+        return Err("Esquema inválido".into());
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 /// Fora da barreira de comandos de `lib.rs`: o protocolo existe em todas as janelas e o Tauri informa
