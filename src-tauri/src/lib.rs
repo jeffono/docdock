@@ -6,6 +6,7 @@ mod main_window;
 mod notes;
 pub mod panel;
 mod platform;
+mod shortcut;
 mod tray;
 mod web;
 
@@ -39,6 +40,7 @@ pub fn run() {
             let window = main_window::create(app)?;
             tray::setup(app)?;
             let (requests, receiver) = mpsc::channel();
+            shortcut::setup(app, requests.clone());
             app.manage(requests);
             dock::start(window.hwnd()?.0 as isize, receiver);
             Ok(())
