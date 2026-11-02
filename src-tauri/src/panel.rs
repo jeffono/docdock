@@ -1,16 +1,16 @@
-//! Máquina de estados pura do painel: sem Tauri, Win32 nem relógio.
+//! Pure panel state machine: no Tauri, Win32, or clock.
 //!
-//! A camada de plataforma consulta o cursor (~50 ms), traduz a posição para [`CursorZone`]
-//! e chama [`Panel::step`] com o instante atual. A saída diz o que fazer; nada é executado aqui.
+//! The platform layer polls the cursor (~50 ms), translates its position to [`CursorZone`],
+//! and calls [`Panel::step`] with the current instant. The output describes the effect to perform.
 
 use std::time::{Duration, Instant};
 
-/// Atrasos do painel.
+/// Panel delays.
 #[derive(Debug, Clone, Copy)]
 pub struct Delays {
-    /// Pausa contínua na borda até abrir.
+    /// Continuous dwell at the edge before opening.
     pub open: Duration,
-    /// Tempo fora do painel até fechar.
+    /// Time outside the panel before closing.
     pub close: Duration,
 }
 
@@ -23,56 +23,56 @@ impl Default for Delays {
     }
 }
 
-/// Onde o cursor está, já traduzido pela plataforma.
+/// Cursor location as translated by the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorZone {
-    /// Tocando a borda de ativação.
+    /// Touching the activation edge.
     Edge,
-    /// Dentro do painel aberto.
+    /// Inside the open panel.
     Inside,
-    /// Em qualquer outro lugar.
+    /// Anywhere else.
     Outside,
 }
 
-/// Quem tem o foco de teclado, já traduzido pela plataforma.
+/// Keyboard focus as translated by the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    /// A janela do painel.
+    /// The panel window.
     Panel,
-    /// A página web do painel.
+    /// The panel's web page.
     Page,
-    /// Outro app.
+    /// Another app.
     Elsewhere,
-    /// Ninguém, em transições do sistema: não prova que o foco saiu.
+    /// Nobody during system transitions; this does not prove focus was lost.
     Unknown,
 }
 
-/// Estado do painel. `Arming` e `Open` guardam o instante em que começou a espera.
+/// Panel state. `Arming` and `Open` store when the wait began.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Hidden,
     Arming {
         since: Instant,
     },
-    /// `leaving_since` é `Some` enquanto o cursor está fora e o fechamento está contando.
+    /// `leaving_since` is `Some` while the cursor is outside and the close delay is counting.
     Open {
         leaving_since: Option<Instant>,
     },
-    /// Aberto pelo atalho: quem manda é o foco, não o cursor. `focused` diz se ele já chegou.
+    /// Opened by shortcut: focus controls closing. `focused` records whether focus has arrived.
     Summoned {
         focused: bool,
     },
     Pinned,
-    /// Fechado à mão. A borda só volta a valer depois de o cursor sair dela; sem isso, o cursor
-    /// parado ali reabriria o painel logo depois de fechar.
+    /// Closed manually. The edge is rearmed only after the cursor leaves it; otherwise a stationary
+    /// cursor would reopen the panel immediately after closing.
     Dismissed,
 }
 
-/// Entrada da máquina.
+/// State machine input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
-    /// Leitura periódica do cursor. `editing` indica edição ativa, na UI, na página ou no seletor
-    /// nativo. `escape` é um toque novo de Esc.
+    /// Periodic cursor reading. `editing` indicates active editing in the UI, page, or native picker.
+    /// `escape` is a new Escape press.
     Tick {
         zone: CursorZone,
         editing: bool,
@@ -81,20 +81,20 @@ pub enum Input {
     },
     Pin,
     Unpin,
-    /// Atalho global. `dialog` indica o seletor nativo aberto.
+    /// Global shortcut. `dialog` indicates that the native picker is open.
     Shortcut {
         dialog: bool,
     },
-    /// O Windows confirmou o foco pedido em `Summon`.
+    /// Windows confirmed the focus requested by `Summon`.
     Activated,
 }
 
-/// Efeito que a camada de cima deve executar.
+/// Effect for the calling layer to perform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     None,
     Show,
-    /// Mostra e dá o foco de teclado ao painel.
+    /// Shows the panel and gives it keyboard focus.
     Summon,
     Hide,
 }
@@ -118,10 +118,10 @@ impl Panel {
         Action::Hide
     }
 
-    /// Avança a máquina e devolve o efeito a executar.
+    /// Advances the machine and returns the effect to perform.
     pub fn step(&mut self, input: Input, now: Instant) -> Action {
         match (self.state, input) {
-            // O seletor é modal: ao fechar, ele religaria a janela do painel já oculto.
+            // The picker is modal: closing it would re-enable the already hidden panel window.
             (_, Input::Shortcut { dialog: true }) => Action::None,
             (State::Hidden | State::Arming { .. } | State::Dismissed, Input::Shortcut { .. }) => {
                 self.state = State::Summoned { focused: false };
@@ -158,7 +158,7 @@ impl Panel {
                 }
             },
             (State::Open { leaving_since }, Input::Tick { zone, editing, .. }) => {
-                // A borda conta como dentro: o painel está colado nela.
+                // The edge counts as inside because the panel touches it.
                 let outside = zone == CursorZone::Outside && !editing;
                 match (outside, leaving_since) {
                     (false, _) => {
@@ -194,11 +194,11 @@ impl Panel {
                     self.state = State::Summoned { focused: true };
                     Action::None
                 }
-                // Fora do painel, só o seletor nativo conta como edição.
+                // Outside the panel, only the native picker counts as editing.
                 Focus::Elsewhere if editing => Action::None,
                 Focus::Elsewhere if focused => self.dismiss(),
-                // A ativação falhou. Sem foco a perder, vale a regra do cursor: assim o painel não
-                // fica preso sobre as outras janelas.
+                // Activation failed. With no focus to lose, use the cursor rule so the panel does
+                // not remain stuck above other windows.
                 Focus::Elsewhere => {
                     self.state = State::Open {
                         leaving_since: None,
@@ -220,7 +220,7 @@ impl Panel {
                 Action::Show
             }
             (State::Pinned, Input::Unpin) => {
-                // Reinicia a contagem: o cursor pode já estar fora.
+                // Restart the delay: the cursor may already be outside.
                 self.state = State::Open {
                     leaving_since: None,
                 };
@@ -252,7 +252,7 @@ mod tests {
         )
     }
 
-    /// Consulta com o cursor fora, que é o caso em que o atalho difere da abertura pelo cursor.
+    /// Poll with the cursor outside, where shortcut opening differs from cursor opening.
     fn focus_tick(p: &mut Panel, focus: Focus, editing: bool, escape: bool, t0: Instant) -> Action {
         let tick = Input::Tick {
             zone: CursorZone::Outside,
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn abertura_exige_pausa_na_borda() {
+    fn opening_requires_dwell_at_edge() {
         let t0 = Instant::now();
         let mut p = Panel::new(D);
         tick(&mut p, CursorZone::Edge, false, t0, 0);
@@ -294,12 +294,12 @@ mod tests {
     }
 
     #[test]
-    fn passagem_rapida_pela_borda_nao_abre() {
+    fn quick_pass_over_edge_does_not_open() {
         let t0 = Instant::now();
         let mut p = Panel::new(D);
         tick(&mut p, CursorZone::Edge, false, t0, 0);
         tick(&mut p, CursorZone::Outside, false, t0, 50);
-        // Voltar à borda recomeça a contagem do zero.
+        // Returning to the edge restarts the delay.
         tick(&mut p, CursorZone::Edge, false, t0, 100);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 200), Action::None);
         assert_eq!(
@@ -311,12 +311,12 @@ mod tests {
     }
 
     #[test]
-    fn reentrada_cancela_fechamento() {
+    fn reentry_cancels_closing() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         tick(&mut p, CursorZone::Outside, false, t0, 200);
         tick(&mut p, CursorZone::Inside, false, t0, 400);
-        // Sair de novo recomeça os 400 ms.
+        // Leaving again restarts the 400 ms delay.
         tick(&mut p, CursorZone::Outside, false, t0, 450);
         assert_eq!(
             tick(&mut p, CursorZone::Outside, false, t0, 800),
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn fixado_e_edicao_impedem_fechamento() {
+    fn pinning_and_editing_prevent_closing() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         tick(&mut p, CursorZone::Outside, true, t0, 200);
@@ -345,7 +345,7 @@ mod tests {
         );
         assert_eq!(p.state, State::Pinned);
 
-        // Desafixado, volta a fechar normalmente.
+        // Once unpinned, it closes normally again.
         p.step(Input::Unpin, t0 + Duration::from_millis(9001));
         tick(&mut p, CursorZone::Outside, false, t0, 9002);
         assert_eq!(
@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn atalho_abre_durante_a_pausa_na_borda() {
+    fn shortcut_opens_during_edge_dwell() {
         let t0 = Instant::now();
         let mut p = Panel::new(D);
         tick(&mut p, CursorZone::Edge, false, t0, 0);
@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn aberto_pelo_atalho_ignora_o_cursor_fora() {
+    fn shortcut_opened_panel_ignores_cursor_outside() {
         let t0 = Instant::now();
         let mut p = summoned(t0);
         for ms in [0, 1000, 60_000] {
@@ -376,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn esc_so_fecha_com_foco_no_painel_e_sem_campo_em_edicao() {
+    fn escape_only_closes_when_panel_focused_and_no_field_is_being_edited() {
         let t0 = Instant::now();
         let mut p = summoned(t0);
         assert_eq!(
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn foco_em_outro_app_fecha_e_transicao_do_sistema_nao() {
+    fn focus_on_another_app_closes_but_system_transition_does_not() {
         let t0 = Instant::now();
         let mut p = summoned(t0);
         assert_eq!(
@@ -405,7 +405,7 @@ mod tests {
             focus_tick(&mut p, Focus::Unknown, false, false, t0),
             Action::None
         );
-        // O seletor nativo fica em primeiro plano, mas é do painel.
+        // The native picker is foreground, but belongs to the panel.
         assert_eq!(
             focus_tick(&mut p, Focus::Elsewhere, true, false, t0),
             Action::None
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn foco_perdido_antes_da_consulta_seguinte_fecha_o_painel() {
+    fn focus_lost_before_next_poll_closes_panel() {
         let t0 = Instant::now();
         let mut p = Panel::new(D);
         shortcut(&mut p, t0);
@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn ativacao_que_falhou_cai_na_regra_do_cursor() {
+    fn failed_activation_falls_back_to_cursor_rule() {
         let t0 = Instant::now();
         let mut p = Panel::new(D);
         shortcut(&mut p, t0);
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn atalho_fecha_e_cursor_na_borda_so_reabre_depois_de_sair_dela() {
+    fn shortcut_closes_and_edge_reopens_only_after_cursor_leaves() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         assert_eq!(shortcut(&mut p, t0), Action::Hide);
@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn atalho_nao_fecha_fixado_nem_com_o_seletor_aberto() {
+    fn shortcut_does_not_close_when_pinned_or_picker_is_open() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         assert_eq!(p.step(Input::Shortcut { dialog: true }, t0), Action::None);

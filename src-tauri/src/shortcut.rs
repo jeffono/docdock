@@ -1,4 +1,4 @@
-//! Atalho global que abre e fecha o painel. Fica só no Rust: a UI não ganha permissão nenhuma.
+//! Global shortcut that opens and closes the panel. It stays in Rust, granting no permission to the UI.
 
 use std::error::Error;
 use std::sync::mpsc::Sender;
@@ -9,13 +9,13 @@ use tauri_plugin_global_shortcut::{
 
 use crate::dock::Request;
 
-/// Sem o atalho, como quando outro app já o usa, o painel segue abrindo pelo cursor.
+/// If the shortcut is unavailable, such as when another app uses it, the cursor can still open the panel.
 pub fn setup(app: &tauri::App, requests: Sender<Request>) {
     let register = || -> Result<(), Box<dyn Error>> {
         let plugin = Builder::new()
             .with_handler(move |_, _, event| {
                 if event.state() == ShortcutState::Pressed {
-                    // Só falha se a thread do painel morreu.
+                    // This only fails if the panel thread has stopped.
                     let _ = requests.send(Request::Shortcut);
                 }
             })
@@ -26,6 +26,6 @@ pub fn setup(app: &tauri::App, requests: Sender<Request>) {
         Ok(())
     };
     if let Err(error) = register() {
-        eprintln!("[atalho] falha ao registrar Ctrl+Alt+Espaço: {error}");
+        eprintln!("[shortcut] failed to register Ctrl+Alt+Space: {error}");
     }
 }

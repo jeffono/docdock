@@ -1,5 +1,5 @@
-//! Liga a máquina de estados à janela: uma única thread consulta o cursor, recebe os pedidos da
-//! UI e anima o deslize. Por ser uma só, não há disputa entre abrir, fechar e animar.
+//! Connects the state machine to the window: one thread polls the cursor, receives UI requests,
+//! and animates sliding. A single thread avoids races between opening, closing, and animation.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
@@ -9,26 +9,26 @@ use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 
 const POLL: Duration = Duration::from_millis(50);
 const SLIDE: Duration = Duration::from_millis(150);
-/// Largura em pixels lógicos; no monitor vira `largura * dpi / 96`.
+/// Width in logical pixels; on the monitor it becomes `width * dpi / 96`.
 const PANEL_WIDTH: u32 = 420;
 const BASE_DPI: u32 = 96;
-/// Duas barras acima da página, em pixels lógicos: o dobro de `--size-bar` em `tokens.css`.
+/// Two bars above the page, in logical pixels: twice `--size-bar` in `tokens.css`.
 const WEB_TOP: u32 = 88;
 
-/// Pedidos da UI para a thread do painel.
+/// UI requests to the panel thread.
 #[derive(Debug, Clone, Copy)]
 pub enum Request {
     Activate,
     SetPinned(bool),
     SetEditing(bool),
     SetDialog(bool),
-    /// A janela da página web foi criada, ainda invisível.
+    /// The web page window was created and is still invisible.
     AttachWeb(isize),
-    /// Atalho global.
+    /// Global shortcut.
     Shortcut,
 }
 
-/// Retângulo do painel aberto, colado à direita da área de trabalho.
+/// Open panel rectangle, aligned with the right edge of the work area.
 fn panel_rect(monitor: &Monitor) -> Rect {
     let width = (PANEL_WIDTH * monitor.dpi / BASE_DPI) as i32;
     Rect {
@@ -37,7 +37,7 @@ fn panel_rect(monitor: &Monitor) -> Rect {
     }
 }
 
-/// Retângulo da página web: o painel, menos a barra do topo.
+/// Web page rectangle: the panel minus the top bar.
 fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
     Rect {
         top: panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32,
@@ -45,9 +45,9 @@ fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
     }
 }
 
-/// Só a borda direita do monitor mais à direita segura o cursor; em outro monitor, ele atravessaria
-/// para o vizinho. É também o que deixa a posição estacionada fora de qualquer tela. Em empate, como
-/// em monitores empilhados, vale o principal, que tem origem em (0, 0).
+/// Only the right edge of the rightmost monitor holds the cursor; elsewhere it would cross into a
+/// neighboring monitor. It also puts the parked position outside every screen. On a tie, such as
+/// stacked monitors, prefer the primary monitor, whose origin is (0, 0).
 fn edge_monitor(monitors: Vec<Monitor>) -> Option<Monitor> {
     monitors.into_iter().max_by_key(|monitor| {
         let primary = monitor.bounds.left == 0 && monitor.bounds.top == 0;
@@ -55,13 +55,13 @@ fn edge_monitor(monitors: Vec<Monitor>) -> Option<Monitor> {
     })
 }
 
-/// O novo monitor do painel, se a troca de layout, resolução, DPI ou barra de tarefas mudou o atual.
-/// Sem monitores, como no meio de uma troca, fica o que está.
+/// The new panel monitor if a layout, resolution, DPI, or taskbar change changed the current one.
+/// If no monitors are available, as during a transition, retain the current one.
 fn monitor_change(current: &Monitor, monitors: Vec<Monitor>) -> Option<Monitor> {
     edge_monitor(monitors).filter(|monitor| monitor != current)
 }
 
-/// Traduz a posição do cursor. Pontos fora do monitor nunca abrem nem seguram o painel.
+/// Translates the cursor position. Points outside the monitor never open or hold the panel.
 fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect) -> CursorZone {
     if !monitor.contains(cursor) {
         CursorZone::Outside
@@ -74,8 +74,8 @@ fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect) -> CursorZone {
     }
 }
 
-/// Posição do deslize depois de `elapsed`, desacelerando no fim. Depende do tempo real, não da
-/// contagem de quadros: um quadro atrasado salta adiante em vez de alongar a animação.
+/// Slide position after `elapsed`, easing out at the end. It depends on elapsed time, not frame
+/// count: a late frame jumps ahead instead of extending the animation.
 fn slide_x(from: i32, to: i32, elapsed: Duration) -> i32 {
     let t = (elapsed.as_secs_f64() / SLIDE.as_secs_f64()).min(1.0);
     let eased = 1.0 - (1.0 - t).powi(3);
@@ -104,7 +104,7 @@ impl Slide {
         }
     }
 
-    /// Avança um quadro e devolve a posição e se terminou.
+    /// Advances one frame and returns the position and whether the slide is done.
     fn advance(&mut self, now: Instant) -> (i32, bool) {
         self.frames += 1;
         self.longest_frame = self.longest_frame.max(now - self.last_frame);
@@ -115,7 +115,7 @@ impl Slide {
 
     fn report(&self, label: &str) {
         eprintln!(
-            "[painel] {label}: {:.1} ms, {} quadros, maior intervalo {:.1} ms",
+            "[panel] {label}: {:.1} ms, {} frames, longest interval {:.1} ms",
             self.started.elapsed().as_secs_f64() * 1000.0,
             self.frames,
             self.longest_frame.as_secs_f64() * 1000.0,
@@ -125,7 +125,7 @@ impl Slide {
 
 struct Dock {
     window: PanelWindow,
-    /// Janela da página web, enquanto houver uma.
+    /// Web page window, if present.
     web: Option<PanelWindow>,
     monitor: Monitor,
     rect: Rect,
@@ -134,9 +134,9 @@ struct Dock {
     panel: Panel,
     editing: bool,
     dialog: bool,
-    /// Último app em primeiro plano fora do painel, para devolver o foco ao fechar.
+    /// Last foreground app outside the panel, to restore focus when closing.
     previous_focus: Option<isize>,
-    /// Este toque de Esc já foi visto ou já teve dono.
+    /// This Escape press has already been seen or handled.
     escape_spent: bool,
     slide: Option<Slide>,
 }
@@ -149,9 +149,9 @@ impl Dock {
         )
     }
 
-    /// Leva as janelas ao novo monitor, sem animar. O deslize em curso se aplicava ao monitor antigo.
+    /// Moves windows to the new monitor without animation. Any ongoing slide used the old monitor.
     fn relocate(&mut self, monitor: Monitor) {
-        eprintln!("[painel] monitor mudou: {monitor:?}");
+        eprintln!("[panel] monitor changed: {monitor:?}");
         self.monitor = monitor;
         self.rect = panel_rect(&monitor);
         self.parked_x = monitor.bounds.right;
@@ -177,7 +177,7 @@ impl Dock {
                 Action::None
             }
             Request::SetEditing(editing) => {
-                eprintln!("[painel] editing={editing}");
+                eprintln!("[panel] editing={editing}");
                 self.editing = editing;
                 self.spend_escape();
                 Action::None
@@ -214,16 +214,16 @@ impl Dock {
         }
         self.track_focus();
         let zone = cursor_zone(cursor, self.monitor.bounds, self.rect);
-        // Quem digita na página pode tirar o mouse sem perder o painel. A página não fala com o Rust,
-        // então o Esc é lido do teclado; com o cursor sobre ela, ele continua sendo da página. Com o
-        // foco devolvido, o painel fecha como em qualquer perda de foco.
+        // A user typing on the page can move the mouse away without losing the panel. The page does
+        // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
+        // Once focus is restored, the panel closes as with any other focus loss.
         let focus = self.focus();
         let page_focused = focus == Focus::Page;
         let escape = self.escape_tap();
         if page_focused && zone == CursorZone::Outside && escape {
             platform::restore_focus(self.previous_focus);
         }
-        // O campo pode seguir focado no documento depois de o usuário trocar de app.
+        // The field can remain focused in the document after the user switches apps.
         let editing = self.editing && focus == Focus::Panel;
         let tick = Input::Tick {
             zone,
@@ -247,8 +247,8 @@ impl Dock {
         }
     }
 
-    /// Um toque novo de Esc. Ler a tecla a cada consulta garante que nenhum toque se perca, e cada
-    /// um conta uma vez, mesmo com a tecla presa.
+    /// A new Escape press. Reading the key on each poll avoids missing presses and counts each only
+    /// once, even when held down.
     fn escape_tap(&mut self) -> bool {
         let pressed = platform::escape_pressed();
         let tap = pressed && !self.escape_spent;
@@ -256,13 +256,13 @@ impl Dock {
         tap
     }
 
-    /// O Esc que saiu de um campo ou fechou o seletor chega aqui antes da consulta. Ele já teve dono:
-    /// contá-lo fecharia o painel junto, com um toque só.
+    /// Escape leaving a field or closing the picker arrives before the poll. It was already handled:
+    /// counting it would also close the panel with the same press.
     fn spend_escape(&mut self) {
         self.escape_spent = platform::escape_pressed();
     }
 
-    /// As janelas do painel. A da página some sozinha se for destruída, como por Alt+F4.
+    /// Panel windows. The page window disappears from the list if destroyed, for example by Alt+F4.
     fn windows(&mut self) -> Vec<PanelWindow> {
         self.web = self.web.filter(PanelWindow::exists);
         std::iter::once(self.window).chain(self.web).collect()
@@ -272,10 +272,10 @@ impl Dock {
         self.windows().iter().any(PanelWindow::is_foreground)
     }
 
-    /// A página recebe o foco direto do Windows, sem passar pela UI: por isso o painel observa quem
-    /// está em primeiro plano, em vez de guardar a janela anterior só ao pedir a ativação.
+    /// The page receives focus directly from Windows, bypassing the UI, so the panel tracks the
+    /// foreground window instead of saving the previous window only when requesting activation.
     fn track_focus(&mut self) {
-        // O seletor nativo é do painel e some ao fechar: não é para ele que o foco volta.
+        // The native picker belongs to the panel and disappears on close; focus must not return to it.
         if !self.dialog && !self.is_foreground() {
             self.previous_focus = platform::foreground_window().or(self.previous_focus);
         }
@@ -298,17 +298,17 @@ impl Dock {
             Action::None => {}
             Action::Show => self.show(),
             Action::Summon => {
-                // A consulta pode estar até 50 ms atrás, e depois da ativação seria tarde.
+                // The poll may be up to 50 ms old, and after activation it would be too late.
                 self.track_focus();
-                // Ativar exige a janela habilitada. Confirmar aqui separa a falha do foco perdido logo
-                // depois, antes da próxima consulta.
+                // Activation requires an enabled window. Confirming here distinguishes failure from
+                // focus lost immediately afterward, before the next poll.
                 self.show();
                 if self.window.activate() {
                     self.panel.step(Input::Activated, Instant::now());
                 }
             }
             Action::Hide => {
-                // Se o usuário já clicou em outro app, o foco é dele e não se toca nele.
+                // If the user already clicked another app, leave its focus alone.
                 if self.is_foreground() {
                     platform::restore_focus(self.previous_focus);
                 }
@@ -318,7 +318,7 @@ impl Dock {
         }
     }
 
-    /// Desenha um quadro, se houver deslize em curso.
+    /// Draws a frame if a slide is in progress.
     fn animate(&mut self) {
         let windows = self.windows();
         let Some(slide) = &mut self.slide else {
@@ -328,11 +328,7 @@ impl Dock {
         platform::slide_windows(&windows, x);
         self.x = x;
         if done {
-            let label = if x == self.parked_x {
-                "fechar"
-            } else {
-                "abrir"
-            };
+            let label = if x == self.parked_x { "close" } else { "open" };
             slide.report(label);
             self.slide = None;
         }
@@ -362,14 +358,14 @@ impl Dock {
     }
 }
 
-/// Prepara a janela fora da tela e inicia a thread do painel.
+/// Prepares the window off-screen and starts the panel thread.
 pub fn start(raw_window: isize, requests: Receiver<Request>) {
-    let monitor = edge_monitor(platform::monitors()).expect("nenhum monitor disponível");
+    let monitor = edge_monitor(platform::monitors()).expect("no monitor available");
     let rect = panel_rect(&monitor);
     let parked_x = monitor.bounds.right;
     let right = monitor.bounds.right;
     let window = PanelWindow::prepare(raw_window, rect, right, parked_x, Activation::OnRequest);
-    eprintln!("[painel] monitor {monitor:?}, painel {rect:?}");
+    eprintln!("[panel] monitor {monitor:?}, panel {rect:?}");
     let dock = Dock {
         window,
         web: None,
@@ -423,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn painel_fica_no_monitor_mais_a_direita() {
+    fn panel_stays_on_rightmost_monitor() {
         let principal = monitor(0, 3840);
         let chosen = edge_monitor(vec![principal, monitor(3840, 7680)]).unwrap();
         assert_eq!(chosen.bounds.right, 7680);
@@ -432,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn inverter_os_monitores_com_o_app_aberto_troca_o_monitor_do_painel() {
+    fn swapping_monitors_while_app_is_open_moves_panel() {
         let atual = monitor(3840, 7680);
         let invertido = vec![monitor(-3840, 0), monitor(0, 3840)];
         let novo = monitor_change(&atual, invertido).unwrap();
@@ -442,19 +438,19 @@ mod tests {
     }
 
     #[test]
-    fn so_o_ultimo_pixel_do_monitor_e_borda() {
+    fn only_last_monitor_pixel_is_edge() {
         assert_eq!(zone(3839, 0), CursorZone::Edge);
         assert_eq!(zone(3839, 2159), CursorZone::Edge);
         assert_eq!(zone(3838, 0), CursorZone::Outside);
     }
 
     #[test]
-    fn pontos_em_outros_monitores_sao_ignorados() {
+    fn points_on_other_monitors_are_ignored() {
         assert_eq!(zone(-1, 500), CursorZone::Outside);
     }
 
     #[test]
-    fn deslize_termina_exatamente_no_destino_mesmo_com_quadro_atrasado() {
+    fn slide_ends_exactly_at_destination_even_with_late_frame() {
         assert_eq!(slide_x(3840, 3315, Duration::ZERO), 3840);
         assert_eq!(slide_x(3840, 3315, SLIDE), 3315);
         assert_eq!(slide_x(3840, 3315, SLIDE * 3), 3315);

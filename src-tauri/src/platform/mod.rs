@@ -1,4 +1,4 @@
-//! Código específico de sistema operacional. Hoje, só Windows.
+//! Operating system-specific code. Currently Windows only.
 
 mod windows;
 

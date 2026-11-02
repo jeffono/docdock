@@ -1,5 +1,5 @@
-/* Decisões visuais do app, explicadas em docs/DESIGN.md. Componentes usam estas variáveis, nunca
-   valores fixos. O tema segue o Windows pelo `light-dark`. */
+/* Visual decisions are explained in docs/DESIGN.md. Components use these variables instead of fixed
+   values. The theme follows Windows through `light-dark`. */
 :root {
   color-scheme: light dark;
 
@@ -20,7 +20,7 @@
 
   --radius-sm: 5px;
 
-  /* Duas barras somam `WEB_TOP` em `src-tauri/src/dock.rs`, onde a página web começa. */
+  /* Two bars add up to `WEB_TOP` in `src-tauri/src/dock.rs`, where the web page starts. */
   --size-bar: 2.75rem;
   --size-control: 1.75rem;
   --size-icon: 1rem;

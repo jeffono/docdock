@@ -10,7 +10,7 @@ let {
 }: {
   icon: ComponentProps<typeof Icon>["name"];
   label: string;
-  /** Só para botões que ligam e desligam. */
+  /** Only for toggle buttons. */
   pressed?: boolean;
   onclick: () => void;
 } = $props();

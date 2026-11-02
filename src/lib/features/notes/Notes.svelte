@@ -58,7 +58,7 @@ function linkClick(event: MouseEvent) {
   event.preventDefault();
   const href = link.getAttribute("href") ?? "";
   if (href.startsWith("#")) {
-    // O sanitizador só acrescenta o prefixo a quem ainda não o tem.
+    // The sanitizer only adds the prefix when it is not already present.
     const id = href.slice(1);
     document.getElementById(id.startsWith("note-") ? id : `note-${id}`)?.scrollIntoView();
   } else if (/^(https?:|mailto:)/i.test(href))
@@ -113,7 +113,7 @@ onMount(() => {
     {/if}
     {#if selected}
       <div class="note" onclick={linkClick} role="presentation">
-        <!-- O HTML já foi sanitizado no Rust. -->
+        <!-- The HTML has already been sanitized in Rust. -->
         {@html content}
       </div>
     {/if}

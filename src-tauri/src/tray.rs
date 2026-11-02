@@ -1,13 +1,13 @@
-//! Bandeja e controle do início automático, sem expor comandos à UI.
+//! Tray and autostart control, without exposing commands to the UI.
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_autostart::ManagerExt;
 
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // O registro ilegível não pode impedir o app de abrir.
+    // An unreadable registry must not prevent the app from opening.
     let enabled = app.autolaunch().is_enabled().unwrap_or_else(|error| {
-        eprintln!("[bandeja] falha ao consultar início automático: {error}");
+        eprintln!("[tray] failed to query autostart: {error}");
         false
     });
     let autostart = CheckMenuItem::with_id(
@@ -23,7 +23,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     TrayIconBuilder::new()
         .icon(
             app.default_window_icon()
-                .expect("ícone padrão ausente")
+                .expect("default icon missing")
                 .clone(),
         )
         .menu(&menu)
@@ -39,16 +39,16 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 });
                 if let Err(error) = result {
-                    eprintln!("[bandeja] falha ao alterar início automático: {error}");
+                    eprintln!("[tray] failed to change autostart: {error}");
                 }
                 match manager.is_enabled() {
                     Ok(enabled) => {
                         if let Err(error) = autostart.set_checked(enabled) {
-                            eprintln!("[bandeja] falha ao atualizar marca: {error}");
+                            eprintln!("[tray] failed to update check mark: {error}");
                         }
                     }
                     Err(error) => {
-                        eprintln!("[bandeja] falha ao consultar início automático: {error}")
+                        eprintln!("[tray] failed to query autostart: {error}")
                     }
                 }
             }

@@ -4,10 +4,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [svelte()],
   test: { include: ["src/**/*.test.ts"] },
-  // Mantém os erros do Rust visíveis no terminal.
+  // Keep Rust errors visible in the terminal.
   clearScreen: false,
   server: {
-    // O Tauri espera exatamente esta porta.
+    // Tauri expects this exact port.
     port: 1420,
     strictPort: true,
     host: "127.0.0.1",

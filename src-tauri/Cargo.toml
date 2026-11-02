@@ -1,7 +1,7 @@
 [package]
 name = "docdock"
 version = "0.1.0"
-description = "Painel lateral autohide para consultar, adicionar e editar referências"
+description = "Autohide sidebar for viewing, adding, and editing references"
 authors = ["Jeff Ono"]
 edition = "2024"
 

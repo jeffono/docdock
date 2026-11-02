@@ -1,5 +1,5 @@
-//! Camada fina sobre o Win32. Todas as coordenadas são pixels físicos: o processo roda com
-//! consciência de DPI por monitor (PMv2), ativada pelo tao ao iniciar o laço de eventos.
+//! Thin Win32 layer. All coordinates are physical pixels: the process uses per-monitor DPI
+//! awareness (PMv2), enabled by tao when starting the event loop.
 
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::DwmFlush;
@@ -23,7 +23,7 @@ pub struct Point {
     pub y: i32,
 }
 
-/// Retângulo meio aberto: `right` e `bottom` ficam fora.
+/// Half-open rectangle: `right` and `bottom` are excluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
     pub left: i32,
@@ -53,19 +53,19 @@ impl From<RECT> for Rect {
 pub struct Monitor {
     pub bounds: Rect,
     pub work: Rect,
-    /// DPI efetivo do monitor.
+    /// Effective monitor DPI.
     pub dpi: u32,
 }
 
-/// `None` quando o cursor não pode ser lido, como na tela de UAC.
+/// `None` when the cursor cannot be read, such as on the UAC screen.
 pub fn cursor_pos() -> Option<Point> {
     let mut p = POINT::default();
     unsafe { GetCursorPos(&mut p) }.ok()?;
     Some(Point { x: p.x, y: p.y })
 }
 
-/// Se o Esc está pressionado ou foi tocado desde a última leitura. Leia a cada consulta do cursor:
-/// assim um toque curto não escapa entre duas leituras e o bit de "desde a última" nunca fica velho.
+/// Whether Escape is held or was pressed since the last read. Read on every cursor poll so a short
+/// press is not missed between reads and the "since last read" bit never goes stale.
 pub fn escape_pressed() -> bool {
     unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) as u16 & 0x8001 != 0 }
 }
@@ -80,7 +80,7 @@ unsafe extern "system" fn collect_monitor(
     true.into()
 }
 
-/// Todos os monitores conectados.
+/// All connected monitors.
 pub fn monitors() -> Vec<Monitor> {
     let mut handles: Vec<HMONITOR> = Vec::new();
     let list = LPARAM(&raw mut handles as isize);
@@ -105,31 +105,31 @@ fn monitor_info(handle: HMONITOR) -> Option<Monitor> {
     }
 }
 
-/// Bloqueia até a próxima composição do DWM, para cada quadro cair em um vsync.
+/// Blocks until the next DWM composition so each frame falls on a vsync.
 pub fn wait_frame() {
     let _ = unsafe { DwmFlush() };
 }
 
-/// Janela em primeiro plano. `None` em transições do sistema.
+/// Foreground window. `None` during system transitions.
 pub fn foreground_window() -> Option<isize> {
     let raw = unsafe { GetForegroundWindow() }.0 as isize;
     (raw != 0).then_some(raw)
 }
 
-/// Como uma janela do painel recebe o foco.
+/// How a panel window receives focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Activation {
-    /// Nunca pelo clique: a UI pede com [`PanelWindow::activate`].
+    /// Never by clicking: the UI requests it with [`PanelWindow::activate`].
     OnRequest,
-    /// Pelo clique, como qualquer janela. É o caso da página web, que não fala com o Rust.
+    /// By clicking, like any window. Used by the web page, which does not talk to Rust.
     OnClick,
 }
 
-/// Uma janela do painel. Guarda o HWND como inteiro porque a thread do painel é dona dela.
+/// A panel window. Stores the HWND as an integer because the panel thread owns it.
 #[derive(Debug, Clone, Copy)]
 pub struct PanelWindow {
     raw: isize,
-    /// Tudo o que passar desta coordenada X fica recortado.
+    /// Everything beyond this X coordinate is clipped.
     clip_right: i32,
     top: i32,
     width: i32,
@@ -137,7 +137,7 @@ pub struct PanelWindow {
 }
 
 impl PanelWindow {
-    /// Aplica os estilos e mostra a janela já no tamanho final, na posição `x` e sem ativar.
+    /// Applies styles and shows the window at its final size and position `x` without activating it.
     pub fn prepare(
         raw: isize,
         rect: Rect,
@@ -167,7 +167,7 @@ impl PanelWindow {
         window
     }
 
-    /// Dá à janela o tamanho de `rect`, na posição `x`, sobre as demais e sem ativar.
+    /// Sizes the window to `rect` at `x`, above other windows, without activating it.
     pub fn place(&mut self, rect: Rect, clip_right: i32, x: i32) {
         self.clip_right = clip_right;
         self.top = rect.top;
@@ -196,28 +196,28 @@ impl PanelWindow {
         unsafe { IsWindow(Some(self.hwnd())) }.as_bool()
     }
 
-    /// Volta ao topo das janelas sempre visíveis, sem ativar. Janelas possuídas sobem junto.
+    /// Returns to the top of the always-visible windows without activating. Owned windows follow.
     pub fn raise(&self) {
         let flags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOMOVE;
         let result = unsafe { SetWindowPos(self.hwnd(), Some(HWND_TOPMOST), 0, 0, 0, 0, flags) };
         log_failure("SetWindowPos", result);
     }
 
-    /// Recorta o que passar da borda, para nunca aparecer em um monitor vizinho.
+    /// Clips anything beyond the edge so it never appears on a neighboring monitor.
     fn clip(&self, x: i32) {
         let visible = (self.clip_right - x).clamp(0, self.width);
         unsafe {
             let region = CreateRectRgn(0, 0, visible, self.height);
-            // O sistema só vira dono da região se a chamada der certo.
+            // The system takes ownership of the region only if the call succeeds.
             if SetWindowRgn(self.hwnd(), Some(region), false) == 0 {
                 let _ = DeleteObject(region.into());
             }
         }
     }
 
-    /// Janela desabilitada não recebe ativação. Sem isso, o painel fora da tela herda o foco quando
-    /// o app em primeiro plano fecha, porque o Windows escolhe a próxima da ordem Z, mesmo com
-    /// `WS_EX_NOACTIVATE`, e o teclado iria para uma janela invisível.
+    /// A disabled window cannot be activated. Without this, the off-screen panel inherits focus when
+    /// the foreground app closes because Windows chooses the next window in Z order even with
+    /// `WS_EX_NOACTIVATE`, sending keyboard input to an invisible window.
     pub fn set_enabled(&self, enabled: bool) {
         let _ = unsafe { EnableWindow(self.hwnd(), enabled) };
     }
@@ -226,15 +226,15 @@ impl PanelWindow {
         unsafe { GetForegroundWindow() }.0 as isize == self.raw
     }
 
-    /// Se o Windows aceitou dar o foco à janela.
+    /// Whether Windows agreed to give the window focus.
     pub fn activate(&self) -> bool {
         let activated = unsafe { SetForegroundWindow(self.hwnd()) }.as_bool();
-        eprintln!("[painel] ativar: ok={activated}");
+        eprintln!("[panel] activate: ok={activated}");
         activated
     }
 }
 
-/// Move as janelas para `x` em uma só transação, para a página não descolar do painel.
+/// Moves windows to `x` in one transaction so the page stays attached to the panel.
 pub fn slide_windows(windows: &[PanelWindow], x: i32) {
     let flags = SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER;
     let moved = || unsafe {
@@ -248,8 +248,8 @@ pub fn slide_windows(windows: &[PanelWindow], x: i32) {
     log_failure("DeferWindowPos", moved());
 }
 
-/// Devolve o foco à janela guardada ou, se ela não existe mais, à área de trabalho, para o teclado
-/// não ficar em um painel oculto.
+/// Restores focus to the saved window or, if it no longer exists, the desktop, so keyboard input
+/// does not remain in a hidden panel.
 pub fn restore_focus(previous: Option<isize>) {
     unsafe {
         let hwnd = previous
@@ -258,7 +258,7 @@ pub fn restore_focus(previous: Option<isize>) {
             .unwrap_or_else(|| GetShellWindow());
         let restored = SetForegroundWindow(hwnd).as_bool();
         eprintln!(
-            "[painel] restaurar: janela={:#x} ok={restored}",
+            "[panel] restore: window={:#x} ok={restored}",
             hwnd.0 as isize
         );
     }
@@ -266,6 +266,6 @@ pub fn restore_focus(previous: Option<isize>) {
 
 fn log_failure(call: &str, result: windows::core::Result<()>) {
     if let Err(error) = result {
-        eprintln!("[painel] {call} falhou: {error}");
+        eprintln!("[panel] {call} failed: {error}");
     }
 }

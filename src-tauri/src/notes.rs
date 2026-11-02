@@ -1,4 +1,4 @@
-//! Armazenamento e validação das notas locais.
+//! Local note storage and validation.
 use crate::dock::Request;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
@@ -12,10 +12,10 @@ use tauri::http::{Response, StatusCode};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-/// No Windows, as imagens ficam em `http://note-asset.localhost/<caminho relativo>`.
+/// On Windows, images are at `http://note-asset.localhost/<relative path>`.
 pub const IMAGE_SCHEME: &str = "note-asset";
 
-/// Uma nota de terceiros não pode travar a UI: o custo vem da conversão e de inserir o HTML no DOM.
+/// A third-party note must not block the UI: conversion and inserting HTML into the DOM are costly.
 const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -74,7 +74,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     let window = app
         .get_webview_window("main")
         .ok_or("janela principal ausente")?;
-    // Possuído pelo painel, o seletor fica acima dele e não abre um segundo seletor.
+    // Owned by the panel, the picker stays above it and does not open a second picker.
     let dialog = app.dialog().file().set_parent(&window);
     if let Some(path) = dialog.blocking_pick_folder() {
         let path = path.into_path().map_err(|e| e.to_string())?;
@@ -93,7 +93,7 @@ fn markdown(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
-/// `is_dir` e `is_file` são falsos para symlink e junction, que por isso nunca são seguidos.
+/// `is_dir` and `is_file` are false for symlinks and junctions, so they are never followed.
 fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -135,8 +135,8 @@ fn list(root: &Path) -> Result<Vec<Note>, String> {
 pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, String> {
     list(&root(app)?)
 }
-/// `allowed` vale para o pedido e para o destino canônico: um nome curto 8.3 ou um symlink dentro da
-/// pasta pode trocar a extensão pedida pela real.
+/// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
+/// the folder can change the requested extension to a different real extension.
 fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, String> {
     let path = Path::new(relative);
     if relative.contains(':')
@@ -169,7 +169,7 @@ fn read_note(path: &Path) -> Result<String, String> {
 pub fn open(app: &AppHandle, path: &str) -> Result<String, String> {
     read_note(&resolve(&root(app)?, path, markdown)?)
 }
-/// SVG fica de fora porque pode conter script.
+/// SVG is excluded because it can contain scripts.
 fn image_type(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
@@ -196,8 +196,8 @@ fn empty_response(status: StatusCode) -> Response<Vec<u8>> {
     *response.status_mut() = status;
     response
 }
-/// A janela `web` também tem o protocolo, mas seu conteúdo é remoto. `no-store` evita que o perfil do
-/// WebView2, compartilhado entre as janelas, guarde a imagem.
+/// The `web` window also has the protocol, but its content is remote. `no-store` prevents the
+/// WebView2 profile shared between windows from caching the image.
 fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Response<Vec<u8>> {
     if webview != "main" {
         return empty_response(StatusCode::FORBIDDEN);
@@ -252,7 +252,7 @@ mod tests {
             .success()
     }
     #[test]
-    fn configuracao_corrompida_e_ausente() {
+    fn corrupt_and_missing_configuration() {
         let t = Temp::new();
         let p = t.0.join("settings.json");
         assert!(read_settings(&p).is_none());
@@ -260,7 +260,7 @@ mod tests {
         assert!(read_settings(&p).is_none());
     }
     #[test]
-    fn lista_filtra_e_ordena() {
+    fn list_filters_and_sorts() {
         let t = Temp::new();
         fs::create_dir(t.0.join(".oculta")).unwrap();
         fs::create_dir(t.0.join("sub")).unwrap();
@@ -271,7 +271,7 @@ mod tests {
         assert_eq!(paths, ["A.md", "sub/b.md", "z.MD"]);
     }
     #[test]
-    fn rejeita_caminhos_inseguros() {
+    fn rejects_unsafe_paths() {
         let t = Temp::new();
         fs::write(t.0.join("ok.md"), "ok").unwrap();
         assert!(resolve(&t.0, "ok.md", markdown).is_ok());
@@ -288,7 +288,7 @@ mod tests {
         }
     }
     #[test]
-    fn nao_segue_junction_para_fora_da_pasta() {
+    fn does_not_follow_junction_outside_folder() {
         let t = Temp::new();
         let (notas, fora) = (t.0.join("notas"), t.0.join("fora"));
         fs::create_dir(&notas).unwrap();
@@ -299,7 +299,7 @@ mod tests {
         assert!(resolve(&notas, "atalho/segredo.md", markdown).is_err());
     }
     #[test]
-    fn imagem_so_sai_da_pasta_para_a_janela_principal() {
+    fn image_only_leaves_folder_for_main_window() {
         let t = Temp::new();
         let (notas, fora) = (t.0.join("notas"), t.0.join("fora"));
         fs::create_dir_all(notas.join("com espaco")).unwrap();
@@ -339,13 +339,13 @@ mod tests {
         let sem_pasta = image_response("main", None, "/com%20espaco/foto.PNG");
         assert_eq!(sem_pasta.status(), StatusCode::NOT_FOUND);
 
-        // Symlink de arquivo exige o modo de desenvolvedor do Windows: sem ele, o caso não se aplica.
+        // File symlinks require Windows developer mode; without it, this case does not apply.
         if mklink(&[], &notas.join("falso.png"), &notas.join("nota.md")) {
             assert_eq!(pedir("main", "/falso.png").status(), StatusCode::NOT_FOUND);
         }
     }
     #[test]
-    fn recusa_nota_grande_demais() {
+    fn rejects_oversized_note() {
         let t = Temp::new();
         let p = t.0.join("grande.md");
         fs::write(&p, vec![b'x'; MAX_NOTE_BYTES as usize]).unwrap();
@@ -354,7 +354,7 @@ mod tests {
         assert!(read_note(&p).is_err());
     }
     #[test]
-    fn substitui_configuracao() {
+    fn replaces_configuration() {
         let t = Temp::new();
         let p = t.0.join("settings.json");
         save(&p, t.0.join("a")).unwrap();
