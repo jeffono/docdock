@@ -15,12 +15,15 @@ src-tauri/src/           Backend (Rust)
   lib.rs                 Só monta o app e registra módulos
   panel.rs               Máquina de estados pura do painel
   dock.rs                Thread que liga cursor, máquina de estados e janelas
+  tray.rs                Bandeja, saída e início com o Windows
   web.rs                 Janela da página web, com conteúdo não confiável
   commands/              Comandos Tauri: camada fina que delega
   platform/              Código específico de sistema operacional
 ```
 
 Crie pastas quando a primeira funcionalidade precisar delas.
+
+A bandeja permite encerrar o app e controlar o início com o Windows; uma segunda instância apenas sai.
 
 ## Fluxo
 
