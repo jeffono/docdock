@@ -19,6 +19,8 @@ detail each stage when it is next.
   language; Rust errors become codes
 - [x] (advanced) Atomic writes and autosave
 - [ ] (advanced) React to external changes without content loss
+- [ ] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
+  on opening the folder and offer to restore, never deleting automatically
 - [ ] (standard) Frontmatter: hide the block and show title and tags
 - [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
   the current line. No WYSIWYG, which would rewrite the file

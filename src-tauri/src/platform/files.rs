@@ -8,8 +8,7 @@ use std::path::Path;
 use windows::Win32::Foundation::{ERROR_SHARING_VIOLATION, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     DELETE, FILE_DISPOSITION_INFO, FILE_GENERIC_READ, FileDispositionInfo, MOVEFILE_WRITE_THROUGH,
-    MoveFileExW, REPLACEFILE_IGNORE_ACL_ERRORS, REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW,
-    SetFileInformationByHandle,
+    MoveFileExW, REPLACE_FILE_FLAGS, ReplaceFileW, SetFileInformationByHandle,
 };
 use windows::core::HSTRING;
 
@@ -19,9 +18,10 @@ fn os_error(error: windows::core::Error) -> io::Error {
 }
 
 /// `ReplaceFileW`: `replacement` takes the name, attributes, ACL and creation time of `target`, and
-/// the file that was at `target` moves to `backup`, which must not exist.
+/// the file that was at `target` moves to `backup`, which must not exist. Metadata errors are not
+/// ignored: a note whose ACL cannot be carried over must not become more open; it fails unchanged.
 pub fn replace_file(target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
-    let flags = REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_IGNORE_ACL_ERRORS;
+    let flags = REPLACE_FILE_FLAGS(0);
     let (target, replacement, backup) = (
         HSTRING::from(target),
         HSTRING::from(replacement),
