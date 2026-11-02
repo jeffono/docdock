@@ -85,6 +85,8 @@ pub enum Input {
     Shortcut {
         dialog: bool,
     },
+    /// O Windows confirmou o foco pedido em `Summon`.
+    Activated,
 }
 
 /// Efeito que a camada de cima deve executar.
@@ -205,6 +207,10 @@ impl Panel {
                 }
                 Focus::Unknown => Action::None,
             },
+            (State::Summoned { .. }, Input::Activated) => {
+                self.state = State::Summoned { focused: true };
+                Action::None
+            }
             (State::Open { .. } | State::Summoned { .. }, Input::Pin) => {
                 self.state = State::Pinned;
                 Action::None
@@ -404,6 +410,18 @@ mod tests {
             focus_tick(&mut p, Focus::Elsewhere, true, false, t0),
             Action::None
         );
+        assert_eq!(
+            focus_tick(&mut p, Focus::Elsewhere, false, false, t0),
+            Action::Hide
+        );
+    }
+
+    #[test]
+    fn foco_perdido_antes_da_consulta_seguinte_fecha_o_painel() {
+        let t0 = Instant::now();
+        let mut p = Panel::new(D);
+        shortcut(&mut p, t0);
+        p.step(Input::Activated, t0);
         assert_eq!(
             focus_tick(&mut p, Focus::Elsewhere, false, false, t0),
             Action::Hide

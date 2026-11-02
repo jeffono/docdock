@@ -57,8 +57,11 @@ function linkClick(event: MouseEvent) {
   if (!link) return;
   event.preventDefault();
   const href = link.getAttribute("href") ?? "";
-  if (href.startsWith("#")) document.getElementById(`note-${href.slice(1)}`)?.scrollIntoView();
-  else if (/^(https?:|mailto:)/i.test(href))
+  if (href.startsWith("#")) {
+    // O sanitizador só acrescenta o prefixo a quem ainda não o tem.
+    const id = href.slice(1);
+    document.getElementById(id.startsWith("note-") ? id : `note-${id}`)?.scrollIntoView();
+  } else if (/^(https?:|mailto:)/i.test(href))
     void openExternal(href).catch((e) => {
       error = String(e);
     });

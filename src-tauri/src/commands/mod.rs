@@ -62,7 +62,8 @@ pub async fn notes_choose(
 pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, String> {
     crate::notes::list_for(&app)
 }
-#[tauri::command]
+/// `async` tira a leitura e a sanitização da thread principal.
+#[tauri::command(async)]
 pub fn notes_open(app: AppHandle, path: String) -> Result<String, String> {
     crate::notes::open(&app, &path).map(|text| crate::markdown::render(&text, &path))
 }

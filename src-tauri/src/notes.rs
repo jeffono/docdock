@@ -15,6 +15,9 @@ use tauri_plugin_dialog::DialogExt;
 /// No Windows, as imagens ficam em `http://note-asset.localhost/<caminho relativo>`.
 pub const IMAGE_SCHEME: &str = "note-asset";
 
+/// Uma nota de terceiros não pode travar a UI: o custo vem da conversão e de inserir o HTML no DOM.
+const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
+
 #[derive(Serialize, Deserialize)]
 struct Settings {
     folder: PathBuf,
@@ -152,9 +155,19 @@ fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<Pa
     }
     Ok(target)
 }
+fn read_note(path: &Path) -> Result<String, String> {
+    let size = fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size > MAX_NOTE_BYTES {
+        return Err(format!(
+            "A nota tem {} MB; o limite para exibir é {} MB",
+            size / 1_048_576,
+            MAX_NOTE_BYTES / 1_048_576
+        ));
+    }
+    fs::read_to_string(path).map_err(|e| format!("Não foi possível ler a nota como UTF-8: {e}"))
+}
 pub fn open(app: &AppHandle, path: &str) -> Result<String, String> {
-    fs::read_to_string(resolve(&root(app)?, path, markdown)?)
-        .map_err(|e| format!("Não foi possível ler a nota como UTF-8: {e}"))
+    read_note(&resolve(&root(app)?, path, markdown)?)
 }
 /// SVG fica de fora porque pode conter script.
 fn image_type(path: &Path) -> Option<&'static str> {
@@ -330,6 +343,15 @@ mod tests {
         if mklink(&[], &notas.join("falso.png"), &notas.join("nota.md")) {
             assert_eq!(pedir("main", "/falso.png").status(), StatusCode::NOT_FOUND);
         }
+    }
+    #[test]
+    fn recusa_nota_grande_demais() {
+        let t = Temp::new();
+        let p = t.0.join("grande.md");
+        fs::write(&p, vec![b'x'; MAX_NOTE_BYTES as usize]).unwrap();
+        assert!(read_note(&p).is_ok());
+        fs::write(&p, vec![b'x'; MAX_NOTE_BYTES as usize + 1]).unwrap();
+        assert!(read_note(&p).is_err());
     }
     #[test]
     fn substitui_configuracao() {

@@ -300,10 +300,12 @@ impl Dock {
             Action::Summon => {
                 // A consulta pode estar até 50 ms atrás, e depois da ativação seria tarde.
                 self.track_focus();
-                // Ativar exige a janela habilitada. A falha só deixa o painel sem foco, e a máquina
-                // de estados percebe isso na próxima consulta.
+                // Ativar exige a janela habilitada. Confirmar aqui separa a falha do foco perdido logo
+                // depois, antes da próxima consulta.
                 self.show();
-                self.window.activate();
+                if self.window.activate() {
+                    self.panel.step(Input::Activated, Instant::now());
+                }
             }
             Action::Hide => {
                 // Se o usuário já clicou em outro app, o foco é dele e não se toca nele.

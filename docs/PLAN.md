@@ -6,8 +6,7 @@ cada etapa quando ela for a próxima.
 ## Em andamento
 
 M1 na branch de integração `tarefa/m1`. Falta aprovar a captura da identidade A e testar com referências
-reais: bandeja, atalho no teclado físico, escolha de pasta e link externo. Revisão do atalho e do markdown
-em curso.
+reais: bandeja, atalho no teclado físico, escolha de pasta e link externo.
 
 ## Concluídas
 

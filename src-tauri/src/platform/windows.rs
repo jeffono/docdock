@@ -226,9 +226,11 @@ impl PanelWindow {
         unsafe { GetForegroundWindow() }.0 as isize == self.raw
     }
 
-    pub fn activate(&self) {
+    /// Se o Windows aceitou dar o foco à janela.
+    pub fn activate(&self) -> bool {
         let activated = unsafe { SetForegroundWindow(self.hwnd()) }.as_bool();
         eprintln!("[painel] ativar: ok={activated}");
+        activated
     }
 }
 
