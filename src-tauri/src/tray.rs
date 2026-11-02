@@ -1,14 +1,15 @@
 //! Bandeja e controle do início automático, sem expor comandos à UI.
 
-use tauri::Manager;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::dock::Request;
-
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let enabled = app.autolaunch().is_enabled()?;
+    // O registro ilegível não pode impedir o app de abrir.
+    let enabled = app.autolaunch().is_enabled().unwrap_or_else(|error| {
+        eprintln!("[bandeja] falha ao consultar início automático: {error}");
+        false
+    });
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
@@ -27,12 +28,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "quit" => {
-                if let Some(requests) = app.try_state::<std::sync::mpsc::Sender<Request>>() {
-                    let _ = requests.send(Request::Shutdown);
-                }
-                app.exit(0);
-            }
+            "quit" => app.exit(0),
             "autostart" => {
                 let manager = app.autolaunch();
                 let result = manager.is_enabled().and_then(|enabled| {
