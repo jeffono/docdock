@@ -7,27 +7,11 @@ cada etapa quando ela for a próxima.
 
 Nada.
 
-## Etapa atual: M0 — Provar o painel
+## Concluídas
 
-**Objetivo:** responder, com um protótipo descartável, se o Tauri entrega a experiência de painel.
+- M0 — Painel provado e aprovado com o Tauri; ver `docs/decisions/0003-painel-e-paginas-web.md`.
 
-- [ ] (padrão) Máquina de estados pura do painel, com testes
-- [ ] (avançado) Gatilho de borda por consulta ao cursor, sem janela na borda
-- [ ] (avançado) Janela sobre as demais, fora da barra de tarefas e do Alt+Tab, sem roubar foco ao abrir
-- [ ] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
-- [ ] (avançado) Animação de deslize sem engasgos visíveis
-- [ ] (avançado) Dois monitores com DPIs diferentes
-- [ ] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
-- [ ] (básico) Medir o uso de memória com o painel aberto e oculto
-- [ ] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
-
-**Pronto quando:** você usar o protótipo com seus apps normais e aprovar a sensação do painel. Se
-foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de construir o resto.
-
-**Fato verificado:** no Tauri 2.12.5, vários WebViews na mesma janela seguem atrás da feature
-`unstable`. Por isso, a primeira opção a testar é uma janela própria sobre o painel.
-
-## M1 — Consultar referências
+## Etapa atual: M1 — Consultar referências
 
 - [ ] (padrão) Escolher a pasta de notas e lembrar da escolha
 - [ ] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
@@ -55,6 +39,7 @@ foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de co
 ## M4 — Páginas web
 
 - [ ] (padrão) Salvar páginas como referências, usando a solução escolhida na M0
+- [ ] (avançado) Testar se iframes da página disparam esquemas externos sem passar por `on_navigation`
 
 ## M5 — Distribuir
 
@@ -77,6 +62,6 @@ Valores padrão usados até você decidir o contrário.
 | Questão                         | Padrão                                                                            |
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | Lado da tela                    | Direito, configurável na M1                                                       |
-| Monitor                         | Principal; suporte a mais monitores definido na M0                                |
-| Fechar ao tirar o mouse         | Sim, exceto se fixado ou com edição ativa                                         |
+| Monitor                         | O mais à direita, cuja borda segura o cursor                                      |
+| Fechar ao tirar o mouse         | Sim, exceto se fixado, com edição ativa ou com a página em foco                   |
 | Página sobre apps em tela cheia | Funciona em janela e tela cheia sem bordas; jogos em modo exclusivo ficam de fora |

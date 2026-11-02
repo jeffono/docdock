@@ -1,11 +1,47 @@
 //! Composição do app: registra módulos e comandos, sem regras de negócio.
 
 mod commands;
+mod dock;
+pub mod panel;
+mod platform;
+mod web;
+
+use std::sync::mpsc;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
+        commands::app_version,
+        commands::panel_activate,
+        commands::panel_set_pinned,
+        commands::panel_set_editing,
+        commands::web_open,
+        commands::web_close,
+    ];
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![commands::app_version])
+        .setup(|app| {
+            let window = app
+                .get_webview_window("main")
+                .expect("janela principal ausente");
+            let (requests, receiver) = mpsc::channel();
+            app.manage(requests);
+            dock::start(window.hwnd()?.0 as isize, receiver);
+            Ok(())
+        })
+        // Comandos do app dispensam capability em origem local: sem esta barreira, a janela da página
+        // alcançaria todos eles se chegasse a carregar uma origem do app.
+        .invoke_handler(move |invoke| {
+            if invoke.message.webview().label() == "main" {
+                commands(invoke)
+            } else {
+                invoke
+                    .resolver
+                    .reject("comando restrito à janela principal");
+                true
+            }
+        })
         .run(tauri::generate_context!())
         .expect("falha ao iniciar o aplicativo");
 }
