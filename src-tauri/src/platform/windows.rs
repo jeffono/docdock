@@ -49,7 +49,7 @@ impl From<RECT> for Rect {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Monitor {
     pub bounds: Rect,
     pub work: Rect,
@@ -145,17 +145,16 @@ impl PanelWindow {
         x: i32,
         activation: Activation,
     ) -> Self {
-        let window = Self {
+        let mut window = Self {
             raw,
             clip_right,
             top: rect.top,
-            width: rect.right - rect.left,
-            height: rect.bottom - rect.top,
+            width: 0,
+            height: 0,
         };
-        let hwnd = window.hwnd();
         window.set_enabled(false);
-        window.clip(x);
         unsafe {
+            let hwnd = window.hwnd();
             let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
             let style = (style | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0;
             let style = match activation {
@@ -163,18 +162,30 @@ impl PanelWindow {
                 Activation::OnClick => style,
             };
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
-            let result = SetWindowPos(
-                hwnd,
+        }
+        window.place(rect, clip_right, x);
+        window
+    }
+
+    /// Dá à janela o tamanho de `rect`, na posição `x`, sobre as demais e sem ativar.
+    pub fn place(&mut self, rect: Rect, clip_right: i32, x: i32) {
+        self.clip_right = clip_right;
+        self.top = rect.top;
+        self.width = rect.right - rect.left;
+        self.height = rect.bottom - rect.top;
+        self.clip(x);
+        let result = unsafe {
+            SetWindowPos(
+                self.hwnd(),
                 Some(HWND_TOPMOST),
                 x,
-                rect.top,
-                window.width,
-                window.height,
+                self.top,
+                self.width,
+                self.height,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-            log_failure("SetWindowPos", result);
-        }
-        window
+            )
+        };
+        log_failure("SetWindowPos", result);
     }
 
     fn hwnd(&self) -> HWND {

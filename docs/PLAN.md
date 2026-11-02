@@ -5,7 +5,7 @@ cada etapa quando ela for a próxima.
 
 ## Em andamento
 
-Fechamento da M0: falta o usuário repetir o teste com um monitor à direita e fazer o merge.
+Fechamento da M0: falta o usuário repetir a troca de monitores com o app aberto e fazer o merge.
 
 ## Etapa atual: M0 — Provar o painel
 
@@ -17,6 +17,7 @@ Fechamento da M0: falta o usuário repetir o teste com um monitor à direita e f
 - [x] (avançado) Clique no painel ativa a digitação; ao sair, o foco volta ao app anterior
 - [x] (avançado) Animação de deslize sem engasgos visíveis
 - [x] (avançado) Dois monitores com DPIs diferentes
+- [x] (avançado) Reagir à troca de resolução, DPI e layout de monitores sem reiniciar o app
 - [x] (avançado) Página web real exibida com o painel: comparar janela própria com a feature `unstable`
 - [x] (básico) Medir o uso de memória com o painel aberto e oculto
 - [x] (padrão) Registrar o resultado em `docs/decisions/0003-*.md`, incluindo a escolha para páginas web
@@ -35,7 +36,6 @@ foco, animação ou WebView forem inviáveis, reavaliamos o Electron antes de co
 - [ ] (avançado) Definir uma CSP restritiva antes de renderizar conteúdo do usuário
 - [ ] (padrão) Listar e abrir notas
 - [ ] (padrão) Renderizar markdown com tabelas e imagens locais
-- [ ] (padrão) Reagir à troca de resolução, DPI e layout de monitores sem reiniciar o app
 - [ ] (padrão) Atalho global, ícone na bandeja, instância única e início com o Windows
 - [ ] (avançado) Primeira definição visual, usando `tokens.css`
 - [ ] (padrão) Criar `docs/DESIGN.md` com densidade, ícones, tom dos textos, estados e movimento

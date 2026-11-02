@@ -52,6 +52,12 @@ fn edge_monitor(monitors: Vec<Monitor>) -> Option<Monitor> {
     })
 }
 
+/// O novo monitor do painel, se a troca de layout, resolução, DPI ou barra de tarefas mudou o atual.
+/// Sem monitores, como no meio de uma troca, fica o que está.
+fn monitor_change(current: &Monitor, monitors: Vec<Monitor>) -> Option<Monitor> {
+    edge_monitor(monitors).filter(|monitor| monitor != current)
+}
+
 /// Traduz a posição do cursor. Pontos fora do monitor nunca abrem nem seguram o painel.
 fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect) -> CursorZone {
     if !monitor.contains(cursor) {
@@ -130,6 +136,28 @@ struct Dock {
 }
 
 impl Dock {
+    fn is_open(&self) -> bool {
+        matches!(self.panel.state, State::Open { .. } | State::Pinned)
+    }
+
+    /// Leva as janelas ao novo monitor, sem animar. O deslize em curso se aplicava ao monitor antigo.
+    fn relocate(&mut self, monitor: Monitor) {
+        eprintln!("[painel] monitor mudou: {monitor:?}");
+        self.monitor = monitor;
+        self.rect = panel_rect(&monitor);
+        self.parked_x = monitor.bounds.right;
+        self.slide = None;
+        self.x = if self.is_open() {
+            self.rect.left
+        } else {
+            self.parked_x
+        };
+        self.window.place(self.rect, self.parked_x, self.x);
+        if let Some(web) = &mut self.web {
+            web.place(web_rect(&monitor, self.rect), self.parked_x, self.x);
+        }
+    }
+
     fn handle(&mut self, request: Request) {
         let now = Instant::now();
         let action = match request {
@@ -148,10 +176,7 @@ impl Dock {
                 let rect = web_rect(&self.monitor, self.rect);
                 let right = self.monitor.bounds.right;
                 let web = PanelWindow::prepare(raw, rect, right, self.x, Activation::OnClick);
-                web.set_enabled(matches!(
-                    self.panel.state,
-                    State::Open { .. } | State::Pinned
-                ));
+                web.set_enabled(self.is_open());
                 self.web = Some(web);
                 Action::None
             }
@@ -165,6 +190,9 @@ impl Dock {
         let Some(cursor) = platform::cursor_pos() else {
             return;
         };
+        if let Some(monitor) = monitor_change(&self.monitor, platform::monitors()) {
+            self.relocate(monitor);
+        }
         self.track_focus();
         let zone = cursor_zone(cursor, self.monitor.bounds, self.rect);
         // Quem digita na página pode tirar o mouse sem perder o painel. A página não fala com o Rust,
@@ -336,6 +364,16 @@ mod tests {
         assert_eq!(chosen.bounds.right, 7680);
         let chosen = edge_monitor(vec![monitor(-3840, 0), principal]).unwrap();
         assert_eq!(chosen.bounds.right, 3840);
+    }
+
+    #[test]
+    fn inverter_os_monitores_com_o_app_aberto_troca_o_monitor_do_painel() {
+        let atual = monitor(3840, 7680);
+        let invertido = vec![monitor(-3840, 0), monitor(0, 3840)];
+        let novo = monitor_change(&atual, invertido).unwrap();
+        assert_eq!(novo.bounds.right, 3840);
+        assert!(monitor_change(&atual, vec![monitor(0, 3840), atual]).is_none());
+        assert!(monitor_change(&atual, Vec::new()).is_none());
     }
 
     #[test]

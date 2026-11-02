@@ -69,5 +69,5 @@ DPI por monitor (PMv2).
 - **Painel oculto:** a janela fica desabilitada. Só `WS_EX_NOACTIVATE` não basta: ao fechar o app em
   primeiro plano, o Windows ativava o painel fora da tela e o teclado ia para uma janela invisível.
 - **Painel recolhido (_planejado_):** o WebView2 reduz o uso de memória enquanto oculto.
-- **Limite do protótipo:** monitor e tamanho são lidos só ao iniciar; mudar resolução, DPI ou layout
-  exige reiniciar o app.
+- **Troca de monitores:** a cada consulta do cursor, o painel relê os monitores. Se layout, resolução, DPI
+  ou barra de tarefas mudarem o monitor escolhido, as janelas vão para o novo lugar sem animação.
