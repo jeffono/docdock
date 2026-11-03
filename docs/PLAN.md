@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: frontmatter and the editor, in parallel; then pasting images.
+Nothing. Next: integrate frontmatter with the editor; then pasting images.
 
 ## Completed
 
@@ -22,7 +22,7 @@ Nothing. Next: frontmatter and the editor, in parallel; then pasting images.
 - [x] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
   on opening the folder and offer to restore, never deleting automatically
 - [ ] (standard) Frontmatter: hide the block and show title and tags
-- [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
+- [x] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
   the current line. No WYSIWYG, which would rewrite the file. On an external change, reload the text only
   without unsaved edits; otherwise keep them and show the conflict
 - [ ] (standard) Paste images as attachments

@@ -62,3 +62,11 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 The note uses only these tokens, in `:global` selectors inside `.note`. CSP forbids inline styles: no
 component depends on a `style` attribute.
+
+## Note editor
+
+The pencil toggle sits next to the note and stays pressed during editing. Reading remains the default.
+The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
+Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
+hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
+a secondary Discard my changes button. Errors appear in red beside this notice.
