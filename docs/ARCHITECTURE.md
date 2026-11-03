@@ -115,7 +115,10 @@ per-monitor DPI awareness (PMv2).
 `notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust converts and sanitizes
-markdown before sending it to the UI, which has no filesystem permission.
+markdown before sending it to the UI, which has no filesystem permission. A closed YAML frontmatter block
+at the start is hidden; title and tag scalars, flow lists and block lists are extracted as plain text.
+The small parser ignores unsupported YAML; an unquoted `#` after whitespace starts a comment, while
+quoted `#` and `a#b` are literal. The raw text remains unchanged.
 
 **Saving.** `notes_open` returns the sanitized HTML, the raw text and a version: a hash of the file's bytes,
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like

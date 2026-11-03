@@ -35,7 +35,13 @@ export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
 export const notesList = () => invoke<Note[]>("notes_list");
 /** `version` is opaque: pass it back to `notesSave` as `base`. */
-export type OpenNote = { html: string; text: string; version: string };
+export type OpenNote = {
+  html: string;
+  text: string;
+  version: string;
+  title: string | null;
+  tags: string[];
+};
 export type SaveResult = { status: "saved"; version: string } | { status: "conflict" };
 export const notesOpen = (path: string) => invoke<OpenNote>("notes_open", { path });
 export const notesSave = (path: string, content: string, base: string) =>

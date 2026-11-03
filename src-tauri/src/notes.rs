@@ -58,6 +58,8 @@ pub struct Note {
 #[derive(Serialize)]
 pub struct OpenNote {
     html: String,
+    title: Option<String>,
+    tags: Vec<String>,
     text: String,
     version: String,
 }
@@ -309,8 +311,11 @@ fn version(bytes: &[u8]) -> String {
 }
 pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
     let text = read_note(&resolve(&root(app)?, path, markdown)?)?;
+    let (title, tags) = crate::markdown::frontmatter(&text);
     Ok(OpenNote {
         html: crate::markdown::render(&text, path),
+        title,
+        tags,
         version: version(text.as_bytes()),
         text,
     })

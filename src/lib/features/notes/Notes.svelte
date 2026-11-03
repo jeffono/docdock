@@ -22,6 +22,8 @@ import TextField from "../../ui/TextField.svelte";
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
 let content = $state("");
+let title = $state<string | null>(null);
+let tags = $state<string[]>([]);
 let selected = $state("");
 let error = $state("");
 let query = $state("");
@@ -46,6 +48,8 @@ async function refresh(value: NotesFolder | null) {
   notes = [];
   selected = "";
   content = "";
+  title = null;
+  tags = [];
   leftovers = [];
   if (!value?.available) return;
   const list = await notesList();
@@ -83,6 +87,8 @@ async function open(path: string) {
     const note = await notesOpen(path);
     if (current !== generation) return;
     content = note.html;
+    title = note.title;
+    tags = note.tags;
     version = note.version;
     selected = path;
     gone = false;
@@ -119,6 +125,8 @@ async function reload() {
   gone = false;
   if (note.version !== version) {
     content = note.html;
+    title = note.title;
+    tags = note.tags;
     version = note.version;
   }
 }
@@ -225,6 +233,12 @@ onMount(() => {
     {#if selected}
       {#if gone}<p class="message" role="status">{t("notes.gone")}</p>{/if}
       <div class="note" onclick={linkClick} role="presentation">
+        {#if title || tags.length}
+          <header class="note-header">
+            {#if title}<h1>{title}</h1>{/if}
+            {#if tags.length}<div class="tags">{#each tags as tag}<span>{tag}</span>{/each}</div>{/if}
+          </header>
+        {/if}
         <!-- The HTML has already been sanitized in Rust. -->
         {@html content}
       </div>
@@ -381,6 +395,32 @@ onMount(() => {
     padding: var(--space-3) var(--space-4) var(--space-4);
     overflow-y: auto;
     overflow-wrap: anywhere;
+  }
+
+  .note-header {
+    margin-bottom: var(--space-3);
+  }
+
+  .note-header h1 {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+    line-height: var(--line-height-tight);
+    letter-spacing: var(--tracking-tight);
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .tags span {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
   }
 
   .note :global(h1),
