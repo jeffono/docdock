@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { imageUrl } from "./live-formatting";
+import { imageUrl } from "./markdown";
 
 test("editor image paths follow Rust decoding, traversal and encoding rules", () => {
   expect(imageUrl("../images/a%20b!'().png", "sub/note.md")).toBe(

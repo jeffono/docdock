@@ -57,9 +57,6 @@ pub struct Note {
 }
 #[derive(Serialize)]
 pub struct OpenNote {
-    html: String,
-    title: Option<String>,
-    tags: Vec<String>,
     text: String,
     version: String,
 }
@@ -311,11 +308,7 @@ fn version(bytes: &[u8]) -> String {
 }
 pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
     let text = read_note(&resolve(&root(app)?, path, markdown)?)?;
-    let (title, tags) = crate::markdown::frontmatter(&text);
     Ok(OpenNote {
-        html: crate::markdown::render(&text, path),
-        title,
-        tags,
         version: version(text.as_bytes()),
         text,
     })
@@ -812,10 +805,6 @@ mod tests {
             2
         );
         assert!(paste_image_in(&t.0, "../a.md", png, "stamp").is_err());
-        assert!(
-            crate::markdown::render(&format!("![]({first})"), "sub/a.md")
-                .contains("http://note-asset.localhost/sub/attachments/pasted-20261103-123456.png")
-        );
         let response = image_response(
             "main",
             Some(t.0.clone()),

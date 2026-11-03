@@ -7,9 +7,9 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
 
 **Decision:**
 
-- **Markdown:** converted in Rust with `pulldown-cmark` and sanitized with `ammonia` using an allowlist.
-  The UI receives only sanitized HTML, and this is the only permitted use of `{@html}`. Raw text never
-  goes into the DOM as HTML.
+- **Markdown:** rendered in the UI as DOM nodes from an allowlisted model, never as HTML; see
+  [0007](0007-one-markdown-parser.md), which replaced Rust conversion with `pulldown-cmark` and `ammonia`.
+  Raw text never goes into the DOM as HTML.
 - **Local images:** custom `note-asset` protocol instead of the asset protocol. It serves only png, jpg,
   jpeg, gif and webp inside the notes folder, with the guarantees of `resolve`. The extension applies to
   both the request and the canonical target. SVG is excluded because it can contain scripts. The type
@@ -41,8 +41,8 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
 - Links in rendered content do not navigate. To open them in the default browser, the UI intercepts the
   click and calls a command that validates http(s) and mailto. Never relax `on_navigation` or
   `on_new_window` for this.
-- The `note-asset` path is relative to the notes folder, with percent-encoding. The renderer rewrites
-  `src` to `http://note-asset.localhost/<path>`.
+- The `note-asset` path is relative to the notes folder, with percent-encoding. The renderer builds
+  `src` as `http://note-asset.localhost/<path>`.
 - Accepted risk: swapping a folder in the notes tree for a junction between `resolve` and the write can
   redirect a save; it needs concurrent local write access to the tree and a target holding the same bytes
   as the base version. Handle-based validation is deferred.

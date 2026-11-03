@@ -12,9 +12,9 @@ import {
 } from "@codemirror/lang-markdown";
 import { type ChangeSet, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { GFM } from "@lezer/markdown";
 import { formattingKeymap, inList } from "./formatting";
 import { liveFormatting } from "./live-formatting";
+import { markdownExtensions } from "./markdown";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -39,7 +39,7 @@ export function editorExtensions(
   label: string,
 ) {
   return [
-    markdown({ extensions: GFM, addKeymap: false }),
+    markdown({ extensions: markdownExtensions, addKeymap: false }),
     history(),
     keymap.of([
       ...formattingKeymap,

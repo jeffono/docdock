@@ -62,7 +62,9 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 Reading and editing share `features/notes/content.css`, scoped by `.note-content`, including the
 frontmatter title and tag header. The editor loads it through an external link in its shadow root.
-CSP forbids inline styles: no component depends on a `style` attribute.
+CSP forbids inline styles: no component depends on a `style` attribute. Footnote references and
+labels are small raised text, references in the accent color; definitions are small muted text where
+they are written. Raw HTML keeps its shape as plain text. List paragraphs stay tight, like editor lines.
 
 GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
 Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content

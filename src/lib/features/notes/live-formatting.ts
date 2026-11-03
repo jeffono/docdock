@@ -7,28 +7,17 @@ import {
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
+import {
+  alertKind,
+  definitions,
+  footnoteLabel,
+  imageUrl,
+  linkTarget,
+  frontmatter as readFrontmatter,
+  safeHref,
+} from "./markdown";
 export const notePath = Facet.define<string, string>({ combine: (values) => values[0] ?? "" });
 
-/** Same decoding, traversal and segment encoding rules as markdown::image_url. */
-export function imageUrl(source: string, note: string): string | null {
-  let src: string;
-  try {
-    src = decodeURIComponent(source.replace(/%(?![a-f\d]{2})/gi, "%25"));
-  } catch {
-    return null;
-  }
-  if (!src || src.startsWith("/") || /[:\\?#]/.test(src)) return null;
-  const parts = note.split("/");
-  parts.pop();
-  for (const part of src.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
-      if (!parts.length) return null;
-      parts.pop();
-    } else parts.push(part);
-  }
-  return `http://note-asset.localhost/${parts.map((p) => encodeURIComponent(p).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/")}`;
-}
 function active(state: EditorState, from: number, to: number) {
   return state.selection.ranges.some(
     (r) => state.doc.lineAt(r.from).from <= to && state.doc.lineAt(r.to).to >= from,
@@ -97,54 +86,18 @@ class ImageWidget extends WidgetType {
     return el;
   }
 }
-function scalar(raw: string): string | null {
-  const value = raw.trim();
-  if (/^["']/.test(value)) {
-    const end = value.indexOf(value[0], 1),
-      rest = value.slice(end + 1).trim(),
-      result = value.slice(1, end);
-    return end > 0 && (!rest || rest.startsWith("#")) && result && !/["'\\]/.test(result)
-      ? result
-      : null;
+type Metadata = { to: number; title: string | null; tags: string[] } | null;
+const metadataCache = new WeakMap<EditorState["doc"], Metadata>();
+function metadata(state: EditorState): Metadata {
+  const { doc } = state;
+  if (!metadataCache.has(doc)) {
+    const meta = readFrontmatter((n) => doc.line(n).text, doc.lines);
+    metadataCache.set(
+      doc,
+      meta && { to: doc.line(meta.end).to, title: meta.title, tags: meta.tags },
+    );
   }
-  const result = value.replace(/(^|\s)#.*$/, "").trim();
-  return !result || /^[[{|>\-&*!%@`]/.test(result) || /["'[\]{},]|: /.test(result) ? null : result;
-}
-const metadataCache = new WeakMap<EditorState["doc"], ReturnType<typeof readMetadata>>();
-function metadata(state: EditorState) {
-  if (!metadataCache.has(state.doc)) metadataCache.set(state.doc, readMetadata(state));
-  return metadataCache.get(state.doc) ?? null;
-}
-function readMetadata(state: EditorState) {
-  if (state.doc.line(1).text !== "---") return null;
-  let title: string | null = null,
-    tags: string[] = [],
-    inTags = false;
-  for (let n = 2; n <= state.doc.lines; n++) {
-    const line = state.doc.line(n);
-    if (line.text === "---") return { to: line.to, title, tags };
-    if (/^\s/.test(line.text)) {
-      const item = line.text.trim().match(/^- (.*)/);
-      if (inTags && item) {
-        const value = scalar(item[1]);
-        if (value) tags.push(value);
-      }
-      continue;
-    }
-    inTags = false;
-    const match = line.text.match(/^(title|tags?):\s*(.*)$/);
-    if (!match) continue;
-    if (match[1] === "title") title = scalar(match[2]);
-    else {
-      tags = [];
-      inTags = !match[2];
-      const list = match[2].match(/^\[(.*)\]$/);
-      tags = (list ? (list[1].match(/(?:"[^"]*"|'[^']*'|[^,])+/g) ?? []) : [match[2]])
-        .map(scalar)
-        .filter((v): v is string => v !== null);
-    }
-  }
-  return null;
+  return metadataCache.get(doc) ?? null;
 }
 class HeaderWidget extends WidgetType {
   constructor(
@@ -218,6 +171,10 @@ function formatting(view: EditorView, note: string): DecorationSet {
   const ranges: ReturnType<Decoration["range"]>[] = [],
     lines = new Map<number, Set<string>>();
   const meta = metadata(view.state);
+  const slice = (from: number, to: number) => view.state.sliceDoc(from, to);
+  const sameLine = (from: number, to: number) =>
+    view.state.doc.lineAt(from).number === view.state.doc.lineAt(to).number;
+  const defs = definitions(syntaxTree(view.state).topNode, slice);
   const lineClass = (from: number, to: number, cls: string) => {
     for (const visible of view.visibleRanges) {
       let pos = view.state.doc.lineAt(Math.max(from, visible.from)).from;
@@ -279,27 +236,60 @@ function formatting(view: EditorView, note: string): DecorationSet {
         if (name === "Emphasis") mark("emphasis");
         if (name === "Strikethrough") mark("strike");
         if (name === "InlineCode") mark("inline-code");
-        // Without a destination, `[text]` is plain text in the reading view (no reference definitions).
-        if (name === "Link" && node.node.getChild("URL")) mark("link");
+        if (name === "Link" || name === "Autolink") {
+          // Without a definition, `[text]` stays text, as in the reading view.
+          const target =
+            name === "Link" ? linkTarget(node.node, slice, defs)?.url : slice(node.from, node.to);
+          if (!target) return;
+          if (safeHref(target.replace(/^<|>$/g, ""))) mark("link");
+          const marks = node.node.getChildren("LinkMark");
+          if (!selected && marks.length >= 2 && sameLine(node.from, node.to)) {
+            // Hide `[`, and everything from `]` on: destination, title or reference label.
+            ranges.push(Decoration.replace({}).range(node.from, marks[0].to));
+            ranges.push(Decoration.replace({}).range(marks[1].from, node.to));
+          }
+          return name === "Link" ? undefined : false;
+        }
+        if (
+          name === "URL" &&
+          node.node.parent?.name !== "Link" &&
+          safeHref(slice(node.from, node.to))
+        )
+          mark("link");
+        if (name === "FootnoteReference") {
+          const label = footnoteLabel(slice(node.from, node.to));
+          if (defs.footnotes.has(label) && !selected)
+            replace(new TextWidget(label, "footnote-ref"));
+          return false;
+        }
+        if (name === "FootnoteDefinition") {
+          lineClass(node.from, node.to, "footnote");
+          const footnote = node.node.getChild("FootnoteMark");
+          if (footnote && !selected)
+            ranges.push(
+              Decoration.replace({
+                widget: new TextWidget(
+                  footnoteLabel(slice(footnote.from, footnote.to)),
+                  "footnote-label",
+                ),
+              }).range(footnote.from, footnote.to),
+            );
+        }
         if (name === "Blockquote") {
           let depth = 1;
           for (let parent = node.node.parent; parent; parent = parent.parent)
             if (parent.name === "Blockquote") depth++;
           lineClass(node.from, node.to, depth === 1 ? "quote" : `quote-${Math.min(depth, 3)}`);
-          // The reading view's rule (pulldown-cmark): `>`, at most one space, the kind in any case
-          // and nothing else on the line. Text after the marker makes a plain quote.
           const line = view.state.doc.lineAt(node.from),
-            alert = view.state
-              .sliceDoc(node.from, line.to)
-              .match(/^> ?\[!(note|tip|important|warning|caution)\][ \t]*$/i);
-          if (alert) {
-            const kind = alert[1].toLowerCase();
+            first = slice(node.from, line.to),
+            kind = alertKind(first);
+          if (kind) {
             lineClass(node.from, node.to, `markdown-alert-${kind}`);
             if (!active(view.state, line.from, line.to))
               ranges.push(
                 Decoration.replace({
                   widget: new TextWidget(kind.toUpperCase(), "alert-title"),
-                }).range(node.from + alert[0].indexOf("[!"), line.to),
+                }).range(node.from + first.indexOf("[!"), line.to),
               );
           }
         }
@@ -311,10 +301,10 @@ function formatting(view: EditorView, note: string): DecorationSet {
           return false;
         }
         if (name === "Image") {
-          const url = node.node.getChild("URL"),
+          const url = linkTarget(node.node, slice, defs)?.url,
             alt = raw.match(/^!\[([^\]]*)\]/)?.[1] ?? "";
           if (url) {
-            const src = imageUrl(view.state.sliceDoc(url.from, url.to).replace(/^<|>$/g, ""), note);
+            const src = imageUrl(url, note);
             if (src) {
               // Replace each visible line separately: view plugins cannot span line breaks.
               for (const visible of view.visibleRanges) {
@@ -361,11 +351,8 @@ function formatting(view: EditorView, note: string): DecorationSet {
           return false;
         }
         if (
-          /^(HeaderMark|EmphasisMark|StrikethroughMark|CodeMark|LinkMark|URL|QuoteMark)$/.test(
-            name,
-          ) &&
-          (name !== "LinkMark" || node.node.parent?.getChild("URL")) &&
-          view.state.doc.lineAt(node.from).number === view.state.doc.lineAt(node.to).number
+          /^(HeaderMark|EmphasisMark|StrikethroughMark|CodeMark|QuoteMark)$/.test(name) &&
+          sameLine(node.from, node.to)
         )
           replace();
       },

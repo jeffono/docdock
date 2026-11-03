@@ -22,13 +22,11 @@ import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import type { AutosaveState } from "./autosave";
 import Editor from "./Editor.svelte";
+import { renderNote } from "./render";
 import "./content.css";
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
-let content = $state("");
-let title = $state<string | null>(null);
-let tags = $state<string[]>([]);
 let selected = $state("");
 let error = $state("");
 let query = $state("");
@@ -48,9 +46,6 @@ function leaveEditor(): Promise<boolean> {
     const note = await editor?.finish();
     if (!note) return false;
     opened = note;
-    content = note.html;
-    title = note.title;
-    tags = note.tags;
     version = note.version;
     editing = false;
     return true;
@@ -108,9 +103,7 @@ async function refresh(value: NotesFolder | null) {
   folder = value;
   notes = [];
   selected = "";
-  content = "";
-  title = null;
-  tags = [];
+  opened = null;
   leftovers = [];
   if (!value?.available) return;
   const list = await notesList();
@@ -150,9 +143,6 @@ async function open(path: string) {
     const note = await notesOpen(path);
     if (current !== generation) return;
     opened = note;
-    content = note.html;
-    title = note.title;
-    tags = note.tags;
     version = note.version;
     selected = path;
     gone = false;
@@ -198,9 +188,6 @@ async function reload() {
   if (note.version !== version) {
     if (editing && !editor?.reload(note, editRevision)) return;
     opened = note;
-    content = note.html;
-    title = note.title;
-    tags = note.tags;
     version = note.version;
   }
 }
@@ -334,16 +321,14 @@ onMount(() => {
           }}
         />
       {:else}
-      <div class="note note-content" onclick={linkClick} ondblclick={() => { editing = true; }} role="presentation">
-        {#if title || tags.length}
-          <header class="note-header">
-            {#if title}<h1>{title}</h1>{/if}
-            {#if tags.length}<div class="tags">{#each tags as tag}<span>{tag}</span>{/each}</div>{/if}
-          </header>
-        {/if}
-        <!-- The HTML has already been sanitized in Rust. -->
-        {@html content}
-      </div>
+      <!-- Built from the editor's parser as DOM nodes; note text never becomes HTML. -->
+      <div
+        class="note note-content"
+        onclick={linkClick}
+        ondblclick={() => { editing = true; }}
+        role="presentation"
+        {@attach (element) => { element.replaceChildren(renderNote(opened?.text ?? "", selected)); }}
+      ></div>
       {/if}
       </div>
     {/if}

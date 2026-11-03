@@ -299,3 +299,34 @@
 .note-content > :first-child {
   padding-inline-end: var(--edit-chrome-width);
 }
+
+/* Items are one line in the editor, so list paragraphs stay tight in reading too. */
+.note-content li > p {
+  margin: 0;
+}
+/* Raw HTML and other unsupported blocks keep their shape as text. */
+.note-content .raw {
+  white-space: pre-wrap;
+}
+.note-content .align-center {
+  text-align: center;
+}
+.note-content .align-right {
+  text-align: right;
+}
+.note-content .footnote-ref {
+  color: var(--color-accent);
+}
+.note-content .footnote-ref,
+.note-content .footnote-label {
+  font-size: var(--font-size-sm);
+  vertical-align: super;
+  line-height: 0;
+}
+.note-content .footnote {
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+.note-content div.footnote {
+  margin: 0 0 var(--space-1);
+}

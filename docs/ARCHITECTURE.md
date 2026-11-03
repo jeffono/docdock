@@ -116,13 +116,13 @@ per-monitor DPI awareness (PMv2).
 
 `notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
-canonical target is inside the folder. The native picker keeps the panel open. Rust converts and sanitizes
-markdown before sending it to the UI, which has no filesystem permission. A closed YAML frontmatter block
-at the start is hidden; title and tag scalars, flow lists and block lists are extracted as plain text.
+canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
+which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title and
+tag scalars, flow lists and block lists are extracted as plain text by `features/notes/markdown.ts`.
 The small parser ignores unsupported YAML; an unquoted `#` after whitespace starts a comment, while
 quoted `#` and `a#b` are literal. The raw text remains unchanged.
 
-**Saving.** `notes_open` returns the sanitized HTML, the raw text and a version: a hash of the file's bytes,
+**Saving.** `notes_open` returns the raw text and a version: a hash of the file's bytes,
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
 opening, writes only if the file still has version `base` and returns the new version; otherwise it
 answers `conflict` and writes nothing. A missing note is recreated only on a save of an edit,
@@ -154,7 +154,14 @@ the edit in `unsaved()`, and after an error the next edit or `flush` retries. `s
 ignores later edits and completion callbacks; an in-flight disk operation can still complete. The
 editor stops it when replacing a clean base, discarding or unmounting.
 
-**Editor.** Reading is the default: sanitized HTML from Rust. The pencil toggle or a double-click
+**Rendering.** Reading and editing share one parser and one rule per construct
+([0007](decisions/0007-one-markdown-parser.md)): `markdown.ts` configures lezer with GFM and GitHub
+footnotes, and holds link, image, alert and frontmatter rules. `render.ts` turns the tree into a model
+of allowlisted tags and attributes, then DOM nodes, rebuilt when the note or its path changes. Raw
+HTML stays text; links and images follow the shared destination rules; footnote definitions render
+where they are written.
+
+**Editor.** Reading is the default. The pencil toggle or a double-click
 opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. Ctrl+E reaches the
 editor through its CodeMirror keymap and reading through a window listener that ignores handled keys;
 both use the same guarded leave path as Esc and the pencil. Formatting commands apply isolated history
@@ -168,7 +175,7 @@ reading parser (an alert marker alone on its line, `[text]` without a destinatio
 widgets are spaced with padding only: CodeMirror maps clicks and vertical motion from measured line
 boxes and ignores margins. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make
 one undoable text transaction and respect read-only state. Image widgets use the same decoding,
-traversal and segment encoding rules as Rust `image_url`; they never insert HTML. A StateField supplies
+traversal and segment encoding rules as the `note-asset` protocol; they never insert HTML. A StateField supplies
 the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the
 framed raw block. Metadata is cached by immutable document identity. Raw text is tracked separately
 from CodeMirror offsets so untouched CRLF, LF and CR
@@ -177,7 +184,7 @@ an empty file). No Markdown serialization occurs.
 
 Each editor owns an autosave instance. Blur flushes; Esc, the toggle, opening another note and choosing
 a folder flush and refuse to leave on conflict or error. Leaving temporarily makes the editor read-only,
-flushes and rereads sanitized HTML from disk. Esc blurs synchronously, like TextField, so the panel
+flushes and rereads the note from disk. Esc blurs synchronously, like TextField, so the panel
 consumes that press. Focus reports editing to the panel. Conflicts keep the text and stop saving;
 Keep my version rereads the disk version and saves the latest editor text against it (another race
 can conflict again). Discard my changes explicitly replaces the text from disk. Errors stay near
@@ -239,7 +246,7 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
 
 - **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
 - **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
-- **GitHub alerts:** pulldown-cmark GFM emits typed blockquotes. Ammonia retains only the five
-  `markdown-alert-{note,tip,important,warning,caution}` classes on blockquotes. Shared CSS supplies
-  literal English kind titles; the editor uses text widgets and line decorations for the same kinds.
+- **Rendered notes:** DOM nodes from an allowlisted model, never HTML. GitHub alerts become
+  `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
+  kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.

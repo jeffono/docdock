@@ -5,7 +5,6 @@ mod dock;
 mod error;
 mod i18n;
 mod main_window;
-mod markdown;
 mod notes;
 pub mod panel;
 mod platform;

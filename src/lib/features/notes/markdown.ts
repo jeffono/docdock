@@ -1,0 +1,215 @@
+// Markdown rules shared by the reading view and the editor: one parser, one rule for each construct.
+import type { SyntaxNode } from "@lezer/common";
+import { GFM, type MarkdownConfig, parser } from "@lezer/markdown";
+
+const footnoteStart = /^\[\^([^\]\s]+)\]:/;
+
+/**
+ * GitHub-style footnotes: `[^label]` references and `[^label]: text` definitions. A definition is a
+ * paragraph, so lazy continuation lines belong to it; another definition line ends it.
+ */
+const Footnotes: MarkdownConfig = {
+  defineNodes: [{ name: "FootnoteDefinition", block: true }, "FootnoteMark", "FootnoteReference"],
+  parseBlock: [
+    {
+      name: "FootnoteDefinition",
+      before: "LinkReference",
+      leaf: (_, leaf) =>
+        footnoteStart.test(leaf.content)
+          ? {
+              nextLine: () => false,
+              finish(cx, leaf) {
+                const mark = leaf.content.match(footnoteStart)?.[0].length ?? 0;
+                cx.addLeafElement(
+                  leaf,
+                  cx.elt("FootnoteDefinition", leaf.start, leaf.start + leaf.content.length, [
+                    cx.elt("FootnoteMark", leaf.start, leaf.start + mark),
+                    ...cx.parser.parseInline(leaf.content.slice(mark), leaf.start + mark),
+                  ]),
+                );
+                return true;
+              },
+            }
+          : null,
+      endLeaf: (_, line) => footnoteStart.test(line.text.slice(line.pos)),
+    },
+  ],
+  parseInline: [
+    {
+      name: "FootnoteReference",
+      before: "Link",
+      parse(cx, next, pos) {
+        if (next !== 91 || cx.char(pos + 1) !== 94) return -1;
+        let end = pos + 2;
+        while (end < cx.end && !/[\s\]]/.test(String.fromCharCode(cx.char(end)))) end++;
+        if (end === pos + 2 || cx.char(end) !== 93) return -1;
+        return cx.addElement(cx.elt("FootnoteReference", pos, end + 1));
+      },
+    },
+  ],
+};
+
+export const markdownExtensions = [GFM, Footnotes];
+export const noteParser = parser.configure(markdownExtensions);
+
+type Slice = (from: number, to: number) => string;
+
+/** `[^label]` or `[^label]:` → label. */
+export function footnoteLabel(syntax: string): string {
+  return syntax.replace(/^\[\^|\]:?$/g, "");
+}
+
+/** CommonMark label matching: case-insensitive, inner whitespace collapsed. */
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export type Definitions = {
+  links: Map<string, { url: string; title: string }>;
+  footnotes: Set<string>;
+};
+
+/** Link reference and footnote definitions, from block containers only. */
+export function definitions(top: SyntaxNode, slice: Slice): Definitions {
+  const found: Definitions = { links: new Map(), footnotes: new Set() };
+  const visit = (node: SyntaxNode) => {
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.name === "LinkReference") {
+        const label = child.getChild("LinkLabel"),
+          url = child.getChild("URL"),
+          title = child.getChild("LinkTitle");
+        const key = label && normalizeLabel(slice(label.from + 1, label.to - 1));
+        if (key && url && !found.links.has(key))
+          found.links.set(key, {
+            url: slice(url.from, url.to).replace(/^<|>$/g, ""),
+            title: title ? slice(title.from + 1, title.to - 1) : "",
+          });
+      } else if (child.name === "FootnoteDefinition") {
+        const mark = child.getChild("FootnoteMark");
+        if (mark) found.footnotes.add(footnoteLabel(slice(mark.from, mark.to)));
+      } else if (/^(Blockquote|BulletList|OrderedList|ListItem)$/.test(child.name)) visit(child);
+    }
+  };
+  visit(top);
+  return found;
+}
+
+/**
+ * Destination of a Link or Image node: inline, full reference `[text][label]` or shortcut `[text]`.
+ * Null when nothing defines it, in which case CommonMark shows the brackets as text.
+ */
+export function linkTarget(
+  node: SyntaxNode,
+  slice: Slice,
+  defs: Definitions,
+): { url: string; title: string } | null {
+  const url = node.getChild("URL");
+  if (url) {
+    const title = node.getChild("LinkTitle");
+    return {
+      url: slice(url.from, url.to).replace(/^<|>$/g, ""),
+      title: title ? slice(title.from + 1, title.to - 1) : "",
+    };
+  }
+  const label = node.getChild("LinkLabel");
+  const marks = node.getChildren("LinkMark");
+  const text = label
+    ? slice(label.from + 1, label.to - 1)
+    : marks.length >= 2
+      ? slice(marks[0].to, marks[1].from)
+      : "";
+  return defs.links.get(normalizeLabel(text)) ?? null;
+}
+
+/** Links leave the app only for web and email; `#` targets stay inside the note. */
+export function safeHref(url: string): string | null {
+  const href = url.trim();
+  if (/^(https?:\/\/|mailto:)/i.test(href) || /^#[^#]*$/.test(href)) return href;
+  if (/^www\./i.test(href)) return `http://${href}`;
+  if (/^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/.test(href)) return `mailto:${href}`;
+  return null;
+}
+
+/**
+ * Local image address inside the notes folder, relative to the note. Mirrors the `note-asset`
+ * protocol: percent-decoded, no scheme, query, fragment or backslash, never above the folder.
+ */
+export function imageUrl(source: string, note: string): string | null {
+  let src: string;
+  try {
+    src = decodeURIComponent(source.replace(/%(?![a-f\d]{2})/gi, "%25"));
+  } catch {
+    return null;
+  }
+  if (!src || src.startsWith("/") || /[:\\?#]/.test(src)) return null;
+  const parts = note.split("/");
+  parts.pop();
+  for (const part of src.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) return null;
+      parts.pop();
+    } else parts.push(part);
+  }
+  return `http://note-asset.localhost/${parts.map((p) => encodeURIComponent(p).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/")}`;
+}
+
+/** GitHub alert kind, from the text of a quote's first line starting at its `>`. */
+export function alertKind(firstLine: string): string | null {
+  return (
+    firstLine.match(/^> ?\[!(note|tip|important|warning|caution)\][ \t]*$/i)?.[1].toLowerCase() ??
+    null
+  );
+}
+
+/** The supported YAML subset treats an unquoted `#` after whitespace as a comment. */
+function scalar(raw: string): string | null {
+  const value = raw.trim();
+  if (/^["']/.test(value)) {
+    const end = value.indexOf(value[0], 1),
+      rest = value.slice(end + 1).trim(),
+      result = value.slice(1, end);
+    return end > 0 && (!rest || rest.startsWith("#")) && result && !/["'\\]/.test(result)
+      ? result
+      : null;
+  }
+  const result = value.replace(/(^|\s)#.*$/, "").trim();
+  return !result || /^[[{|>\-&*!%@`]/.test(result) || /["'[\]{},]|: /.test(result) ? null : result;
+}
+
+export type Frontmatter = { end: number; title: string | null; tags: string[] };
+
+/**
+ * A `---` block closed on a later `---` line, at the very start. Reads only title and tag scalar and
+ * list forms; unsupported YAML is ignored. `end` is the 1-based number of the closing line.
+ */
+export function frontmatter(line: (n: number) => string, lines: number): Frontmatter | null {
+  if (lines < 2 || line(1) !== "---") return null;
+  let title: string | null = null,
+    tags: string[] = [],
+    inTags = false;
+  for (let n = 2; n <= lines; n++) {
+    const text = line(n);
+    if (text === "---") return { end: n, title, tags };
+    if (/^\s/.test(text)) {
+      const item = text.trim().match(/^- (.*)/);
+      if (inTags && item) {
+        const value = scalar(item[1]);
+        if (value) tags.push(value);
+      }
+      continue;
+    }
+    inTags = false;
+    const match = text.match(/^(title|tags?):\s*(.*)$/);
+    if (!match) continue;
+    if (match[1] === "title") title = scalar(match[2]);
+    else {
+      inTags = !match[2];
+      const list = match[2].match(/^\[(.*)\]$/);
+      tags = (list ? (list[1].match(/(?:"[^"]*"|'[^']*'|[^,])+/g) ?? []) : [match[2]])
+        .map(scalar)
+        .filter((v): v is string => v !== null);
+    }
+  }
+  return null;
+}

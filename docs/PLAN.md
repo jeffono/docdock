@@ -24,6 +24,8 @@ Nothing. Next: M3 — find and pin.
   frontmatter as a framed block or the title and tags header. Tables stay raw for now
 - [x] (standard) Editor chrome: floating edit button with save status, accent border while editing,
   standard formatting shortcuts, Ctrl+E, stronger tag contrast in the light theme
+- [x] (advanced) One Markdown parser for reading and editing, with GitHub footnotes; raw HTML shows as
+  text; see `docs/decisions/0007-one-markdown-parser.md`
 
 ## M3 — Find and pin
 
