@@ -766,10 +766,10 @@ mod tests {
         assert!(resolve(&notas, "atalho/segredo.md", markdown).is_err());
     }
     #[test]
-    fn pasted_images_validate_bytes_and_never_overwrite() {
+    fn pasted_images_accept_only_known_formats() {
         let t = Temp::new();
         fs::create_dir(t.0.join("sub")).unwrap();
-        fs::write(t.0.join("sub/a.md"), "unchanged").unwrap();
+        fs::write(t.0.join("sub/a.md"), "").unwrap();
         let png = b"\x89PNG\r\n\x1a\n";
         let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes, "20261103-123456");
         for (bytes, ext) in [
@@ -794,7 +794,16 @@ mod tests {
             paste(&vec![0; MAX_ATTACHMENT_BYTES + 1]),
             Err(Error::ImageTooLarge { limit_mb: 10 })
         );
+        assert!(paste_image_in(&t.0, "../a.md", png, "stamp").is_err());
         assert!(!t.0.join("sub/attachments").exists());
+    }
+    #[test]
+    fn pasted_images_never_overwrite() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("sub/a.md"), "unchanged").unwrap();
+        let png = b"\x89PNG\r\n\x1a\n";
+        let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes, "20261103-123456");
         let first = paste(png).unwrap();
         assert_eq!(first, "attachments/pasted-20261103-123456.png");
         let second = paste(b"\x89PNG\r\n\x1a\nsecond").unwrap();
@@ -804,7 +813,6 @@ mod tests {
             fs::read_dir(t.0.join("sub/attachments")).unwrap().count(),
             2
         );
-        assert!(paste_image_in(&t.0, "../a.md", png, "stamp").is_err());
         let response = image_response(
             "main",
             Some(t.0.clone()),
@@ -818,7 +826,7 @@ mod tests {
         );
     }
     #[test]
-    fn attachments_reject_junctions_and_hold_directories() {
+    fn attachments_reject_junctions() {
         let t = Temp::new();
         fs::create_dir(t.0.join("notes")).unwrap();
         fs::create_dir(t.0.join("outside")).unwrap();
@@ -833,7 +841,13 @@ mod tests {
             Err(Error::AttachmentFolderUnsafe)
         );
         assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
+    }
+    #[test]
+    fn held_directory_cannot_be_renamed_and_refuses_junctions() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("notes")).unwrap();
         let dir = t.0.join("outside");
+        fs::create_dir(&dir).unwrap();
         let held = platform::hold_directory(&dir).unwrap();
         assert!(fs::rename(&dir, t.0.join("renamed")).is_err());
         drop(held);
@@ -917,19 +931,28 @@ mod tests {
         assert_eq!(recreate_note(&t.0, "a.md", text), Ok(Saved::Conflict));
         assert_eq!(save_note_in(&t.0, "a.md", text, ""), Ok(Saved::Conflict));
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");
-        assert!(save_note_in(&t.0, "../escape.md", text, "").is_err());
-        assert!(save_note_in(&t.0, "missing/a.md", text, "").is_err());
-        fs::create_dir(t.0.join("real")).unwrap();
-        assert!(mklink(&["/J"], &t.0.join("link"), &t.0.join("real")));
-        assert!(save_note_in(&t.0, "link/a.md", text, "").is_err());
-        assert!(!t.0.join("real/a.md").exists());
     }
     #[test]
-    fn save_refuses_conflicts_and_paths_outside_folder() {
+    fn save_never_writes_outside_folder() {
         let t = Temp::new();
         let (notas, fora) = (t.0.join("notas"), t.0.join("fora.md"));
         fs::create_dir(&notas).unwrap();
         fs::write(&fora, "fora").unwrap();
+        assert!(save_note_in(&notas, "../fora.md", "x", &version(b"fora")).is_err());
+        assert_eq!(fs::read_to_string(&fora).unwrap(), "fora");
+        assert!(save_note_in(&notas, "../escape.md", "x", "").is_err());
+        assert!(save_note_in(&notas, "missing/a.md", "x", "").is_err());
+        fs::create_dir(t.0.join("real")).unwrap();
+        assert!(mklink(&["/J"], &notas.join("link"), &t.0.join("real")));
+        assert!(save_note_in(&notas, "link/a.md", "x", "").is_err());
+        assert!(!t.0.join("real/a.md").exists());
+        assert!(!t.0.join("escape.md").exists());
+    }
+    #[test]
+    fn save_refuses_external_changes() {
+        let t = Temp::new();
+        let notas = t.0.join("notas");
+        fs::create_dir(&notas).unwrap();
         let p = notas.join("a.md");
         fs::write(&p, "um\r\n").unwrap();
         let base = version(b"um\r\n");
@@ -947,9 +970,6 @@ mod tests {
                 version: version_dois.clone()
             })
         );
-
-        assert!(save_note_in(&notas, "../fora.md", "x", &version(b"fora")).is_err());
-        assert_eq!(fs::read_to_string(&fora).unwrap(), "fora");
 
         // An external write between the check and the replace ends up in the backup: it goes back to
         // the note, our copy is discarded and nothing else is left.

@@ -360,8 +360,11 @@ mod tests {
             tick(&mut p, CursorZone::Outside, false, t0, 9402),
             Action::Hide
         );
+    }
 
-        // Leaving the editor with Escape away from the panel keeps it until a second Escape.
+    #[test]
+    fn leaving_editor_with_escape_outside_keeps_panel_until_second_escape() {
+        let t0 = Instant::now();
         let mut p = opened(t0);
         tick(&mut p, CursorZone::Outside, true, t0, 200);
         p.step(Input::EditingLeftOutside, t0 + Duration::from_millis(300));
