@@ -4,11 +4,13 @@ import type { SyntaxNode } from "@lezer/common";
 import {
   alertKind,
   type Definitions,
+  decodeEntity,
   definitions,
   footnoteLabel,
   frontmatter,
   imageUrl,
   linkTarget,
+  maxDepth,
   noteParser,
   safeHref,
 } from "./markdown";
@@ -96,6 +98,18 @@ class Renderer {
     readonly defs: Definitions,
   ) {}
 
+  /** Current nesting; beyond `maxDepth` the rest of a node is shown as text. */
+  depth = 0;
+  nested<T>(node: SyntaxNode, render: () => T, fallback: (text: string) => T): T {
+    if (this.depth >= maxDepth) return fallback(this.slice(node.from, node.to));
+    this.depth++;
+    try {
+      return render();
+    } finally {
+      this.depth--;
+    }
+  }
+
   blocks(parent: SyntaxNode, out: Content[], skipTo = -1) {
     for (let node = parent.firstChild; node; node = node.nextSibling) {
       if (node.name === "QuoteMark" || node.name === "ListMark") continue;
@@ -105,6 +119,14 @@ class Renderer {
   }
 
   block(node: SyntaxNode, skipTo = -1): Element | null {
+    return this.nested(
+      node,
+      () => this.blockAt(node, skipTo),
+      (text) => el("p", { class: "raw" }, [text]),
+    );
+  }
+
+  blockAt(node: SyntaxNode, skipTo: number): Element | null {
     const { name } = node;
     const heading = name.match(/^(?:ATX|Setext)Heading(\d)$/);
     if (heading) return el(`h${heading[1]}` as Tag, {}, this.inline(node, node.from, node.to));
@@ -175,19 +197,33 @@ class Renderer {
 
   /** Code lines without their fences and without the container prefix the fence itself has. */
   code(node: SyntaxNode): string {
-    const lines = this.slice(node.from, node.to).split("\n");
-    const lineStart = this.slice(0, node.from).lastIndexOf("\n") + 1;
-    const indent = node.from - lineStart;
-    const body = node.name === "FencedCode" ? lines.slice(1) : lines;
-    if (node.name === "FencedCode" && node.lastChild?.name === "CodeMark" && lines.length > 1)
-      body.pop();
-    return body
-      .map((line, i) =>
-        node.name === "CodeBlock" && i === 0
-          ? line
-          : line.replace(new RegExp(`^[ \\t>]{0,${indent}}`), ""),
-      )
-      .join("\n");
+    // Container prefixes: the quote markers the parser assigns to the block, then as many spaces
+    // as precede the code's own start (list or quote indentation).
+    let indent = 0;
+    while (node.from - indent > 0 && this.slice(node.from - indent - 1, node.from - indent) === " ")
+      indent++;
+    // The one space after a quote marker belongs to the marker.
+    if (indent && this.slice(node.from - indent - 1, node.from - indent) === ">") indent--;
+    const quotes = node.getChildren("QuoteMark");
+    const lines: string[] = [];
+    let start = node.from;
+    for (const line of this.slice(node.from, node.to).split("\n")) {
+      const end = start + line.length;
+      if (start === node.from) lines.push(line);
+      else {
+        let from = start;
+        for (const quote of quotes)
+          if (quote.from >= start && quote.to <= end) from = Math.max(from, quote.to);
+        if (from > start && this.slice(from, from + 1) === " ") from++;
+        lines.push(this.slice(from, end).replace(new RegExp(`^ {0,${indent}}`), ""));
+      }
+      start = end + 1;
+    }
+    if (node.name === "FencedCode") {
+      lines.shift();
+      if (node.lastChild?.name === "CodeMark" && lines.length) lines.pop();
+    }
+    return lines.join("\n");
   }
 
   table(node: SyntaxNode): Element {
@@ -254,6 +290,14 @@ class Renderer {
   }
 
   inlineNode(node: SyntaxNode): Content[] {
+    return this.nested(
+      node,
+      () => this.inlineAt(node),
+      (text) => [text],
+    );
+  }
+
+  inlineAt(node: SyntaxNode): Content[] {
     const all = () => this.inline(node, node.from, node.to);
     switch (node.name) {
       case "Emphasis":
@@ -338,18 +382,6 @@ function push(out: Content[], item: Content) {
   else out.push(item);
 }
 
-let entities: Document | null = null;
-/** A named or numeric character reference, decoded by the browser in an inert document. */
-function decodeEntity(entity: string): string {
-  if (!/^&(#\d{1,7}|#x[\da-f]{1,6}|[a-z][a-z\d]{1,31});$/i.test(entity)) return entity;
-  if (typeof DOMParser === "undefined") return entity;
-  entities ??= new DOMParser().parseFromString("", "text/html");
-  const holder = entities.createElement("p");
-  // Safe: the string matched a single character reference, with no markup characters.
-  holder.innerHTML = entity;
-  return holder.textContent || entity;
-}
-
 /** Builds DOM nodes from the model; only the tags and attributes of the model types exist. */
 export function toDom(content: Content[], doc: Document = document): DocumentFragment {
   const fragment = doc.createDocumentFragment();
@@ -379,6 +411,12 @@ export function toDom(content: Content[], doc: Document = document): DocumentFra
   return fragment;
 }
 
+/** A note that cannot be rendered still shows its text. */
 export function renderNote(text: string, note: string): DocumentFragment {
-  return toDom(noteModel(text, note));
+  try {
+    return toDom(noteModel(text, note));
+  } catch (error) {
+    console.error(error);
+    return toDom([el("p", { class: "raw" }, [text])]);
+  }
 }

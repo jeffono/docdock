@@ -57,3 +57,22 @@ test("frontmatter becomes the header and is never rendered as Markdown", () => {
     '<header class="note-header"><h1>Hi</h1><div class="tags"><span>a</span><span>b</span></div></header><h1>Body</h1>',
   );
 });
+
+test("adversarial and edge input renders without hanging, crashing or losing text", () => {
+  const started = performance.now();
+  noteModel("[^".repeat(32000), "a.md");
+  expect(performance.now() - started).toBeLessThan(2000);
+  expect(html(noteModel(`${"> ".repeat(3000)}x`, "a.md"))).toContain("x");
+  expect(html(noteModel("Text[^a].\n\n[^a]: hello\ncontinued", "a.md"))).toContain(
+    '<div class="footnote" id="note-fn-a"><span class="footnote-label">a</span> hello\ncontinued</div>',
+  );
+  expect(html(noteModel("  ```\n > literal\n  ```\n\n> ```\n>  two\n> ```", "a.md"))).toBe(
+    "<pre><code>> literal</code></pre><blockquote><pre><code> two</code></pre></blockquote>",
+  );
+  expect(
+    html(noteModel("[x](https://e.com/?a=1&amp;b=2) [y][]\n\n[y]: https://y.com", "a.md")),
+  ).toBe('<p><a href="https://e.com/?a=1&b=2">x</a> <a href="https://y.com">y</a></p>');
+  expect(html(noteModel("![i](a&#32;b.png)", "a.md"))).toContain(
+    'src="http://note-asset.localhost/a%20b.png"',
+  );
+});

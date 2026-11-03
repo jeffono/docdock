@@ -17,7 +17,12 @@ const Footnotes: MarkdownConfig = {
       leaf: (_, leaf) =>
         footnoteStart.test(leaf.content)
           ? {
-              nextLine: () => false,
+              nextLine(_, __, leaf) {
+                // A definition is never a link reference, setext heading or table: drop the
+                // parsers that could otherwise claim its lines before `finish`.
+                leaf.parsers.splice(leaf.parsers.indexOf(this) + 1);
+                return false;
+              },
               finish(cx, leaf) {
                 const mark = leaf.content.match(footnoteStart)?.[0].length ?? 0;
                 cx.addLeafElement(
@@ -40,8 +45,15 @@ const Footnotes: MarkdownConfig = {
       before: "Link",
       parse(cx, next, pos) {
         if (next !== 91 || cx.char(pos + 1) !== 94) return -1;
+        // Labels hold no brackets or spaces and are short, so a scan never revisits the rest of an
+        // unterminated text.
         let end = pos + 2;
-        while (end < cx.end && !/[\s\]]/.test(String.fromCharCode(cx.char(end)))) end++;
+        while (
+          end < cx.end &&
+          end - pos < 1000 &&
+          !/[\s[\]]/.test(String.fromCharCode(cx.char(end)))
+        )
+          end++;
         if (end === pos + 2 || cx.char(end) !== 93) return -1;
         return cx.addElement(cx.elt("FootnoteReference", pos, end + 1));
       },
@@ -53,6 +65,45 @@ export const markdownExtensions = [GFM, Footnotes];
 export const noteParser = parser.configure(markdownExtensions);
 
 type Slice = (from: number, to: number) => string;
+
+/** Containers nested deeper than this render as text: deep recursion would overflow the stack. */
+export const maxDepth = 32;
+
+const named: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: String.fromCharCode(0xa0),
+};
+let entities: Document | null = null;
+/** A character reference; other names are decoded by the browser in an inert document. */
+export function decodeEntity(entity: string): string {
+  const match = entity.match(/^&(?:#(\d{1,7})|#x([\da-f]{1,6})|([a-z][a-z\d]{1,31}));$/i);
+  if (!match) return entity;
+  if (match[1] || match[2]) {
+    const code = Number.parseInt(match[1] ?? match[2], match[1] ? 10 : 16);
+    return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff)
+      ? String.fromCodePoint(code)
+      : String.fromCharCode(0xfffd);
+  }
+  if (named[match[3]]) return named[match[3]];
+  if (typeof DOMParser === "undefined") return entity;
+  entities ??= new DOMParser().parseFromString("", "text/html");
+  const holder = entities.createElement("p");
+  // Safe: the string matched a single named reference, with no markup characters.
+  holder.innerHTML = entity;
+  return holder.textContent || entity;
+}
+
+/** Backslash escapes and character references, as CommonMark decodes destinations and titles. */
+export function decodeMarkdown(text: string): string {
+  return text.replace(
+    /\\([!-/:-@[-`{-~])|&(?:#\d{1,7}|#x[\da-f]{1,6}|[a-z][a-z\d]{1,31});/gi,
+    (all, escaped) => escaped ?? decodeEntity(all),
+  );
+}
 
 /** `[^label]` or `[^label]:` → label. */
 export function footnoteLabel(syntax: string): string {
@@ -72,7 +123,8 @@ export type Definitions = {
 /** Link reference and footnote definitions, from block containers only. */
 export function definitions(top: SyntaxNode, slice: Slice): Definitions {
   const found: Definitions = { links: new Map(), footnotes: new Set() };
-  const visit = (node: SyntaxNode) => {
+  const visit = (node: SyntaxNode, depth: number) => {
+    if (depth > maxDepth) return;
     for (let child = node.firstChild; child; child = child.nextSibling) {
       if (child.name === "LinkReference") {
         const label = child.getChild("LinkLabel"),
@@ -81,16 +133,17 @@ export function definitions(top: SyntaxNode, slice: Slice): Definitions {
         const key = label && normalizeLabel(slice(label.from + 1, label.to - 1));
         if (key && url && !found.links.has(key))
           found.links.set(key, {
-            url: slice(url.from, url.to).replace(/^<|>$/g, ""),
-            title: title ? slice(title.from + 1, title.to - 1) : "",
+            url: decodeMarkdown(slice(url.from, url.to).replace(/^<|>$/g, "")),
+            title: title ? decodeMarkdown(slice(title.from + 1, title.to - 1)) : "",
           });
       } else if (child.name === "FootnoteDefinition") {
         const mark = child.getChild("FootnoteMark");
         if (mark) found.footnotes.add(footnoteLabel(slice(mark.from, mark.to)));
-      } else if (/^(Blockquote|BulletList|OrderedList|ListItem)$/.test(child.name)) visit(child);
+      } else if (/^(Blockquote|BulletList|OrderedList|ListItem)$/.test(child.name))
+        visit(child, depth + 1);
     }
   };
-  visit(top);
+  visit(top, 0);
   return found;
 }
 
@@ -107,17 +160,15 @@ export function linkTarget(
   if (url) {
     const title = node.getChild("LinkTitle");
     return {
-      url: slice(url.from, url.to).replace(/^<|>$/g, ""),
-      title: title ? slice(title.from + 1, title.to - 1) : "",
+      url: decodeMarkdown(slice(url.from, url.to).replace(/^<|>$/g, "")),
+      title: title ? decodeMarkdown(slice(title.from + 1, title.to - 1)) : "",
     };
   }
   const label = node.getChild("LinkLabel");
   const marks = node.getChildren("LinkMark");
-  const text = label
-    ? slice(label.from + 1, label.to - 1)
-    : marks.length >= 2
-      ? slice(marks[0].to, marks[1].from)
-      : "";
+  // A collapsed reference `[text][]` uses the text as its label.
+  const own = label ? slice(label.from + 1, label.to - 1) : "";
+  const text = own.trim() ? own : marks.length >= 2 ? slice(marks[0].to, marks[1].from) : "";
   return defs.links.get(normalizeLabel(text)) ?? null;
 }
 
