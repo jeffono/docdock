@@ -22,6 +22,7 @@ task requires it. Do not reopen recorded decisions without new evidence.
 | `pnpm check:fast` | Lint, types and formatting; use during work |
 | `pnpm check`      | Full verification; use on task completion   |
 | `pnpm test`       | Frontend tests                              |
+| `pnpm clean`      | Delete `.tmp/` and list merged leftovers    |
 
 Use only pnpm. Hooks run `check:fast` on commit and `check` on push: never use `--no-verify`.
 
@@ -47,8 +48,12 @@ a clear reason in the commit message.
 
 Test what is costly when it breaks: content loss, state machines, file paths and security. Do not test
 trivial forwarding, appearance or the framework. Before adding a test, answer what real bug it would
-catch. Bug fixes get a regression test if the bug can recur. If the suite exceeds 30 tests or 30 seconds,
-review it. Prefer running only the relevant test during work.
+catch. One behavior per test, so a failure names what broke. Bug fixes get a regression test if the bug
+can recur. Prefer running only the relevant test during work.
+
+- Time budget, excluding compilation: `pnpm test` under 10 seconds, `cargo test` under 30 seconds.
+- When closing a stage, review the tests: remove those for removed code or already covered elsewhere,
+  split those that mix unrelated cases, and justify growth above 30% during the stage.
 
 ## Definition of done
 
@@ -88,13 +93,24 @@ All durable context stays in the repository. Private agent memory is not shared.
 ## Work between agents
 
 - One task per branch, with a short descriptive English name, such as `atomic-save`. In parallel, use one
-  worktree per agent in `../docdock-wt/<branch>`.
+  worktree per agent: T3 creates them in `~/.t3/worktrees/docdock/`; otherwise use
+  `../docdock-wt/<branch>`.
+- Whoever merges a branch removes its worktree and its local and remote branch.
 - Check `git status` and `git log -10` before starting and do not touch others' changes.
 - Merge into `main` only when the user asks.
 - Review by an agent from another provider, diff only: when closing each stage and before changes to
   persistence, security or plugins. Prototypes are excluded.
 - When closing a stage, trigger CI manually if there is a remote.
 - `pnpm tauri dev` uses port 1420 and the app occupies the screen edge: one instance per machine.
+
+## Temporary files
+
+- Disposable work files (scripts, browser profiles, screenshots, drafts) go in `.tmp/<branch>/` at the
+  checkout root, never in the system temp folder or elsewhere. Only tests that delete their own files
+  may use the system temp folder.
+- Evidence for approval is deleted once approved or when its branch is merged; it never enters the
+  repository.
+- `pnpm clean` deletes `.tmp/` and lists merged worktrees and branches to remove.
 
 ## Decisions
 

@@ -2,8 +2,9 @@ import { EditorState } from "@codemirror/state";
 import { expect, test } from "vitest";
 import { toggleInline } from "./formatting";
 
-test("inline toggles remove only matching pairs and preserve surrounding user text", () => {
-  for (const marker of ["**", "*", "~~", "`"]) {
+test.each(["**", "*", "~~", "`"])(
+  "inline %s toggle removes only matching pairs and preserves surrounding user text",
+  (marker) => {
     const plain = "before text after";
     const wrapped = `before ${marker}text${marker} after`;
     const apply = (text: string, from: number, to: number) => {
@@ -36,5 +37,5 @@ test("inline toggles remove only matching pairs and preserve surrounding user te
     expect(apply(multiline, 7, 19).doc.toString()).toBe(
       `before ${marker}first\nsecond${marker} after`,
     );
-  }
-});
+  },
+);
