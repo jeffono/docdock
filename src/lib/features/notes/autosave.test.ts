@@ -120,4 +120,18 @@ describe("autosave", () => {
     expect(await flushed).toBe("saved");
     expect(autosave.unsaved()).toBeNull();
   });
+
+  it("never saves edits after stop, even with a save in flight", async () => {
+    const { autosave, calls } = setup();
+    autosave.edit("a");
+    await wait(100);
+    autosave.edit("b");
+    autosave.stop();
+    autosave.edit("c");
+    calls[0].resolve({ status: "saved", version: "v1" });
+    await wait(500);
+    await autosave.flush();
+    expect(calls.map((call) => call.content)).toEqual(["a"]);
+    expect(autosave.unsaved()).toBeNull();
+  });
 });

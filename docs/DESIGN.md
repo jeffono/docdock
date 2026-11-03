@@ -53,11 +53,52 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## Text
 
-- Brazilian Portuguese, short and direct sentences.
+- English by default and pt-BR, both in `src/lib/i18n.ts`; tray labels in `tray.rs`. Short and direct
+  sentences.
 - Buttons with infinitive verbs: "Open", "Choose folder".
 - No exclamation marks, technical jargon or blaming the user.
 
 ## Rendered content
 
-The note uses only these tokens, in `:global` selectors inside `.note`. CSP forbids inline styles: no
-component depends on a `style` attribute.
+Reading and editing share `features/notes/content.css`, scoped by `.note-content`, including the
+frontmatter title and tag header. The editor loads it through an external link in its shadow root.
+CSP forbids inline styles: no component depends on a `style` attribute. Footnote references and
+labels are small raised text, references in the accent color; definitions are small muted text where
+they are written. Raw HTML keeps its shape as plain text. List paragraphs stay tight, like editor lines.
+
+GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
+Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
+semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
+
+## Note editor
+
+The fully opaque pencil IconButton floats at the note area's top-right corner in both modes, always
+visible and keyboard reachable with the standard focus ring. It stays pressed during editing. Only the
+first block reserves room for it and the small Saving… / Saved status, in both modes; the rest of the
+note uses the full width, and the button scrolls away with the content (Ctrl+E still works). The
+status is absent on conflict or error, whose notices already explain the problem. The note area keeps
+a 1 px transparent border in reading and an accent border in editing, with `--radius-sm`, so toggling
+does not move the frame. Reading remains the default. Light-theme tags use the selected background
+and accent text in both views; dark-theme tags keep their surface background and muted text.
+The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
+Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
+hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
+a secondary Discard my changes button. Errors appear in red beside this notice.
+
+Windows editor shortcuts:
+
+| Shortcut                                      | Action                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+Shift+` | Toggle bold / italic / strikethrough / inline code                        |
+| Ctrl+K                                        | Insert a link; put the cursor in its destination, or its label when empty |
+| Ctrl+1…6 / Ctrl+0                             | Toggle heading level / make paragraph                                     |
+| Ctrl+Shift+8 / Ctrl+Shift+7 / Ctrl+Shift+9    | Toggle bullet / numbered / task list                                      |
+| Ctrl+Shift+.                                  | Toggle blockquote                                                         |
+| Enter / Backspace                             | Continue / remove Markdown list or quote markup                           |
+| Tab / Shift+Tab                               | Indent / outdent list items                                               |
+| Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                     |
+
+Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
+and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
+formatting command is one undo step. Shared checkbox styling and code-block framing keep the same
+appearance in reading and editing.

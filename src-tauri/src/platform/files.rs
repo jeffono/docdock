@@ -12,6 +12,38 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::core::HSTRING;
 
+/// Rejects links and prevents directory replacement until the returned handle is dropped. Hold every
+/// ancestor too, from the volume root down. Opened without following reparse points, `is_dir` is false
+/// only for name-surrogate tags (junctions, symlinks, mount points): cloud placeholders such as
+/// OneDrive folders are reparse points too and must keep working.
+pub fn hold_directory(path: &Path) -> io::Result<File> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    let file = OpenOptions::new()
+        // Metadata-only access (0) does not participate in Windows sharing checks.
+        .access_mode(FILE_GENERIC_READ.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE).0)
+        .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT).0)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Attachment folder cannot be a link",
+        ));
+    }
+    Ok(file)
+}
+
+pub fn paste_timestamp() -> String {
+    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
+    )
+}
+
 /// Win32 failures arrive as `HRESULT_FROM_WIN32`; the low word is the Win32 code.
 fn os_error(error: windows::core::Error) -> io::Error {
     io::Error::from_raw_os_error(error.code().0 & 0xFFFF)

@@ -214,9 +214,18 @@ impl Dock {
             }
             Request::SetEditing(editing) => {
                 eprintln!("[panel] editing={editing}");
+                let left = self.editing && !editing;
                 self.editing = editing;
                 self.spend_escape();
-                Action::None
+                let outside = platform::cursor_pos().is_some_and(|cursor| {
+                    cursor_zone(cursor, self.monitor.bounds, self.rect, self.side)
+                        == CursorZone::Outside
+                });
+                if left && outside {
+                    self.panel.step(Input::EditingLeftOutside, now)
+                } else {
+                    Action::None
+                }
             }
             Request::SetDialog(dialog) => {
                 self.dialog = dialog;

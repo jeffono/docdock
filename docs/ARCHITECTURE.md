@@ -8,6 +8,7 @@ Current state and direction of the current stage. What does not yet exist is mar
 src/                     UI (Svelte 5 + Vite)
   App.svelte             Screen composition, no business rules
   lib/ipc.ts             Only entry point that calls Rust
+  lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
   lib/features/<name>/   Components, state and tests for each feature
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
@@ -19,7 +20,10 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
-  notes.rs               Folder, listing, safe reading and atomic saving of notes, local images
+  notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images
+  i18n.rs                Interface language, from the Windows display language
+  error.rs               Errors sent to the UI as codes
+  watch.rs               Tells the UI when the notes folder changes
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
@@ -39,6 +43,14 @@ flowchart LR
   C --> P["platform/ (Win32)"]
   D --> V[(".md notes folder")]
 ```
+
+## Language
+
+Rust reads the Windows display language once at startup: any Portuguese gets pt-BR, everything else
+English. The tray uses it directly and `app_locale` hands it to the UI, which sets it before mounting;
+changing the Windows language takes effect on the next start. Commands fail with `{ code, ...fields }`
+(`error.rs`), and `i18n.ts` turns each code into text; `detail` carries the operating system's message,
+already in its language. An unknown code shows as an unexpected error with its raw fields.
 
 ## Panel
 
@@ -71,7 +83,9 @@ per-monitor DPI awareness (PMv2).
   window is already enabled. If activation fails, with no focus to lose, the panel follows the cursor rule
   and does not get stuck over other windows.
 - **Esc:** each press counts once. The press that leaves a field or closes the picker has already been
-  handled and does not also close the panel, even if the UI reports it before the next poll.
+  handled and does not also close the panel, even if the UI reports it before the next poll. Leaving
+  the editor by keyboard with the cursor outside an open panel turns it into a summoned panel, so the
+  next Esc or a focus change closes it, not the cursor that left long before.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
   time, targeting 150 ms.
@@ -102,13 +116,20 @@ per-monitor DPI awareness (PMv2).
 
 `notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
-canonical target is inside the folder. The native picker keeps the panel open. Rust converts and sanitizes
-markdown before sending it to the UI, which has no filesystem permission.
+canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
+which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title and
+tag scalars, flow lists and block lists are extracted as plain text by `features/notes/markdown.ts`.
+The small parser ignores unsupported YAML; an unquoted `#` after whitespace starts a comment, while
+quoted `#` and `a#b` are literal. The raw text remains unchanged.
 
-**Saving.** `notes_open` returns the sanitized HTML, the raw text and a version: a hash of the file's bytes,
+**Saving.** `notes_open` returns the raw text and a version: a hash of the file's bytes,
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
 opening, writes only if the file still has version `base` and returns the new version; otherwise it
-answers `conflict` and writes nothing. Content equal to the file counts as saved without writing. Text
+answers `conflict` and writes nothing. A missing note is recreated only on a save of an edit,
+through a synced temporary file and `move_new`, which refuses replacement. Every parent component is
+held against rename and checked for links; an unavailable parent is never created. An empty base token
+explicitly expects absence: if another file took the deleted name, the save conflicts. Content equal to
+the file counts as saved without writing. Text
 goes to disk exactly as received, without touching line endings. Saves are serialized in Rust, and the
 check is confirmed against the version actually replaced, so an external write that slips in is never
 overwritten.
@@ -129,7 +150,95 @@ fails.
 
 **Autosave.** `features/notes/autosave.ts` saves the whole text after a pause in edits, with one save in
 flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps
-the edit in `unsaved()`, and after an error the next edit or `flush` retries.
+the edit in `unsaved()`, and after an error the next edit or `flush` retries. `stop` drops unsaved text and
+ignores later edits and completion callbacks; an in-flight disk operation can still complete. The
+editor stops it when replacing a clean base, discarding or unmounting.
+
+**Rendering.** Reading and editing share one parser and one rule per construct
+([0007](decisions/0007-one-markdown-parser.md)): `markdown.ts` configures lezer with GFM and GitHub
+footnotes, and holds link, image, alert and frontmatter rules. `render.ts` turns the tree into a model
+of allowlisted tags and attributes, then DOM nodes, rebuilt when the note or its path changes. Raw
+HTML stays text; links and images follow the shared destination rules; footnote definitions render
+where they are written.
+
+**Editor.** Reading is the default. The pencil toggle or a double-click
+opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. Ctrl+E reaches the
+editor through its CodeMirror keymap and reading through a window listener that ignores handled keys;
+both use the same guarded leave path as Esc and the pencil. Formatting commands apply isolated history
+transactions, editing only markers or selected line prefixes. A Compartment reconfigures the note-path
+facet on rename, rebuilding relative-image decorations without replacing text or history. Autosave
+state is reported to the floating pencil's status. CodeMirror 6
+parses GFM; `live-formatting.ts` decorates visible ranges on document, selection, parser and viewport
+changes. Headings, emphasis, strikethrough, quotes, lists, rules, tasks, code and local images hide
+syntax outside selection lines. Quotes nest up to three drawn bars; alerts and links follow the
+reading parser (an alert marker alone on its line, `[text]` without a destination stays text). Lines and
+widgets are spaced with padding only: CodeMirror maps clicks and vertical motion from measured line
+boxes and ignores margins. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make
+one undoable text transaction and respect read-only state. Image widgets use the same decoding,
+traversal and segment encoding rules as the `note-asset` protocol; they never insert HTML. A StateField supplies
+the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the
+framed raw block. Metadata is cached by immutable document identity. Raw text is tracked separately
+from CodeMirror offsets so untouched CRLF, LF and CR
+line endings, including mixed files, survive edits; new lines use the first existing separator (LF in
+an empty file). No Markdown serialization occurs.
+
+Each editor owns an autosave instance. Blur flushes; Esc, the toggle, opening another note and choosing
+a folder flush and refuse to leave on conflict or error. Leaving temporarily makes the editor read-only,
+flushes and rereads the note from disk. Esc blurs synchronously, like TextField, so the panel
+consumes that press. Focus reports editing to the panel. Conflicts keep the text and stop saving;
+Keep my version rereads the disk version and saves the latest editor text against it (another race
+can conflict again). Discard my changes explicitly replaces the text from disk. Errors stay near
+the editor, with Discard my changes available immediately for read or save failures too. A clean
+external reload resets the autosave base and applies a minimal CodeMirror transaction as one isolated
+history step. A raw-text state field and inverted history effects preserve exact mixed line endings
+through reload, undo and redo, even when only line endings changed. Updated from disk offers Undo;
+Ctrl+Z does the same. Undo becomes a normal edit saved against the new disk base;
+pending or in-flight text is never replaced. An editor revision rejects reads started before an edit,
+save completion or another reload.
+
+**Pasted images.** Text in the clipboard takes precedence. Otherwise the editor sends the file as a
+raw IPC body with a percent-encoded note path header. Rust validates the note with `resolve`, accepts
+only PNG, JPEG, GIF and WebP magic signatures, and limits attachments to 10 MiB to bound disk use and
+accidental large clipboard writes. It creates `attachments/pasted-YYYYMMDD-HHMMSS.<ext>` beside the note,
+using local time and `-2`, `-3` suffixes for collisions. A synced temporary file becomes the final file
+through `move_new`, never replacing an existing file. The attachment directory cannot be a reparse
+point; open directory handles prevent replacement of it and its canonical ancestors during the write.
+Note aliases with a different canonical parent are refused so the relative link remains correct.
+The editor is read-only while the paste is pending, preserves the insertion selection, and waits for
+it before leaving. Reloads are refused during that wait; insertion then creates an ordinary unsaved
+Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
+The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
+
+CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
+`CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
+tag. External CSS links load `content.css` (also imported by the reading view) and editor chrome inside
+the shadow, with `:host` specificity above CodeMirror base styles. Chromium headless verified the production Vite output with the exact CSP header
+from tauri.conf.json: one adopted sheet, zero runtime style tags, no CSP violations, and editor
+creation, edits, conflict resolution and reloads after freezing Object.prototype before app startup.
+WebView2 and native panel focus/Esc still require manual verification.
+
+**External changes.** Listing a folder starts watching it (`watch.rs`, with `notify`); choosing a folder
+stops the watch, so the next listing starts a fresh one even for the same path. Events are grouped until
+200 ms of quiet, at most 1 s, and become one `notes-changed` event to the `main` window. Its
+`renames` payload contains relative `/` markdown path pairs from paired or From/To notify events
+(with matching trackers when supplied). Directory moves expand to markdown descendants. The UI
+updates the selected/editor path and generation before rereading; outside-folder and non-markdown
+destinations count as deletion. Changes inside hidden folders and to temporary or backup files of a save
+do not count; lost events do. The UI then
+rereads the folder, the list and the open note, replacing the note only if its version changed; a read
+that started before choosing a folder or opening a note is dropped and redone. A note
+that disappeared keeps its last content on screen with a notice. While editing, deletion neither
+reports an error nor schedules a write by itself; pending edits or the next edit recreate it. Leaving
+a clean deleted editor creates nothing. A name taken after observed deletion conflicts on the next save.
+While editing, only a clean editor accepts the new text, as described above; saving compares the loaded
+disk version before writing.
+
+**Leftovers.** A save that stops between its two renames, for example when the app closes, leaves
+`.docdock-bak` files and may leave the note name empty. Opening a folder lists every
+`<note>.md.<pid>-<n>.docdock-bak` outside hidden folders, under the save lock so a save in progress is not
+mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
+`(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
+the user compares the copies and removes the extra one.
 
 ## Untrusted content
 
@@ -137,4 +246,7 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
 
 - **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
 - **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
+- **Rendered notes:** DOM nodes from an allowlisted model, never HTML. GitHub alerts become
+  `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
+  kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.

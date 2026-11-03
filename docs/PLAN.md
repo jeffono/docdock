@@ -5,26 +5,16 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: internationalization, then external changes and leftover recovery.
+Nothing. Next: M3 — find and pin.
 
 ## Completed
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
 - M1 — Browse markdown notes, tray, global shortcut, CSP and visual identity; see `docs/DESIGN.md`.
-
-## Current stage: M2 — Create and edit
-
-- [x] (advanced) Screen side configurable from the tray, right by default; independent of the rest
-- [ ] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
-  language; Rust errors become codes
-- [x] (advanced) Atomic writes and autosave
-- [ ] (advanced) React to external changes without content loss
-- [ ] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
-  on opening the folder and offer to restore, never deleting automatically
-- [ ] (standard) Frontmatter: hide the block and show title and tags
-- [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
-  the current line. No WYSIWYG, which would rewrite the file
-- [ ] (standard) Paste images as attachments
+- M2 — Create and edit: atomic autosave, external changes, leftover recovery, frontmatter, editor and
+  pasted images.
+- M2.1 — Editor polish: save robustness, live formatting, editor chrome and one Markdown parser for
+  both views; see `docs/decisions/0007-one-markdown-parser.md`.
 
 ## M3 — Find and pin
 

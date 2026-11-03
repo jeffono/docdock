@@ -2,13 +2,15 @@
 
 mod commands;
 mod dock;
+mod error;
+mod i18n;
 mod main_window;
-mod markdown;
 mod notes;
 pub mod panel;
 mod platform;
 mod shortcut;
 mod tray;
+mod watch;
 mod web;
 
 use std::sync::mpsc;
@@ -19,6 +21,7 @@ use tauri::Manager;
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::app_version,
+        commands::app_locale,
         commands::panel_activate,
         commands::panel_set_pinned,
         commands::panel_set_editing,
@@ -29,6 +32,9 @@ pub fn run() {
         commands::notes_list,
         commands::notes_open,
         commands::notes_save,
+        commands::notes_paste_image,
+        commands::notes_leftovers,
+        commands::notes_restore,
         commands::open_external,
     ];
     tauri::Builder::default()
@@ -49,8 +55,10 @@ pub fn run() {
         .setup(|app| {
             let window = main_window::create(app)?;
             let side = notes::side(app.handle());
+            let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();
-            tray::setup(app, side, requests.clone())?;
+            tray::setup(app, locale, side, requests.clone())?;
+            app.manage(locale);
             shortcut::setup(app, requests.clone());
             app.manage(requests);
             dock::start(window.hwnd()?.0 as isize, receiver, side);
@@ -64,7 +72,7 @@ pub fn run() {
             } else {
                 invoke
                     .resolver
-                    .reject("comando restrito à janela principal");
+                    .reject("command restricted to the main window");
                 true
             }
         })

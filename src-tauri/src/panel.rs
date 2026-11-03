@@ -87,6 +87,8 @@ pub enum Input {
     },
     /// Windows confirmed the focus requested by `Summon`.
     Activated,
+    /// The UI left editing by keyboard while the cursor was outside the panel.
+    EditingLeftOutside,
 }
 
 /// Effect for the calling layer to perform.
@@ -207,6 +209,12 @@ impl Panel {
                 }
                 Focus::Unknown => Action::None,
             },
+            // The user is working by keyboard: keep the panel as if summoned, so the next Escape or
+            // a focus change closes it, instead of closing at once under a cursor that left long ago.
+            (State::Open { .. }, Input::EditingLeftOutside) => {
+                self.state = State::Summoned { focused: true };
+                Action::None
+            }
             (State::Summoned { .. }, Input::Activated) => {
                 self.state = State::Summoned { focused: true };
                 Action::None
@@ -351,6 +359,31 @@ mod tests {
         assert_eq!(
             tick(&mut p, CursorZone::Outside, false, t0, 9402),
             Action::Hide
+        );
+
+        // Leaving the editor with Escape away from the panel keeps it until a second Escape.
+        let mut p = opened(t0);
+        tick(&mut p, CursorZone::Outside, true, t0, 200);
+        p.step(Input::EditingLeftOutside, t0 + Duration::from_millis(300));
+        assert_eq!(
+            focus_tick(
+                &mut p,
+                Focus::Panel,
+                false,
+                false,
+                t0 + Duration::from_secs(5)
+            ),
+            Action::None
+        );
+        assert_ne!(
+            focus_tick(
+                &mut p,
+                Focus::Panel,
+                false,
+                true,
+                t0 + Duration::from_secs(6)
+            ),
+            Action::None
         );
     }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 import Notes from "./lib/features/notes/Notes.svelte";
 import WebBar from "./lib/features/web/WebBar.svelte";
+import { t } from "./lib/i18n";
 import { panelActivate, panelSetPinned, webClose } from "./lib/ipc";
 import IconButton from "./lib/ui/IconButton.svelte";
 
@@ -25,8 +26,8 @@ function toggleWeb() {
 <main>
   <header>
     <h1>DocDock</h1>
-    <IconButton icon="globe" label="Página web" pressed={web} onclick={toggleWeb} />
-    <IconButton icon="pin" label="Fixar painel" pressed={pinned} onclick={togglePin} />
+    <IconButton icon="globe" label={t("app.web")} pressed={web} onclick={toggleWeb} />
+    <IconButton icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if web}
     <WebBar />

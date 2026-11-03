@@ -7,6 +7,7 @@ use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 use crate::dock::Request;
+use crate::error::Error;
 
 const LABEL: &str = "web";
 
@@ -24,12 +25,16 @@ fn is_web(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https") && !is_internal(url)
 }
 
-fn parse_url(raw: &str) -> Result<Url, String> {
-    let url = Url::parse(raw).map_err(|error| format!("Endereço inválido: {error}"))?;
+fn parse_url(raw: &str) -> Result<Url, Error> {
+    let url = Url::parse(raw).map_err(|error| Error::InvalidUrl {
+        detail: error.to_string(),
+    })?;
     if is_web(&url) {
         Ok(url)
     } else {
-        Err(format!("Endereço não permitido: {url}"))
+        Err(Error::UrlNotAllowed {
+            url: url.to_string(),
+        })
     }
 }
 
@@ -44,14 +49,14 @@ fn navigate_here(app: &AppHandle, url: Url) {
 }
 
 /// Navigates the existing window or creates an invisible one; the panel thread positions and shows it.
-pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Result<(), String> {
+pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Result<(), Error> {
     let url = parse_url(raw_url)?;
     if let Some(window) = app.get_webview_window(LABEL) {
-        return window.navigate(url).map_err(|error| error.to_string());
+        return Ok(window.navigate(url)?);
     }
     let main = app
         .get_webview_window("main")
-        .ok_or("janela principal ausente")?;
+        .ok_or_else(|| Error::unexpected("main window missing"))?;
     let handle = app.clone();
     let build = move || {
         // Owned by the panel: it stays above the panel and is destroyed with it.
@@ -69,15 +74,15 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
             })
             .build()
     };
-    let window = build().map_err(|error| error.to_string())?;
-    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    let window = build()?;
+    let hwnd = window.hwnd()?;
     let _ = requests.send(Request::AttachWeb(hwnd.0 as isize));
     Ok(())
 }
 
-pub fn close(app: &AppHandle) -> Result<(), String> {
+pub fn close(app: &AppHandle) -> Result<(), Error> {
     match app.get_webview_window(LABEL) {
-        Some(window) => window.destroy().map_err(|error| error.to_string()),
+        Some(window) => Ok(window.destroy()?),
         None => Ok(()),
     }
 }

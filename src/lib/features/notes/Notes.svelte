@@ -1,55 +1,224 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { dateTime, errorText, t } from "../../i18n";
 import {
+  type Leftover,
   type Note,
+  type NotesChanges,
   type NotesFolder,
   notesChoose,
   notesFolder,
+  notesLeftovers,
   notesList,
   notesOpen,
+  notesRestore,
+  type OpenNote,
+  onNotesChanged,
   openExternal,
   panelSetEditing,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import type { AutosaveState } from "./autosave";
+import Editor from "./Editor.svelte";
+import { renderNote } from "./render";
+import "./content.css";
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
-let content = $state("");
 let selected = $state("");
 let error = $state("");
 let query = $state("");
+let gone = $state(false);
+let leftovers = $state<Leftover[]>([]);
+/** Version of the open note, to tell a real change from a reread of the same bytes. */
+let version = "";
+let opened = $state<OpenNote | null>(null);
+let editing = $state(false);
+let saveStatus = $state<AutosaveState>("saved");
+let editor = $state<Editor>();
+let leaving: Promise<boolean> | null = null;
+function leaveEditor(): Promise<boolean> {
+  if (!editing) return Promise.resolve(true);
+  if (leaving) return leaving;
+  leaving = (async () => {
+    const note = await editor?.finish();
+    if (!note) return false;
+    opened = note;
+    version = note.version;
+    editing = false;
+    return true;
+  })().finally(() => {
+    leaving = null;
+  });
+  return leaving;
+}
+async function toggleEditor() {
+  if (editing) await leaveEditor();
+  else editing = true;
+}
+
+let chrome = $state<HTMLElement>();
+/** The edit button sits over the first line and scrolls away with the content, like text would. */
+function follow(event: Event) {
+  const top = (event.target as Element).scrollTop ?? 0;
+  if (chrome) chrome.style.transform = top ? `translateY(${-top}px)` : "";
+}
+
+// A new scroller starts at the top.
+$effect(() => {
+  void editing;
+  void selected;
+  if (chrome) chrome.style.transform = "";
+});
+
+function shortcut(event: KeyboardEvent) {
+  if (
+    !selected ||
+    event.defaultPrevented ||
+    !event.ctrlKey ||
+    event.altKey ||
+    event.shiftKey ||
+    event.key.toLowerCase() !== "e"
+  )
+    return;
+  event.preventDefault();
+  void toggleEditor();
+}
 
 const visible = $derived(
   notes.filter((note) => note.path.toLowerCase().includes(query.trim().toLowerCase())),
 );
 
+/**
+ * Bumped by every action that replaces what is shown: choosing a folder or opening a note. A read
+ * that started before the bump answers for an old folder or note and is dropped.
+ */
+let generation = 0;
+
 async function refresh(value: NotesFolder | null) {
+  const current = ++generation;
+  if (editing) return;
   folder = value;
   notes = [];
   selected = "";
-  content = "";
-  if (value?.available) notes = await notesList();
+  opened = null;
+  leftovers = [];
+  if (!value?.available) return;
+  const list = await notesList();
+  if (current !== generation) return;
+  notes = list;
+  const found = await notesLeftovers();
+  if (current === generation) leftovers = found;
+}
+
+async function restore(path: string) {
+  try {
+    error = "";
+    const note = await notesRestore(path);
+    leftovers = await notesLeftovers();
+    notes = await notesList();
+    await open(note);
+  } catch (e) {
+    error = errorText(e);
+  }
 }
 
 async function choose() {
   try {
     error = "";
+    if (!(await leaveEditor())) return;
     await refresh(await notesChoose());
   } catch (e) {
-    error = String(e);
+    error = errorText(e);
   }
 }
 
 async function open(path: string) {
+  if (!(await leaveEditor())) return;
+  const current = ++generation;
   try {
     error = "";
-    content = (await notesOpen(path)).html;
+    const note = await notesOpen(path);
+    if (current !== generation) return;
+    opened = note;
+    version = note.version;
     selected = path;
+    gone = false;
   } catch (e) {
-    error = String(e);
+    error = errorText(e);
   }
+}
+
+/**
+ * Rereads after a change on disk. The open note is replaced only if its bytes changed, so a save of
+ * the same text does not disturb it; a note that disappeared keeps its last content on screen.
+ */
+async function reload() {
+  const current = generation;
+  const editRevision = editor?.snapshot();
+  // A newer action made this read stale; reading again picks up the change for what is shown now.
+  const stale = () => {
+    if (current !== generation) again = true;
+    return current !== generation;
+  };
+  const value = await notesFolder();
+  if (stale()) return;
+  if (!value?.available) {
+    if (editing) {
+      editor?.unavailable({ code: "folderUnavailable" });
+      return;
+    }
+    return refresh(value);
+  }
+  const list = await notesList();
+  if (stale()) return;
+  notes = list;
+  const path = selected;
+  if (!path) return;
+  if (!notes.some((note) => note.path === path)) {
+    gone = true;
+    if (editing) editor?.missing();
+    return;
+  }
+  const note = await notesOpen(path);
+  if (stale()) return;
+  gone = false;
+  if (note.version !== version) {
+    if (editing && !editor?.reload(note, editRevision)) return;
+    opened = note;
+    version = note.version;
+  }
+}
+
+let reloading: Promise<void> | null = null;
+let again = false;
+
+/** One reload at a time; changes during it cause one more. */
+function changed(changes: NotesChanges) {
+  for (const [from, to] of changes.renames) {
+    if (selected !== from) continue;
+    selected = to;
+    editor?.moved(to);
+    generation++;
+  }
+  if (reloading) {
+    again = true;
+    return;
+  }
+  reloading = (async () => {
+    do {
+      again = false;
+      try {
+        await reload();
+      } catch (e) {
+        if (editing) editor?.unavailable(e);
+        else error = errorText(e);
+      }
+    } while (again);
+    reloading = null;
+  })();
 }
 
 function linkClick(event: MouseEvent) {
@@ -63,7 +232,7 @@ function linkClick(event: MouseEvent) {
     document.getElementById(id.startsWith("note-") ? id : `note-${id}`)?.scrollIntoView();
   } else if (/^(https?:|mailto:)/i.test(href))
     void openExternal(href).catch((e) => {
-      error = String(e);
+      error = errorText(e);
     });
 }
 
@@ -72,27 +241,47 @@ function directory(path: string) {
 }
 
 onMount(() => {
+  const unlisten = onNotesChanged(changed);
   notesFolder()
     .then(refresh)
     .catch((e) => {
-      error = String(e);
+      error = errorText(e);
     });
+  return () => void unlisten.then((stop) => stop());
 });
 </script>
 
-<section aria-label="Notas">
+<svelte:window onkeydown={shortcut} />
+
+<section aria-label={t("notes.label")}>
   {#if folder?.available}
     <div class="tools">
       <TextField
         bind:value={query}
-        aria-label="Buscar nas notas"
-        placeholder="Buscar nas notas…"
+        aria-label={t("notes.search")}
+        placeholder={t("notes.searchPlaceholder")}
         onfocus={() => panelSetEditing(true)}
         onblur={() => panelSetEditing(false)}
       />
-      <IconButton icon="folder" label={`Trocar pasta: ${folder.path}`} onclick={choose} />
+      <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if leftovers.length > 0}
+      <section class="leftovers" aria-label={t("leftovers.label")}>
+        <p class="message">{t("leftovers.notice")}</p>
+        {#each leftovers as leftover (leftover.path)}
+          <div class="leftover" title={leftover.path}>
+            <span>{leftover.note}</span>
+            {#if leftover.modified}<small>{dateTime(leftover.modified)}</small>{/if}
+            <IconButton
+              icon="restore"
+              label={t("leftovers.restore", { note: leftover.note })}
+              onclick={() => restore(leftover.path)}
+            />
+          </div>
+        {/each}
+      </section>
+    {/if}
     {#if visible.length > 0}
       <ul class:compact={selected}>
         {#each visible as note (note.path)}
@@ -109,20 +298,46 @@ onMount(() => {
         {/each}
       </ul>
     {:else}
-      <p class="message">{notes.length > 0 ? "Nenhuma nota com esse nome." : "Nenhuma nota nesta pasta."}</p>
+      <p class="message">{notes.length > 0 ? t("notes.noMatch") : t("notes.emptyFolder")}</p>
     {/if}
     {#if selected}
-      <div class="note" onclick={linkClick} role="presentation">
-        <!-- The HTML has already been sanitized in Rust. -->
-        {@html content}
+      {#if gone && !editing}<p class="message" role="status">{t("notes.gone")}</p>{/if}
+      <div class="note-area" class:editing onscrollcapture={follow}>
+      <div class="edit-tools" bind:this={chrome}>
+        {#if editing && (saveStatus === "saved" || saveStatus === "saving" || saveStatus === "pending")}
+          <small role="status">{t(saveStatus === "saved" ? "editor.saved" : "editor.saving")}</small>
+        {/if}
+        <IconButton icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={toggleEditor} />
+      </div>
+      {#if editing && opened}
+        <Editor
+          bind:this={editor}
+          path={selected}
+          note={opened}
+          onstatus={(state) => { saveStatus = state; }}
+          onleave={() => void leaveEditor()}
+          ondiscard={() => {
+            editing = false;
+          }}
+        />
+      {:else}
+      <!-- Built from the editor's parser as DOM nodes; note text never becomes HTML. -->
+      <div
+        class="note note-content"
+        onclick={linkClick}
+        ondblclick={() => { editing = true; }}
+        role="presentation"
+        {@attach (element) => { element.replaceChildren(renderNote(opened?.text ?? "", selected)); }}
+      ></div>
+      {/if}
       </div>
     {/if}
   {:else}
     <div class="empty">
-      <p>{folder ? "A pasta de notas não está disponível." : "Escolha uma pasta para consultar suas notas."}</p>
+      <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <Button onclick={choose}>Escolher pasta</Button>
+      <Button onclick={choose}>{t("notes.choose")}</Button>
     </div>
   {/if}
 </section>
@@ -134,6 +349,11 @@ onMount(() => {
     flex-direction: column;
     min-height: 0;
   }
+
+  .note-area { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid transparent; border-radius: var(--radius-sm); }
+  .note-area.editing { border-color: var(--color-accent); }
+  .edit-tools { position: absolute; z-index: 1; top: var(--space-2); right: var(--space-3); display: flex; gap: var(--space-2); align-items: center; border-radius: var(--radius-sm); background: var(--color-bg); }
+  .edit-tools small { color: var(--color-muted); font-size: var(--font-size-sm); }
 
   .tools {
     display: flex;
@@ -198,6 +418,36 @@ onMount(() => {
     opacity: 0.75;
   }
 
+  .leftovers {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .leftover {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 0 var(--space-3) 0 var(--space-4);
+    font-size: var(--font-size-sm);
+  }
+
+  .leftover span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .leftover small {
+    flex: none;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+  }
+
   .message,
   .error {
     margin: 0;
@@ -241,112 +491,4 @@ onMount(() => {
     overflow-wrap: anywhere;
   }
 
-  .note :global(h1),
-  .note :global(h2),
-  .note :global(h3),
-  .note :global(h4),
-  .note :global(h5),
-  .note :global(h6) {
-    margin: var(--space-4) 0 var(--space-2);
-    font-weight: 600;
-    line-height: var(--line-height-tight);
-    letter-spacing: var(--tracking-tight);
-  }
-
-  .note :global(h1) {
-    margin-top: 0;
-    font-size: var(--font-size-xl);
-  }
-
-  .note :global(h2) {
-    font-size: var(--font-size-lg);
-  }
-
-  .note :global(h3),
-  .note :global(h4),
-  .note :global(h5),
-  .note :global(h6) {
-    font-size: var(--font-size-md);
-  }
-
-  .note :global(p),
-  .note :global(ul),
-  .note :global(ol),
-  .note :global(pre),
-  .note :global(table),
-  .note :global(blockquote) {
-    margin: 0 0 var(--space-2);
-  }
-
-  .note :global(ul),
-  .note :global(ol) {
-    padding-left: var(--space-4);
-  }
-
-  .note :global(li:has(> input)) {
-    list-style: none;
-  }
-
-  .note :global(a) {
-    color: var(--color-accent);
-  }
-
-  .note :global(code) {
-    padding: 1px var(--space-1);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    font-family: var(--font-mono);
-    font-size: 0.9em;
-  }
-
-  .note :global(pre) {
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    overflow-x: auto;
-    overflow-wrap: normal;
-  }
-
-  .note :global(pre code) {
-    padding: 0;
-    background: transparent;
-  }
-
-  .note :global(blockquote) {
-    padding-left: var(--space-3);
-    border-left: 2px solid var(--color-line);
-    color: var(--color-muted);
-  }
-
-  .note :global(hr) {
-    margin: var(--space-3) 0;
-    border: 0;
-    border-top: 1px solid var(--color-line);
-  }
-
-  .note :global(img) {
-    max-width: 100%;
-    border-radius: var(--radius-sm);
-  }
-
-  .note :global(table) {
-    display: block;
-    border-collapse: collapse;
-    overflow-x: auto;
-    overflow-wrap: normal;
-    font-size: var(--font-size-sm);
-  }
-
-  .note :global(th),
-  .note :global(td) {
-    padding: var(--space-1) var(--space-2) var(--space-1) 0;
-    border-bottom: 1px solid var(--color-line);
-    text-align: left;
-  }
-
-  .note :global(th) {
-    color: var(--color-muted);
-    font-weight: 600;
-  }
 </style>
