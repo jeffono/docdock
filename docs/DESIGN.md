@@ -53,7 +53,8 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## Text
 
-- Brazilian Portuguese, short and direct sentences.
+- English by default and pt-BR, both in `src/lib/i18n.ts`; tray labels in `tray.rs`. Short and direct
+  sentences.
 - Buttons with infinitive verbs: "Open", "Choose folder".
 - No exclamation marks, technical jargon or blaming the user.
 

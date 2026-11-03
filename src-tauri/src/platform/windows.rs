@@ -265,3 +265,8 @@ fn log_failure(call: &str, result: windows::core::Result<()>) {
         eprintln!("[panel] {call} failed: {error}");
     }
 }
+
+/// The user's Windows display language, as a `LANGID`.
+pub fn ui_language() -> u16 {
+    unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() }
+}

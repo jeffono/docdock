@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { errorText, t } from "../../i18n";
 import {
   type Note,
   type NotesFolder,
@@ -38,7 +39,7 @@ async function choose() {
     error = "";
     await refresh(await notesChoose());
   } catch (e) {
-    error = String(e);
+    error = errorText(e);
   }
 }
 
@@ -48,7 +49,7 @@ async function open(path: string) {
     content = (await notesOpen(path)).html;
     selected = path;
   } catch (e) {
-    error = String(e);
+    error = errorText(e);
   }
 }
 
@@ -63,7 +64,7 @@ function linkClick(event: MouseEvent) {
     document.getElementById(id.startsWith("note-") ? id : `note-${id}`)?.scrollIntoView();
   } else if (/^(https?:|mailto:)/i.test(href))
     void openExternal(href).catch((e) => {
-      error = String(e);
+      error = errorText(e);
     });
 }
 
@@ -75,22 +76,22 @@ onMount(() => {
   notesFolder()
     .then(refresh)
     .catch((e) => {
-      error = String(e);
+      error = errorText(e);
     });
 });
 </script>
 
-<section aria-label="Notas">
+<section aria-label={t("notes.label")}>
   {#if folder?.available}
     <div class="tools">
       <TextField
         bind:value={query}
-        aria-label="Buscar nas notas"
-        placeholder="Buscar nas notas…"
+        aria-label={t("notes.search")}
+        placeholder={t("notes.searchPlaceholder")}
         onfocus={() => panelSetEditing(true)}
         onblur={() => panelSetEditing(false)}
       />
-      <IconButton icon="folder" label={`Trocar pasta: ${folder.path}`} onclick={choose} />
+      <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if visible.length > 0}
@@ -109,7 +110,7 @@ onMount(() => {
         {/each}
       </ul>
     {:else}
-      <p class="message">{notes.length > 0 ? "Nenhuma nota com esse nome." : "Nenhuma nota nesta pasta."}</p>
+      <p class="message">{notes.length > 0 ? t("notes.noMatch") : t("notes.emptyFolder")}</p>
     {/if}
     {#if selected}
       <div class="note" onclick={linkClick} role="presentation">
@@ -119,10 +120,10 @@ onMount(() => {
     {/if}
   {:else}
     <div class="empty">
-      <p>{folder ? "A pasta de notas não está disponível." : "Escolha uma pasta para consultar suas notas."}</p>
+      <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <Button onclick={choose}>Escolher pasta</Button>
+      <Button onclick={choose}>{t("notes.choose")}</Button>
     </div>
   {/if}
 </section>

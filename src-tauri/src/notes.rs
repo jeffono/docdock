@@ -1,5 +1,6 @@
 //! Local note storage and validation.
 use crate::dock::{Request, Side};
+use crate::error::Error;
 use crate::platform;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -65,11 +66,11 @@ pub enum Saved {
     Saved { version: String },
     Conflict,
 }
-fn config(app: &AppHandle) -> Result<PathBuf, String> {
+fn config(app: &AppHandle) -> Result<PathBuf, Error> {
     app.path()
         .app_config_dir()
         .map(|p| p.join("settings.json"))
-        .map_err(|e| e.to_string())
+        .map_err(Error::from)
 }
 /// Missing or corrupt settings read as the defaults.
 fn load(path: &Path) -> Settings {
@@ -86,30 +87,29 @@ pub fn side(app: &AppHandle) -> Side {
 }
 /// Held across load, change and save, so a folder change and a side change do not undo each other.
 static SETTINGS: Mutex<()> = Mutex::new(());
-fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<(), String> {
+fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<(), Error> {
     let path = config(app)?;
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
     let mut settings = load(&path);
     change(&mut settings);
     save(&path, &settings)
 }
-pub fn set_side(app: &AppHandle, side: Side) -> Result<(), String> {
+pub fn set_side(app: &AppHandle, side: Side) -> Result<(), Error> {
     update(app, |settings| settings.side = side)
 }
-pub fn folder(app: &AppHandle) -> Result<Option<Folder>, String> {
+pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
         path: p.to_string_lossy().into_owned(),
         available: p.is_dir(),
     }))
 }
-fn save(path: &Path, settings: &Settings) -> Result<(), String> {
-    fs::create_dir_all(path.parent().ok_or("Pasta de configuração inválida")?)
-        .map_err(|e| e.to_string())?;
-    write_atomic(
-        path,
-        &serde_json::to_vec(settings).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())
+fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::unexpected("settings path has no folder"))?;
+    fs::create_dir_all(parent)?;
+    let bytes = serde_json::to_vec(settings).map_err(Error::unexpected)?;
+    Ok(write_atomic(path, &bytes)?)
 }
 /// Writes a complete temporary file next to `path` and renames it over `path` in one step. Any failure
 /// leaves the previous file intact. Only for the app's own settings; notes use `replace_note`.
@@ -166,26 +166,26 @@ impl Drop for DialogGuard {
         let _ = self.0.send(Request::SetDialog(false));
     }
 }
-pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Folder>, String> {
+pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Folder>, Error> {
     requests
         .send(Request::SetDialog(true))
-        .map_err(|e| e.to_string())?;
+        .map_err(Error::unexpected)?;
     let _guard = DialogGuard(requests.clone());
     let window = app
         .get_webview_window("main")
-        .ok_or("janela principal ausente")?;
+        .ok_or_else(|| Error::unexpected("main window missing"))?;
     // Owned by the panel, the picker stays above it and does not open a second picker.
     let dialog = app.dialog().file().set_parent(&window);
     if let Some(path) = dialog.blocking_pick_folder() {
-        let folder = Some(path.into_path().map_err(|e| e.to_string())?);
+        let folder = Some(path.into_path().map_err(Error::unexpected)?);
         update(app, |settings| settings.folder = folder)?;
     }
     folder(app)
 }
-fn root(app: &AppHandle) -> Result<PathBuf, String> {
-    let path = read_settings(&config(app)?).ok_or("Escolha uma pasta de notas")?;
+fn root(app: &AppHandle) -> Result<PathBuf, Error> {
+    let path = read_settings(&config(app)?).ok_or(Error::NoFolder)?;
     if !path.is_dir() {
-        return Err("A pasta de notas não está disponível".into());
+        return Err(Error::FolderUnavailable);
     }
     Ok(path)
 }
@@ -194,10 +194,10 @@ fn markdown(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
 /// `is_dir` and `is_file` are false for symlinks and junctions, so they are never followed.
-fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), String> {
-    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let ty = entry.file_type().map_err(|e| e.to_string())?;
+fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), Error> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
         let path = entry.path();
         if ty.is_dir() {
             if !entry.file_name().to_string_lossy().starts_with('.') {
@@ -206,7 +206,7 @@ fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), String>
         } else if ty.is_file() && markdown(&path) {
             let relative = path
                 .strip_prefix(root)
-                .map_err(|e| e.to_string())?
+                .map_err(Error::unexpected)?
                 .to_string_lossy()
                 .replace('\\', "/");
             notes.push(Note {
@@ -221,7 +221,7 @@ fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), String>
     }
     Ok(())
 }
-fn list(root: &Path) -> Result<Vec<Note>, String> {
+fn list(root: &Path) -> Result<Vec<Note>, Error> {
     let mut notes = Vec::new();
     collect(root, root, &mut notes)?;
     notes.sort_by(|a, b| {
@@ -232,12 +232,12 @@ fn list(root: &Path) -> Result<Vec<Note>, String> {
     });
     Ok(notes)
 }
-pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, String> {
+pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
     list(&root(app)?)
 }
 /// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
 /// the folder can change the requested extension to a different real extension.
-fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, String> {
+fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, Error> {
     let path = Path::new(relative);
     if relative.contains(':')
         || relative.contains('\\')
@@ -246,32 +246,30 @@ fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<Pa
             .any(|c| !matches!(c, Component::Normal(_)))
         || !allowed(path)
     {
-        return Err("Caminho inválido".into());
+        return Err(Error::InvalidPath);
     }
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let target = root.join(path).canonicalize().map_err(|e| e.to_string())?;
+    let root = root.canonicalize()?;
+    let target = root.join(path).canonicalize()?;
     if !target.starts_with(&root) || !target.is_file() || !allowed(&target) {
-        return Err("Arquivo fora da pasta escolhida".into());
+        return Err(Error::OutsideFolder);
     }
     Ok(target)
 }
-fn too_large(size: u64) -> Result<(), String> {
+fn too_large(size: u64) -> Result<(), Error> {
     if size > MAX_NOTE_BYTES {
-        return Err(format!(
-            "A nota tem {} MB; o limite é {} MB",
-            size / 1_048_576,
-            MAX_NOTE_BYTES / 1_048_576
-        ));
+        return Err(Error::TooLarge {
+            size_mb: size / 1_048_576,
+            limit_mb: MAX_NOTE_BYTES / 1_048_576,
+        });
     }
     Ok(())
 }
-fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
-    too_large(fs::metadata(path).map_err(|e| e.to_string())?.len())?;
-    fs::read(path).map_err(|e| e.to_string())
+fn read_bytes(path: &Path) -> Result<Vec<u8>, Error> {
+    too_large(fs::metadata(path)?.len())?;
+    Ok(fs::read(path)?)
 }
-fn read_note(path: &Path) -> Result<String, String> {
-    String::from_utf8(read_bytes(path)?)
-        .map_err(|e| format!("Não foi possível ler a nota como UTF-8: {e}"))
+fn read_note(path: &Path) -> Result<String, Error> {
+    String::from_utf8(read_bytes(path)?).map_err(|_| Error::NotUtf8)
 }
 /// Identifies the exact bytes the editor loaded. Hashing the content, rather than using mtime and size,
 /// also catches same-size edits and tools that preserve mtime. Tokens are never persisted, so the
@@ -281,7 +279,7 @@ fn version(bytes: &[u8]) -> String {
     hasher.write(bytes);
     format!("{:016x}", hasher.finish())
 }
-pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, String> {
+pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
     let text = read_note(&resolve(&root(app)?, path, markdown)?)?;
     Ok(OpenNote {
         html: crate::markdown::render(&text, path),
@@ -293,7 +291,7 @@ pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, String> {
 static SAVING: Mutex<()> = Mutex::new(());
 /// Writes `content` only if the file still holds the version identified by `base`. The early check
 /// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
-fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, String> {
+fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
     too_large(content.len() as u64)?;
     let target = resolve(root, relative, markdown)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
@@ -310,14 +308,16 @@ fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Resul
 }
 /// Replaces `target` with `content` through `ReplaceFileW`, which moves the replaced file to a backup:
 /// those are exactly the bytes that were overwritten, even if another app wrote after the check above.
-fn replace_note(target: &Path, content: &[u8], base: &str) -> Result<Saved, String> {
-    let fail = |e: io::Error| format!("Não foi possível salvar a nota: {e}");
+fn replace_note(target: &Path, content: &[u8], base: &str) -> Result<Saved, Error> {
+    let fail = |e: io::Error| Error::SaveFailed {
+        detail: e.to_string(),
+    };
     let backup = sibling(target, BACKUP_SUFFIX).map_err(fail)?;
     let temp = write_temp(target, content).map_err(fail)?;
     if let Err(e) = replace(target, &temp, &backup) {
         // Still ours: the target never took it.
         let _ = fs::remove_file(&temp);
-        return Err(fail(e));
+        return Err(e);
     }
     settle(target, &backup, content, base)
 }
@@ -325,7 +325,7 @@ fn replace_note(target: &Path, content: &[u8], base: &str) -> Result<Saved, Stri
 /// `ERROR_UNABLE_TO_MOVE_REPLACEMENT` (with a backup name) leave every file under its own name;
 /// `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` leaves `target` under the `backup` name, so it is moved back.
 /// Checking the names instead of the code also covers undocumented failures.
-fn replace(target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
+fn replace(target: &Path, replacement: &Path, backup: &Path) -> Result<(), Error> {
     let Err(error) = platform::replace_file(target, replacement, backup) else {
         return Ok(());
     };
@@ -333,50 +333,56 @@ fn replace(target: &Path, replacement: &Path, backup: &Path) -> io::Result<()> {
     if exists(backup)
         && let Err(undo) = platform::move_new(backup, target)
     {
-        return Err(io::Error::other(format!(
-            "{error}; a versão anterior ficou em {}: {undo}",
-            backup.display()
-        )));
+        return Err(Error::PreviousKept {
+            path: display(backup),
+            detail: format!("{error}; {undo}"),
+        });
     }
-    Err(error)
+    Err(Error::SaveFailed {
+        detail: error.to_string(),
+    })
+}
+fn display(path: &Path) -> String {
+    path.display().to_string()
 }
 /// Decides the save after the replace: `target` holds `content` and `backup` the replaced file. If the
 /// backup is not `base`, an external write slipped in: it goes back to `target`, our copy is discarded
 /// (the editor keeps the text) and the answer is a conflict. A version is deleted only once an identical
 /// copy is at `target` or, for `content`, in the editor; anything else stays on disk and is reported.
-fn settle(target: &Path, backup: &Path, content: &[u8], base: &str) -> Result<Saved, String> {
+fn settle(target: &Path, backup: &Path, content: &[u8], base: &str) -> Result<Saved, Error> {
     if discard_if(backup, |old| old == content || version(old) == base) {
         return Ok(Saved::Saved {
             version: version(content),
         });
     }
-    let kept = |e: &dyn std::fmt::Display| {
-        format!(
-            "A nota mudou fora do app; a versão externa ficou em {}: {e}",
-            backup.display()
-        )
-    };
-    let ours = sibling(target, BACKUP_SUFFIX).map_err(|e| kept(&e))?;
-    swap_back(target, backup, &ours).map_err(|e| kept(&e))?;
+    let ours = sibling(target, BACKUP_SUFFIX).map_err(|e| Error::ExternalKept {
+        path: display(backup),
+        detail: e.to_string(),
+    })?;
+    swap_back(target, backup, &ours)?;
     if discard_if(&ours, |copy| copy == content) {
         return Ok(Saved::Conflict);
     }
-    Err(format!(
-        "A nota mudou fora do app durante o salvamento; uma cópia ficou em {}",
-        ours.display()
-    ))
+    Err(Error::OursKept {
+        path: display(&ours),
+    })
 }
 /// Moves `target` aside to `ours` and `backup` back to `target`. The backup is the original file itself,
 /// so its identity returns with it, and renaming works while another app still has it open, where
 /// `ReplaceFileW` fails with a sharing violation. The name is absent for an instant between the renames.
-fn swap_back(target: &Path, backup: &Path, ours: &Path) -> io::Result<()> {
-    platform::move_new(target, ours)?;
+fn swap_back(target: &Path, backup: &Path, ours: &Path) -> Result<(), Error> {
+    let external = |error: io::Error| Error::ExternalKept {
+        path: display(backup),
+        detail: error.to_string(),
+    };
+    platform::move_new(target, ours).map_err(external)?;
     platform::move_new(backup, target).map_err(|error| match platform::move_new(ours, target) {
-        Ok(()) => error,
-        Err(undo) => io::Error::other(format!(
-            "{error}; o texto salvo ficou em {}: {undo}",
-            ours.display()
-        )),
+        Ok(()) => external(error),
+        Err(undo) => Error::ExternalAndOursKept {
+            external: display(backup),
+            ours: display(ours),
+            detail: format!("{error}; {undo}"),
+        },
     })
 }
 /// Deletes `path` only if `matches` accepts its bytes, read through a handle no other process shares,
@@ -397,7 +403,7 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
     }
     false
 }
-pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, String> {
+pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
 }
 /// SVG is excluded because it can contain scripts.
@@ -635,7 +641,7 @@ mod tests {
             .open(&p)
             .unwrap();
         let error = save_note_in(&t.0, "a.md", "novo", &version(b"original")).unwrap_err();
-        assert!(error.contains("salvar"), "{error}");
+        assert!(matches!(error, Error::SaveFailed { .. }), "{error:?}");
         drop(lock);
         assert_eq!(fs::read_to_string(&p).unwrap(), "original");
         assert_eq!(fs::read_dir(&t.0).unwrap().count(), 2);

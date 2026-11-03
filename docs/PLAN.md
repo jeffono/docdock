@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: internationalization, then external changes and leftover recovery.
+Nothing. Next: external changes and leftover recovery.
 
 ## Completed
 
@@ -15,7 +15,7 @@ Nothing. Next: internationalization, then external changes and leftover recovery
 ## Current stage: M2 — Create and edit
 
 - [x] (advanced) Screen side configurable from the tray, right by default; independent of the rest
-- [ ] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
+- [x] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
   language; Rust errors become codes
 - [x] (advanced) Atomic writes and autosave
 - [ ] (advanced) React to external changes without content loss

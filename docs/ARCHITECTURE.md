@@ -8,6 +8,7 @@ Current state and direction of the current stage. What does not yet exist is mar
 src/                     UI (Svelte 5 + Vite)
   App.svelte             Screen composition, no business rules
   lib/ipc.ts             Only entry point that calls Rust
+  lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
   lib/features/<name>/   Components, state and tests for each feature
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
@@ -20,6 +21,8 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   notes.rs               Folder, listing, safe reading and atomic saving of notes, local images
+  i18n.rs                Interface language, from the Windows display language
+  error.rs               Errors sent to the UI as codes
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
@@ -39,6 +42,14 @@ flowchart LR
   C --> P["platform/ (Win32)"]
   D --> V[(".md notes folder")]
 ```
+
+## Language
+
+Rust reads the Windows display language once at startup: any Portuguese gets pt-BR, everything else
+English. The tray uses it directly and `app_locale` hands it to the UI, which sets it before mounting;
+changing the Windows language takes effect on the next start. Commands fail with `{ code, ...fields }`
+(`error.rs`), and `i18n.ts` turns each code into text; `detail` carries the operating system's message,
+already in its language. An unknown code shows as an unexpected error with its raw fields.
 
 ## Panel
 

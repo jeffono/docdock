@@ -8,13 +8,24 @@ use tauri::{AppHandle, Wry};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::dock::{Request, Side};
+use crate::i18n::Locale;
 use crate::notes;
 
 pub fn setup(
     app: &mut tauri::App,
+    locale: Locale,
     side: Side,
     requests: Sender<Request>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let [right, left, start_with_windows, quit] = match locale {
+        Locale::En => ["Side: right", "Side: left", "Start with Windows", "Quit"],
+        Locale::PtBr => [
+            "Lado: direito",
+            "Lado: esquerdo",
+            "Iniciar com o Windows",
+            "Sair",
+        ],
+    };
     // An unreadable registry must not prevent the app from opening.
     let enabled = app.autolaunch().is_enabled().unwrap_or_else(|error| {
         eprintln!("[tray] failed to query autostart: {error}");
@@ -23,7 +34,7 @@ pub fn setup(
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
-        "Iniciar com o Windows",
+        start_with_windows,
         true,
         enabled,
         None::<&str>,
@@ -33,11 +44,11 @@ pub fn setup(
             .map(|item| (value, item))
     };
     let sides = [
-        side_item("side-right", "Lado: direito", Side::Right)?,
-        side_item("side-left", "Lado: esquerdo", Side::Left)?,
+        side_item("side-right", right, Side::Right)?,
+        side_item("side-left", left, Side::Left)?,
     ];
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[&sides[0].1, &sides[1].1, &separator, &autostart, &quit],
@@ -90,7 +101,7 @@ fn select_side(
     requests: &Sender<Request>,
 ) {
     if let Err(error) = notes::set_side(app, side) {
-        eprintln!("[tray] failed to save side: {error}");
+        eprintln!("[tray] failed to save side: {error:?}");
     }
     // Clicking toggles the item; the chosen side must stay checked and the other unchecked.
     for (value, item) in items {

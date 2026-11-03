@@ -5,6 +5,9 @@ export function appVersion(): Promise<string> {
   return invoke<string>("app_version");
 }
 
+export type Locale = "en" | "pt-BR";
+export const appLocale = () => invoke<Locale>("app_locale");
+
 export function panelActivate(): Promise<void> {
   return invoke("panel_activate");
 }
