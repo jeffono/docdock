@@ -19,9 +19,11 @@ Nothing. Next: M3 — find and pin.
 ## M3 — Find and pin
 
 - [ ] (standard) Content search with an in-memory index; FTS5 only if slowness is measured
-- [ ] (standard) Unified bar: search notes and create a note with the typed text, as in Notational Velocity
-- [ ] (standard) Pinned notes in an accordion at the top, open by default; see
-  `docs/decisions/0005-pinned-items.md`
+- [ ] (standard) Unified bar at the top: search notes and create a note with the typed text, as in
+  Notational Velocity
+- [ ] (standard) Note list with Pinned cards and Notes rows, card states and keyboard; see "Note list" in
+  `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`
+- [ ] (standard) In-place editing in an expanded card, replacing the separate note view
 - [ ] (standard) Restore deleted `_pinned.md`
 
 ## M4 — Web pages

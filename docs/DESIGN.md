@@ -70,6 +70,36 @@ GitHub alert titles use the English kind names, matching the Markdown source, wi
 Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
 semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
 
+## Note list
+
+One list fills the panel under the search bar at the top. Every note is the same card component;
+pinned and unpinned notes differ only in section and starting state.
+
+- **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
+  both in place and pinned matches stay cards. A "Create “…”" item appears when no title matches exactly.
+- **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
+  eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
+  editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and
+  editing return to preview when the panel closes.
+- **Expanded:** no height limit and no inner scroll. While scrolling inside the card, its header
+  (title, collapse, pencil) sticks to the top. Only one card is expanded: expanding another returns
+  the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
+  returns to a row when closed; there is no separate note view.
+- **Editing:** only through the pencil in the card header or Ctrl+E on the selected card; entering from
+  preview expands the card. One card edits at a time and shows its own save status, conflict and
+  errors. If the search would hide it, it stays at the top until editing ends. The Note editor rules
+  below apply inside the card.
+- **Mouse:** the header toggles line and preview; the body expands the card. Links work in reading.
+
+| Shortcut   | Action                                                      |
+| ---------- | ----------------------------------------------------------- |
+| ↑ / ↓      | Select a card or row; focus stays in the search bar         |
+| → / ←      | Open / close one level: line, preview, expanded             |
+| Enter      | Expand the selected item, or run "Create"                   |
+| Ctrl+Enter | Create a note with the exact typed text                     |
+| Ctrl+E     | Toggle editing on the selected card                         |
+| Esc        | Leave editing; next, clear the search and return to the bar |
+
 ## Note editor
 
 The fully opaque pencil IconButton floats at the note area's top-right corner in both modes, always
