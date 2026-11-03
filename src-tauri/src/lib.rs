@@ -33,6 +33,7 @@ pub fn run() {
         commands::notes_list,
         commands::notes_open,
         commands::notes_save,
+        commands::notes_paste_image,
         commands::notes_leftovers,
         commands::notes_restore,
         commands::open_external,

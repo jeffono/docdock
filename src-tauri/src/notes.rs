@@ -439,6 +439,79 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
 }
+/// Bound IPC writes and disk use for accidental large clipboard images (10 MiB).
+const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
+fn attachment_extension(bytes: &[u8]) -> Result<&'static str, Error> {
+    if bytes.len() > MAX_ATTACHMENT_BYTES {
+        return Err(Error::ImageTooLarge { limit_mb: 10 });
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Ok("png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Ok("jpg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Ok("gif")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Ok("webp")
+    } else {
+        Err(Error::UnsupportedImage)
+    }
+}
+fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<String, Error> {
+    let ext = attachment_extension(bytes)?;
+    let note = resolve(root, path, markdown)?;
+    let parent = note.parent().ok_or(Error::InvalidPath)?;
+    if root
+        .join(path)
+        .parent()
+        .ok_or(Error::InvalidPath)?
+        .canonicalize()?
+        != parent
+    {
+        return Err(Error::AttachmentFolderUnsafe);
+    }
+    // Lock canonical ancestry so no component can be swapped for a junction during the write.
+    let mut held = Vec::new();
+    for dir in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        held.push(platform::hold_directory(dir).map_err(|_| Error::AttachmentFolderUnsafe)?);
+    }
+    // Revalidate after locking: resolve may have raced with an ancestor rename.
+    if resolve(root, path, markdown)? != note {
+        return Err(Error::AttachmentFolderUnsafe);
+    }
+    let folder = parent.join("attachments");
+    match fs::create_dir(&folder) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e.into()),
+    }
+    held.push(platform::hold_directory(&folder).map_err(|_| Error::AttachmentFolderUnsafe)?);
+    let temp = write_temp(&folder.join("pasted"), bytes)?;
+    let result = (|| {
+        for n in 1u64.. {
+            let suffix = if n == 1 {
+                String::new()
+            } else {
+                format!("-{n}")
+            };
+            let name = format!("pasted-{stamp}{suffix}.{ext}");
+            let target = folder.join(&name);
+            match platform::move_new(&temp, &target) {
+                Ok(()) => return Ok(format!("attachments/{name}")),
+                Err(_) if exists(&target) => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        unreachable!()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+pub fn paste_image(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<String, Error> {
+    paste_image_in(&root(app)?, path, bytes, &platform::paste_timestamp())
+}
 /// A backup a save left behind, for example when the app closed between the two renames that put an
 /// external version back.
 #[derive(Serialize, Debug, PartialEq)]
@@ -652,6 +725,91 @@ mod tests {
         assert!(mklink(&["/J"], &notas.join("atalho"), &fora));
         assert!(list(&notas).unwrap().is_empty());
         assert!(resolve(&notas, "atalho/segredo.md", markdown).is_err());
+    }
+    #[test]
+    fn pasted_images_validate_bytes_and_never_overwrite() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("sub/a.md"), "unchanged").unwrap();
+        let png = b"\x89PNG\r\n\x1a\n";
+        let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes, "20261103-123456");
+        for (bytes, ext) in [
+            (png.as_slice(), "png"),
+            (b"\xff\xd8\xff", "jpg"),
+            (b"GIF87a", "gif"),
+            (b"GIF89a", "gif"),
+            (b"RIFF1234WEBP", "webp"),
+        ] {
+            assert_eq!(attachment_extension(bytes), Ok(ext));
+        }
+        for bytes in [
+            b"<svg/>".as_slice(),
+            b"BM1234",
+            b"RIFF",
+            b"",
+            b"not an image",
+        ] {
+            assert_eq!(paste(bytes), Err(Error::UnsupportedImage));
+        }
+        assert_eq!(
+            paste(&vec![0; MAX_ATTACHMENT_BYTES + 1]),
+            Err(Error::ImageTooLarge { limit_mb: 10 })
+        );
+        assert!(!t.0.join("sub/attachments").exists());
+        let first = paste(png).unwrap();
+        assert_eq!(first, "attachments/pasted-20261103-123456.png");
+        let second = paste(b"\x89PNG\r\n\x1a\nsecond").unwrap();
+        assert_eq!(second, "attachments/pasted-20261103-123456-2.png");
+        assert_eq!(fs::read(t.0.join("sub").join(&first)).unwrap(), png);
+        assert_eq!(
+            fs::read_dir(t.0.join("sub/attachments")).unwrap().count(),
+            2
+        );
+        assert!(paste_image_in(&t.0, "../a.md", png, "stamp").is_err());
+        assert!(
+            crate::markdown::render(&format!("![]({first})"), "sub/a.md")
+                .contains("http://note-asset.localhost/sub/attachments/pasted-20261103-123456.png")
+        );
+        let response = image_response(
+            "main",
+            Some(t.0.clone()),
+            "/sub/attachments/pasted-20261103-123456.png",
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), png);
+        assert_eq!(
+            fs::read_to_string(t.0.join("sub/a.md")).unwrap(),
+            "unchanged"
+        );
+    }
+    #[test]
+    fn attachments_reject_junctions_and_hold_directories() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("notes")).unwrap();
+        fs::create_dir(t.0.join("outside")).unwrap();
+        fs::write(t.0.join("notes/a.md"), "").unwrap();
+        assert!(mklink(
+            &["/J"],
+            &t.0.join("notes").join("attachments"),
+            &t.0.join("outside")
+        ));
+        assert_eq!(
+            paste_image_in(&t.0.join("notes"), "a.md", b"GIF89a", "stamp"),
+            Err(Error::AttachmentFolderUnsafe)
+        );
+        assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
+        let dir = t.0.join("outside");
+        let held = platform::hold_directory(&dir).unwrap();
+        assert!(fs::rename(&dir, t.0.join("renamed")).is_err());
+        drop(held);
+        fs::rename(&dir, t.0.join("renamed")).unwrap();
+        // Junctions into the notes folder are refused too.
+        assert!(mklink(
+            &["/J"],
+            &t.0.join("inside-link"),
+            &t.0.join("notes")
+        ));
+        assert!(platform::hold_directory(&t.0.join("inside-link")).is_err());
     }
     #[test]
     fn image_only_leaves_folder_for_main_window() {

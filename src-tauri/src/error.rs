@@ -23,6 +23,11 @@ pub enum Error {
         limit_mb: u64,
     },
     NotUtf8,
+    UnsupportedImage,
+    ImageTooLarge {
+        limit_mb: u64,
+    },
+    AttachmentFolderUnsafe,
     SaveFailed {
         detail: String,
     },

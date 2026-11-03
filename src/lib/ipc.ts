@@ -46,6 +46,10 @@ export type SaveResult = { status: "saved"; version: string } | { status: "confl
 export const notesOpen = (path: string) => invoke<OpenNote>("notes_open", { path });
 export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });
+export const notesPasteImage = (path: string, bytes: Uint8Array) =>
+  invoke<string>("notes_paste_image", bytes, {
+    headers: { "x-note-path": encodeURIComponent(path) },
+  });
 
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
 

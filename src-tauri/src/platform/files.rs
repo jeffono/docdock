@@ -2,7 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use windows::Win32::Foundation::{ERROR_SHARING_VIOLATION, HANDLE};
@@ -11,6 +11,37 @@ use windows::Win32::Storage::FileSystem::{
     MoveFileExW, REPLACE_FILE_FLAGS, ReplaceFileW, SetFileInformationByHandle,
 };
 use windows::core::HSTRING;
+
+/// Reject reparse points and prevent directory replacement until the returned handle is dropped.
+/// Hold every ancestor too, from the volume root down.
+pub fn hold_directory(path: &Path) -> io::Result<File> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    let file = OpenOptions::new()
+        // Metadata-only access (0) does not participate in Windows sharing checks.
+        .access_mode(FILE_GENERIC_READ.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE).0)
+        .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT).0)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Attachment folder cannot be a link",
+        ));
+    }
+    Ok(file)
+}
+
+pub fn paste_timestamp() -> String {
+    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
+    )
+}
 
 /// Win32 failures arrive as `HRESULT_FROM_WIN32`; the low word is the Win32 code.
 fn os_error(error: windows::core::Error) -> io::Error {

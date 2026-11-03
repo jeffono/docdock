@@ -84,6 +84,25 @@ pub fn notes_save(
 ) -> Result<crate::notes::Saved, Error> {
     crate::notes::save_note(&app, &path, &content, &base)
 }
+/// Raw IPC avoids expanding image bytes into JSON numbers.
+#[tauri::command(async)]
+pub fn notes_paste_image(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, Error> {
+    let path = request
+        .headers()
+        .get("x-note-path")
+        .and_then(|h| h.to_str().ok())
+        .ok_or(Error::InvalidPath)?;
+    let path = percent_encoding::percent_decode_str(path)
+        .decode_utf8()
+        .map_err(|_| Error::InvalidPath)?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(Error::UnsupportedImage);
+    };
+    crate::notes::paste_image(&app, &path, bytes)
+}
 #[tauri::command(async)]
 pub fn notes_leftovers(app: AppHandle) -> Result<Vec<crate::notes::Leftover>, Error> {
     crate::notes::leftovers(&app)

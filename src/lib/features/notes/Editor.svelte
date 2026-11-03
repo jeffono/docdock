@@ -3,7 +3,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
 import { errorText, t } from "../../i18n";
-import { notesOpen, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
+import { notesOpen, notesPasteImage, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import { applyTextChanges, editorExtensions, editorState } from "./editor";
@@ -32,6 +32,41 @@ export function snapshot() {
 let status = $state<AutosaveState>("saved");
 let error = $state("");
 let resolving = $state(false);
+let pasting: Promise<void> | undefined;
+let disposed = false;
+
+function paste(event: ClipboardEvent, editor: EditorView): boolean {
+  const data = event.clipboardData;
+  // Let CodeMirror handle text, including clipboard data that also carries an image.
+  if (!data || data.types.includes("text/plain")) return false;
+  const file = Array.from(data.items)
+    .find((item) => item.kind === "file")
+    ?.getAsFile();
+  if (!file) return false;
+  event.preventDefault();
+  if (pasting || resolving || editor.state.readOnly) return true;
+  const selection = editor.state.selection;
+  revision++;
+  error = "";
+  editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
+  pasting = (async () => {
+    try {
+      const attachment = await notesPasteImage(path, new Uint8Array(await file.arrayBuffer()));
+      if (disposed) return;
+      editor.dispatch({ selection });
+      editor.dispatch(editor.state.replaceSelection(`![](${attachment})`));
+    } catch (e) {
+      if (!disposed) error = errorText(e);
+    } finally {
+      pasting = undefined;
+      if (!disposed) {
+        revision++;
+        editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(resolving)) });
+      }
+    }
+  })();
+  return true;
+}
 function autosave(version: string) {
   status = "saved";
   error = "";
@@ -48,6 +83,7 @@ function autosave(version: string) {
 let saving = autosave(untrack(() => note.version));
 const extensions = () => [
   editable.of(EditorState.readOnly.of(false)),
+  EditorView.domEventHandlers({ paste }),
   ...editorExtensions(
     (changes) => {
       raw = applyTextChanges(raw, changes);
@@ -71,6 +107,7 @@ export async function finish(): Promise<OpenNote | null> {
   // Blur while this Esc press is still being handled, as TextField does.
   view?.contentDOM.blur();
   try {
+    await pasting;
     if ((await saving.flush()) !== "saved") return null;
     return await notesOpen(path);
   } catch (e) {
@@ -98,13 +135,13 @@ function replace(next: OpenNote) {
 
 /** Includes the text in flight. A watcher must never replace pending edits. */
 export function reload(next: OpenNote, started: number | undefined): boolean {
-  if (started !== revision || resolving || saving.unsaved() !== null) return false;
+  if (started !== revision || resolving || pasting || saving.unsaved() !== null) return false;
   replace(next);
   return true;
 }
 
 async function resolve(keep: boolean) {
-  if (resolving) return;
+  if (resolving || pasting) return;
   resolving = true;
   try {
     const disk = await notesOpen(path);
@@ -136,6 +173,7 @@ onMount(() => {
   view = new EditorView({ root, parent: root, state: editorState(raw, extensions()) });
   view.focus();
   return () => {
+    disposed = true;
     view?.destroy();
     void panelSetEditing(false);
   };

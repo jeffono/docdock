@@ -165,6 +165,19 @@ the editor. A clean external reload resets autosave and keeps the cursor clamped
 pending or in-flight text is never replaced. An editor revision rejects reads started before an edit,
 save completion or another reload.
 
+**Pasted images.** Text in the clipboard takes precedence. Otherwise the editor sends the file as a
+raw IPC body with a percent-encoded note path header. Rust validates the note with `resolve`, accepts
+only PNG, JPEG, GIF and WebP magic signatures, and limits attachments to 10 MiB to bound disk use and
+accidental large clipboard writes. It creates `attachments/pasted-YYYYMMDD-HHMMSS.<ext>` beside the note,
+using local time and `-2`, `-3` suffixes for collisions. A synced temporary file becomes the final file
+through `move_new`, never replacing an existing file. The attachment directory cannot be a reparse
+point; open directory handles prevent replacement of it and its canonical ancestors during the write.
+Note aliases with a different canonical parent are refused so the relative link remains correct.
+The editor is read-only while the paste is pending, preserves the insertion selection, and waits for
+it before leaving. Reloads are refused during that wait; insertion then creates an ordinary unsaved
+Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
+The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
+
 CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
 `CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
 tag. An external CSS file supplies token styling inside the shadow, with `:host` specificity above

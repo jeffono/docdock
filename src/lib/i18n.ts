@@ -32,6 +32,10 @@ const en = {
   "error.outsideFolder": "The file is outside the chosen folder.",
   "error.tooLarge": "The note has {sizeMb} MB; the limit is {limitMb} MB.",
   "error.notUtf8": "The note is not UTF-8 text.",
+  "error.unsupportedImage": "Paste a PNG, JPEG, GIF or WebP image.",
+  "error.imageTooLarge": "The image exceeds the {limitMb} MB limit.",
+  "error.attachmentFolderUnsafe":
+    "Cannot save an attachment through a folder link or an unavailable folder.",
   "error.saveFailed": "Could not save the note: {detail}",
   "error.previousKept":
     "Could not save the note; the previous version was kept at {path}: {detail}",
@@ -79,6 +83,10 @@ const ptBR: Record<MessageKey, string> = {
   "error.outsideFolder": "O arquivo está fora da pasta escolhida.",
   "error.tooLarge": "A nota tem {sizeMb} MB; o limite é {limitMb} MB.",
   "error.notUtf8": "A nota não é texto UTF-8.",
+  "error.unsupportedImage": "Cole uma imagem PNG, JPEG, GIF ou WebP.",
+  "error.imageTooLarge": "A imagem excede o limite de {limitMb} MB.",
+  "error.attachmentFolderUnsafe":
+    "Não é possível salvar um anexo por um link de pasta ou uma pasta indisponível.",
   "error.saveFailed": "Não foi possível salvar a nota: {detail}",
   "error.previousKept":
     "Não foi possível salvar a nota; a versão anterior ficou em {path}: {detail}",
