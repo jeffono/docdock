@@ -275,7 +275,15 @@ onMount(() => {
         <IconButton icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={toggleEditor} />
       </div>
       {#if editing && opened}
-        <Editor bind:this={editor} path={selected} note={opened} onleave={() => void leaveEditor()} />
+        <Editor
+          bind:this={editor}
+          path={selected}
+          note={opened}
+          onleave={() => void leaveEditor()}
+          ondiscard={() => {
+            editing = false;
+          }}
+        />
       {:else}
       <div class="note" onclick={linkClick} ondblclick={() => { editing = true; }} role="presentation">
         {#if title || tags.length}

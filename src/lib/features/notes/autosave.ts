@@ -23,6 +23,8 @@ export type Autosave = {
   flush(): Promise<AutosaveState>;
   /** Content not yet on disk, such as the edit kept after a conflict. */
   unsaved(): string | null;
+  /** Drops what is not on disk and ignores later edits; a save in flight still completes. */
+  stop(): void;
 };
 
 /** One instance per open note. Each save sends the whole text, so only the latest edit matters. */
@@ -38,6 +40,7 @@ export function createAutosave({
   let sending: string | null = null;
   let inFlight: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
 
   function set(next: AutosaveState, error?: unknown) {
     state = next;
@@ -85,12 +88,14 @@ export function createAutosave({
 
   return {
     edit(content) {
+      if (stopped) return;
       pending = content;
       if (state === "conflict") return;
       set("pending");
       schedule();
     },
     async flush() {
+      if (stopped) return state;
       clearTimeout(timer);
       timer = undefined;
       for (;;) {
@@ -104,5 +109,11 @@ export function createAutosave({
       }
     },
     unsaved: () => pending ?? sending,
+    stop() {
+      stopped = true;
+      clearTimeout(timer);
+      timer = undefined;
+      pending = null;
+    },
   };
 }

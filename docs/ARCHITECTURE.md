@@ -144,7 +144,9 @@ fails.
 
 **Autosave.** `features/notes/autosave.ts` saves the whole text after a pause in edits, with one save in
 flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps
-the edit in `unsaved()`, and after an error the next edit or `flush` retries.
+the edit in `unsaved()`, and after an error the next edit or `flush` retries. `stop` drops unsaved text and
+ignores later edits; the editor calls it only when the user discards edits that keep failing to save, such
+as for a note deleted outside the app.
 
 **Editor.** Reading is the default: sanitized HTML from Rust. The pencil toggle or a double-click
 opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. CodeMirror 6

@@ -9,7 +9,18 @@ import { type AutosaveState, createAutosave } from "./autosave";
 import { applyTextChanges, editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
 
-let { path, note, onleave }: { path: string; note: OpenNote; onleave: () => void } = $props();
+let {
+  path,
+  note,
+  onleave,
+  ondiscard,
+}: {
+  path: string;
+  note: OpenNote;
+  onleave: () => void;
+  /** Leaves without saving, after the user chose to drop edits that cannot be saved. */
+  ondiscard: () => void;
+} = $props();
 let host: HTMLDivElement;
 let view: EditorView | undefined;
 let raw = untrack(() => note.text);
@@ -110,6 +121,12 @@ async function resolve(keep: boolean) {
   }
 }
 
+/** A save that keeps failing, such as for a note deleted outside the app, must not trap the user. */
+function discardAndLeave() {
+  saving.stop();
+  ondiscard();
+}
+
 onMount(() => {
   const root = host.attachShadow({ mode: "open" });
   const css = document.createElement("link");
@@ -135,14 +152,23 @@ onMount(() => {
       </div>
     </div>
   {/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if error}
+    <div class="notice">
+      <p class="error" role="alert">{error}</p>
+      {#if status === "error"}
+        <div class="actions">
+          <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
   <div class="surface" bind:this={host}></div>
 </div>
 
 <style>
 .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .surface { flex: 1; min-height: 0; overflow: auto; }
-.notice, .error { padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
+.notice { padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
 .notice { border-bottom: 1px solid var(--color-line); }
 p { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
