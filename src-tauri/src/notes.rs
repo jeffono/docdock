@@ -769,7 +769,7 @@ mod tests {
     fn pasted_images_accept_only_known_formats() {
         let t = Temp::new();
         fs::create_dir(t.0.join("sub")).unwrap();
-        fs::write(t.0.join("sub/a.md"), "").unwrap();
+        fs::write(t.0.join("sub/a.md"), "unchanged").unwrap();
         let png = b"\x89PNG\r\n\x1a\n";
         let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes, "20261103-123456");
         for (bytes, ext) in [
@@ -796,6 +796,10 @@ mod tests {
         );
         assert!(paste_image_in(&t.0, "../a.md", png, "stamp").is_err());
         assert!(!t.0.join("sub/attachments").exists());
+        assert_eq!(
+            fs::read_to_string(t.0.join("sub/a.md")).unwrap(),
+            "unchanged"
+        );
     }
     #[test]
     fn pasted_images_never_overwrite() {
@@ -946,6 +950,11 @@ mod tests {
         assert!(mklink(&["/J"], &notas.join("link"), &t.0.join("real")));
         assert!(save_note_in(&notas, "link/a.md", "x", "").is_err());
         assert!(!t.0.join("real/a.md").exists());
+        // Junctions are refused even when they point back inside the folder.
+        fs::create_dir(notas.join("real")).unwrap();
+        assert!(mklink(&["/J"], &notas.join("inner"), &notas.join("real")));
+        assert!(save_note_in(&notas, "inner/a.md", "x", "").is_err());
+        assert!(!notas.join("real/a.md").exists());
         assert!(!t.0.join("escape.md").exists());
     }
     #[test]
