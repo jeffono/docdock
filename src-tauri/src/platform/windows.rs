@@ -129,8 +129,8 @@ pub enum Activation {
 #[derive(Debug, Clone, Copy)]
 pub struct PanelWindow {
     raw: isize,
-    /// Everything beyond this X coordinate is clipped.
-    clip_right: i32,
+    /// Monitor bounds: columns outside them are clipped.
+    clip: Rect,
     top: i32,
     width: i32,
     height: i32,
@@ -138,16 +138,10 @@ pub struct PanelWindow {
 
 impl PanelWindow {
     /// Applies styles and shows the window at its final size and position `x` without activating it.
-    pub fn prepare(
-        raw: isize,
-        rect: Rect,
-        clip_right: i32,
-        x: i32,
-        activation: Activation,
-    ) -> Self {
+    pub fn prepare(raw: isize, rect: Rect, clip: Rect, x: i32, activation: Activation) -> Self {
         let mut window = Self {
             raw,
-            clip_right,
+            clip,
             top: rect.top,
             width: 0,
             height: 0,
@@ -163,13 +157,14 @@ impl PanelWindow {
             };
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
         }
-        window.place(rect, clip_right, x);
+        window.place(rect, clip, x);
         window
     }
 
-    /// Sizes the window to `rect` at `x`, above other windows, without activating it.
-    pub fn place(&mut self, rect: Rect, clip_right: i32, x: i32) {
-        self.clip_right = clip_right;
+    /// Sizes the window to `rect` at `x`, above other windows, without activating it. Columns
+    /// outside `clip` are cut.
+    pub fn place(&mut self, rect: Rect, clip: Rect, x: i32) {
+        self.clip = clip;
         self.top = rect.top;
         self.width = rect.right - rect.left;
         self.height = rect.bottom - rect.top;
@@ -203,11 +198,12 @@ impl PanelWindow {
         log_failure("SetWindowPos", result);
     }
 
-    /// Clips anything beyond the edge so it never appears on a neighboring monitor.
+    /// Clips anything beyond the monitor edges so it never appears on a neighboring monitor.
     fn clip(&self, x: i32) {
-        let visible = (self.clip_right - x).clamp(0, self.width);
+        let left = (self.clip.left - x).clamp(0, self.width);
+        let right = (self.clip.right - x).clamp(0, self.width);
         unsafe {
-            let region = CreateRectRgn(0, 0, visible, self.height);
+            let region = CreateRectRgn(left, 0, right, self.height);
             // The system takes ownership of the region only if the call succeeds.
             if SetWindowRgn(self.hwnd(), Some(region), false) == 0 {
                 let _ = DeleteObject(region.into());

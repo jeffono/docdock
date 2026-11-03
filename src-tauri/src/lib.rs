@@ -28,6 +28,7 @@ pub fn run() {
         commands::notes_choose,
         commands::notes_list,
         commands::notes_open,
+        commands::notes_save,
         commands::open_external,
     ];
     tauri::Builder::default()
@@ -47,11 +48,12 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
             let window = main_window::create(app)?;
-            tray::setup(app)?;
+            let side = notes::side(app.handle());
             let (requests, receiver) = mpsc::channel();
+            tray::setup(app, side, requests.clone())?;
             shortcut::setup(app, requests.clone());
             app.manage(requests);
-            dock::start(window.hwnd()?.0 as isize, receiver);
+            dock::start(window.hwnd()?.0 as isize, receiver, side);
             Ok(())
         })
         // App commands need no capability from a local origin. Without this barrier, the page

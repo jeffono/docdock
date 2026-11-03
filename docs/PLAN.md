@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- `screen-side` and `atomic-save` in parallel worktrees.
+Nothing. Next: internationalization, then external changes and leftover recovery.
 
 ## Completed
 
@@ -14,11 +14,13 @@ detail each stage when it is next.
 
 ## Current stage: M2 — Create and edit
 
-- [ ] (advanced) Screen side configurable from the tray, right by default; independent of the rest
+- [x] (advanced) Screen side configurable from the tray, right by default; independent of the rest
 - [ ] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
   language; Rust errors become codes
-- [ ] (advanced) Atomic writes and autosave
+- [x] (advanced) Atomic writes and autosave
 - [ ] (advanced) React to external changes without content loss
+- [ ] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
+  on opening the folder and offer to restore, never deleting automatically
 - [ ] (standard) Frontmatter: hide the block and show title and tags
 - [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
   the current line. No WYSIWYG, which would rewrite the file
@@ -67,6 +69,6 @@ Defaults used until you decide otherwise.
 
 | Question                   | Default                                                                     |
 | -------------------------- | --------------------------------------------------------------------------- |
-| Monitor                    | The rightmost, whose edge holds the cursor                                  |
+| Monitor                    | The outermost on the chosen side, whose edge holds the cursor               |
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |

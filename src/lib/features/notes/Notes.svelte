@@ -45,7 +45,7 @@ async function choose() {
 async function open(path: string) {
   try {
     error = "";
-    content = await notesOpen(path);
+    content = (await notesOpen(path)).html;
     selected = path;
   } catch (e) {
     error = String(e);
