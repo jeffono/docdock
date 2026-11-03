@@ -5,9 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- `screen-side` and `atomic-save` are integrated in `m2-integration`, with review fixes. Both
-  cross-vendor reviews are addressed (a crash between renames is deferred to the recovery task). Next:
-  the user runs the screen-side manual tests on a release build, then merge into `main`.
+Nothing. Next: internationalization, then external changes and leftover recovery.
 
 ## Completed
 
