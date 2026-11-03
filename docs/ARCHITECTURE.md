@@ -83,7 +83,9 @@ per-monitor DPI awareness (PMv2).
   window is already enabled. If activation fails, with no focus to lose, the panel follows the cursor rule
   and does not get stuck over other windows.
 - **Esc:** each press counts once. The press that leaves a field or closes the picker has already been
-  handled and does not also close the panel, even if the UI reports it before the next poll.
+  handled and does not also close the panel, even if the UI reports it before the next poll. Leaving
+  the editor by keyboard with the cursor outside an open panel turns it into a summoned panel, so the
+  next Esc or a focus change closes it, not the cursor that left long before.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
   time, targeting 150 ms.
@@ -161,7 +163,10 @@ facet on rename, rebuilding relative-image decorations without replacing text or
 state is reported to the floating pencil's status. CodeMirror 6
 parses GFM; `live-formatting.ts` decorates visible ranges on document, selection, parser and viewport
 changes. Headings, emphasis, strikethrough, quotes, lists, rules, tasks, code and local images hide
-syntax outside selection lines. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make
+syntax outside selection lines. Quotes nest up to three drawn bars; alerts and links follow the
+reading parser (an alert marker alone on its line, `[text]` without a destination stays text). Lines and
+widgets are spaced with padding only: CodeMirror maps clicks and vertical motion from measured line
+boxes and ignores margins. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make
 one undoable text transaction and respect read-only state. Image widgets use the same decoding,
 traversal and segment encoding rules as Rust `image_url`; they never insert HTML. A StateField supplies
 the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the

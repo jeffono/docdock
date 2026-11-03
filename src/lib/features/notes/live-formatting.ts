@@ -243,9 +243,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
         if (meta && node.to <= meta.to) return false;
         const raw = /^(Image|TaskMarker|ListMark)$/.test(name)
             ? view.state.sliceDoc(node.from, node.to)
-            : name === "Blockquote"
-              ? view.state.sliceDoc(node.from, Math.min(node.to, node.from + 32))
-              : "",
+            : "",
           selected = active(view.state, node.from, node.to);
         const mark = (cls: string) => {
           if (node.from < node.to)
@@ -281,19 +279,27 @@ function formatting(view: EditorView, note: string): DecorationSet {
         if (name === "Emphasis") mark("emphasis");
         if (name === "Strikethrough") mark("strike");
         if (name === "InlineCode") mark("inline-code");
-        if (name === "Link") mark("link");
+        // Without a destination, `[text]` is plain text in the reading view (no reference definitions).
+        if (name === "Link" && node.node.getChild("URL")) mark("link");
         if (name === "Blockquote") {
-          lineClass(node.from, node.to, "quote");
-          const alert = raw.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/);
+          let depth = 1;
+          for (let parent = node.node.parent; parent; parent = parent.parent)
+            if (parent.name === "Blockquote") depth++;
+          lineClass(node.from, node.to, depth === 1 ? "quote" : `quote-${Math.min(depth, 3)}`);
+          // The reading view's rule (pulldown-cmark): `>`, at most one space, the kind in any case
+          // and nothing else on the line. Text after the marker makes a plain quote.
+          const line = view.state.doc.lineAt(node.from),
+            alert = view.state
+              .sliceDoc(node.from, line.to)
+              .match(/^> ?\[!(note|tip|important|warning|caution)\][ \t]*$/i);
           if (alert) {
-            lineClass(node.from, node.to, `markdown-alert-${alert[1].toLowerCase()}`);
-            const line = view.state.doc.lineAt(node.from);
+            const kind = alert[1].toLowerCase();
+            lineClass(node.from, node.to, `markdown-alert-${kind}`);
             if (!active(view.state, line.from, line.to))
               ranges.push(
-                Decoration.replace({ widget: new TextWidget(alert[1], "alert-title") }).range(
-                  node.from + raw.indexOf("[!"),
-                  node.from + alert[0].length,
-                ),
+                Decoration.replace({
+                  widget: new TextWidget(kind.toUpperCase(), "alert-title"),
+                }).range(node.from + alert[0].indexOf("[!"), line.to),
               );
           }
         }
@@ -358,6 +364,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
           /^(HeaderMark|EmphasisMark|StrikethroughMark|CodeMark|LinkMark|URL|QuoteMark)$/.test(
             name,
           ) &&
+          (name !== "LinkMark" || node.node.parent?.getChild("URL")) &&
           view.state.doc.lineAt(node.from).number === view.state.doc.lineAt(node.to).number
         )
           replace();

@@ -49,12 +49,37 @@
   padding-bottom: var(--space-2);
 }
 
+/* CodeMirror maps positions from measured line boxes and ignores their margins: space lines with
+   padding only. */
+:host .cm-editor .cm-line.heading {
+  padding-block: var(--space-2);
+}
+
+:host .cm-editor .cm-line.h1 {
+  padding-top: 0;
+}
+
 :host .cm-editor .cm-line.list-item {
   padding-left: var(--space-4);
 }
 
 :host .cm-editor .cm-line.quote {
   padding-left: var(--space-3);
+}
+
+/* Nested quotes draw the inner bars where the reading view's nested blockquote borders fall. */
+:host .cm-editor .cm-line.quote-2 {
+  padding-left: calc(2 * var(--space-3) + 2px);
+  background:
+    linear-gradient(var(--color-line), var(--color-line)) var(--space-3) 0 / 2px 100% no-repeat;
+}
+
+:host .cm-editor .cm-line.quote-3 {
+  padding-left: calc(3 * var(--space-3) + 4px);
+  background:
+    linear-gradient(var(--color-line), var(--color-line)) var(--space-3) 0 / 2px 100% no-repeat,
+    linear-gradient(var(--color-line), var(--color-line)) calc(2 * var(--space-3) + 2px) 0 / 2px
+    100% no-repeat;
 }
 
 :host .cm-editor .cm-line.fence {
