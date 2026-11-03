@@ -179,6 +179,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     if let Some(path) = dialog.blocking_pick_folder() {
         let folder = Some(path.into_path().map_err(Error::unexpected)?);
         update(app, |settings| settings.folder = folder)?;
+        crate::watch::stop();
     }
     folder(app)
 }
@@ -192,6 +193,20 @@ fn root(app: &AppHandle) -> Result<PathBuf, Error> {
 fn markdown(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+}
+/// Whether a change at `path` can alter what the UI shows: not inside a hidden folder, which listing
+/// skips, and not a temporary or backup file a write creates next to its target.
+pub fn shown_change(root: &Path, path: &Path) -> bool {
+    // Only below `root`: the folder itself may sit inside a hidden one.
+    let hidden = path.strip_prefix(root).is_ok_and(|relative| {
+        relative
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+    });
+    let working = path
+        .extension()
+        .is_some_and(|e| e == TEMP_SUFFIX || e == BACKUP_SUFFIX);
+    !hidden && !working
 }
 /// `is_dir` and `is_file` are false for symlinks and junctions, so they are never followed.
 fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), Error> {
@@ -232,8 +247,11 @@ fn list(root: &Path) -> Result<Vec<Note>, Error> {
     });
     Ok(notes)
 }
+/// Listing is what the UI does on opening a folder, so it also starts watching it.
 pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
-    list(&root(app)?)
+    let root = root(app)?;
+    crate::watch::ensure(app, &root);
+    list(&root)
 }
 /// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
 /// the folder can change the requested extension to a different real extension.

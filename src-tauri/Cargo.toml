@@ -29,6 +29,7 @@ tauri-plugin-global-shortcut = "2"
 pulldown-cmark = "0.13.6"
 ammonia = "4.2.4"
 tauri-plugin-opener = "2.7.2"
+notify = { version = "8", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

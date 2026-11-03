@@ -1,5 +1,6 @@
 // The only point of contact between the UI and the Rust backend.
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export function appVersion(): Promise<string> {
   return invoke<string>("app_version");
@@ -41,3 +42,7 @@ export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });
 
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
+
+/** Something in the notes folder changed outside the app, or a save landed. */
+export const onNotesChanged = (handler: () => void): Promise<UnlistenFn> =>
+  listen("notes-changed", handler);

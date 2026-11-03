@@ -8,6 +8,7 @@ import {
   notesFolder,
   notesList,
   notesOpen,
+  onNotesChanged,
   openExternal,
   panelSetEditing,
 } from "../../ipc";
@@ -21,6 +22,9 @@ let content = $state("");
 let selected = $state("");
 let error = $state("");
 let query = $state("");
+let gone = $state(false);
+/** Version of the open note, to tell a real change from a reread of the same bytes. */
+let version = "";
 
 const visible = $derived(
   notes.filter((note) => note.path.toLowerCase().includes(query.trim().toLowerCase())),
@@ -46,11 +50,60 @@ async function choose() {
 async function open(path: string) {
   try {
     error = "";
-    content = (await notesOpen(path)).html;
+    const note = await notesOpen(path);
+    content = note.html;
+    version = note.version;
     selected = path;
+    gone = false;
   } catch (e) {
     error = errorText(e);
   }
+}
+
+/**
+ * Rereads after a change on disk. The open note is replaced only if its bytes changed, so a save of
+ * the same text does not disturb it; a note that disappeared keeps its last content on screen.
+ */
+async function reload() {
+  const value = await notesFolder();
+  if (!value?.available) return refresh(value);
+  notes = await notesList();
+  const path = selected;
+  if (!path) return;
+  if (!notes.some((note) => note.path === path)) {
+    gone = true;
+    return;
+  }
+  const note = await notesOpen(path);
+  // The user may have opened another note meanwhile.
+  if (selected !== path) return;
+  gone = false;
+  if (note.version !== version) {
+    content = note.html;
+    version = note.version;
+  }
+}
+
+let reloading: Promise<void> | null = null;
+let again = false;
+
+/** One reload at a time; changes during it cause one more. */
+function changed() {
+  if (reloading) {
+    again = true;
+    return;
+  }
+  reloading = (async () => {
+    do {
+      again = false;
+      try {
+        await reload();
+      } catch (e) {
+        error = errorText(e);
+      }
+    } while (again);
+    reloading = null;
+  })();
 }
 
 function linkClick(event: MouseEvent) {
@@ -73,11 +126,13 @@ function directory(path: string) {
 }
 
 onMount(() => {
+  const unlisten = onNotesChanged(changed);
   notesFolder()
     .then(refresh)
     .catch((e) => {
       error = errorText(e);
     });
+  return () => void unlisten.then((stop) => stop());
 });
 </script>
 
@@ -113,6 +168,7 @@ onMount(() => {
       <p class="message">{notes.length > 0 ? t("notes.noMatch") : t("notes.emptyFolder")}</p>
     {/if}
     {#if selected}
+      {#if gone}<p class="message" role="status">{t("notes.gone")}</p>{/if}
       <div class="note" onclick={linkClick} role="presentation">
         <!-- The HTML has already been sanitized in Rust. -->
         {@html content}

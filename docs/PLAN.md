@@ -5,7 +5,10 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: external changes and leftover recovery.
+- Manual check pending for internationalization: switch the Windows display language and confirm tray
+  and panel follow it on the next start. The user chose to batch it with later checks.
+
+Next: leftover recovery.
 
 ## Completed
 
@@ -18,12 +21,13 @@ Nothing. Next: external changes and leftover recovery.
 - [x] (standard) Internationalize the UI and Rust text: English by default, pt-BR based on the Windows
   language; Rust errors become codes
 - [x] (advanced) Atomic writes and autosave
-- [ ] (advanced) React to external changes without content loss
+- [x] (advanced) React to external changes without content loss
 - [ ] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
   on opening the folder and offer to restore, never deleting automatically
 - [ ] (standard) Frontmatter: hide the block and show title and tags
 - [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside
-  the current line. No WYSIWYG, which would rewrite the file
+  the current line. No WYSIWYG, which would rewrite the file. On an external change, reload the text only
+  without unsaved edits; otherwise keep them and show the conflict
 - [ ] (standard) Paste images as attachments
 
 ## M3 — Find and pin

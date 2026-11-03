@@ -11,6 +11,7 @@ pub mod panel;
 mod platform;
 mod shortcut;
 mod tray;
+mod watch;
 mod web;
 
 use std::sync::mpsc;

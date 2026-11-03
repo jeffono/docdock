@@ -23,6 +23,7 @@ src-tauri/src/           Backend (Rust)
   notes.rs               Folder, listing, safe reading and atomic saving of notes, local images
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
+  watch.rs               Tells the UI when the notes folder changes
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
@@ -141,6 +142,14 @@ fails.
 **Autosave.** `features/notes/autosave.ts` saves the whole text after a pause in edits, with one save in
 flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps
 the edit in `unsaved()`, and after an error the next edit or `flush` retries.
+
+**External changes.** Listing a folder starts watching it (`watch.rs`, with `notify`); choosing a folder
+stops the watch, so the next listing starts a fresh one even for the same path. Events are grouped until
+200 ms of quiet, at most 1 s, and become one `notes-changed` event to the `main` window. Changes inside
+hidden folders and to temporary or backup files of a save do not count; lost events do. The UI then
+rereads the folder, the list and the open note, replacing the note only if its version changed. A note
+that disappeared keeps its last content on screen with a notice. Content cannot be lost here: the view is
+read-only, and a save never overwrites a version it did not load.
 
 ## Untrusted content
 
