@@ -1,13 +1,16 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { errorText, t } from "../../i18n";
+import { dateTime, errorText, t } from "../../i18n";
 import {
+  type Leftover,
   type Note,
   type NotesFolder,
   notesChoose,
   notesFolder,
+  notesLeftovers,
   notesList,
   notesOpen,
+  notesRestore,
   onNotesChanged,
   openExternal,
   panelSetEditing,
@@ -23,6 +26,7 @@ let selected = $state("");
 let error = $state("");
 let query = $state("");
 let gone = $state(false);
+let leftovers = $state<Leftover[]>([]);
 /** Version of the open note, to tell a real change from a reread of the same bytes. */
 let version = "";
 
@@ -35,7 +39,22 @@ async function refresh(value: NotesFolder | null) {
   notes = [];
   selected = "";
   content = "";
-  if (value?.available) notes = await notesList();
+  leftovers = [];
+  if (!value?.available) return;
+  notes = await notesList();
+  leftovers = await notesLeftovers();
+}
+
+async function restore(path: string) {
+  try {
+    error = "";
+    const note = await notesRestore(path);
+    leftovers = await notesLeftovers();
+    notes = await notesList();
+    await open(note);
+  } catch (e) {
+    error = errorText(e);
+  }
 }
 
 async function choose() {
@@ -149,6 +168,22 @@ onMount(() => {
       <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
     </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if leftovers.length > 0}
+      <section class="leftovers" aria-label={t("leftovers.label")}>
+        <p class="message">{t("leftovers.notice")}</p>
+        {#each leftovers as leftover (leftover.path)}
+          <div class="leftover" title={leftover.path}>
+            <span>{leftover.note}</span>
+            {#if leftover.modified}<small>{dateTime(leftover.modified)}</small>{/if}
+            <IconButton
+              icon="restore"
+              label={t("leftovers.restore", { note: leftover.note })}
+              onclick={() => restore(leftover.path)}
+            />
+          </div>
+        {/each}
+      </section>
+    {/if}
     {#if visible.length > 0}
       <ul class:compact={selected}>
         {#each visible as note (note.path)}
@@ -253,6 +288,36 @@ onMount(() => {
     font-size: var(--font-size-sm);
     font-weight: 400;
     opacity: 0.75;
+  }
+
+  .leftovers {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .leftover {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 0 var(--space-3) 0 var(--space-4);
+    font-size: var(--font-size-sm);
+  }
+
+  .leftover span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .leftover small {
+    flex: none;
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
   }
 
   .message,

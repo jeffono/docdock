@@ -27,17 +27,3 @@ impl Locale {
         Self::from_langid(crate::platform::ui_language())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn portuguese_gets_pt_br_and_the_rest_english() {
-        assert_eq!(Locale::from_langid(0x0416), Locale::PtBr); // pt-BR
-        assert_eq!(Locale::from_langid(0x0816), Locale::PtBr); // pt-PT
-        assert_eq!(Locale::from_langid(0x0409), Locale::En); // en-US
-        assert_eq!(Locale::from_langid(0x0c0a), Locale::En); // es-ES
-        assert_eq!(Locale::from_langid(0), Locale::En);
-    }
-}

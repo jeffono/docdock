@@ -8,7 +8,9 @@ detail each stage when it is next.
 - Manual check pending for internationalization: switch the Windows display language and confirm tray
   and panel follow it on the next start. The user chose to batch it with later checks.
 
-Next: leftover recovery.
+- Pending user approval: the leftover list in the notes panel (static preview delivered).
+
+Next: frontmatter.
 
 ## Completed
 
@@ -22,7 +24,7 @@ Next: leftover recovery.
   language; Rust errors become codes
 - [x] (advanced) Atomic writes and autosave
 - [x] (advanced) React to external changes without content loss
-- [ ] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
+- [x] (standard) Recover `.docdock-bak` leftovers from a save interrupted between its two renames: list them
   on opening the folder and offer to restore, never deleting automatically
 - [ ] (standard) Frontmatter: hide the block and show title and tags
 - [ ] (standard) CodeMirror 6 editor with live formatting: headings, emphasis and markup hidden outside

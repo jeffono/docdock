@@ -1,6 +1,7 @@
 //! Local note storage and validation.
 use crate::dock::{Request, Side};
 use crate::error::Error;
+use crate::i18n::Locale;
 use crate::platform;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -15,7 +16,7 @@ use std::{
         mpsc::Sender,
     },
     thread,
-    time::Duration,
+    time::{Duration, UNIX_EPOCH},
 };
 use tauri::http::header::{CACHE_CONTROL, CONTENT_TYPE, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{Response, StatusCode};
@@ -208,24 +209,35 @@ pub fn shown_change(root: &Path, path: &Path) -> bool {
         .is_some_and(|e| e == TEMP_SUFFIX || e == BACKUP_SUFFIX);
     !hidden && !working
 }
-/// `is_dir` and `is_file` are false for symlinks and junctions, so they are never followed.
-fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), Error> {
+/// Visits every file below `dir`, skipping hidden folders. `is_dir` and `is_file` are false for
+/// symlinks and junctions, so they are never followed.
+fn walk(dir: &Path, visit: &mut impl FnMut(PathBuf)) -> Result<(), Error> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let ty = entry.file_type()?;
-        let path = entry.path();
         if ty.is_dir() {
             if !entry.file_name().to_string_lossy().starts_with('.') {
-                collect(root, &path, notes)?;
+                walk(&entry.path(), visit)?;
             }
-        } else if ty.is_file() && markdown(&path) {
-            let relative = path
-                .strip_prefix(root)
-                .map_err(Error::unexpected)?
-                .to_string_lossy()
-                .replace('\\', "/");
+        } else if ty.is_file() {
+            visit(entry.path());
+        }
+    }
+    Ok(())
+}
+/// The path the UI uses: relative to `root`, with `/`.
+fn relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+fn list(root: &Path) -> Result<Vec<Note>, Error> {
+    let mut notes = Vec::new();
+    walk(root, &mut |path| {
+        if markdown(&path) {
             notes.push(Note {
-                path: relative,
+                path: relative(root, &path),
                 name: path
                     .file_stem()
                     .unwrap_or_default()
@@ -233,12 +245,7 @@ fn collect(root: &Path, dir: &Path, notes: &mut Vec<Note>) -> Result<(), Error> 
                     .into_owned(),
             });
         }
-    }
-    Ok(())
-}
-fn list(root: &Path) -> Result<Vec<Note>, Error> {
-    let mut notes = Vec::new();
-    collect(root, root, &mut notes)?;
+    })?;
     notes.sort_by(|a, b| {
         a.path
             .to_lowercase()
@@ -423,6 +430,94 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 }
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
+}
+/// A backup a save left behind, for example when the app closed between the two renames that put an
+/// external version back.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Leftover {
+    /// The backup itself.
+    path: String,
+    /// The note it came from, which may no longer exist.
+    note: String,
+    /// Last write, in milliseconds since the Unix epoch; 0 if unknown.
+    modified: u64,
+}
+/// The note a backup came from: `<note>.<pid>-<n>.docdock-bak`, where `<note>` is a `.md` file.
+fn leftover_note(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    let (note, id) = name
+        .strip_suffix(BACKUP_SUFFIX)?
+        .strip_suffix('.')?
+        .rsplit_once('.')?;
+    let (pid, n) = id.split_once('-')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let note = path.with_file_name(note);
+    (digits(pid) && digits(n) && markdown(&note)).then_some(note)
+}
+fn is_leftover(path: &Path) -> bool {
+    leftover_note(path).is_some()
+}
+fn modified(path: &Path) -> u64 {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_millis() as u64)
+}
+/// Taken under the save lock: a save in progress owns its backup for a moment, and that is not a
+/// leftover.
+fn leftovers_in(root: &Path) -> Result<Vec<Leftover>, Error> {
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let mut found = Vec::new();
+    walk(root, &mut |path| {
+        if let Some(note) = leftover_note(&path) {
+            found.push(Leftover {
+                path: relative(root, &path),
+                note: relative(root, &note),
+                modified: modified(&path),
+            });
+        }
+    })?;
+    found.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(found)
+}
+pub fn leftovers(app: &AppHandle) -> Result<Vec<Leftover>, Error> {
+    leftovers_in(&root(app)?)
+}
+/// Renames a leftover to its note's name or, if that is taken, to `<stem> (<label>).md`,
+/// `<stem> (<label> 2).md` and so on. Never overwrites and never deletes. Returns the new note's path.
+fn restore_in(root: &Path, leftover: &str, label: &str) -> Result<String, Error> {
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let root = root.canonicalize()?;
+    let source = resolve(&root, leftover, is_leftover)?;
+    let note = leftover_note(&source).ok_or(Error::InvalidPath)?;
+    let stem = note.file_stem().unwrap_or_default();
+    for n in 1..=100 {
+        let target = match n {
+            1 => note.clone(),
+            _ => {
+                let mut name = stem.to_os_string();
+                name.push(match n {
+                    2 => format!(" ({label}).md"),
+                    _ => format!(" ({label} {}).md", n - 1),
+                });
+                note.with_file_name(name)
+            }
+        };
+        match platform::move_new(&source, &target) {
+            Ok(()) => return Ok(relative(&root, &target)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Err(Error::unexpected("no free name to restore the note"))
+}
+pub fn restore(app: &AppHandle, leftover: &str) -> Result<String, Error> {
+    let label = match *app.state::<Locale>() {
+        Locale::En => "recovered",
+        Locale::PtBr => "recuperada",
+    };
+    restore_in(&root(app)?, leftover, label)
 }
 /// SVG is excluded because it can contain scripts.
 fn image_type(path: &Path) -> Option<&'static str> {
@@ -687,5 +782,54 @@ mod tests {
         fs::write(&p, r#"{"folder":"x","side":"top"}"#).unwrap();
         assert_eq!(load(&p).side, Side::Right);
         assert_eq!(read_settings(&p), Some(PathBuf::from("x")));
+    }
+    #[test]
+    fn restores_leftovers_without_overwriting() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("sub")).unwrap();
+        fs::create_dir(t.0.join(".oculta")).unwrap();
+        for (p, text) in [
+            ("a.md", "atual"),
+            ("a.md.7-1.docdock-bak", "antiga"),
+            ("sub/b.md.7-2.docdock-bak", "b"),
+            ("a.md.7-3.docdock-tmp", "x"),
+            ("a.md.docdock-bak", "x"),
+            ("x.txt.7-4.docdock-bak", "x"),
+            (".oculta/c.md.7-5.docdock-bak", "x"),
+        ] {
+            fs::write(t.0.join(p), text).unwrap();
+        }
+        let found = leftovers_in(&t.0).unwrap();
+        let pairs: Vec<_> = found.iter().map(|l| (&*l.path, &*l.note)).collect();
+        assert_eq!(
+            pairs,
+            [
+                ("a.md.7-1.docdock-bak", "a.md"),
+                ("sub/b.md.7-2.docdock-bak", "sub/b.md")
+            ]
+        );
+        // Only leftovers can be restored, and only from inside the folder.
+        assert_eq!(restore_in(&t.0, "a.md", "r"), Err(Error::InvalidPath));
+        assert!(restore_in(&t.0, "../a.md.7-1.docdock-bak", "r").is_err());
+
+        assert_eq!(
+            restore_in(&t.0, "sub/b.md.7-2.docdock-bak", "r"),
+            Ok("sub/b.md".into())
+        );
+        assert_eq!(fs::read_to_string(t.0.join("sub/b.md")).unwrap(), "b");
+        // The note exists: the leftover takes a new name and the note stays as it was.
+        assert_eq!(
+            restore_in(&t.0, "a.md.7-1.docdock-bak", "r"),
+            Ok("a (r).md".into())
+        );
+        fs::write(t.0.join("a.md.7-6.docdock-bak"), "outra").unwrap();
+        assert_eq!(
+            restore_in(&t.0, "a.md.7-6.docdock-bak", "r"),
+            Ok("a (r 2).md".into())
+        );
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "atual");
+        assert_eq!(fs::read_to_string(t.0.join("a (r).md")).unwrap(), "antiga");
+        assert_eq!(fs::read_to_string(t.0.join("a (r 2).md")).unwrap(), "outra");
+        assert!(leftovers_in(&t.0).unwrap().is_empty());
     }
 }

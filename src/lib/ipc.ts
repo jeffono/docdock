@@ -46,3 +46,9 @@ export const openExternal = (url: string) => invoke<void>("open_external", { url
 /** Something in the notes folder changed outside the app, or a save landed. */
 export const onNotesChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("notes-changed", handler);
+
+/** A backup an interrupted save left next to `note`; `modified` is in ms since the Unix epoch. */
+export type Leftover = { path: string; note: string; modified: number };
+export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
+/** Resolves to the path of the restored note. */
+export const notesRestore = (path: string) => invoke<string>("notes_restore", { path });

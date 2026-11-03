@@ -14,6 +14,10 @@ const en = {
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
   "notes.gone": "This note was moved or deleted outside the app.",
+  "leftovers.label": "Interrupted saves",
+  "leftovers.notice":
+    "Interrupted saves left these copies. Restoring turns each one into a note; nothing is deleted.",
+  "leftovers.restore": "Restore {note}",
   "web.address": "Page address",
   "web.open": "Open",
   "error.unexpected": "Something went wrong: {detail}",
@@ -52,6 +56,10 @@ const ptBR: Record<MessageKey, string> = {
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
+  "leftovers.label": "Salvamentos interrompidos",
+  "leftovers.notice":
+    "Salvamentos interrompidos deixaram estas cópias. Restaurar transforma cada uma em nota; nada é apagado.",
+  "leftovers.restore": "Restaurar {note}",
   "web.address": "Endereço da página",
   "web.open": "Abrir",
   "error.unexpected": "Algo deu errado: {detail}",
@@ -98,4 +106,11 @@ export function errorText(error: unknown): string {
     return t("error.unexpected", { detail: JSON.stringify(error) });
   }
   return t("error.unexpected", { detail: String(error) });
+}
+
+export function dateTime(ms: number): string {
+  return new Date(ms).toLocaleString(document.documentElement.lang || "en", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
 }

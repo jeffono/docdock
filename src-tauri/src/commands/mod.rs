@@ -84,6 +84,14 @@ pub fn notes_save(
 ) -> Result<crate::notes::Saved, Error> {
     crate::notes::save_note(&app, &path, &content, &base)
 }
+#[tauri::command(async)]
+pub fn notes_leftovers(app: AppHandle) -> Result<Vec<crate::notes::Leftover>, Error> {
+    crate::notes::leftovers(&app)
+}
+#[tauri::command(async)]
+pub fn notes_restore(app: AppHandle, path: String) -> Result<String, Error> {
+    crate::notes::restore(&app, &path)
+}
 
 #[tauri::command]
 pub fn open_external(app: AppHandle, url: String) -> Result<(), Error> {

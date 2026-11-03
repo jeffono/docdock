@@ -20,7 +20,7 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
-  notes.rs               Folder, listing, safe reading and atomic saving of notes, local images
+  notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -150,6 +150,13 @@ hidden folders and to temporary or backup files of a save do not count; lost eve
 rereads the folder, the list and the open note, replacing the note only if its version changed. A note
 that disappeared keeps its last content on screen with a notice. Content cannot be lost here: the view is
 read-only, and a save never overwrites a version it did not load.
+
+**Leftovers.** A save that stops between its two renames, for example when the app closes, leaves
+`.docdock-bak` files and may leave the note name empty. Opening a folder lists every
+`<note>.md.<pid>-<n>.docdock-bak` outside hidden folders, under the save lock so a save in progress is not
+mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
+`(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
+the user compares the copies and removes the extra one.
 
 ## Untrusted content
 
