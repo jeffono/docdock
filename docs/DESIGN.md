@@ -60,8 +60,13 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## Rendered content
 
-The note uses only these tokens, in `:global` selectors inside `.note`. CSP forbids inline styles: no
-component depends on a `style` attribute.
+Reading and editing share `features/notes/content.css`, scoped by `.note-content`, including the
+frontmatter title and tag header. The editor loads it through an external link in its shadow root.
+CSP forbids inline styles: no component depends on a `style` attribute.
+
+GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
+Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
+semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
 
 ## Note editor
 

@@ -1,0 +1,266 @@
+.note-content .cm-line {
+  padding: 0;
+}
+.note-content .note-header {
+  margin-bottom: var(--space-3);
+}
+
+.note-content .note-header h1 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+.note-content .tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.note-content .tags span {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+.note-content :is(h1),
+.note-content :is(h2),
+.note-content :is(h3),
+.note-content :is(h4),
+.note-content :is(h5),
+.note-content :is(h6),
+.note-content .heading {
+  margin: var(--space-4) 0 var(--space-2);
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+.note-content :is(h1),
+.note-content .h1 {
+  margin-top: 0;
+  font-size: var(--font-size-xl);
+}
+
+.note-content :is(h2),
+.note-content .h2 {
+  font-size: var(--font-size-lg);
+}
+
+.note-content :is(h3),
+.note-content :is(h4),
+.note-content :is(h5),
+.note-content :is(h6) {
+  font-size: var(--font-size-md);
+}
+
+.note-content :is(p),
+.note-content :is(ul),
+.note-content :is(ol),
+.note-content :is(pre),
+.note-content :is(table),
+.note-content :is(blockquote) {
+  margin: 0 0 var(--space-2);
+}
+
+.note-content :is(ul),
+.note-content :is(ol) {
+  padding-left: var(--space-4);
+}
+
+.note-content :is(li:has(> input)) {
+  list-style: none;
+}
+
+.note-content :is(a),
+.note-content .link {
+  color: var(--color-accent);
+}
+
+.note-content :is(code),
+.note-content .inline-code {
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.note-content :is(pre) {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+
+.note-content :is(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.note-content :is(blockquote),
+.note-content .quote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-line);
+  color: var(--color-muted);
+}
+
+.note-content :is(hr) {
+  margin: var(--space-3) 0;
+  border: 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.note-content :is(img) {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.note-content :is(table) {
+  display: block;
+  border-collapse: collapse;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  font-size: var(--font-size-sm);
+}
+
+.note-content :is(th),
+.note-content :is(td) {
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  border-bottom: 1px solid var(--color-line);
+  text-align: left;
+}
+
+.note-content :is(th) {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.note-content .h3,
+.note-content .h4,
+.note-content .h5,
+.note-content .h6 {
+  font-size: var(--font-size-md);
+}
+.note-content .strong {
+  font-weight: 600;
+}
+.note-content .emphasis {
+  font-style: italic;
+}
+.note-content .strike {
+  text-decoration: line-through;
+}
+.note-content .link {
+  text-decoration: underline;
+}
+.note-content .code-block,
+.note-content .frontmatter-raw {
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  padding-inline: var(--space-3);
+  border-inline: 1px solid var(--color-line);
+}
+
+.note-content .table-raw {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+.note-content .list-marker {
+  color: var(--color-muted);
+}
+.note-content .rule {
+  display: inline-block;
+  width: 100%;
+  border-top: 1px solid var(--color-line);
+  vertical-align: middle;
+}
+.note-content .preview-image {
+  display: block;
+}
+.note-content input {
+  accent-color: var(--color-accent);
+}
+.note-content .markdown-alert-note {
+  --alert-color: var(--color-accent);
+}
+.note-content .markdown-alert-tip {
+  --alert-color: var(--color-accent);
+}
+.note-content .markdown-alert-important {
+  --alert-color: var(--color-accent);
+}
+.note-content .markdown-alert-warning {
+  --alert-color: var(--color-danger);
+}
+.note-content .markdown-alert-caution {
+  --alert-color: var(--color-danger);
+}
+.note-content [class*="markdown-alert-"] {
+  border-left-color: var(--alert-color);
+  color: var(--color-fg);
+}
+.note-content blockquote[class*="markdown-alert-"]::before,
+.note-content .alert-title {
+  display: block;
+  color: var(--alert-color);
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+.note-content blockquote.markdown-alert-note::before {
+  content: "NOTE";
+}
+.note-content blockquote.markdown-alert-tip::before {
+  content: "TIP";
+}
+.note-content blockquote.markdown-alert-important::before {
+  content: "IMPORTANT";
+}
+.note-content blockquote.markdown-alert-warning::before {
+  content: "WARNING";
+}
+.note-content blockquote.markdown-alert-caution::before {
+  content: "CAUTION";
+}
+
+.note-content .cm-line.heading {
+  margin-block: var(--space-2);
+}
+.note-content .cm-line.h1 {
+  margin-top: 0;
+}
+.note-content .cm-line.blank-line {
+  line-height: var(--space-2);
+  min-height: var(--space-2);
+}
+.note-content .cm-line.fence {
+  border: 0;
+  padding: 0;
+}
+.note-content .cm-line:has(> .alert-title) {
+  line-height: var(--line-height-tight);
+}
+
+.note-content .alert-title {
+  display: inline;
+}
+
+.note-content .frame-start {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-2);
+  border-start-start-radius: var(--radius-sm);
+  border-start-end-radius: var(--radius-sm);
+}
+.note-content .frame-end {
+  border-bottom: 1px solid var(--color-line);
+  padding-bottom: var(--space-2);
+  border-end-start-radius: var(--radius-sm);
+  border-end-end-radius: var(--radius-sm);
+}

@@ -145,7 +145,8 @@ pub fn frontmatter(text: &str) -> (Option<String>, Vec<String>) {
 }
 
 pub fn render(text: &str, note: &str) -> String {
-    let options = Options::ENABLE_TABLES
+    let options = Options::ENABLE_GFM
+        | Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES
@@ -204,6 +205,16 @@ pub fn render(text: &str, note: &str) -> String {
         .tags(tags)
         .tag_attributes(attrs)
         .generic_attributes(HashSet::new())
+        .allowed_classes(HashMap::from([(
+            "blockquote",
+            HashSet::from([
+                "markdown-alert-note",
+                "markdown-alert-tip",
+                "markdown-alert-important",
+                "markdown-alert-warning",
+                "markdown-alert-caution",
+            ]),
+        )]))
         .url_schemes(["http", "https", "mailto"].into_iter().collect())
         .link_rel(None)
         .id_prefix(Some("note-"))
@@ -284,5 +295,24 @@ mod tests {
         );
         assert!(h.contains("http://note-asset.localhost/sub/foto.png"));
         assert!(!h.contains("example.com"));
+    }
+    #[test]
+    fn alert_classes_are_allowlisted() {
+        for kind in ["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"] {
+            let html = render(&format!("> [!{kind}]\n> Safe"), "a.md");
+            assert!(
+                html.contains(&format!(
+                    r#"class="markdown-alert-{}""#,
+                    kind.to_lowercase()
+                )),
+                "{html}"
+            );
+        }
+        let html = render(
+            r#"<blockquote class="arbitrary markdown-alert-note">Safe</blockquote><p class="markdown-alert-note">Body</p>"#,
+            "a.md",
+        );
+        assert!(!html.contains("arbitrary"));
+        assert_eq!(html.matches("class=").count(), 1);
     }
 }

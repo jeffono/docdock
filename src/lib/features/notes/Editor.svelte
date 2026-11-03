@@ -6,6 +6,7 @@ import { errorText, t } from "../../i18n";
 import { notesOpen, notesPasteImage, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
+import contentCssUrl from "./content.css?url";
 import { applyTextChanges, editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
 
@@ -97,6 +98,7 @@ const extensions = () => [
       if (!focused) void saving.flush();
     },
     t("editor.label"),
+    path,
   ),
 ];
 
@@ -169,7 +171,10 @@ onMount(() => {
   const css = document.createElement("link");
   css.rel = "stylesheet";
   css.href = cssUrl;
-  root.append(css);
+  const contentCss = document.createElement("link");
+  contentCss.rel = "stylesheet";
+  contentCss.href = contentCssUrl;
+  root.append(contentCss, css);
   view = new EditorView({ root, parent: root, state: editorState(raw, extensions()) });
   view.focus();
   return () => {
