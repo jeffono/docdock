@@ -293,3 +293,12 @@
   border-end-start-radius: var(--radius-sm);
   border-end-end-radius: var(--radius-sm);
 }
+
+/* Room for the floating edit button and its save status, on the first block only, in both views so
+   toggling does not move text. The editor repeats it with a stronger selector. */
+.note-content {
+  --edit-chrome-width: calc(var(--size-control) + var(--space-2) + 9ch);
+}
+.note-content > :first-child {
+  padding-inline-end: var(--edit-chrome-width);
+}

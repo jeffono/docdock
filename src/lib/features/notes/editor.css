@@ -37,10 +37,6 @@
   padding: 0;
 }
 
-:host .cm-editor .cm-content {
-  padding-inline-end: calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch);
-}
-
 :host .cm-editor .cm-line:is(.code-block, .frontmatter-raw) {
   padding-inline: var(--space-3);
 }
@@ -68,4 +64,9 @@
 :host :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+/* Above `.cm-line { padding: 0 }`: room for the floating edit button, on the first line only. */
+:host .cm-editor .cm-content > :first-child {
+  padding-inline-end: var(--edit-chrome-width);
 }

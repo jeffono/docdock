@@ -64,6 +64,20 @@ async function toggleEditor() {
   else editing = true;
 }
 
+let chrome = $state<HTMLElement>();
+/** The edit button sits over the first line and scrolls away with the content, like text would. */
+function follow(event: Event) {
+  const top = (event.target as Element).scrollTop ?? 0;
+  if (chrome) chrome.style.transform = top ? `translateY(${-top}px)` : "";
+}
+
+// A new scroller starts at the top.
+$effect(() => {
+  void editing;
+  void selected;
+  if (chrome) chrome.style.transform = "";
+});
+
 function shortcut(event: KeyboardEvent) {
   if (
     !selected ||
@@ -301,8 +315,8 @@ onMount(() => {
     {/if}
     {#if selected}
       {#if gone && !editing}<p class="message" role="status">{t("notes.gone")}</p>{/if}
-      <div class="note-area" class:editing>
-      <div class="edit-tools">
+      <div class="note-area" class:editing onscrollcapture={follow}>
+      <div class="edit-tools" bind:this={chrome}>
         {#if editing && (saveStatus === "saved" || saveStatus === "saving" || saveStatus === "pending")}
           <small role="status">{t(saveStatus === "saved" ? "editor.saved" : "editor.saving")}</small>
         {/if}
@@ -351,7 +365,7 @@ onMount(() => {
     min-height: 0;
   }
 
-  .note-area { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; border: 1px solid transparent; border-radius: var(--radius-sm); }
+  .note-area { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid transparent; border-radius: var(--radius-sm); }
   .note-area.editing { border-color: var(--color-accent); }
   .edit-tools { position: absolute; z-index: 1; top: var(--space-2); right: var(--space-3); display: flex; gap: var(--space-2); align-items: center; border-radius: var(--radius-sm); background: var(--color-bg); }
   .edit-tools small { color: var(--color-muted); font-size: var(--font-size-sm); }
@@ -487,7 +501,7 @@ onMount(() => {
   .note {
     flex: 1;
     min-height: 0;
-    padding: var(--space-3) calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch) var(--space-4) var(--space-4);
+    padding: var(--space-3) var(--space-4) var(--space-4);
     overflow-y: auto;
     overflow-wrap: anywhere;
   }

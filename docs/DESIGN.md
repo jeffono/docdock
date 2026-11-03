@@ -71,8 +71,9 @@ semantics. No colors were added. Raw frontmatter uses the existing surface, line
 ## Note editor
 
 The fully opaque pencil IconButton floats at the note area's top-right corner in both modes, always
-visible and keyboard reachable with the standard focus ring. It stays pressed during editing. A shared
-right inset reserves room for it and the small Saving… / Saved status, including while scrolling; the
+visible and keyboard reachable with the standard focus ring. It stays pressed during editing. Only the
+first block reserves room for it and the small Saving… / Saved status, in both modes; the rest of the
+note uses the full width, and the button scrolls away with the content (Ctrl+E still works). The
 status is absent on conflict or error, whose notices already explain the problem. The note area keeps
 a 1 px transparent border in reading and an accent border in editing, with `--radius-sm`, so toggling
 does not move the frame. Reading remains the default. Light-theme tags use the selected background
