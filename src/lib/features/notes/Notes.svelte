@@ -34,15 +34,25 @@ const visible = $derived(
   notes.filter((note) => note.path.toLowerCase().includes(query.trim().toLowerCase())),
 );
 
+/**
+ * Bumped by every action that replaces what is shown: choosing a folder or opening a note. A read
+ * that started before the bump answers for an old folder or note and is dropped.
+ */
+let generation = 0;
+
 async function refresh(value: NotesFolder | null) {
+  const current = ++generation;
   folder = value;
   notes = [];
   selected = "";
   content = "";
   leftovers = [];
   if (!value?.available) return;
-  notes = await notesList();
-  leftovers = await notesLeftovers();
+  const list = await notesList();
+  if (current !== generation) return;
+  notes = list;
+  const found = await notesLeftovers();
+  if (current === generation) leftovers = found;
 }
 
 async function restore(path: string) {
@@ -67,9 +77,11 @@ async function choose() {
 }
 
 async function open(path: string) {
+  const current = ++generation;
   try {
     error = "";
     const note = await notesOpen(path);
+    if (current !== generation) return;
     content = note.html;
     version = note.version;
     selected = path;
@@ -84,9 +96,18 @@ async function open(path: string) {
  * the same text does not disturb it; a note that disappeared keeps its last content on screen.
  */
 async function reload() {
+  const current = generation;
+  // A newer action made this read stale; reading again picks up the change for what is shown now.
+  const stale = () => {
+    if (current !== generation) again = true;
+    return current !== generation;
+  };
   const value = await notesFolder();
+  if (stale()) return;
   if (!value?.available) return refresh(value);
-  notes = await notesList();
+  const list = await notesList();
+  if (stale()) return;
+  notes = list;
   const path = selected;
   if (!path) return;
   if (!notes.some((note) => note.path === path)) {
@@ -94,8 +115,7 @@ async function reload() {
     return;
   }
   const note = await notesOpen(path);
-  // The user may have opened another note meanwhile.
-  if (selected !== path) return;
+  if (stale()) return;
   gone = false;
   if (note.version !== version) {
     content = note.html;

@@ -147,7 +147,8 @@ the edit in `unsaved()`, and after an error the next edit or `flush` retries.
 stops the watch, so the next listing starts a fresh one even for the same path. Events are grouped until
 200 ms of quiet, at most 1 s, and become one `notes-changed` event to the `main` window. Changes inside
 hidden folders and to temporary or backup files of a save do not count; lost events do. The UI then
-rereads the folder, the list and the open note, replacing the note only if its version changed. A note
+rereads the folder, the list and the open note, replacing the note only if its version changed; a read
+that started before choosing a folder or opening a note is dropped and redone. A note
 that disappeared keeps its last content on screen with a notice. Content cannot be lost here: the view is
 read-only, and a save never overwrites a version it did not load.
 

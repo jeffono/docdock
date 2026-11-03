@@ -198,11 +198,14 @@ fn markdown(path: &Path) -> bool {
 /// Whether a change at `path` can alter what the UI shows: not inside a hidden folder, which listing
 /// skips, and not a temporary or backup file a write creates next to its target.
 pub fn shown_change(root: &Path, path: &Path) -> bool {
-    // Only below `root`: the folder itself may sit inside a hidden one.
+    // Only folders below `root`, as listing does: the root may sit inside a hidden folder, and a file
+    // such as `.ideas.md` is listed.
     let hidden = path.strip_prefix(root).is_ok_and(|relative| {
-        relative
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        relative.parent().is_some_and(|folders| {
+            folders
+                .components()
+                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        })
     });
     let working = path
         .extension()
@@ -609,8 +612,13 @@ mod tests {
         for p in ["z.MD", "A.md", "x.txt", ".oculta/segredo.md", "sub/b.md"] {
             fs::write(t.0.join(p), "").unwrap();
         }
+        fs::write(t.0.join(".ponto.md"), "").unwrap();
         let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
-        assert_eq!(paths, ["A.md", "sub/b.md", "z.MD"]);
+        assert_eq!(paths, [".ponto.md", "A.md", "sub/b.md", "z.MD"]);
+        // The watcher reports changes to what is listed and nothing inside hidden folders.
+        let shown = |p: &str| shown_change(&t.0, &t.0.join(p));
+        assert!(shown(".ponto.md") && shown("sub/b.md") && shown("sub"));
+        assert!(!shown(".oculta/segredo.md") && !shown("a.md.1-2.docdock-tmp"));
     }
     #[test]
     fn rejects_unsafe_paths() {
