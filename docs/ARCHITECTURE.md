@@ -154,8 +154,14 @@ editor stops it when replacing a clean base, discarding or unmounting.
 
 **Editor.** Reading is the default: sanitized HTML from Rust. The pencil toggle or a double-click
 opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. CodeMirror 6
-parses Markdown; decorations style headings, emphasis, code and links and hide their syntax outside
-selection lines. Raw text is tracked separately from CodeMirror offsets so untouched CRLF, LF and CR
+parses GFM; `live-formatting.ts` decorates visible ranges on document, selection, parser and viewport
+changes. Headings, emphasis, strikethrough, quotes, lists, rules, tasks, code and local images hide
+syntax outside selection lines. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make
+one undoable text transaction and respect read-only state. Image widgets use the same decoding,
+traversal and segment encoding rules as Rust `image_url`; they never insert HTML. A StateField supplies
+the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the
+framed raw block. Metadata is cached by immutable document identity. Raw text is tracked separately
+from CodeMirror offsets so untouched CRLF, LF and CR
 line endings, including mixed files, survive edits; new lines use the first existing separator (LF in
 an empty file). No Markdown serialization occurs.
 
@@ -188,8 +194,8 @@ The reading view resolves the inserted link through `markdown::image_url` and `n
 
 CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
 `CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
-tag. An external CSS file supplies token styling inside the shadow, with `:host` specificity above
-CodeMirror base styles. Chromium headless verified the production Vite output with the exact CSP header
+tag. External CSS links load `content.css` (also imported by the reading view) and editor chrome inside
+the shadow, with `:host` specificity above CodeMirror base styles. Chromium headless verified the production Vite output with the exact CSP header
 from tauri.conf.json: one adopted sheet, zero runtime style tags, no CSP violations, and editor
 creation, edits, conflict resolution and reloads after freezing Object.prototype before app startup.
 WebView2 and native panel focus/Esc still require manual verification.
@@ -223,4 +229,7 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
 
 - **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
 - **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
+- **GitHub alerts:** pulldown-cmark GFM emits typed blockquotes. Ammonia retains only the five
+  `markdown-alert-{note,tip,important,warning,caution}` classes on blockquotes. Shared CSS supplies
+  literal English kind titles; the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.

@@ -19,7 +19,7 @@ Editor polish before M3: tasks 1 and 2 in parallel, then 3.
 - [x] (advanced) Save robustness: an external reload can be undone; a note deleted while editing is
   recreated on the next edit, never earlier and never over another file; follow renames; when saving is
   impossible, offer discarding at once
-- [ ] (advanced) Live formatting close to reading: one shared content style, GFM, strikethrough, quotes,
+- [x] (advanced) Live formatting close to reading: one shared content style, GFM, strikethrough, quotes,
   lists, rules, code blocks, task checkboxes, images, GitHub alerts (`[!NOTE]`) in both views, and
   frontmatter as a framed block or the title and tags header. Tables stay raw for now
 - [ ] (standard) Editor chrome: floating edit button with save status, accent border while editing,

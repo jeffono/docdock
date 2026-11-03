@@ -21,6 +21,7 @@ import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import Editor from "./Editor.svelte";
+import "./content.css";
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -294,7 +295,7 @@ onMount(() => {
           }}
         />
       {:else}
-      <div class="note" onclick={linkClick} ondblclick={() => { editing = true; }} role="presentation">
+      <div class="note note-content" onclick={linkClick} ondblclick={() => { editing = true; }} role="presentation">
         {#if title || tags.length}
           <header class="note-header">
             {#if title}<h1>{title}</h1>{/if}
@@ -462,138 +463,4 @@ onMount(() => {
     overflow-wrap: anywhere;
   }
 
-  .note-header {
-    margin-bottom: var(--space-3);
-  }
-
-  .note-header h1 {
-    margin: 0 0 var(--space-2);
-    font-size: var(--font-size-xl);
-    font-weight: 600;
-    line-height: var(--line-height-tight);
-    letter-spacing: var(--tracking-tight);
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1);
-  }
-
-  .tags span {
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-muted);
-    font-size: var(--font-size-sm);
-  }
-
-  .note :global(h1),
-  .note :global(h2),
-  .note :global(h3),
-  .note :global(h4),
-  .note :global(h5),
-  .note :global(h6) {
-    margin: var(--space-4) 0 var(--space-2);
-    font-weight: 600;
-    line-height: var(--line-height-tight);
-    letter-spacing: var(--tracking-tight);
-  }
-
-  .note :global(h1) {
-    margin-top: 0;
-    font-size: var(--font-size-xl);
-  }
-
-  .note :global(h2) {
-    font-size: var(--font-size-lg);
-  }
-
-  .note :global(h3),
-  .note :global(h4),
-  .note :global(h5),
-  .note :global(h6) {
-    font-size: var(--font-size-md);
-  }
-
-  .note :global(p),
-  .note :global(ul),
-  .note :global(ol),
-  .note :global(pre),
-  .note :global(table),
-  .note :global(blockquote) {
-    margin: 0 0 var(--space-2);
-  }
-
-  .note :global(ul),
-  .note :global(ol) {
-    padding-left: var(--space-4);
-  }
-
-  .note :global(li:has(> input)) {
-    list-style: none;
-  }
-
-  .note :global(a) {
-    color: var(--color-accent);
-  }
-
-  .note :global(code) {
-    padding: 1px var(--space-1);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    font-family: var(--font-mono);
-    font-size: 0.9em;
-  }
-
-  .note :global(pre) {
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    overflow-x: auto;
-    overflow-wrap: normal;
-  }
-
-  .note :global(pre code) {
-    padding: 0;
-    background: transparent;
-  }
-
-  .note :global(blockquote) {
-    padding-left: var(--space-3);
-    border-left: 2px solid var(--color-line);
-    color: var(--color-muted);
-  }
-
-  .note :global(hr) {
-    margin: var(--space-3) 0;
-    border: 0;
-    border-top: 1px solid var(--color-line);
-  }
-
-  .note :global(img) {
-    max-width: 100%;
-    border-radius: var(--radius-sm);
-  }
-
-  .note :global(table) {
-    display: block;
-    border-collapse: collapse;
-    overflow-x: auto;
-    overflow-wrap: normal;
-    font-size: var(--font-size-sm);
-  }
-
-  .note :global(th),
-  .note :global(td) {
-    padding: var(--space-1) var(--space-2) var(--space-1) 0;
-    border-bottom: 1px solid var(--color-line);
-    text-align: left;
-  }
-
-  .note :global(th) {
-    color: var(--color-muted);
-    font-weight: 600;
-  }
 </style>

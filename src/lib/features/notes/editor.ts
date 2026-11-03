@@ -1,8 +1,9 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { syntaxTree } from "@codemirror/language";
 import { type ChangeSet, EditorState } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
+import { GFM } from "@lezer/markdown";
+import { liveFormatting } from "./live-formatting";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -21,64 +22,20 @@ export function applyTextChanges(raw: string, changes: ChangeSet): string {
   return result + raw.slice(end);
 }
 
-function formatting(view: EditorView): DecorationSet {
-  const ranges: ReturnType<Decoration["range"]>[] = [];
-  const active = (from: number, to: number) =>
-    view.state.selection.ranges.some(
-      (r) => view.state.doc.lineAt(r.from).from <= to && view.state.doc.lineAt(r.to).to >= from,
-    );
-  syntaxTree(view.state).iterate({
-    enter(node) {
-      const { name } = node.type;
-      const cls = /^ATXHeading|^SetextHeading/.test(name)
-        ? "heading"
-        : name === "StrongEmphasis"
-          ? "strong"
-          : name === "Emphasis"
-            ? "emphasis"
-            : name === "InlineCode" || name === "FencedCode" || name === "CodeBlock"
-              ? "code"
-              : name === "Link"
-                ? "link"
-                : "";
-      if (cls) ranges.push(Decoration.mark({ class: cls }).range(node.from, node.to));
-      // Never replace across lines: selection and block layout remain native CodeMirror behavior.
-      if (
-        /^(HeaderMark|EmphasisMark|CodeMark|LinkMark|URL)$/.test(name) &&
-        !active(node.from, node.to) &&
-        view.state.doc.lineAt(node.from).number === view.state.doc.lineAt(node.to).number
-      ) {
-        ranges.push(Decoration.replace({}).range(node.from, node.to));
-      }
-    },
-  });
-  return Decoration.set(ranges, true);
-}
-
 export function editorExtensions(
   onChange: (changes: ChangeSet) => void,
   onLeave: () => void,
   onFocus: (focused: boolean) => void,
   label: string,
+  note = "",
 ) {
   return [
-    markdown(),
+    markdown({ extensions: GFM }),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,
-    EditorView.contentAttributes.of({ "aria-label": label }),
-    ViewPlugin.fromClass(
-      class {
-        decorations: DecorationSet;
-        constructor(view: EditorView) {
-          this.decorations = formatting(view);
-        }
-        update(update: import("@codemirror/view").ViewUpdate) {
-          this.decorations = formatting(update.view);
-        }
-      },
-      { decorations: (value) => value.decorations },
-    ),
+    EditorView.contentAttributes.of({ "aria-label": label, class: "note-content" }),
+    liveFormatting(note),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) onChange(update.changes);
     }),
