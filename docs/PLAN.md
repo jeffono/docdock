@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. M3 is next: find and pin.
+Editor polish before M3: tasks 1 and 2 in parallel, then 3.
 
 ## Completed
 
@@ -13,6 +13,17 @@ Nothing. M3 is next: find and pin.
 - M1 — Browse markdown notes, tray, global shortcut, CSP and visual identity; see `docs/DESIGN.md`.
 - M2 — Create and edit: atomic autosave, external changes, leftover recovery, frontmatter, editor and
   pasted images.
+
+## M2.1 — Editor polish
+
+- [ ] (advanced) Save robustness: an external reload can be undone; a note deleted while editing is
+  recreated on the next edit, never earlier and never over another file; follow renames; when saving is
+  impossible, offer discarding at once
+- [ ] (advanced) Live formatting close to reading: one shared content style, GFM, strikethrough, quotes,
+  lists, rules, code blocks, task checkboxes, images, GitHub alerts (`[!NOTE]`) in both views, and
+  frontmatter as a framed block or the title and tags header. Tables stay raw for now
+- [ ] (standard) Editor chrome: floating edit button with save status, accent border while editing,
+  standard formatting shortcuts, Ctrl+E, stronger tag contrast in the light theme
 
 ## M3 — Find and pin
 
