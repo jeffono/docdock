@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Editor polish before M3: tasks 1 and 2 in parallel, then 3.
+Nothing. Next: M3 — find and pin.
 
 ## Completed
 
@@ -22,7 +22,7 @@ Editor polish before M3: tasks 1 and 2 in parallel, then 3.
 - [x] (advanced) Live formatting close to reading: one shared content style, GFM, strikethrough, quotes,
   lists, rules, code blocks, task checkboxes, images, GitHub alerts (`[!NOTE]`) in both views, and
   frontmatter as a framed block or the title and tags header. Tables stay raw for now
-- [ ] (standard) Editor chrome: floating edit button with save status, accent border while editing,
+- [x] (standard) Editor chrome: floating edit button with save status, accent border while editing,
   standard formatting shortcuts, Ctrl+E, stronger tag contrast in the light theme
 
 ## M3 — Find and pin

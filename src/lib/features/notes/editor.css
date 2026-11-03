@@ -32,3 +32,40 @@
   line-height: 0;
   min-height: 0;
 }
+
+:host .cm-editor .cm-line {
+  padding: 0;
+}
+
+:host .cm-editor .cm-content {
+  padding-inline-end: calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch);
+}
+
+:host .cm-editor .cm-line:is(.code-block, .frontmatter-raw) {
+  padding-inline: var(--space-3);
+}
+
+:host .cm-editor .cm-line.frame-start {
+  padding-top: var(--space-2);
+}
+
+:host .cm-editor .cm-line.frame-end {
+  padding-bottom: var(--space-2);
+}
+
+:host .cm-editor .cm-line.list-item {
+  padding-left: var(--space-4);
+}
+
+:host .cm-editor .cm-line.quote {
+  padding-left: var(--space-3);
+}
+
+:host .cm-editor .cm-line.fence {
+  padding: 0;
+}
+
+:host :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

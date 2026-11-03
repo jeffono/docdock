@@ -20,6 +20,7 @@ import {
 import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import type { AutosaveState } from "./autosave";
 import Editor from "./Editor.svelte";
 import "./content.css";
 
@@ -37,6 +38,7 @@ let leftovers = $state<Leftover[]>([]);
 let version = "";
 let opened = $state<OpenNote | null>(null);
 let editing = $state(false);
+let saveStatus = $state<AutosaveState>("saved");
 let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
 function leaveEditor(): Promise<boolean> {
@@ -47,6 +49,8 @@ function leaveEditor(): Promise<boolean> {
     if (!note) return false;
     opened = note;
     content = note.html;
+    title = note.title;
+    tags = note.tags;
     version = note.version;
     editing = false;
     return true;
@@ -58,6 +62,20 @@ function leaveEditor(): Promise<boolean> {
 async function toggleEditor() {
   if (editing) await leaveEditor();
   else editing = true;
+}
+
+function shortcut(event: KeyboardEvent) {
+  if (
+    !selected ||
+    event.defaultPrevented ||
+    !event.ctrlKey ||
+    event.altKey ||
+    event.shiftKey ||
+    event.key.toLowerCase() !== "e"
+  )
+    return;
+  event.preventDefault();
+  void toggleEditor();
 }
 
 const visible = $derived(
@@ -232,6 +250,8 @@ onMount(() => {
 });
 </script>
 
+<svelte:window onkeydown={shortcut} />
+
 <section aria-label={t("notes.label")}>
   {#if folder?.available}
     <div class="tools">
@@ -281,7 +301,11 @@ onMount(() => {
     {/if}
     {#if selected}
       {#if gone && !editing}<p class="message" role="status">{t("notes.gone")}</p>{/if}
+      <div class="note-area" class:editing>
       <div class="edit-tools">
+        {#if editing && (saveStatus === "saved" || saveStatus === "saving" || saveStatus === "pending")}
+          <small role="status">{t(saveStatus === "saved" ? "editor.saved" : "editor.saving")}</small>
+        {/if}
         <IconButton icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={toggleEditor} />
       </div>
       {#if editing && opened}
@@ -289,6 +313,7 @@ onMount(() => {
           bind:this={editor}
           path={selected}
           note={opened}
+          onstatus={(state) => { saveStatus = state; }}
           onleave={() => void leaveEditor()}
           ondiscard={() => {
             editing = false;
@@ -306,6 +331,7 @@ onMount(() => {
         {@html content}
       </div>
       {/if}
+      </div>
     {/if}
   {:else}
     <div class="empty">
@@ -325,7 +351,10 @@ onMount(() => {
     min-height: 0;
   }
 
-  .edit-tools { display: flex; justify-content: flex-end; padding: var(--space-1) var(--space-3); }
+  .note-area { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; border: 1px solid transparent; border-radius: var(--radius-sm); }
+  .note-area.editing { border-color: var(--color-accent); }
+  .edit-tools { position: absolute; z-index: 1; top: var(--space-2); right: var(--space-3); display: flex; gap: var(--space-2); align-items: center; border-radius: var(--radius-sm); background: var(--color-bg); }
+  .edit-tools small { color: var(--color-muted); font-size: var(--font-size-sm); }
 
   .tools {
     display: flex;
@@ -458,7 +487,7 @@ onMount(() => {
   .note {
     flex: 1;
     min-height: 0;
-    padding: var(--space-3) var(--space-4) var(--space-4);
+    padding: var(--space-3) calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch) var(--space-4) var(--space-4);
     overflow-y: auto;
     overflow-wrap: anywhere;
   }

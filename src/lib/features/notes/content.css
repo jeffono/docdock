@@ -22,8 +22,8 @@
 .note-content .tags span {
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-muted);
+  background: light-dark(var(--color-selected), var(--color-surface));
+  color: light-dark(var(--color-accent), var(--color-muted));
   font-size: var(--font-size-sm);
 }
 
@@ -186,7 +186,36 @@
   display: block;
 }
 .note-content input {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  box-sizing: border-box;
+  width: var(--font-size-md);
+  height: var(--font-size-md);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--space-1);
+  background: var(--color-surface);
   accent-color: var(--color-accent);
+  margin: 0 var(--space-1) 0 0;
+  vertical-align: middle;
+}
+.note-content input:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+.note-content input:checked::before {
+  content: "";
+  width: var(--space-1);
+  height: var(--space-2);
+  border: solid var(--color-accent-fg);
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+.note-content .list-marker {
+  display: inline-block;
+  width: calc(var(--space-4) - var(--space-1));
+  margin-left: calc(-1 * var(--space-4));
+  text-align: right;
 }
 .note-content .markdown-alert-note {
   --alert-color: var(--color-accent);

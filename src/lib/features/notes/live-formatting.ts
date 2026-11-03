@@ -1,5 +1,5 @@
 import { syntaxTree } from "@codemirror/language";
-import { type EditorState, StateField } from "@codemirror/state";
+import { type EditorState, Facet, StateField } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -7,6 +7,7 @@ import {
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
+export const notePath = Facet.define<string, string>({ combine: (values) => values[0] ?? "" });
 
 /** Same decoding, traversal and segment encoding rules as markdown::image_url. */
 export function imageUrl(source: string, note: string): string | null {
@@ -296,6 +297,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
               );
           }
         }
+        if (/^(TaskMarker|ListMark)$/.test(name)) lineClass(node.from, node.to, "list-item");
         if (selected) return;
         if (/^(HeaderMark|QuoteMark)$/.test(name)) {
           const end = view.state.sliceDoc(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
@@ -385,24 +387,25 @@ function formatting(view: EditorView, note: string): DecorationSet {
   );
   return Decoration.set([...unique.values()], true);
 }
-export function liveFormatting(note: string) {
+export function liveFormatting() {
   return [
     frontmatter,
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
         constructor(view: EditorView) {
-          this.decorations = formatting(view, note);
+          this.decorations = formatting(view, view.state.facet(notePath));
         }
         update(update: import("@codemirror/view").ViewUpdate) {
           if (
             update.docChanged ||
             update.selectionSet ||
             update.viewportChanged ||
+            update.startState.facet(notePath) !== update.state.facet(notePath) ||
             update.startState.field(frontmatter) !== update.state.field(frontmatter) ||
             syntaxTree(update.startState) !== syntaxTree(update.state)
           )
-            this.decorations = formatting(update.view, note);
+            this.decorations = formatting(update.view, update.state.facet(notePath));
         }
       },
       { decorations: (value) => value.decorations },

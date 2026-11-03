@@ -153,7 +153,12 @@ ignores later edits and completion callbacks; an in-flight disk operation can st
 editor stops it when replacing a clean base, discarding or unmounting.
 
 **Editor.** Reading is the default: sanitized HTML from Rust. The pencil toggle or a double-click
-opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. CodeMirror 6
+opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. Ctrl+E reaches the
+editor through its CodeMirror keymap and reading through a window listener that ignores handled keys;
+both use the same guarded leave path as Esc and the pencil. Formatting commands apply isolated history
+transactions, editing only markers or selected line prefixes. A Compartment reconfigures the note-path
+facet on rename, rebuilding relative-image decorations without replacing text or history. Autosave
+state is reported to the floating pencil's status. CodeMirror 6
 parses GFM; `live-formatting.ts` decorates visible ranges on document, selection, parser and viewport
 changes. Headings, emphasis, strikethrough, quotes, lists, rules, tasks, code and local images hide
 syntax outside selection lines. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make

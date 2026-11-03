@@ -10,6 +10,7 @@ import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
 import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
+import { notePath } from "./live-formatting";
 import { diskReload, rawHistory, rawText } from "./reload";
 
 let {
@@ -17,17 +18,20 @@ let {
   note,
   onleave,
   ondiscard,
+  onstatus,
 }: {
   path: string;
   note: OpenNote;
   onleave: () => void;
   /** Leaves without saving, after the user chose to drop edits that cannot be saved. */
   ondiscard: () => void;
+  onstatus: (state: AutosaveState) => void;
 } = $props();
 let host: HTMLDivElement;
 let view: EditorView | undefined;
 let raw = untrack(() => note.text);
 const editable = new Compartment();
+const location = new Compartment();
 let revision = 0;
 export function snapshot() {
   return revision;
@@ -42,6 +46,7 @@ let updated = $state(false);
 let replacing = false;
 export function moved(next: string) {
   path = next;
+  view?.dispatch({ effects: location.reconfigure(notePath.of(next)) });
   deleted = false;
   revision++;
 }
@@ -97,6 +102,7 @@ function paste(event: ClipboardEvent, editor: EditorView): boolean {
 }
 function autosave(version: string) {
   status = "saved";
+  onstatus(status);
   error = "";
   return createAutosave({
     version,
@@ -108,6 +114,7 @@ function autosave(version: string) {
     onState: (next, cause) => {
       revision++;
       status = next;
+      onstatus(next);
       error = cause ? errorText(cause) : "";
     },
   });
@@ -125,9 +132,9 @@ const extensions = () => [
     saving.edit(raw);
   }),
   editable.of(EditorState.readOnly.of(false)),
+  location.of(notePath.of(path)),
   EditorView.domEventHandlers({ paste }),
   ...editorExtensions(
-    () => {},
     onleave,
     (focused) => {
       void panelSetEditing(focused).catch((e) => {
@@ -136,7 +143,6 @@ const extensions = () => [
       if (!focused) void saving.flush();
     },
     t("editor.label"),
-    path,
   ),
 ];
 
@@ -264,7 +270,7 @@ onMount(() => {
 <style>
 .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .surface { flex: 1; min-height: 0; overflow: auto; }
-.notice { padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
+.notice { padding: var(--space-2) calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch) var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
 .notice { border-bottom: 1px solid var(--color-line); }
 p { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }

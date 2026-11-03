@@ -1,8 +1,19 @@
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { markdown } from "@codemirror/lang-markdown";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentLess,
+  indentMore,
+} from "@codemirror/commands";
+import {
+  deleteMarkupBackward,
+  insertNewlineContinueMarkup,
+  markdown,
+} from "@codemirror/lang-markdown";
 import { type ChangeSet, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
+import { formattingKeymap, inList } from "./formatting";
 import { liveFormatting } from "./live-formatting";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
@@ -23,22 +34,32 @@ export function applyTextChanges(raw: string, changes: ChangeSet): string {
 }
 
 export function editorExtensions(
-  onChange: (changes: ChangeSet) => void,
   onLeave: () => void,
   onFocus: (focused: boolean) => void,
   label: string,
-  note = "",
 ) {
   return [
-    markdown({ extensions: GFM }),
+    markdown({ extensions: GFM, addKeymap: false }),
     history(),
-    keymap.of([...defaultKeymap, ...historyKeymap]),
+    keymap.of([
+      ...formattingKeymap,
+      {
+        key: "Ctrl-e",
+        run: () => {
+          onLeave();
+          return true;
+        },
+      },
+      { key: "Enter", run: insertNewlineContinueMarkup },
+      { key: "Backspace", run: deleteMarkupBackward },
+      { key: "Tab", run: (view) => inList(view.state) && indentMore(view) },
+      { key: "Shift-Tab", run: (view) => inList(view.state) && indentLess(view) },
+      ...defaultKeymap,
+      ...historyKeymap,
+    ]),
     EditorView.lineWrapping,
     EditorView.contentAttributes.of({ "aria-label": label, class: "note-content" }),
-    liveFormatting(note),
-    EditorView.updateListener.of((update) => {
-      if (update.docChanged) onChange(update.changes);
-    }),
+    liveFormatting(),
     EditorView.domEventHandlers({
       focus: () => {
         onFocus(true);

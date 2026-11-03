@@ -70,8 +70,32 @@ semantics. No colors were added. Raw frontmatter uses the existing surface, line
 
 ## Note editor
 
-The pencil toggle sits next to the note and stays pressed during editing. Reading remains the default.
+The fully opaque pencil IconButton floats at the note area's top-right corner in both modes, always
+visible and keyboard reachable with the standard focus ring. It stays pressed during editing. A shared
+right inset reserves room for it and the small Saving… / Saved status, including while scrolling; the
+status is absent on conflict or error, whose notices already explain the problem. The note area keeps
+a 1 px transparent border in reading and an accent border in editing, with `--radius-sm`, so toggling
+does not move the frame. Reading remains the default. Light-theme tags use the selected background
+and accent text in both views; dark-theme tags keep their surface background and muted text.
 The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
 Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
 hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
 a secondary Discard my changes button. Errors appear in red beside this notice.
+
+Windows editor shortcuts:
+
+| Shortcut                                      | Action                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+Shift+` | Toggle bold / italic / strikethrough / inline code                        |
+| Ctrl+K                                        | Insert a link; put the cursor in its destination, or its label when empty |
+| Ctrl+1…6 / Ctrl+0                             | Toggle heading level / make paragraph                                     |
+| Ctrl+Shift+8 / Ctrl+Shift+7 / Ctrl+Shift+9    | Toggle bullet / numbered / task list                                      |
+| Ctrl+Shift+.                                  | Toggle blockquote                                                         |
+| Enter / Backspace                             | Continue / remove Markdown list or quote markup                           |
+| Tab / Shift+Tab                               | Indent / outdent list items                                               |
+| Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                     |
+
+Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
+and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
+formatting command is one undo step. Shared checkbox styling and code-block framing keep the same
+appearance in reading and editing.
