@@ -11,8 +11,8 @@ Nothing. M3 is next: find and pin.
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
 - M1 — Browse markdown notes, tray, global shortcut, CSP and visual identity; see `docs/DESIGN.md`.
-
-- [x] M2 — Create and edit: atomic autosave, conflicts, recovery, frontmatter, editor and paste images as attachments.
+- M2 — Create and edit: atomic autosave, external changes, leftover recovery, frontmatter, editor and
+  pasted images.
 
 ## M3 — Find and pin
 
