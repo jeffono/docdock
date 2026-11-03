@@ -11,6 +11,7 @@
     "prepare": "git config core.hooksPath .githooks",
     "tauri": "tauri",
     "test": "vitest run --passWithNoTests --reporter=dot",
+    "clean": "node scripts/clean.mjs",
     "format": "biome check --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm --silent check:fast && pnpm --silent test && pnpm --silent check:rust",
     "check:fast": "biome check . && node scripts/check-colors.mjs && pnpm --silent check:types && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
