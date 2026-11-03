@@ -16,7 +16,7 @@ Editor polish before M3: tasks 1 and 2 in parallel, then 3.
 
 ## M2.1 — Editor polish
 
-- [ ] (advanced) Save robustness: an external reload can be undone; a note deleted while editing is
+- [x] (advanced) Save robustness: an external reload can be undone; a note deleted while editing is
   recreated on the next edit, never earlier and never over another file; follow renames; when saving is
   impossible, offer discarding at once
 - [ ] (advanced) Live formatting close to reading: one shared content style, GFM, strikethrough, quotes,

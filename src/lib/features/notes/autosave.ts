@@ -64,6 +64,7 @@ export function createAutosave({
     const saving = (async () => {
       try {
         const result = await save(content, version);
+        if (stopped) return;
         if (result.status === "saved") {
           version = result.version;
           set(pending === null ? "saved" : "pending");
@@ -73,10 +74,12 @@ export function createAutosave({
           set("conflict");
         }
       } catch (error) {
+        if (stopped) return;
         pending ??= content;
         set("error", error);
+      } finally {
+        sending = null;
       }
-      sending = null;
     })();
     // `then` runs after this assignment even if `save` throws synchronously.
     inFlight = saving.then(() => {

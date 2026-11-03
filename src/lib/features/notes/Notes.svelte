@@ -4,6 +4,7 @@ import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
   type Note,
+  type NotesChanges,
   type NotesFolder,
   notesChoose,
   notesFolder,
@@ -143,7 +144,7 @@ async function reload() {
   if (stale()) return;
   if (!value?.available) {
     if (editing) {
-      gone = true;
+      editor?.unavailable({ code: "folderUnavailable" });
       return;
     }
     return refresh(value);
@@ -155,6 +156,7 @@ async function reload() {
   if (!path) return;
   if (!notes.some((note) => note.path === path)) {
     gone = true;
+    if (editing) editor?.missing();
     return;
   }
   const note = await notesOpen(path);
@@ -174,7 +176,13 @@ let reloading: Promise<void> | null = null;
 let again = false;
 
 /** One reload at a time; changes during it cause one more. */
-function changed() {
+function changed(changes: NotesChanges) {
+  for (const [from, to] of changes.renames) {
+    if (selected !== from) continue;
+    selected = to;
+    editor?.moved(to);
+    generation++;
+  }
   if (reloading) {
     again = true;
     return;
@@ -185,7 +193,8 @@ function changed() {
       try {
         await reload();
       } catch (e) {
-        error = errorText(e);
+        if (editing) editor?.unavailable(e);
+        else error = errorText(e);
       }
     } while (again);
     reloading = null;
@@ -270,7 +279,7 @@ onMount(() => {
       <p class="message">{notes.length > 0 ? t("notes.noMatch") : t("notes.emptyFolder")}</p>
     {/if}
     {#if selected}
-      {#if gone}<p class="message" role="status">{t("notes.gone")}</p>{/if}
+      {#if gone && !editing}<p class="message" role="status">{t("notes.gone")}</p>{/if}
       <div class="edit-tools">
         <IconButton icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={toggleEditor} />
       </div>

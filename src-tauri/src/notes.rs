@@ -326,9 +326,18 @@ static SAVING: Mutex<()> = Mutex::new(());
 /// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
     too_large(content.len() as u64)?;
-    let target = resolve(root, relative, markdown)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-    let current = read_bytes(&target)?;
+    let target = match resolve(root, relative, markdown) {
+        Ok(target) if !base.is_empty() => target,
+        Ok(_) => return Ok(Saved::Conflict),
+        Err(_) if !exists(&root.join(relative)) => return recreate_note(root, relative, content),
+        Err(error) => return Err(error),
+    };
+    let current = match read_bytes(&target) {
+        Ok(current) => current,
+        Err(_) if !exists(&target) => return recreate_note(root, relative, content),
+        Err(error) => return Err(error),
+    };
     if current == content.as_bytes() {
         return Ok(Saved::Saved {
             version: version(&current),
@@ -338,6 +347,43 @@ fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Resul
         return Ok(Saved::Conflict);
     }
     replace_note(&target, content.as_bytes(), base)
+}
+/// Empty base expects absence; recreation never replaces a file that took the name.
+fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Error> {
+    let path = Path::new(relative);
+    if relative.contains(':')
+        || relative.contains('\\')
+        || path
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        || !markdown(path)
+    {
+        return Err(Error::InvalidPath);
+    }
+    let root = root.canonicalize()?;
+    let target = root.join(path);
+    let parent = target.parent().ok_or(Error::InvalidPath)?;
+    let mut held = Vec::new();
+    // Reject links and prevent directory swaps during the write.
+    for dir in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        held.push(platform::hold_directory(dir)?);
+    }
+    if !parent.canonicalize()?.starts_with(&root) {
+        return Err(Error::OutsideFolder);
+    }
+    if exists(&target) {
+        return Ok(Saved::Conflict);
+    }
+    let temp = write_temp(&target, content.as_bytes())?;
+    let result = match platform::move_new(&temp, &target) {
+        Ok(()) => Ok(Saved::Saved {
+            version: version(content.as_bytes()),
+        }),
+        Err(_) if exists(&target) => Ok(Saved::Conflict),
+        Err(error) => Err(error.into()),
+    };
+    let _ = fs::remove_file(&temp);
+    result
 }
 /// Replaces `target` with `content` through `ReplaceFileW`, which moves the replaced file to a backup:
 /// those are exactly the bytes that were overwritten, even if another app wrote after the check above.
@@ -867,6 +913,27 @@ mod tests {
         assert!(save_note_in(&t.0, "grande.md", &grande, "").is_err());
         fs::write(&p, &grande).unwrap();
         assert!(read_note(&p).is_err());
+    }
+    #[test]
+    fn recreating_a_deleted_note_never_overwrites_a_taken_name() {
+        let t = Temp::new();
+        let path = t.0.join("a.md");
+        let text = "mine\r\n";
+        assert!(matches!(
+            save_note_in(&t.0, "a.md", text, "old"),
+            Ok(Saved::Saved { .. })
+        ));
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        fs::write(&path, "external").unwrap();
+        assert_eq!(recreate_note(&t.0, "a.md", text), Ok(Saved::Conflict));
+        assert_eq!(save_note_in(&t.0, "a.md", text, ""), Ok(Saved::Conflict));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+        assert!(save_note_in(&t.0, "../escape.md", text, "").is_err());
+        assert!(save_note_in(&t.0, "missing/a.md", text, "").is_err());
+        fs::create_dir(t.0.join("real")).unwrap();
+        assert!(mklink(&["/J"], &t.0.join("link"), &t.0.join("real")));
+        assert!(save_note_in(&t.0, "link/a.md", text, "").is_err());
+        assert!(!t.0.join("real/a.md").exists());
     }
     #[test]
     fn save_refuses_conflicts_and_paths_outside_folder() {

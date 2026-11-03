@@ -123,7 +123,11 @@ quoted `#` and `a#b` are literal. The raw text remains unchanged.
 **Saving.** `notes_open` returns the sanitized HTML, the raw text and a version: a hash of the file's bytes,
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
 opening, writes only if the file still has version `base` and returns the new version; otherwise it
-answers `conflict` and writes nothing. Content equal to the file counts as saved without writing. Text
+answers `conflict` and writes nothing. A missing note is recreated only on a save of an edit,
+through a synced temporary file and `move_new`, which refuses replacement. Every parent component is
+held against rename and checked for links; an unavailable parent is never created. An empty base token
+explicitly expects absence: if another file took the deleted name, the save conflicts. Content equal to
+the file counts as saved without writing. Text
 goes to disk exactly as received, without touching line endings. Saves are serialized in Rust, and the
 check is confirmed against the version actually replaced, so an external write that slips in is never
 overwritten.
@@ -145,8 +149,8 @@ fails.
 **Autosave.** `features/notes/autosave.ts` saves the whole text after a pause in edits, with one save in
 flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps
 the edit in `unsaved()`, and after an error the next edit or `flush` retries. `stop` drops unsaved text and
-ignores later edits; the editor calls it only when the user discards edits that keep failing to save, such
-as for a note deleted outside the app.
+ignores later edits and completion callbacks; an in-flight disk operation can still complete. The
+editor stops it when replacing a clean base, discarding or unmounting.
 
 **Editor.** Reading is the default: sanitized HTML from Rust. The pencil toggle or a double-click
 opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. CodeMirror 6
@@ -161,7 +165,11 @@ flushes and rereads sanitized HTML from disk. Esc blurs synchronously, like Text
 consumes that press. Focus reports editing to the panel. Conflicts keep the text and stop saving;
 Keep my version rereads the disk version and saves the latest editor text against it (another race
 can conflict again). Discard my changes explicitly replaces the text from disk. Errors stay near
-the editor. A clean external reload resets autosave and keeps the cursor clamped to the new length;
+the editor, with Discard my changes available immediately for read or save failures too. A clean
+external reload resets the autosave base and applies a minimal CodeMirror transaction as one isolated
+history step. A raw-text state field and inverted history effects preserve exact mixed line endings
+through reload, undo and redo, even when only line endings changed. Updated from disk offers Undo;
+Ctrl+Z does the same. Undo becomes a normal edit saved against the new disk base;
 pending or in-flight text is never replaced. An editor revision rejects reads started before an edit,
 save completion or another reload.
 
@@ -188,12 +196,19 @@ WebView2 and native panel focus/Esc still require manual verification.
 
 **External changes.** Listing a folder starts watching it (`watch.rs`, with `notify`); choosing a folder
 stops the watch, so the next listing starts a fresh one even for the same path. Events are grouped until
-200 ms of quiet, at most 1 s, and become one `notes-changed` event to the `main` window. Changes inside
-hidden folders and to temporary or backup files of a save do not count; lost events do. The UI then
+200 ms of quiet, at most 1 s, and become one `notes-changed` event to the `main` window. Its
+`renames` payload contains relative `/` markdown path pairs from paired or From/To notify events
+(with matching trackers when supplied). Directory moves expand to markdown descendants. The UI
+updates the selected/editor path and generation before rereading; outside-folder and non-markdown
+destinations count as deletion. Changes inside hidden folders and to temporary or backup files of a save
+do not count; lost events do. The UI then
 rereads the folder, the list and the open note, replacing the note only if its version changed; a read
 that started before choosing a folder or opening a note is dropped and redone. A note
-that disappeared keeps its last content on screen with a notice. While editing, only a clean editor
-accepts the new text, as described above; saving compares the loaded disk version before writing.
+that disappeared keeps its last content on screen with a notice. While editing, deletion neither
+reports an error nor schedules a write by itself; pending edits or the next edit recreate it. Leaving
+a clean deleted editor creates nothing. A name taken after observed deletion conflicts on the next save.
+While editing, only a clean editor accepts the new text, as described above; saving compares the loaded
+disk version before writing.
 
 **Leftovers.** A save that stops between its two renames, for example when the app closes, leaves
 `.docdock-bak` files and may leave the note name empty. Opening a folder lists every

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { undo } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
@@ -6,8 +7,9 @@ import { errorText, t } from "../../i18n";
 import { notesOpen, notesPasteImage, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
-import { applyTextChanges, editorExtensions, editorState } from "./editor";
+import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
+import { diskReload, rawHistory, rawText } from "./reload";
 
 let {
   path,
@@ -34,6 +36,31 @@ let error = $state("");
 let resolving = $state(false);
 let pasting: Promise<void> | undefined;
 let disposed = false;
+let deleted = $state(false);
+let updated = $state(false);
+let replacing = false;
+export function moved(next: string) {
+  path = next;
+  deleted = false;
+  revision++;
+}
+export function missing() {
+  const pending = saving.unsaved();
+  if (status === "conflict" || status === "error") {
+    saving.stop();
+    saving = autosave("");
+    if (pending !== null) saving.edit(pending);
+  }
+  deleted = true;
+  updated = false;
+  error = "";
+  revision++;
+  if (saving.unsaved() !== null) void saving.flush();
+}
+export function unavailable(cause: unknown) {
+  error = errorText(cause);
+  revision++;
+}
 
 function paste(event: ClipboardEvent, editor: EditorView): boolean {
   const data = event.clipboardData;
@@ -72,7 +99,11 @@ function autosave(version: string) {
   error = "";
   return createAutosave({
     version,
-    save: (text, base) => notesSave(path, text, base),
+    save: async (text, base) => {
+      const result = await notesSave(path, text, deleted ? "" : base);
+      if (result.status === "saved") deleted = false;
+      return result;
+    },
     onState: (next, cause) => {
       revision++;
       status = next;
@@ -82,13 +113,20 @@ function autosave(version: string) {
 }
 let saving = autosave(untrack(() => note.version));
 const extensions = () => [
+  rawText.init(() => raw),
+  rawHistory,
+  EditorView.updateListener.of((update) => {
+    const next = update.state.field(rawText);
+    if (next === raw || replacing) return;
+    raw = next;
+    updated = false;
+    revision++;
+    saving.edit(raw);
+  }),
   editable.of(EditorState.readOnly.of(false)),
   EditorView.domEventHandlers({ paste }),
   ...editorExtensions(
-    (changes) => {
-      raw = applyTextChanges(raw, changes);
-      saving.edit(raw);
-    },
+    () => {},
     onleave,
     (focused) => {
       void panelSetEditing(focused).catch((e) => {
@@ -109,6 +147,7 @@ export async function finish(): Promise<OpenNote | null> {
   try {
     await pasting;
     if ((await saving.flush()) !== "saved") return null;
+    if (deleted) return { ...note, text: raw };
     return await notesOpen(path);
   } catch (e) {
     error = errorText(e);
@@ -121,22 +160,25 @@ export async function finish(): Promise<OpenNote | null> {
 
 function replace(next: OpenNote) {
   revision++;
-  raw = next.text;
+  saving.stop();
   saving = autosave(next.version);
-  if (view) {
-    const cursor = Math.min(
-      view.state.selection.main.head,
-      next.text.replace(/\r\n?|\n/g, "\n").length,
-    );
-    const state = editorState(raw, extensions());
-    view.setState(state.update({ selection: { anchor: cursor } }).state);
+  deleted = false;
+  replacing = true;
+  try {
+    if (view && next.text !== raw) view.dispatch(diskReload(view.state, next.text));
+  } finally {
+    replacing = false;
   }
+  raw = next.text;
 }
 
 /** Includes the text in flight. A watcher must never replace pending edits. */
 export function reload(next: OpenNote, started: number | undefined): boolean {
-  if (started !== revision || resolving || pasting || saving.unsaved() !== null) return false;
+  if (started !== revision || deleted || resolving || pasting || saving.unsaved() !== null)
+    return false;
+  const changed = next.text !== raw;
   replace(next);
+  updated = changed;
   return true;
 }
 
@@ -147,6 +189,8 @@ async function resolve(keep: boolean) {
     const disk = await notesOpen(path);
     if (keep) {
       // Read the latest editor text after the await; typing during the read is preserved too.
+      saving.stop();
+      deleted = false;
       saving = autosave(disk.version);
       saving.edit(raw);
       await saving.flush();
@@ -174,6 +218,7 @@ onMount(() => {
   view.focus();
   return () => {
     disposed = true;
+    saving.stop();
     view?.destroy();
     void panelSetEditing(false);
   };
@@ -181,6 +226,14 @@ onMount(() => {
 </script>
 
 <div class="editor">
+  {#if deleted}
+    <div class="notice" role="status">{t("editor.deleted")}</div>
+  {:else if updated}
+    <div class="notice" role="status">
+      {t("editor.updated")}
+      <button class="discard" onclick={() => { if (view) { undo(view); view.focus(); } }}>{t("editor.undo")}</button>
+    </div>
+  {/if}
   {#if status === "conflict"}
     <div class="notice" role="status">
       <p>{t("editor.conflict")}</p>
@@ -193,7 +246,7 @@ onMount(() => {
   {#if error}
     <div class="notice">
       <p class="error" role="alert">{error}</p>
-      {#if status === "error"}
+      {#if status !== "conflict"}
         <div class="actions">
           <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
         </div>
