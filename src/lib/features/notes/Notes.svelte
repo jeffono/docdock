@@ -11,6 +11,7 @@ import {
   notesList,
   notesOpen,
   notesRestore,
+  type OpenNote,
   onNotesChanged,
   openExternal,
   panelSetEditing,
@@ -18,6 +19,7 @@ import {
 import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import Editor from "./Editor.svelte";
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -31,6 +33,30 @@ let gone = $state(false);
 let leftovers = $state<Leftover[]>([]);
 /** Version of the open note, to tell a real change from a reread of the same bytes. */
 let version = "";
+let opened = $state<OpenNote | null>(null);
+let editing = $state(false);
+let editor = $state<Editor>();
+let leaving: Promise<boolean> | null = null;
+function leaveEditor(): Promise<boolean> {
+  if (!editing) return Promise.resolve(true);
+  if (leaving) return leaving;
+  leaving = (async () => {
+    const note = await editor?.finish();
+    if (!note) return false;
+    opened = note;
+    content = note.html;
+    version = note.version;
+    editing = false;
+    return true;
+  })().finally(() => {
+    leaving = null;
+  });
+  return leaving;
+}
+async function toggleEditor() {
+  if (editing) await leaveEditor();
+  else editing = true;
+}
 
 const visible = $derived(
   notes.filter((note) => note.path.toLowerCase().includes(query.trim().toLowerCase())),
@@ -44,6 +70,7 @@ let generation = 0;
 
 async function refresh(value: NotesFolder | null) {
   const current = ++generation;
+  if (editing) return;
   folder = value;
   notes = [];
   selected = "";
@@ -74,6 +101,7 @@ async function restore(path: string) {
 async function choose() {
   try {
     error = "";
+    if (!(await leaveEditor())) return;
     await refresh(await notesChoose());
   } catch (e) {
     error = errorText(e);
@@ -81,11 +109,13 @@ async function choose() {
 }
 
 async function open(path: string) {
+  if (!(await leaveEditor())) return;
   const current = ++generation;
   try {
     error = "";
     const note = await notesOpen(path);
     if (current !== generation) return;
+    opened = note;
     content = note.html;
     title = note.title;
     tags = note.tags;
@@ -103,6 +133,7 @@ async function open(path: string) {
  */
 async function reload() {
   const current = generation;
+  const editRevision = editor?.snapshot();
   // A newer action made this read stale; reading again picks up the change for what is shown now.
   const stale = () => {
     if (current !== generation) again = true;
@@ -110,7 +141,13 @@ async function reload() {
   };
   const value = await notesFolder();
   if (stale()) return;
-  if (!value?.available) return refresh(value);
+  if (!value?.available) {
+    if (editing) {
+      gone = true;
+      return;
+    }
+    return refresh(value);
+  }
   const list = await notesList();
   if (stale()) return;
   notes = list;
@@ -124,6 +161,8 @@ async function reload() {
   if (stale()) return;
   gone = false;
   if (note.version !== version) {
+    if (editing && !editor?.reload(note, editRevision)) return;
+    opened = note;
     content = note.html;
     title = note.title;
     tags = note.tags;
@@ -232,7 +271,13 @@ onMount(() => {
     {/if}
     {#if selected}
       {#if gone}<p class="message" role="status">{t("notes.gone")}</p>{/if}
-      <div class="note" onclick={linkClick} role="presentation">
+      <div class="edit-tools">
+        <IconButton icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={toggleEditor} />
+      </div>
+      {#if editing && opened}
+        <Editor bind:this={editor} path={selected} note={opened} onleave={() => void leaveEditor()} />
+      {:else}
+      <div class="note" onclick={linkClick} ondblclick={() => { editing = true; }} role="presentation">
         {#if title || tags.length}
           <header class="note-header">
             {#if title}<h1>{title}</h1>{/if}
@@ -242,6 +287,7 @@ onMount(() => {
         <!-- The HTML has already been sanitized in Rust. -->
         {@html content}
       </div>
+      {/if}
     {/if}
   {:else}
     <div class="empty">
@@ -260,6 +306,8 @@ onMount(() => {
     flex-direction: column;
     min-height: 0;
   }
+
+  .edit-tools { display: flex; justify-content: flex-end; padding: var(--space-1) var(--space-3); }
 
   .tools {
     display: flex;

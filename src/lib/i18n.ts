@@ -14,6 +14,11 @@ const en = {
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
   "notes.gone": "This note was moved or deleted outside the app.",
+  "editor.toggle": "Edit note",
+  "editor.label": "Note text",
+  "editor.conflict": "This note changed outside the app. Your edits are kept here.",
+  "editor.keep": "Keep my version",
+  "editor.discard": "Discard my changes",
   "leftovers.label": "Interrupted saves",
   "leftovers.notice":
     "Interrupted saves left these copies. Restoring turns each one into a note; nothing is deleted.",
@@ -56,6 +61,11 @@ const ptBR: Record<MessageKey, string> = {
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
+  "editor.toggle": "Editar nota",
+  "editor.label": "Texto da nota",
+  "editor.conflict": "Esta nota mudou fora do app. Suas edições estão mantidas aqui.",
+  "editor.keep": "Manter minha versão",
+  "editor.discard": "Descartar minhas alterações",
   "leftovers.label": "Salvamentos interrompidos",
   "leftovers.notice":
     "Salvamentos interrompidos deixaram estas cópias. Restaurar transforma cada uma em nota; nada é apagado.",

@@ -1,0 +1,151 @@
+<script lang="ts">
+import { Compartment, EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { onMount, untrack } from "svelte";
+import { errorText, t } from "../../i18n";
+import { notesOpen, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
+import Button from "../../ui/Button.svelte";
+import { type AutosaveState, createAutosave } from "./autosave";
+import { applyTextChanges, editorExtensions, editorState } from "./editor";
+import cssUrl from "./editor.css?url";
+
+let { path, note, onleave }: { path: string; note: OpenNote; onleave: () => void } = $props();
+let host: HTMLDivElement;
+let view: EditorView | undefined;
+let raw = untrack(() => note.text);
+const editable = new Compartment();
+let revision = 0;
+export function snapshot() {
+  return revision;
+}
+let status = $state<AutosaveState>("saved");
+let error = $state("");
+let resolving = $state(false);
+function autosave(version: string) {
+  status = "saved";
+  error = "";
+  return createAutosave({
+    version,
+    save: (text, base) => notesSave(path, text, base),
+    onState: (next, cause) => {
+      revision++;
+      status = next;
+      error = cause ? errorText(cause) : "";
+    },
+  });
+}
+let saving = autosave(untrack(() => note.version));
+const extensions = () => [
+  editable.of(EditorState.readOnly.of(false)),
+  ...editorExtensions(
+    (changes) => {
+      raw = applyTextChanges(raw, changes);
+      saving.edit(raw);
+    },
+    onleave,
+    (focused) => {
+      void panelSetEditing(focused).catch((e) => {
+        error = errorText(e);
+      });
+      if (!focused) void saving.flush();
+    },
+    t("editor.label"),
+  ),
+];
+
+export async function finish(): Promise<OpenNote | null> {
+  if (resolving) return null;
+  resolving = true;
+  view?.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
+  // Blur while this Esc press is still being handled, as TextField does.
+  view?.contentDOM.blur();
+  try {
+    if ((await saving.flush()) !== "saved") return null;
+    return await notesOpen(path);
+  } catch (e) {
+    error = errorText(e);
+    return null;
+  } finally {
+    resolving = false;
+    view?.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(false)) });
+  }
+}
+
+function replace(next: OpenNote) {
+  revision++;
+  raw = next.text;
+  saving = autosave(next.version);
+  if (view) {
+    const cursor = Math.min(
+      view.state.selection.main.head,
+      next.text.replace(/\r\n?|\n/g, "\n").length,
+    );
+    const state = editorState(raw, extensions());
+    view.setState(state.update({ selection: { anchor: cursor } }).state);
+  }
+}
+
+/** Includes the text in flight. A watcher must never replace pending edits. */
+export function reload(next: OpenNote, started: number | undefined): boolean {
+  if (started !== revision || resolving || saving.unsaved() !== null) return false;
+  replace(next);
+  return true;
+}
+
+async function resolve(keep: boolean) {
+  if (resolving) return;
+  resolving = true;
+  try {
+    const disk = await notesOpen(path);
+    if (keep) {
+      // Read the latest editor text after the await; typing during the read is preserved too.
+      saving = autosave(disk.version);
+      saving.edit(raw);
+      await saving.flush();
+    } else replace(disk);
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    resolving = false;
+  }
+}
+
+onMount(() => {
+  const root = host.attachShadow({ mode: "open" });
+  const css = document.createElement("link");
+  css.rel = "stylesheet";
+  css.href = cssUrl;
+  root.append(css);
+  view = new EditorView({ root, parent: root, state: editorState(raw, extensions()) });
+  view.focus();
+  return () => {
+    view?.destroy();
+    void panelSetEditing(false);
+  };
+});
+</script>
+
+<div class="editor">
+  {#if status === "conflict"}
+    <div class="notice" role="status">
+      <p>{t("editor.conflict")}</p>
+      <div class="actions">
+        <Button onclick={() => resolve(true)} disabled={resolving}>{t("editor.keep")}</Button>
+        <button class="discard" onclick={() => resolve(false)} disabled={resolving}>{t("editor.discard")}</button>
+      </div>
+    </div>
+  {/if}
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  <div class="surface" bind:this={host}></div>
+</div>
+
+<style>
+.editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.surface { flex: 1; min-height: 0; overflow: auto; }
+.notice, .error { padding: var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
+.notice { border-bottom: 1px solid var(--color-line); }
+p { margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.discard { border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); font: inherit; padding: 0 var(--space-2); min-height: var(--size-control); }
+.error { color: var(--color-danger); }
+</style>

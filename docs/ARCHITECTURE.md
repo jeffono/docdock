@@ -146,14 +146,39 @@ fails.
 flight and the latest edit queued. `flush` saves at once and waits; on a conflict it stops saving and keeps
 the edit in `unsaved()`, and after an error the next edit or `flush` retries.
 
+**Editor.** Reading is the default: sanitized HTML from Rust. The pencil toggle or a double-click
+opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. CodeMirror 6
+parses Markdown; decorations style headings, emphasis, code and links and hide their syntax outside
+selection lines. Raw text is tracked separately from CodeMirror offsets so untouched CRLF, LF and CR
+line endings, including mixed files, survive edits; new lines use the first existing separator (LF in
+an empty file). No Markdown serialization occurs.
+
+Each editor owns an autosave instance. Blur flushes; Esc, the toggle, opening another note and choosing
+a folder flush and refuse to leave on conflict or error. Leaving temporarily makes the editor read-only,
+flushes and rereads sanitized HTML from disk. Esc blurs synchronously, like TextField, so the panel
+consumes that press. Focus reports editing to the panel. Conflicts keep the text and stop saving;
+Keep my version rereads the disk version and saves the latest editor text against it (another race
+can conflict again). Discard my changes explicitly replaces the text from disk. Errors stay near
+the editor. A clean external reload resets autosave and keeps the cursor clamped to the new length;
+pending or in-flight text is never replaced. An editor revision rejects reads started before an edit,
+save completion or another reload.
+
+CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
+`CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
+tag. An external CSS file supplies token styling inside the shadow, with `:host` specificity above
+CodeMirror base styles. Chromium headless verified the production Vite output with the exact CSP header
+from tauri.conf.json: one adopted sheet, zero runtime style tags, no CSP violations, and editor
+creation, edits, conflict resolution and reloads after freezing Object.prototype before app startup.
+WebView2 and native panel focus/Esc still require manual verification.
+
 **External changes.** Listing a folder starts watching it (`watch.rs`, with `notify`); choosing a folder
 stops the watch, so the next listing starts a fresh one even for the same path. Events are grouped until
 200 ms of quiet, at most 1 s, and become one `notes-changed` event to the `main` window. Changes inside
 hidden folders and to temporary or backup files of a save do not count; lost events do. The UI then
 rereads the folder, the list and the open note, replacing the note only if its version changed; a read
 that started before choosing a folder or opening a note is dropped and redone. A note
-that disappeared keeps its last content on screen with a notice. Content cannot be lost here: the view is
-read-only, and a save never overwrites a version it did not load.
+that disappeared keeps its last content on screen with a notice. While editing, only a clean editor
+accepts the new text, as described above; saving compares the loaded disk version before writing.
 
 **Leftovers.** A save that stops between its two renames, for example when the app closes, leaves
 `.docdock-bak` files and may leave the note name empty. Opening a folder lists every
