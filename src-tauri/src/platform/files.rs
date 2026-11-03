@@ -2,7 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use windows::Win32::Foundation::{ERROR_SHARING_VIOLATION, HANDLE};
@@ -12,12 +12,13 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::core::HSTRING;
 
-/// Reject reparse points and prevent directory replacement until the returned handle is dropped.
-/// Hold every ancestor too, from the volume root down.
+/// Rejects links and prevents directory replacement until the returned handle is dropped. Hold every
+/// ancestor too, from the volume root down. Opened without following reparse points, `is_dir` is false
+/// only for name-surrogate tags (junctions, symlinks, mount points): cloud placeholders such as
+/// OneDrive folders are reparse points too and must keep working.
 pub fn hold_directory(path: &Path) -> io::Result<File> {
     use windows::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
     let file = OpenOptions::new()
         // Metadata-only access (0) does not participate in Windows sharing checks.
@@ -26,7 +27,7 @@ pub fn hold_directory(path: &Path) -> io::Result<File> {
         .custom_flags((FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT).0)
         .open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+    if !metadata.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "Attachment folder cannot be a link",
