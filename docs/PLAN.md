@@ -13,19 +13,8 @@ Nothing. Next: M3 — find and pin.
 - M1 — Browse markdown notes, tray, global shortcut, CSP and visual identity; see `docs/DESIGN.md`.
 - M2 — Create and edit: atomic autosave, external changes, leftover recovery, frontmatter, editor and
   pasted images.
-
-## M2.1 — Editor polish
-
-- [x] (advanced) Save robustness: an external reload can be undone; a note deleted while editing is
-  recreated on the next edit, never earlier and never over another file; follow renames; when saving is
-  impossible, offer discarding at once
-- [x] (advanced) Live formatting close to reading: one shared content style, GFM, strikethrough, quotes,
-  lists, rules, code blocks, task checkboxes, images, GitHub alerts (`[!NOTE]`) in both views, and
-  frontmatter as a framed block or the title and tags header. Tables stay raw for now
-- [x] (standard) Editor chrome: floating edit button with save status, accent border while editing,
-  standard formatting shortcuts, Ctrl+E, stronger tag contrast in the light theme
-- [x] (advanced) One Markdown parser for reading and editing, with GitHub footnotes; raw HTML shows as
-  text; see `docs/decisions/0007-one-markdown-parser.md`
+- M2.1 — Editor polish: save robustness, live formatting, editor chrome and one Markdown parser for
+  both views; see `docs/decisions/0007-one-markdown-parser.md`.
 
 ## M3 — Find and pin
 
