@@ -5,11 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- Manual check pending for internationalization: switch the Windows display language and confirm tray
-  and panel follow it on the next start. The user chose to batch it with later checks.
-- Pending user approval: the leftover list in the notes panel (static preview delivered).
-
-Next: frontmatter.
+Nothing. Next: frontmatter and the editor, in parallel; then pasting images.
 
 ## Completed
 
