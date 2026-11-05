@@ -30,7 +30,8 @@ export function webClose(): Promise<void> {
 }
 
 export type NotesFolder = { path: string; available: boolean };
-export type Note = { path: string; name: string };
+/** `modified` is in ms since the Unix epoch; 0 if unknown. */
+export type Note = { path: string; name: string; modified: number };
 export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
 export const notesList = () => invoke<Note[]>("notes_list");
@@ -41,6 +42,9 @@ export type OpenNote = {
 };
 export type SaveResult = { status: "saved"; version: string } | { status: "conflict" };
 export const notesOpen = (path: string) => invoke<OpenNote>("notes_open", { path });
+/** Raw texts of many notes in one call, for the search index. Unreadable notes are left out. */
+export type NoteText = { path: string; text: string; modified: number };
+export const notesTexts = (paths: string[]) => invoke<NoteText[]>("notes_texts", { paths });
 export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>

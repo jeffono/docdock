@@ -59,6 +59,15 @@ pub struct Folder {
 pub struct Note {
     path: String,
     name: String,
+    /// Last write, in milliseconds since the Unix epoch; 0 if unknown.
+    modified: u64,
+}
+/// One note as the search index needs it.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct NoteText {
+    path: String,
+    text: String,
+    modified: u64,
 }
 #[derive(Serialize)]
 pub struct OpenNote {
@@ -250,6 +259,7 @@ fn list(root: &Path) -> Result<Vec<Note>, Error> {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned(),
+                modified: modified(&path),
             });
         }
     })?;
@@ -317,6 +327,25 @@ pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
         version: version(text.as_bytes()),
         text,
     })
+}
+/// Reads many notes at once for the search index, with the same path rules as `open`. A note that
+/// cannot be read (gone, too large, not UTF-8, outside the folder) is left out; the rest are returned.
+fn read_many(root: &Path, paths: &[String]) -> Vec<NoteText> {
+    paths
+        .iter()
+        .filter_map(|relative| {
+            let path = resolve(root, relative, markdown).ok()?;
+            let text = read_note(&path).ok()?;
+            Some(NoteText {
+                path: relative.clone(),
+                text,
+                modified: modified(&path),
+            })
+        })
+        .collect()
+}
+pub fn texts(app: &AppHandle, paths: &[String]) -> Result<Vec<NoteText>, Error> {
+    Ok(read_many(&root(app)?, paths))
 }
 /// Serializes saves so the conflict check and the write are not interleaved within the app.
 static SAVING: Mutex<()> = Mutex::new(());
@@ -913,6 +942,29 @@ mod tests {
         let shown = |p: &str| shown_change(&t.0, &t.0.join(p));
         assert!(shown(".ponto.md") && shown("sub/b.md") && shown("sub"));
         assert!(!shown(".oculta/segredo.md") && !shown("a.md.1-2.docdock-tmp"));
+    }
+    #[test]
+    fn bulk_read_skips_unreadable_notes_and_returns_the_rest() {
+        let t = Temp::new();
+        fs::write(t.0.join("ok.md"), "fine").unwrap();
+        fs::write(t.0.join("binary.md"), [0xff_u8, 0xfe]).unwrap();
+        let ask = ["binary.md", "gone.md", "ok.md"].map(String::from);
+        let got = read_many(&t.0, &ask);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            (got[0].path.as_str(), got[0].text.as_str()),
+            ("ok.md", "fine")
+        );
+        assert!(got[0].modified > 0);
+    }
+    #[test]
+    fn bulk_read_refuses_paths_outside_the_folder() {
+        let t = Temp::new();
+        let notes = t.0.join("notes");
+        fs::create_dir(&notes).unwrap();
+        fs::write(t.0.join("outside.md"), "secret").unwrap();
+        let ask = ["../outside.md", "C:/outside.md"].map(String::from);
+        assert!(read_many(&notes, &ask).is_empty());
     }
     #[test]
     fn rejects_unsafe_paths() {
