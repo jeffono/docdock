@@ -69,7 +69,12 @@ pub fn run() {
             app.manage(locale);
             shortcut::setup(app, requests.clone());
             app.manage(requests);
-            dock::start(window.hwnd()?.0 as isize, receiver, side);
+            dock::start(
+                app.handle().clone(),
+                window.hwnd()?.0 as isize,
+                receiver,
+                side,
+            );
             Ok(())
         })
         // App commands need no capability from a local origin. Without this barrier, the page

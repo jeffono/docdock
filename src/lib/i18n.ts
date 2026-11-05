@@ -5,15 +5,26 @@ const en = {
   "app.web": "Web page",
   "app.pin": "Pin panel",
   "notes.label": "Notes",
-  "notes.search": "Search notes",
-  "notes.searchPlaceholder": "Search notes…",
+  "notes.search": "Search or create a note",
+  "notes.searchPlaceholder": "Search or create a note…",
   "notes.changeFolder": "Change folder: {path}",
-  "notes.noMatch": "No note with that name.",
-  "notes.emptyFolder": "No notes in this folder.",
+  "notes.emptyFolder":
+    "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
   "notes.unavailable": "The notes folder is not available.",
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
   "notes.gone": "This note was moved or deleted outside the app.",
+  "list.pinned": "Pinned",
+  "list.notes": "Notes",
+  "list.create": "Create “{text}”",
+  "card.pin": "Pin note to top",
+  "card.show": "Show preview",
+  "card.collapse": "Collapse to one line",
+  "card.close": "Close note",
+  "card.missing": "Note not found",
+  "card.remove": "Remove from pinned",
+  "pinned.deleted": "The pinned list was deleted.",
+  "pinned.restore": "Restore pinned items",
   "editor.updated": "Updated from disk",
   "editor.undo": "Undo",
   "editor.deleted": "Deleted outside the app; your next edit recreates it.",
@@ -63,15 +74,26 @@ const ptBR: Record<MessageKey, string> = {
   "app.web": "Página web",
   "app.pin": "Fixar painel",
   "notes.label": "Notas",
-  "notes.search": "Buscar nas notas",
-  "notes.searchPlaceholder": "Buscar nas notas…",
+  "notes.search": "Buscar ou criar uma nota",
+  "notes.searchPlaceholder": "Buscar ou criar uma nota…",
   "notes.changeFolder": "Trocar pasta: {path}",
-  "notes.noMatch": "Nenhuma nota com esse nome.",
-  "notes.emptyFolder": "Nenhuma nota nesta pasta.",
+  "notes.emptyFolder":
+    "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
   "notes.unavailable": "A pasta de notas não está disponível.",
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
+  "list.pinned": "Fixados",
+  "list.notes": "Notas",
+  "list.create": "Criar “{text}”",
+  "card.pin": "Fixar nota no topo",
+  "card.show": "Mostrar prévia",
+  "card.collapse": "Recolher em uma linha",
+  "card.close": "Fechar nota",
+  "card.missing": "Nota não encontrada",
+  "card.remove": "Remover dos fixados",
+  "pinned.deleted": "A lista de fixados foi apagada.",
+  "pinned.restore": "Restaurar fixados",
   "editor.updated": "Atualizada do disco",
   "editor.undo": "Desfazer",
   "editor.deleted": "Apagada fora do app; sua próxima edição a recria.",
@@ -138,6 +160,12 @@ export function errorText(error: unknown): string {
     return t("error.unexpected", { detail: JSON.stringify(error) });
   }
   return t("error.unexpected", { detail: String(error) });
+}
+
+export function date(ms: number): string {
+  return new Date(ms).toLocaleDateString(document.documentElement.lang || "en", {
+    dateStyle: "short",
+  });
 }
 
 export function dateTime(ms: number): string {

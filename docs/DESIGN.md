@@ -91,6 +91,13 @@ pinned and unpinned notes differ only in section and starting state.
   below apply inside the card.
 - **Mouse:** the header toggles line and preview; the body expands the card. Links work in reading.
 
+- **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
+  expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's
+  thumbtack that keeps the panel open; it shows on pinned cards and on any expanded card. Rows and lines
+  show a snippet with the matches highlighted under the title; previews and expanded cards show the
+  content. Cards hide the frontmatter title (the header has it); the expanded card lists every tag.
+  → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
+
 | Shortcut   | Action                                                      |
 | ---------- | ----------------------------------------------------------- |
 | ↑ / ↓      | Select a card or row; focus stays in the search bar         |
