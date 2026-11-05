@@ -238,6 +238,14 @@ const toggle = $derived(
     display: none;
   }
 
+  /* The card header sits right above: no leading gap, and no room kept for the floating editor
+     chrome, which cards do not have. */
+  .body > :global(:first-child),
+  .body.preview > :global(.note-header + *) {
+    margin-top: 0;
+    padding-inline-end: 0;
+  }
+
   .body :global(.note-header) {
     padding-bottom: var(--space-2);
   }
