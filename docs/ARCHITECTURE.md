@@ -247,11 +247,11 @@ the user compares the copies and removes the extra one.
 Decision in [0005](decisions/0005-pinned-items.md). `pinned.rs` is pure: text in, text out. An item is a
 single-line list entry (`-`, `*`, `+`, `1.`) whose first link is a relative note path (`%20` decoded, a
 leading `./` and any `#fragment` dropped) or an http(s) URL; images, other schemes, anchors and lines
-that are not list items are ignored. Edits move whole lines and never rewrite the file: each line keeps
+that are not list items are ignored, as are lines inside fenced code blocks and HTML comments. Edits move whole lines and never rewrite the file: each line keeps
 its own terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
 Pinning adds one `- [title](path)` line after the last item, or at the end of the file if there is
 none, with the file's first line terminator (LF in an empty file); an item already pinned (notes compare
-case-insensitively) changes nothing. Unpinning removes every line pointing to the target. Moving trades
+case-insensitively, URLs in their written, escaped form) changes nothing. Unpinning removes every line pointing to the target. Moving trades
 the item lines among themselves, so headings and prose between items stay where they are.
 
 `notes.rs` reads and writes the file. An edit reads `_pinned.md` with its version, applies the line edit
@@ -264,7 +264,8 @@ collapsed to one line is a set of targets in `settings.json`, per computer, chan
 the folder and side; removing an item forgets its entry.
 
 **Restore.** Each time `_pinned.md` is read, its text is kept in `pinned-copy.json` in `app_config_dir`,
-with the folder it came from (one slot, following the folder in use). If the file is gone and the copy
+with the folder it came from (one slot, following the folder in use); reading and updating the copy run
+under one lock, so a slower read never replaces the copy of a newer one. If the file is gone and the copy
 for this folder has content, the state says `restorable`; restoring recreates the file through the empty
 base of `save_note_in`, which never replaces an existing file. Pinning something instead creates a new file
 holding only that item, and the next read replaces the copy.

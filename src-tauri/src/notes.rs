@@ -548,7 +548,11 @@ fn read_pinned(root: &Path) -> Result<Option<(String, String)>, Error> {
     let version = version(text.as_bytes());
     Ok(Some((text, version)))
 }
+/// Serializes reading `_pinned.md` with updating its copy, so a slower read cannot replace the copy of
+/// a newer one.
+static PINNED_COPY: Mutex<()> = Mutex::new(());
 fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Result<Pinned, Error> {
+    let guard = PINNED_COPY.lock().unwrap_or_else(|e| e.into_inner());
     let Some((text, _)) = read_pinned(root)? else {
         return Ok(Pinned {
             items: Vec::new(),
@@ -556,6 +560,7 @@ fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Resu
         });
     };
     keep_copy(store, root, &text);
+    drop(guard);
     let items = pinned::parse(&text)
         .into_iter()
         .map(|item| PinnedItem {

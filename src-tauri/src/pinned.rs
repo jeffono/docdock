@@ -63,16 +63,54 @@ fn lines(text: &str) -> Vec<Line<'_>> {
 
 /// The pinned items in file order.
 pub fn parse(text: &str) -> Vec<Item> {
-    lines(text).iter().filter_map(|l| item(l.body)).collect()
+    items(&lines(text))
+        .into_iter()
+        .map(|(_, item)| item)
+        .collect()
 }
 
-/// Items with the index of their line.
+/// Items with the index of their line. Lines inside fenced code blocks and HTML comments are text, not
+/// items, so reading and every edit agree on which lines the app owns.
 fn items(lines: &[Line]) -> Vec<(usize, Item)> {
-    lines
-        .iter()
-        .enumerate()
-        .filter_map(|(i, l)| Some((i, item(l.body)?)))
-        .collect()
+    let mut fence: Option<(u8, usize)> = None;
+    let mut comment = false;
+    let mut found = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some((mark, len)) = fence {
+            if fence_marker(line.body).is_some_and(|(m, l)| m == mark && l >= len) {
+                fence = None;
+            }
+            continue;
+        }
+        if !comment && let Some(marker) = fence_marker(line.body) {
+            fence = Some(marker);
+            continue;
+        }
+        let was_comment = comment;
+        // The last comment delimiter on the line decides whether a comment stays open.
+        let open = line.body.rfind("<!--");
+        let close = line.body.rfind("-->");
+        comment = match (open, close) {
+            (Some(o), Some(c)) => o > c,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => comment,
+        };
+        if !was_comment && let Some(item) = item(line.body) {
+            found.push((i, item));
+        }
+    }
+    found
+}
+
+/// The marker character and length of a code fence line: at most three spaces, then three or more
+/// backticks or tildes.
+fn fence_marker(body: &str) -> Option<(u8, usize)> {
+    let indent = body.bytes().take_while(|&b| b == b' ').count();
+    let rest = &body.as_bytes()[indent..];
+    let mark = *rest.first().filter(|&&b| b == b'`' || b == b'~')?;
+    let len = rest.iter().take_while(|&&b| b == mark).count();
+    (indent <= 3 && len >= 3).then_some((mark, len))
 }
 
 fn item(body: &str) -> Option<Item> {
@@ -199,10 +237,14 @@ fn unescape(s: &str) -> String {
     out
 }
 
-/// Windows paths are case-insensitive; URLs are compared exactly.
+/// Windows paths are case-insensitive; URLs are compared in the form a new line would write them, so
+/// pinning `a(b)` again finds the stored `a%28b%29`.
 fn same(a: &Item, target: &str) -> bool {
     match a.kind {
-        Kind::Url => a.target == target,
+        Kind::Url => {
+            utf8_percent_encode(&a.target, URL).to_string()
+                == utf8_percent_encode(target, URL).to_string()
+        }
         Kind::Note => a.target.to_lowercase() == target.to_lowercase(),
     }
 }
@@ -276,10 +318,17 @@ pub fn pin(text: &str, kind: Kind, target: &str, title: &str) -> String {
 
 /// Removes the lines of every item pointing to `target` and nothing else.
 pub fn unpin(text: &str, target: &str) -> String {
-    lines(text)
+    let lines = lines(text);
+    let drop: Vec<usize> = items(&lines)
+        .into_iter()
+        .filter(|(_, item)| same(item, target))
+        .map(|(i, _)| i)
+        .collect();
+    lines
         .iter()
-        .filter(|l| !item(l.body).is_some_and(|item| same(&item, target)))
-        .flat_map(|l| [l.body, l.end])
+        .enumerate()
+        .filter(|(i, _)| !drop.contains(i))
+        .flat_map(|(_, l)| [l.body, l.end])
         .collect()
 }
 
@@ -346,6 +395,44 @@ mod tests {
     fn ignores_lines_that_are_not_items() {
         let text = "# Pinned\n<!-- [x](hidden.md) -->\n[plain](a.md)\n- no link here\n- ![img](a.png)\n- [mail](mailto:a@b.c)\n- [anchor](#top)\n  continuation [c](c.md)\n-[nospace](n.md)\n- [broken(a.md)\n";
         assert!(parse(text).is_empty());
+    }
+
+    #[test]
+    fn unpin_keeps_a_matching_line_inside_a_multiline_comment() {
+        let text = "<!--
+- [A](a.md)
+-->
+- [A](a.md)
+";
+        assert_eq!(
+            unpin(text, "a.md"),
+            "<!--
+- [A](a.md)
+-->
+"
+        );
+    }
+
+    #[test]
+    fn unpin_keeps_a_matching_line_inside_a_code_fence() {
+        let text = "```md
+- [A](a.md)
+```
+- [A](a.md)
+";
+        assert_eq!(
+            unpin(text, "a.md"),
+            "```md
+- [A](a.md)
+```
+"
+        );
+    }
+
+    #[test]
+    fn pinning_a_url_with_parentheses_again_changes_nothing() {
+        let once = pin("", Kind::Url, "https://example.com/a(b)", "A");
+        assert_eq!(pin(&once, Kind::Url, "https://example.com/a(b)", "A"), once);
     }
 
     #[test]
