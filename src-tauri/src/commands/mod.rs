@@ -74,6 +74,14 @@ pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
 pub fn notes_open(app: AppHandle, path: String) -> Result<crate::notes::OpenNote, Error> {
     crate::notes::open(&app, &path)
 }
+/// Many notes in one call for the search index; unreadable ones are left out.
+#[tauri::command(async)]
+pub fn notes_texts(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<crate::notes::NoteText>, Error> {
+    crate::notes::texts(&app, &paths)
+}
 /// `async` keeps file I/O off the main thread.
 #[tauri::command(async)]
 pub fn notes_save(

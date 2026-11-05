@@ -122,6 +122,22 @@ tag scalars, flow lists and block lists are extracted as plain text by `features
 The small parser ignores unsupported YAML; an unquoted `#` after whitespace starts a comment, while
 quoted `#` and `a#b` are literal. The raw text remains unchanged.
 
+**Search.** `features/notes/search.ts` keeps an in-memory index in the UI, a pure module without IPC.
+`notes_list` carries each note's modified time (ms since the Unix epoch); `syncIndex` compares it with the
+index and asks `notes_texts(paths)` only for new or changed notes, 200 at a time, then forgets removed
+ones. `notes_texts` applies the `notes_open` path rules to each path and leaves out any note it cannot
+read (missing, too large, not UTF-8, outside the folder) instead of failing the call; such a note stays
+findable by name and is retried on the next sync. The caller syncs after each listing, one at a time, and
+the `notes-changed` reread is the trigger. Title and tags come from `markdown.ts`'s frontmatter parser
+([0007](decisions/0007-one-markdown-parser.md)); the title falls back to the file name, and the body is
+the text after the frontmatter. Matching ignores case and accents (per-character folding, so offsets
+map back to the original text) and requires every word somewhere in title, tags or body, as substrings.
+Order: title equal to the query, title starting with it, a word in the title, a word in a tag, body only;
+ties newest first. `search` also says whether a title equals the query (`exactTitle`, which decides
+whether the UI offers "Create"), and gives each body match a short snippet of plain text with offsets for
+highlighting, never HTML. An empty query lists every note by modified time. With 2000 notes of about
+5 KB, building takes about 70–120 ms and a query a few ms; the full text index (FTS5) is not needed.
+
 **Saving.** `notes_open` returns the raw text and a version: a hash of the file's bytes,
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
 opening, writes only if the file still has version `base` and returns the new version; otherwise it
