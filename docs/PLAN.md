@@ -24,7 +24,7 @@ Nothing. Next: M3 — find and pin.
 - [ ] (standard) Note list with Pinned cards and Notes rows, card states and keyboard; see "Note list" in
   `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`
 - [ ] (standard) In-place editing in an expanded card, replacing the separate note view
-- [ ] (standard) Restore deleted `_pinned.md`
+- [x] (standard) Restore deleted `_pinned.md`
 
 ## M4 — Web pages
 

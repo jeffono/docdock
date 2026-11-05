@@ -12,6 +12,8 @@ The list must follow the folder between computers, work outside the app and avoi
   Obsidian understands.
 - **Line editing:** pinning adds a line, unpinning removes that link's line and reordering moves lines.
   The app never rewrites the entire file, so handwritten headings and comments remain.
+- **Pin position:** a new line goes after the last item, or at the end of the file if there is none; it
+  uses the file's first line terminator.
 - **Collapsed state:** which cards are collapsed to one line is stored in `settings.json`, per computer.
 - **Restore:** the app stores the last version read in `app_config_dir`. If `_pinned.md` disappears, it
   offers "Restore pinned items"; pinning something without restoring creates the file again.

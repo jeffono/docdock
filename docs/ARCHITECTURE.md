@@ -20,7 +20,9 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
-  notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images
+  notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
+                         reading and editing `_pinned.md`
+  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -239,6 +241,36 @@ disk version before writing.
 mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
 `(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
 the user compares the copies and removes the extra one.
+
+## Pinned items
+
+Decision in [0005](decisions/0005-pinned-items.md). `pinned.rs` is pure: text in, text out. An item is a
+single-line list entry (`-`, `*`, `+`, `1.`) whose first link is a relative note path (`%20` decoded, a
+leading `./` and any `#fragment` dropped) or an http(s) URL; images, other schemes, anchors and lines
+that are not list items are ignored. Edits move whole lines and never rewrite the file: each line keeps
+its own terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
+Pinning adds one `- [title](path)` line after the last item, or at the end of the file if there is
+none, with the file's first line terminator (LF in an empty file); an item already pinned (notes compare
+case-insensitively) changes nothing. Unpinning removes every line pointing to the target. Moving trades
+the item lines among themselves, so headings and prose between items stay where they are.
+
+`notes.rs` reads and writes the file. An edit reads `_pinned.md` with its version, applies the line edit
+and saves through `save_note_in`, the same atomic path as notes. If the file changed in between, it is
+read again and the edit reapplied to the new text; after three losses it fails with `pinnedChanged` and
+writes nothing. A missing file is created. A note item whose path no longer resolves to a note inside the
+folder is reported `missing`. Targets are the keys: `pinned_*` commands (`pinned_list`, `_add`, `_remove`,
+`_move`, `_set_collapsed`, `_restore`) all answer with the state after the change. Which items are
+collapsed to one line is a set of targets in `settings.json`, per computer, changed under the same lock as
+the folder and side; removing an item forgets its entry.
+
+**Restore.** Each time `_pinned.md` is read, its text is kept in `pinned-copy.json` in `app_config_dir`,
+with the folder it came from (one slot, following the folder in use). If the file is gone and the copy
+for this folder has content, the state says `restorable`; restoring recreates the file through the empty
+base of `save_note_in`, which never replaces an existing file. Pinning something instead creates a new file
+holding only that item, and the next read replaces the copy.
+
+**External changes.** `_pinned.md` is a note in the folder, so the existing `notes-changed` event covers
+it (no new watcher); the UI rereads with `pinned_list` then.
 
 ## Untrusted content
 
