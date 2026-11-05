@@ -52,6 +52,8 @@ pub enum Error {
     OursKept {
         path: String,
     },
+    /// `_pinned.md` kept changing outside the app while an edit was applied; nothing was written.
+    PinnedChanged,
     InvalidUrl {
         detail: String,
     },

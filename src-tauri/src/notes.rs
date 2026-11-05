@@ -2,10 +2,12 @@
 use crate::dock::{Request, Side};
 use crate::error::Error;
 use crate::i18n::Locale;
+use crate::pinned::{self, Kind};
 use crate::platform;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
+    collections::BTreeSet,
     fs,
     hash::{DefaultHasher, Hasher},
     io::{self, Read, Write},
@@ -40,6 +42,9 @@ struct Settings {
     folder: Option<PathBuf>,
     #[serde(default, deserialize_with = "side_or_default")]
     side: Side,
+    /// Pinned targets shown as one line on this computer; the rest start as previews.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    collapsed: BTreeSet<String>,
 }
 /// An unknown side must not make the folder unreadable.
 fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
@@ -477,6 +482,178 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 }
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
+}
+/// The pinned items live in this note at the root of the folder (decision 0005).
+const PINNED: &str = "_pinned.md";
+/// A read, a line edit and a write that keep losing to external writes give up after this many tries.
+const PINNED_TRIES: usize = 3;
+
+#[derive(Serialize)]
+pub struct PinnedItem {
+    #[serde(flatten)]
+    item: pinned::Item,
+    /// A note that no longer exists at that path; the UI offers to remove the item.
+    missing: bool,
+    /// Shown as one line on this computer.
+    collapsed: bool,
+}
+#[derive(Serialize)]
+pub struct Pinned {
+    items: Vec<PinnedItem>,
+    /// `_pinned.md` is gone but a copy of its last read version can bring it back.
+    restorable: bool,
+}
+/// The last version of `_pinned.md` read in `folder`, kept in `app_config_dir` so a deleted file can come
+/// back. One slot: it follows the folder in use.
+#[derive(Serialize, Deserialize)]
+struct PinnedCopy {
+    folder: PathBuf,
+    text: String,
+}
+fn copy_path(app: &AppHandle) -> Result<PathBuf, Error> {
+    Ok(config(app)?.with_file_name("pinned-copy.json"))
+}
+fn read_copy(store: &Path) -> Option<PinnedCopy> {
+    serde_json::from_slice(&fs::read(store).ok()?).ok()
+}
+/// The copy for `root`, if it holds anything worth restoring.
+fn restorable_copy(store: &Path, root: &Path) -> Option<String> {
+    read_copy(store)
+        .filter(|copy| copy.folder == root && !copy.text.trim().is_empty())
+        .map(|copy| copy.text)
+}
+/// Best effort: a copy that cannot be written only means a deleted file cannot be restored.
+fn keep_copy(store: &Path, root: &Path, text: &str) {
+    if read_copy(store).is_some_and(|copy| copy.folder == root && copy.text == text) {
+        return;
+    }
+    let copy = PinnedCopy {
+        folder: root.to_owned(),
+        text: text.to_owned(),
+    };
+    let written = store
+        .parent()
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| write_atomic(store, &serde_json::to_vec(&copy)?));
+    if let Err(error) = written {
+        eprintln!("[pinned] failed to keep a copy: {error}");
+    }
+}
+/// The text and version of `_pinned.md`, or `None` if it does not exist.
+fn read_pinned(root: &Path) -> Result<Option<(String, String)>, Error> {
+    if !exists(&root.join(PINNED)) {
+        return Ok(None);
+    }
+    let text = read_note(&resolve(root, PINNED, markdown)?)?;
+    let version = version(text.as_bytes());
+    Ok(Some((text, version)))
+}
+/// Serializes reading `_pinned.md` with updating its copy, so a slower read cannot replace the copy of
+/// a newer one.
+static PINNED_COPY: Mutex<()> = Mutex::new(());
+fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Result<Pinned, Error> {
+    let guard = PINNED_COPY.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((text, _)) = read_pinned(root)? else {
+        return Ok(Pinned {
+            items: Vec::new(),
+            restorable: restorable_copy(store, root).is_some(),
+        });
+    };
+    keep_copy(store, root, &text);
+    drop(guard);
+    let items = pinned::parse(&text)
+        .into_iter()
+        .map(|item| PinnedItem {
+            missing: item.kind == Kind::Note && resolve(root, &item.target, markdown).is_err(),
+            collapsed: collapsed.contains(&item.target),
+            item,
+        })
+        .collect();
+    Ok(Pinned {
+        items,
+        restorable: false,
+    })
+}
+/// Applies a line edit to the current `_pinned.md` and saves it against the version it was read at. If
+/// the file changed in between, it is read again and the edit applied to the new text; after
+/// `PINNED_TRIES` such losses the edit is abandoned. A missing file is created.
+fn edit_pinned(root: &Path, edit: impl Fn(&str) -> String) -> Result<(), Error> {
+    for _ in 0..PINNED_TRIES {
+        let (text, base) = read_pinned(root)?.unwrap_or_default();
+        let edited = edit(&text);
+        if edited == text {
+            return Ok(());
+        }
+        if let Saved::Saved { .. } = save_note_in(root, PINNED, &edited, &base)? {
+            return Ok(());
+        }
+    }
+    Err(Error::PinnedChanged)
+}
+/// Brings back the last version read, only if `_pinned.md` is absent: an empty base never replaces.
+fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
+    if let Some(text) = restorable_copy(store, root) {
+        save_note_in(root, PINNED, &text, "")?;
+    }
+    Ok(())
+}
+fn collapsed(app: &AppHandle) -> Result<BTreeSet<String>, Error> {
+    Ok(load(&config(app)?).collapsed)
+}
+pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
+    pinned_state(&root(app)?, &copy_path(app)?, &collapsed(app)?)
+}
+/// `target` is a note's path (it must exist) or an http(s) URL. `title` is the link text.
+pub fn pin(app: &AppHandle, target: &str, title: &str) -> Result<Pinned, Error> {
+    let root = root(app)?;
+    let (kind, target) = match pinned_kind(target) {
+        Kind::Url => {
+            let url = tauri::Url::parse(target).map_err(|e| Error::InvalidUrl {
+                detail: e.to_string(),
+            })?;
+            (Kind::Url, url.to_string())
+        }
+        Kind::Note => {
+            resolve(&root, target, markdown)?;
+            (Kind::Note, target.to_owned())
+        }
+    };
+    edit_pinned(&root, |text| pinned::pin(text, kind, &target, title))?;
+    pinned(app)
+}
+fn pinned_kind(target: &str) -> Kind {
+    let lower = target.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        Kind::Url
+    } else {
+        Kind::Note
+    }
+}
+/// Works for a missing note too: that is what "remove" is for.
+pub fn unpin(app: &AppHandle, target: &str) -> Result<Pinned, Error> {
+    edit_pinned(&root(app)?, |text| pinned::unpin(text, target))?;
+    update(app, |settings| {
+        settings.collapsed.remove(target);
+    })?;
+    pinned(app)
+}
+pub fn move_pinned(app: &AppHandle, target: &str, to: usize) -> Result<Pinned, Error> {
+    edit_pinned(&root(app)?, |text| pinned::move_item(text, target, to))?;
+    pinned(app)
+}
+pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<Pinned, Error> {
+    update(app, |settings| {
+        if collapsed {
+            settings.collapsed.insert(target.to_owned());
+        } else {
+            settings.collapsed.remove(target);
+        }
+    })?;
+    pinned(app)
+}
+pub fn restore_pinned(app: &AppHandle) -> Result<Pinned, Error> {
+    restore_pinned_in(&root(app)?, &copy_path(app)?)?;
+    pinned(app)
 }
 /// Bound IPC writes and disk use for accidental large clipboard images (10 MiB).
 const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
@@ -1018,6 +1195,141 @@ mod tests {
         let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
         assert_eq!(paths, ["a.md"]);
     }
+    /// A notes folder and a separate place for the copy of `_pinned.md`.
+    fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        (root, t.0.join("config").join("pinned-copy.json"))
+    }
+    fn no_collapsed() -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+    #[test]
+    fn pinning_creates_a_missing_file() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        edit_pinned(&root, |text| pinned::pin(text, Kind::Note, "a b.md", "A")).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "- [A](a%20b.md)\n"
+        );
+    }
+    #[test]
+    fn external_change_between_read_and_write_is_kept() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        let path = root.join(PINNED);
+        fs::write(&path, "- [A](a.md)\r\n").unwrap();
+        let calls = std::cell::Cell::new(0);
+        edit_pinned(&root, |text| {
+            if calls.replace(calls.get() + 1) == 0 {
+                fs::write(&path, "# Mine\r\n- [A](a.md)\r\n- [X](x.md)\r\n").unwrap();
+            }
+            pinned::pin(text, Kind::Note, "b.md", "B")
+        })
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "# Mine\r\n- [A](a.md)\r\n- [X](x.md)\r\n- [B](b.md)\r\n"
+        );
+    }
+    #[test]
+    fn edit_that_keeps_losing_the_race_writes_nothing() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        let path = root.join(PINNED);
+        fs::write(&path, "- [A](a.md)\n").unwrap();
+        let calls = std::cell::Cell::new(0);
+        let result = edit_pinned(&root, |text| {
+            calls.set(calls.get() + 1);
+            fs::write(&path, format!("external {}", calls.get())).unwrap();
+            pinned::pin(text, Kind::Note, "b.md", "B")
+        });
+        assert_eq!(result, Err(Error::PinnedChanged));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external 3");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    }
+    #[test]
+    fn pinned_state_flags_missing_notes_and_collapsed_items() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        fs::write(root.join("a.md"), "").unwrap();
+        fs::write(
+            root.join(PINNED),
+            "- [A](a.md)\n- [Gone](gone.md)\n- [Page](https://example.com/)\n",
+        )
+        .unwrap();
+        let collapsed = BTreeSet::from(["a.md".to_owned()]);
+        let state = pinned_state(&root, &store, &collapsed).unwrap();
+        let flags: Vec<_> = state
+            .items
+            .iter()
+            .map(|i| (&*i.item.target, i.missing, i.collapsed))
+            .collect();
+        assert_eq!(
+            flags,
+            [
+                ("a.md", false, true),
+                ("gone.md", true, false),
+                ("https://example.com/", false, false)
+            ]
+        );
+        assert!(!state.restorable);
+    }
+    #[test]
+    fn deleted_pinned_file_is_restorable_and_comes_back_unchanged() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        let text = "# Mine\r\n- [A](a.md)\r\n";
+        fs::write(root.join(PINNED), text).unwrap();
+        pinned_state(&root, &store, &no_collapsed()).unwrap();
+        fs::remove_file(root.join(PINNED)).unwrap();
+        let state = pinned_state(&root, &store, &no_collapsed()).unwrap();
+        assert!(state.items.is_empty() && state.restorable);
+        restore_pinned_in(&root, &store).unwrap();
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), text);
+    }
+    #[test]
+    fn restore_never_overwrites_an_existing_file() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        fs::write(root.join(PINNED), "- [Old](old.md)\n").unwrap();
+        pinned_state(&root, &store, &no_collapsed()).unwrap();
+        fs::write(root.join(PINNED), "- [New](new.md)\n").unwrap();
+        restore_pinned_in(&root, &store).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "- [New](new.md)\n"
+        );
+    }
+    #[test]
+    fn pinning_after_a_deletion_replaces_the_restorable_copy() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        fs::write(root.join(PINNED), "- [Old](old.md)\n").unwrap();
+        pinned_state(&root, &store, &no_collapsed()).unwrap();
+        fs::remove_file(root.join(PINNED)).unwrap();
+        edit_pinned(&root, |text| pinned::pin(text, Kind::Note, "new.md", "New")).unwrap();
+        let state = pinned_state(&root, &store, &no_collapsed()).unwrap();
+        assert!(!state.restorable);
+        assert_eq!(state.items.len(), 1);
+    }
+    #[test]
+    fn a_copy_is_not_offered_for_another_folder() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        let other = t.0.join("other");
+        fs::create_dir(&other).unwrap();
+        fs::write(root.join(PINNED), "- [A](a.md)\n").unwrap();
+        pinned_state(&root, &store, &no_collapsed()).unwrap();
+        assert!(
+            !pinned_state(&other, &store, &no_collapsed())
+                .unwrap()
+                .restorable
+        );
+        restore_pinned_in(&other, &store).unwrap();
+        assert!(!other.join(PINNED).exists());
+    }
     #[test]
     fn replaces_configuration() {
         let t = Temp::new();
@@ -1029,6 +1341,7 @@ mod tests {
         let settings = |name| Settings {
             folder: Some(t.0.join(name)),
             side: Side::Left,
+            ..Settings::default()
         };
         save(&p, &settings("a")).unwrap();
         save(&p, &settings("b")).unwrap();

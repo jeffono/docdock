@@ -48,6 +48,31 @@ export const notesPasteImage = (path: string, bytes: Uint8Array) =>
     headers: { "x-note-path": encodeURIComponent(path) },
   });
 
+/**
+ * A pinned item of `_pinned.md`, in file order. `target` is a note's path or an http(s) URL and is the key
+ * for every pinned call. `missing`: the note is gone, so offer to remove it. `collapsed`: show one line.
+ */
+export type PinnedItem = {
+  target: string;
+  title: string;
+  kind: "note" | "url";
+  missing: boolean;
+  collapsed: boolean;
+};
+/** `restorable`: `_pinned.md` was deleted and `pinnedRestore` can bring it back. */
+export type Pinned = { items: PinnedItem[]; restorable: boolean };
+/** Every pinned call resolves to the state after the change. Reread on `onNotesChanged`. */
+export const pinnedList = () => invoke<Pinned>("pinned_list");
+export const pinnedAdd = (target: string, title: string) =>
+  invoke<Pinned>("pinned_add", { target, title });
+export const pinnedRemove = (target: string) => invoke<Pinned>("pinned_remove", { target });
+/** `to` is the position among the items. */
+export const pinnedMove = (target: string, to: number) =>
+  invoke<Pinned>("pinned_move", { target, to });
+export const pinnedSetCollapsed = (target: string, collapsed: boolean) =>
+  invoke<Pinned>("pinned_set_collapsed", { target, collapsed });
+export const pinnedRestore = () => invoke<Pinned>("pinned_restore");
+
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
 
 /** Something in the notes folder changed outside the app, or a save landed. */

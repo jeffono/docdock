@@ -50,6 +50,8 @@ const en = {
     "The note changed outside the app; the external version was kept at {external} and your text at {ours}: {detail}",
   "error.oursKept":
     "The note changed outside the app while saving; a copy of your text was kept at {path}.",
+  "error.pinnedChanged":
+    "The pinned list changed outside the app while it was being updated; try again.",
   "error.invalidUrl": "Invalid address: {detail}",
   "error.urlNotAllowed": "Address not allowed: {url}",
   "error.linkNotAllowed": "Only web and email links open outside the app.",
@@ -105,6 +107,8 @@ const ptBR: Record<MessageKey, string> = {
     "A nota mudou fora do app; a versão externa ficou em {external} e o seu texto em {ours}: {detail}",
   "error.oursKept":
     "A nota mudou fora do app durante o salvamento; uma cópia do seu texto ficou em {path}.",
+  "error.pinnedChanged":
+    "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
   "error.linkNotAllowed": "Só links da web e de e-mail abrem fora do app.",

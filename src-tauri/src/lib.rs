@@ -7,6 +7,7 @@ mod i18n;
 mod main_window;
 mod notes;
 pub mod panel;
+mod pinned;
 mod platform;
 mod shortcut;
 mod tray;
@@ -35,6 +36,12 @@ pub fn run() {
         commands::notes_paste_image,
         commands::notes_leftovers,
         commands::notes_restore,
+        commands::pinned_list,
+        commands::pinned_add,
+        commands::pinned_remove,
+        commands::pinned_move,
+        commands::pinned_set_collapsed,
+        commands::pinned_restore,
         commands::open_external,
     ];
     tauri::Builder::default()

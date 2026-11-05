@@ -111,6 +111,43 @@ pub fn notes_leftovers(app: AppHandle) -> Result<Vec<crate::notes::Leftover>, Er
 pub fn notes_restore(app: AppHandle, path: String) -> Result<String, Error> {
     crate::notes::restore(&app, &path)
 }
+/// The pinned commands return the state after the change, so the UI needs no second call.
+#[tauri::command(async)]
+pub fn pinned_list(app: AppHandle) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::pinned(&app)
+}
+#[tauri::command(async)]
+pub fn pinned_add(
+    app: AppHandle,
+    target: String,
+    title: String,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::pin(&app, &target, &title)
+}
+#[tauri::command(async)]
+pub fn pinned_remove(app: AppHandle, target: String) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::unpin(&app, &target)
+}
+#[tauri::command(async)]
+pub fn pinned_move(
+    app: AppHandle,
+    target: String,
+    to: usize,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::move_pinned(&app, &target, to)
+}
+#[tauri::command(async)]
+pub fn pinned_set_collapsed(
+    app: AppHandle,
+    target: String,
+    collapsed: bool,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::set_collapsed(&app, &target, collapsed)
+}
+#[tauri::command(async)]
+pub fn pinned_restore(app: AppHandle) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::restore_pinned(&app)
+}
 
 #[tauri::command]
 pub fn open_external(app: AppHandle, url: String) -> Result<(), Error> {
