@@ -84,6 +84,10 @@ export type NotesChanges = { renames: [string, string][] };
 export const onNotesChanged = (handler: (changes: NotesChanges) => void): Promise<UnlistenFn> =>
   listen<NotesChanges>("notes-changed", (event) => handler(event.payload));
 
+/** The panel finished sliding out of sight. */
+export const onPanelHidden = (handler: () => void): Promise<UnlistenFn> =>
+  listen("panel-hidden", handler);
+
 /** A backup an interrupted save left next to `note`; `modified` is in ms since the Unix epoch. */
 export type Leftover = { path: string; note: string; modified: number };
 export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");

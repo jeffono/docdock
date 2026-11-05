@@ -109,7 +109,9 @@ per-monitor DPI awareness (PMv2).
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
 - **Hidden panel:** the window is disabled. `WS_EX_NOACTIVATE` alone is not enough: when the foreground app
-  closed, Windows activated the off-screen panel and the keyboard went to an invisible window.
+  closed, Windows activated the off-screen panel and the keyboard went to an invisible window. When the slide
+  out ends, `dock.rs` emits `panel-hidden` to the UI (the page's `visibilitychange` does not fire for a
+  window moved off-screen).
 - **Collapsed panel (_planned_):** WebView2 reduces memory use while hidden.
 - **Monitor changes:** at each cursor poll, the panel re-reads the monitors. If layout, resolution, DPI or
   taskbar changes the chosen monitor, the windows move to the new position without animation.
@@ -179,9 +181,11 @@ of allowlisted tags and attributes, then DOM nodes, rebuilt when the note or its
 HTML stays text; links and images follow the shared destination rules; footnote definitions render
 where they are written.
 
-**Editor.** Reading is the default. The pencil toggle or a double-click
-opens `features/notes/Editor.svelte` with the whole raw text, including frontmatter. Ctrl+E reaches the
-editor through its CodeMirror keymap and reading through a window listener that ignores handled keys;
+**Editor.** The pencil in an expanded card's header, or Ctrl+E on the selected card, opens
+`features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. For now
+the editor takes over the panel below the top bar (the search bar and list are hidden, the list keeps its
+scroll) until the note is left; in-place editing in the card is a later task. Ctrl+E reaches the
+editor through its CodeMirror keymap and the card list through a window listener that ignores handled keys;
 both use the same guarded leave path as Esc and the pencil. Formatting commands apply isolated history
 transactions, editing only markers or selected line prefixes. A Compartment reconfigures the note-path
 facet on rename, rebuilding relative-image decorations without replacing text or history. Autosave
@@ -243,9 +247,11 @@ stops the watch, so the next listing starts a fresh one even for the same path. 
 updates the selected/editor path and generation before rereading; outside-folder and non-markdown
 destinations count as deletion. Changes inside hidden folders and to temporary or backup files of a save
 do not count; lost events do. The UI then
-rereads the folder, the list and the open note, replacing the note only if its version changed; a read
-that started before choosing a folder or opening a note is dropped and redone. A note
-that disappeared keeps its last content on screen with a notice. While editing, deletion neither
+rereads the folder, the listing (syncing the search index), `_pinned.md`, the text of every note shown as
+preview or expanded, and the edited note, replacing a text only if its version changed; a read
+that started before choosing a folder or renaming the open note is dropped and redone. An expanded note
+that disappeared keeps its last content on screen as a card with a notice; a pinned one becomes "note not
+found". While editing, deletion neither
 reports an error nor schedules a write by itself; pending edits or the next edit recreate it. Leaving
 a clean deleted editor creates nothing. A name taken after observed deletion conflicts on the next save.
 While editing, only a clean editor accepts the new text, as described above; saving compares the loaded
@@ -257,6 +263,36 @@ disk version before writing.
 mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
 `(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
 the user compares the copies and removes the extra one.
+
+## Note list
+
+Spec in `docs/DESIGN.md` ("Note list"). `features/notes/list.ts` is the pure model: `buildList` takes the
+search hits, the pinned items and the expanded path and gives the "Create" text, the Pinned entries in
+`_pinned.md` order (cards, plus "missing" entries while not searching) and the Notes cards in search order
+without the pinned ones; `navKeys`, `defaultKey`, `move` and `enter` say what the arrows and Enter select
+and activate, `deeper`/`shallower` the next card level, and `noteFileName` the file for a new note. No IPC.
+`Notes.svelte` runs the effects and draws it with `Card.svelte` (one card in every state, rows included)
+and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
+
+- **Data:** one `search.ts` index, synced after each `notes_list`, serialized; `pinned_list` after each
+  `notes-changed`. A card in preview or expanded needs its raw text, read with `notes_open` into
+  `contents` and refreshed on `notes-changed`; entries nobody shows are dropped. Web items of
+  `_pinned.md` are skipped until M4.
+- **State:** one `expanded` path (not remembered: `panel-hidden` clears it); `selection` for the arrows,
+  reset by typing, with the first match (else "Create") selected while a query exists. Line against open
+  of a pinned card goes through `pinned_set_collapsed`; expanding a collapsed card also opens it.
+- **Keyboard:** the bar's keydown, in capture phase, handles arrows, Enter and Ctrl+Enter, and Esc with a
+  query (clear, stay; calls `panel_set_editing(true)` so the panel sees the press as handled). → and ←
+  act on the selected card only with the caret at the end of the text, otherwise they move the caret.
+  Outside a field, Esc clears the search and focuses the bar (the focus event spends the press); with
+  nothing to clear it passes through to the panel rules.
+- **Creating:** `notes_save(name, "", "")` at the folder root with `noteFileName` (no separators, drive or
+  `..`, no device names, case-insensitive uniqueness, never `_pinned.md`); a conflict because another app
+  took the name tries the next number. The empty file's title is its name.
+- **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
+  from the header's "Pin panel" thumbtack.
+- **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
+  list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 
 ## Pinned items
 

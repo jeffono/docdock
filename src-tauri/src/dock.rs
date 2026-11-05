@@ -5,6 +5,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
 
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
 use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
@@ -159,6 +160,7 @@ impl Slide {
 }
 
 struct Dock {
+    app: AppHandle,
     window: PanelWindow,
     /// Web page window, if present.
     web: Option<PanelWindow>,
@@ -383,6 +385,10 @@ impl Dock {
             let label = if x == self.parked_x { "close" } else { "open" };
             slide.report(label);
             self.slide = None;
+            if x == self.parked_x {
+                // The UI folds its expanded card back to a preview while nobody sees it.
+                let _ = self.app.emit_to("main", "panel-hidden", ());
+            }
         }
     }
 
@@ -411,7 +417,7 @@ impl Dock {
 }
 
 /// Prepares the window off-screen and starts the panel thread.
-pub fn start(raw_window: isize, requests: Receiver<Request>, side: Side) {
+pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, side: Side) {
     let monitor = edge_monitor(platform::monitors(), side).expect("no monitor available");
     let rect = panel_rect(&monitor, side);
     let parked_x = parked_x(&monitor, side, rect);
@@ -419,6 +425,7 @@ pub fn start(raw_window: isize, requests: Receiver<Request>, side: Side) {
     let window = PanelWindow::prepare(raw_window, rect, bounds, parked_x, Activation::OnRequest);
     eprintln!("[panel] {side:?} of monitor {monitor:?}, panel {rect:?}");
     let dock = Dock {
+        app,
         window,
         web: None,
         side,
