@@ -577,6 +577,7 @@ onMount(() => {
               <span class="title" title={entry.target}>{entry.title}</span>
               <small>{t("card.missing")}</small>
               <IconButton
+                quiet
                 icon="x"
                 label={t("card.remove")}
                 onclick={() => pinnedAction(() => pinnedRemove(entry.target))}

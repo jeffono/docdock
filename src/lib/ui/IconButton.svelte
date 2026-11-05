@@ -6,18 +6,21 @@ let {
   icon,
   label,
   pressed,
+  quiet = false,
   onclick,
 }: {
   icon: ComponentProps<typeof Icon>["name"];
   label: string;
   /** Only for toggle buttons. */
   pressed?: boolean;
+  /** Repeated actions: neutral, borderless, with state conveyed by the icon. */
+  quiet?: boolean;
   onclick: () => void;
 } = $props();
 </script>
 
-<button aria-label={label} title={label} aria-pressed={pressed} {onclick}>
-  <Icon name={icon} />
+<button class:quiet aria-label={label} title={label} aria-pressed={pressed} {onclick}>
+  <Icon name={icon} filled={icon === "bookmark" && pressed === true} />
 </button>
 
 <style>
@@ -42,9 +45,13 @@ let {
     color: var(--color-fg);
   }
 
-  button[aria-pressed="true"] {
+  button:not(.quiet)[aria-pressed="true"] {
     border-color: var(--color-accent);
     background: var(--color-selected);
     color: var(--color-accent);
+  }
+
+  button.quiet {
+    border: 0;
   }
 </style>

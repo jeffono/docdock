@@ -76,13 +76,14 @@ One list fills the panel under the search bar at the top. Every note is the same
 pinned and unpinned notes differ only in section and starting state.
 
 - **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
-  both in place and pinned matches stay cards. A "Create “…”" item appears when no title matches exactly.
+  both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
+  search. A "Create “…”" item appears when no visible note title matches exactly.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
   editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and
   editing return to preview when the panel closes.
 - **Expanded:** no height limit and no inner scroll. While scrolling inside the card, its header
-  (title, collapse, pencil) sticks to the top. Only one card is expanded: expanding another returns
+  (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
   returns to a row when closed; there is no separate note view.
 - **Editing:** only through the pencil in the card header or Ctrl+E on the selected card; entering from
@@ -90,6 +91,13 @@ pinned and unpinned notes differ only in section and starting state.
   errors. If the search would hide it, it stays at the top until editing ends. The Note editor rules
   below apply inside the card.
 - **Mouse:** the header toggles line and preview; the body expands the card. Links work in reading.
+- **Header actions:** from right to left, always expand/collapse, then pin, with nothing between them.
+  The pencil appears only when expanded, immediately to the left of pin. All three share one group
+  with `--space-1` gaps and `--size-control` click targets. Icons use the existing `--size-icon`, muted
+  color, no border and no background at rest, including when pinned; the bookmark is filled when
+  pinned and outline otherwise. Hover keeps the lighter surface and foreground color, and keyboard
+  focus keeps the standard accent outline. Headers have `--space-1` inner padding on every side in
+  every state; missing-note rows use the same vertical and right inset and a quiet remove icon.
 
 - **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
   expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's

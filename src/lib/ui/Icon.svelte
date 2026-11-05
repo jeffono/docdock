@@ -15,10 +15,10 @@ const paths = {
   x: "M18 6 6 18 M6 6l12 12",
 };
 
-let { name }: { name: keyof typeof paths } = $props();
+let { name, filled = false }: { name: keyof typeof paths; filled?: boolean } = $props();
 </script>
 
-<svg viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
+<svg class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
 
 <style>
   svg {
@@ -29,5 +29,9 @@ let { name }: { name: keyof typeof paths } = $props();
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  svg.filled {
+    fill: currentColor;
   }
 </style>
