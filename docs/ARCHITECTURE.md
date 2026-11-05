@@ -290,7 +290,8 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   `..`, no device names, case-insensitive uniqueness, never `_pinned.md`); a conflict because another app
   took the name tries the next number. The empty file's title is its name.
 - **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
-  from the header's "Pin panel" thumbtack.
+  from the header's "Pin panel" thumbtack. Card actions use its `quiet` prop; the bookmark fills when
+  pressed. The root `_pinned.md` entry is skipped by `search` for both empty and nonempty queries.
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 

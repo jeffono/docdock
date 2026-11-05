@@ -27,6 +27,17 @@ const paths = (index: SearchIndex, query: string) =>
   search(index, query).hits.map((hit) => hit.path);
 
 describe("matching", () => {
+  test("hides the root pinned file from the list, matches and exact-title detection", async () => {
+    const index = await indexOf([
+      { path: "_PINNED.MD", text: "private list" },
+      { path: "note.md", text: "private note" },
+      { path: "folder/_pinned.md", text: "ordinary nested note" },
+    ]);
+    expect(paths(index, "")).toEqual(["folder/_pinned.md", "note.md"]);
+    expect(paths(index, "private")).toEqual(["note.md"]);
+    expect(search(index, "_PINNED.MD")).toEqual({ hits: [], exactTitle: false });
+  });
+
   test("ignores case and accents in both the query and the note", async () => {
     const index = await indexOf([{ path: "a.md", text: "Reunião de AÇÃO\n" }]);
     expect(paths(index, "reuniao acao")).toEqual(["a.md"]);

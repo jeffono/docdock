@@ -204,6 +204,8 @@ export function search(index: SearchIndex, query: string): Results {
   const ranked: { entry: Entry; tier: number }[] = [];
   let exactTitle = false;
   for (const entry of index.values()) {
+    // The root pinned list is metadata, not a note shown in the list or search.
+    if (entry.path.toLowerCase() === "_pinned.md") continue;
     if (terms.length && entry.titleKey === whole) exactTitle = true;
     const inTitle = terms.map((term) => entry.titleKey.includes(term));
     const inTags = terms.map((term) => entry.tagKeys.some((tag) => tag.includes(term)));

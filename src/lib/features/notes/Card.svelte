@@ -75,13 +75,13 @@ const toggle = $derived(
       {/if}
     </button>
     {#if card.pinned || card.level === "expanded"}
-      <IconButton icon="bookmark" label={t("card.pin")} pressed={card.pinned} onclick={onpin} />
-    {/if}
-    {#if card.level === "expanded"}
-      <IconButton icon="pencil" label={t("editor.toggle")} onclick={onedit} />
-    {/if}
-    {#if card.pinned || card.level === "expanded"}
-      <IconButton icon={toggle.icon} label={toggle.label} onclick={card.level === "line" ? onheader : onclose} />
+      <div class="actions">
+        {#if card.level === "expanded"}
+          <IconButton quiet icon="pencil" label={t("editor.toggle")} onclick={onedit} />
+        {/if}
+        <IconButton quiet icon="bookmark" label={t("card.pin")} pressed={card.pinned} onclick={onpin} />
+        <IconButton quiet icon={toggle.icon} label={toggle.label} onclick={card.level === "line" ? onheader : onclose} />
+      </div>
     {/if}
   </header>
   {#if card.gone}<p class="notice" role="status">{t("notes.gone")}</p>{/if}
@@ -132,8 +132,15 @@ const toggle = $derived(
     display: flex;
     gap: var(--space-1);
     align-items: center;
-    padding: 0 var(--space-1) 0 0;
+    padding: var(--space-1);
     border-radius: var(--radius-sm);
+  }
+
+  .actions {
+    display: flex;
+    flex: none;
+    gap: var(--space-1);
+    align-items: center;
   }
 
   article.expanded > header {
