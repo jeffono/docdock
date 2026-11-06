@@ -157,6 +157,15 @@ describe("keyboard", () => {
     expect(enter(buildList(base), "create")).toBeNull();
   });
 
+  it("selects a missing pinned item in its place and makes Enter remove it", () => {
+    const withMissing = buildList({
+      ...base,
+      pinned: [item("c.md"), item("gone.md", { missing: true })],
+    });
+    expect(navKeys(withMissing)).toEqual(["c.md", "gone.md", "a.md", "b.md"]);
+    expect(enter(withMissing, "gone.md")).toEqual({ action: "remove", target: "gone.md" });
+  });
+
   it("opens and closes one level, through preview only for pinned cards", () => {
     const card = (pinned: boolean, level: Card["level"]): Card => ({
       hit: hit("a.md"),

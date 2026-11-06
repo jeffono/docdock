@@ -117,10 +117,19 @@ export function rows(model: ListModel, editing: string): Row[] {
   ];
 }
 
-/** Keys of what arrows can select, top to bottom: the card paths, and "create" first when offered. */
+/** The selection key of a list entry: a card's path, or a missing item's target. */
+export const entryKey = (entry: Card | Missing) =>
+  isMissing(entry) ? entry.target : entry.hit.path;
+
+/**
+ * Keys of what arrows can select, top to bottom: "create" first when offered, then every pinned entry,
+ * missing ones included so the keyboard can remove them, then the notes.
+ */
 export function navKeys(model: ListModel): string[] {
-  const cards = [...model.pinned.filter((e): e is Card => !isMissing(e)), ...model.notes];
-  return [...(model.create === null ? [] : ["create"]), ...cards.map((card) => card.hit.path)];
+  return [
+    ...(model.create === null ? [] : ["create"]),
+    ...[...model.pinned, ...model.notes].map(entryKey),
+  ];
 }
 
 /** What is selected before any arrow: the first match, else "Create"; nothing for an empty query. */
@@ -158,12 +167,17 @@ export function arrowScroll(card: Span, view: Span, down: boolean, step: number)
   return hidden > slack ? -Math.min(step, hidden) : 0;
 }
 
-export type Activation = { action: "create"; text: string } | { action: "open"; path: string };
+export type Activation =
+  | { action: "create"; text: string }
+  | { action: "open"; path: string }
+  | { action: "remove"; target: string };
 
-/** Enter on the selected key: run "Create", or expand the card. */
+/** Enter on the selected key: run "Create", expand the card, or remove a missing pinned item. */
 export function enter(model: ListModel, key: string): Activation | null {
   if (key === "create")
     return model.create === null ? null : { action: "create", text: model.create };
+  if (model.pinned.some((entry) => isMissing(entry) && entry.target === key))
+    return { action: "remove", target: key };
   return navKeys(model).includes(key) ? { action: "open", path: key } : null;
 }
 

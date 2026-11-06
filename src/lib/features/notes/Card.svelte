@@ -9,7 +9,6 @@ import "./content.css";
 
 let {
   card,
-  id,
   text,
   selected,
   onheader,
@@ -23,7 +22,6 @@ let {
   editor,
 }: {
   card: Card;
-  id: string;
   /** Raw text of the note once read; the line state does not need it. */
   text: string | undefined;
   /** Chosen with the arrows or the mouse. */
@@ -83,18 +81,16 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 
 <div
   class="card"
-  {id}
-  role="option"
-  tabindex="-1"
-  aria-selected={selected}
+  role="group"
   aria-label={card.hit.title}
+  aria-current={selected || undefined}
   bind:this={root}
+  class:current={selected}
   class:selected={selected && !editing}
   class:line={!open}
   class:row
   class:expanded={card.level === "expanded"}
   class:editing
-  aria-current={selected}
   data-path={card.hit.path}
 >
   <header>
@@ -201,10 +197,10 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     opacity: 0;
   }
   .card:hover .gutter,
-  .card[aria-current="true"] .gutter,
+  .card.current .gutter,
   .gutter:focus-within,
   .card:hover .actions :global(button),
-  .card[aria-current="true"] .actions :global(button),
+  .card.current .actions :global(button),
   .actions :global(button:focus-visible),
   .pencil.active :global(button) {
     opacity: 1;

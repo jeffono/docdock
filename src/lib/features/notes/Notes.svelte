@@ -40,6 +40,7 @@ import {
   deeper,
   defaultKey,
   enter,
+  entryKey,
   isMissing,
   type Level,
   move,
@@ -48,7 +49,7 @@ import {
   rows,
   shallower,
 } from "./list";
-import { type SearchIndex, search, syncIndex } from "./search";
+import { FolderIndex, isPinnedList, search } from "./search";
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -91,11 +92,13 @@ function leaveEditor(): Promise<boolean> {
   return leaving;
 }
 async function edit(path: string) {
-  if (editing) return;
+  if (editing || choosing) return;
+  const current = generation;
   try {
     error = "";
     const note = await notesOpen(path);
-    if (editing) return;
+    // A folder change or rename since the read: the note may belong to another folder now.
+    if (editing || choosing || current !== generation) return;
     contents[path] = note;
     opened = note;
     version = note.version;
@@ -131,22 +134,17 @@ const saveText = $derived(
  */
 let generation = 0;
 
-// Search: the index follows the listing, one sync at a time.
-const index: SearchIndex = new Map();
+// Search: the index follows the listing, one sync at a time, and starts over with each folder.
+const folderIndex = new FolderIndex(notesTexts);
 let indexVersion = $state(0);
-let syncing: Promise<void> = Promise.resolve();
-function sync(list: Note[]): Promise<void> {
-  const run = syncing.then(async () => {
-    await syncIndex(index, list, notesTexts);
-    indexVersion++;
-  });
-  syncing = run.catch(() => {});
-  return run;
+async function sync(list: Note[]): Promise<void> {
+  await folderIndex.sync(list);
+  indexVersion++;
 }
 
 const results = $derived.by(() => {
   void indexVersion;
-  return search(index, query);
+  return search(folderIndex.index, query);
 });
 const kept = $derived.by(() => {
   void indexVersion;
@@ -154,7 +152,7 @@ const kept = $derived.by(() => {
   const listed = notes.some((note) => note.path === expanded);
   if (!listed && !contents[expanded]) return null;
   const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-  const entry = listed ? index.get(expanded) : undefined;
+  const entry = listed ? folderIndex.index.get(expanded) : undefined;
   return {
     path: expanded,
     title: entry?.title ?? name,
@@ -179,7 +177,13 @@ const listRows = $derived(rows(model, editing ? selected : ""));
 const keys = $derived(navKeys(model));
 const active = $derived(keys.includes(selection) ? selection : defaultKey(model, query));
 
-const itemId = (key: string) => `note-list-${encodeURIComponent(key)}`;
+/** What a screen reader hears when the selection changes. */
+const announced = $derived.by(() => {
+  if (active === "create" && model.create !== null) return t("list.create", { text: model.create });
+  const entry = [...model.pinned, ...model.notes].find((e) => entryKey(e) === active);
+  if (!entry) return "";
+  return isMissing(entry) ? `${entry.title}, ${t("card.missing")}` : entry.hit.title;
+});
 
 function cardFor(path: string): Card | undefined {
   for (const entry of [...model.pinned, ...model.notes])
@@ -245,7 +249,7 @@ async function refresh(value: NotesFolder | null) {
   expanded = "";
   selection = "";
   pinned = { items: [], restorable: false };
-  index.clear();
+  folderIndex.reset();
   indexVersion++;
   if (!value?.available) return;
   const list = await notesList();
@@ -276,13 +280,19 @@ async function restore(path: string) {
   }
 }
 
+/** While the folder picker is open no editor can open: its note would belong to the old folder. */
+let choosing = false;
 async function choose() {
+  if (choosing) return;
+  choosing = true;
   try {
     error = "";
     if (!(await leaveEditor())) return;
     await refresh(await notesChoose());
   } catch (e) {
     error = errorText(e);
+  } finally {
+    choosing = false;
   }
 }
 
@@ -338,15 +348,25 @@ function toggle(card: Card) {
   if (level) void setLevel(card, level);
 }
 
-async function pinOrUnpin(card: Card) {
+let pinning = false;
+/** `refocus`: the toggle came from the editor, which can lose focus when its card changes section. */
+async function pinOrUnpin(card: Card, refocus = false) {
+  if (pinning) return;
+  pinning = true;
   selection = card.hit.path;
   try {
     error = "";
     pinned = card.pinned
       ? await pinnedRemove(card.hit.path)
       : await pinnedAdd(card.hit.path, card.hit.title);
+    if (refocus) {
+      await tick();
+      editor?.focus();
+    }
   } catch (e) {
     error = errorText(e);
+  } finally {
+    pinning = false;
   }
 }
 
@@ -357,6 +377,13 @@ async function pinnedAction(action: () => Promise<Pinned>) {
   } catch (e) {
     error = errorText(e);
   }
+}
+
+/** Removes a pinned item whose note is gone; the selection moves to the next item, else the previous. */
+async function removeMissing(target: string) {
+  const at = keys.indexOf(target);
+  await pinnedAction(() => pinnedRemove(target));
+  if (selection === target) selection = keys[at] ?? keys[at - 1] ?? "";
 }
 
 /**
@@ -495,6 +522,11 @@ function arrow(event: KeyboardEvent) {
   selection = move(keys, active, down ? 1 : -1);
 }
 
+/** An explicit close leaves editing first, the guarded way; on a conflict or error the panel stays. */
+async function closePanel() {
+  if (await leaveEditor()) await panelClose();
+}
+
 /**
  * Esc, in layers: leave editing; clear the search and return to the bar; from the empty bar, close
  * the panel. A pinned panel stays.
@@ -511,7 +543,7 @@ function escapeKey(inBar: boolean) {
     input?.focus();
     return;
   }
-  void panelClose();
+  void closePanel();
 }
 
 /** List keys, from the search bar (`inBar`) or from anywhere in the panel outside a text field. */
@@ -542,13 +574,7 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     case "ArrowLeft": {
       if (modified || event.altKey) return;
       // In the bar the arrows move the caret; they open and close only from its natural place, the end.
-      const input = event.target;
-      if (
-        inBar &&
-        input instanceof HTMLInputElement &&
-        (input.selectionStart !== input.selectionEnd || input.selectionEnd !== input.value.length)
-      )
-        return;
+      if (inBar && !caretAtEnd(event)) return;
       const card = cardFor(active);
       const level = card && (event.key === "ArrowRight" ? deeper(card) : shallower(card));
       if (!card || !level) return;
@@ -564,16 +590,34 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       }
       const action = enter(model, active);
       if (action?.action === "create") void create(action.text);
+      else if (action?.action === "remove") void removeMissing(action.target);
       else if (action) {
         const card = cardFor(action.path);
         if (card) void setLevel(card, "expanded");
       }
       return;
     }
+    case "Delete": {
+      const action = enter(model, active);
+      if (modified || event.altKey || action?.action !== "remove") return;
+      if (inBar && !caretAtEnd(event)) return;
+      event.preventDefault();
+      void removeMissing(action.target);
+      return;
+    }
   }
   // Type to search: the key lands in the bar once it has the focus. Space stays with buttons.
   const printable = event.key.length === 1 && event.key !== " ";
   if (!inBar && printable && !event.ctrlKey && !event.altKey && !event.metaKey) bar()?.focus();
+}
+
+/** The key's field has its caret at the end with nothing selected, where the key edits nothing. */
+function caretAtEnd(event: KeyboardEvent): boolean {
+  const input = event.target;
+  return (
+    !(input instanceof HTMLInputElement) ||
+    (input.selectionStart === input.selectionEnd && input.selectionEnd === input.value.length)
+  );
 }
 
 /** The search bar's keys. Runs in capture, before the field's own Esc. */
@@ -607,13 +651,17 @@ function shortcut(event: KeyboardEvent) {
     list &&
     input
   ) {
+    // Recovery actions (leftovers, a deleted pinned list) sit between the bar and the cards.
     const stops = [
       input,
+      ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
       list,
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
     ];
-    const at = list.contains(event.target as Node) ? 1 : stops.indexOf(event.target as HTMLElement);
+    const target = event.target as HTMLElement;
+    const own = stops.indexOf(target);
+    const at = own >= 0 ? own : list.contains(target) ? stops.indexOf(list) : -1;
     if (at >= 0) {
       event.preventDefault();
       stops[(at + (event.shiftKey ? stops.length - 1 : 1)) % stops.length].focus();
@@ -629,7 +677,8 @@ function shortcut(event: KeyboardEvent) {
     const card = cardFor(inEditor ? selected : active);
     if (!card) return;
     event.preventDefault();
-    void pinOrUnpin(card);
+    // Held down, the key repeats: one press is one toggle.
+    if (!event.repeat) void pinOrUnpin(card, inEditor);
     return;
   }
   if (ctrl && key === "e") {
@@ -666,7 +715,7 @@ onMount(() => {
   const search = onPanelSearch((toggle) => {
     const input = bar();
     if (toggle && (!input || document.activeElement === input)) {
-      void panelClose();
+      void closePanel();
       return;
     }
     input?.focus();
@@ -711,11 +760,7 @@ onMount(() => {
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
         bind:value={query}
-        role="combobox"
-        aria-autocomplete="list"
-        aria-expanded={true}
         aria-controls="note-list"
-        aria-activedescendant={active ? itemId(active) : undefined}
         aria-label={t("notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
@@ -738,8 +783,11 @@ onMount(() => {
         {/each}
       </section>
     {/if}
-    <div class="list" id="note-list" role="listbox" aria-label={t("notes.label")}
-      aria-activedescendant={active ? itemId(active) : undefined}
+    <!-- Plain structure: cards hold buttons, links and the editor, so they cannot be listbox options.
+      The selected item carries aria-current and the live region announces it. -->
+    <p class="announce" aria-live="polite">{announced}</p>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
+    <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
       tabindex="0" bind:this={list}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
@@ -750,7 +798,7 @@ onMount(() => {
       {/if}
       {#if model.create !== null}
         {@const text = model.create}
-        <button tabindex="-1" role="option" id={itemId("create")} aria-selected={active === "create"} class="create" class:selected={active === "create"} onclick={() => create(text)}>
+        <button tabindex="-1" aria-current={active === "create" || undefined} class="create" class:selected={active === "create"} onclick={() => create(text)}>
           {t("list.create", { text })}
         </button>
       {/if}
@@ -760,7 +808,17 @@ onMount(() => {
           <h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
-          <div class="missing">
+          {@const current = active === entry.target}
+          <div
+            class="missing"
+            class:selected={current}
+            role="group"
+            aria-label={entry.title}
+            aria-current={current || undefined}
+            {@attach (element) => {
+              if (current) element.scrollIntoView({ block: "nearest" });
+            }}
+          >
             <span class="title" title={entry.target}>{entry.title}</span>
             <small>{t("card.missing")}</small>
             <IconButton
@@ -768,7 +826,7 @@ onMount(() => {
               quiet
               icon="x"
               label={t("card.remove")}
-              onclick={() => pinnedAction(() => pinnedRemove(entry.target))}
+              onclick={() => removeMissing(entry.target)}
             />
           </div>
         {:else}
@@ -776,7 +834,6 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
-            id={itemId(card.hit.path)}
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
@@ -791,7 +848,7 @@ onMount(() => {
           />
         {/if}
       {/each}
-      {#if notes.length === 0 && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
+      {#if !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     <div class="empty">
@@ -881,6 +938,26 @@ onMount(() => {
   .missing small {
     flex: none;
     color: var(--color-muted);
+  }
+
+  /* Like a selected line. */
+  .missing.selected {
+    border-color: var(--color-accent);
+    background: var(--color-selected);
+  }
+
+  .missing.selected .title {
+    color: var(--color-accent);
+  }
+
+  /* Heard, not seen. */
+  .announce {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .restore {
