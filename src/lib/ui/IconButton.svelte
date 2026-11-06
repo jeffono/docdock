@@ -7,6 +7,7 @@ let {
   label,
   pressed,
   quiet = false,
+  accent = false,
   onclick,
 }: {
   icon: ComponentProps<typeof Icon>["name"];
@@ -15,11 +16,13 @@ let {
   pressed?: boolean;
   /** Repeated actions: neutral, borderless, with state conveyed by the icon. */
   quiet?: boolean;
+  /** Accent icon without a pressed surface, for the active editor. */
+  accent?: boolean;
   onclick: () => void;
 } = $props();
 </script>
 
-<button class:quiet aria-label={label} title={label} aria-pressed={pressed} {onclick}>
+<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {onclick}>
   <Icon name={icon} filled={icon === "bookmark" && pressed === true} />
 </button>
 
@@ -48,6 +51,10 @@ let {
   button:not(.quiet)[aria-pressed="true"] {
     border-color: var(--color-accent);
     background: var(--color-selected);
+    color: var(--color-accent);
+  }
+
+  button.accent:not(:hover) {
     color: var(--color-accent);
   }
 

@@ -13,7 +13,7 @@ let {
   selected,
   onheader,
   onexpand,
-  onclose,
+  onpreview,
   onpin,
   onedit,
   onlink,
@@ -29,12 +29,12 @@ let {
   /** Header click: open a line, close anything else. */
   onheader: () => void;
   onexpand: () => void;
-  onclose: () => void;
+  onpreview: () => void;
   onpin: () => void;
   onedit: () => void;
   /** Handles a click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
-  /** This card holds the one editor; the pencil stays pressed. */
+  /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
   /** Saving… or Saved while editing; empty when a notice explains a problem instead. */
   status?: string;
@@ -56,7 +56,18 @@ $effect(() => {
 // The fade at the bottom of a preview only makes sense when something is cut off.
 $effect(() => {
   void text;
-  if (body && card.level === "preview") clipped = body.scrollHeight > body.clientHeight + 1;
+  const element = body;
+  if (!element || card.level !== "preview") return;
+  const measure = () => {
+    clipped = element.scrollHeight > element.clientHeight + 1;
+  };
+  const frame = requestAnimationFrame(measure);
+  const observer = new ResizeObserver(measure);
+  observer.observe(element);
+  return () => {
+    cancelAnimationFrame(frame);
+    observer.disconnect();
+  };
 });
 
 function bodyClick(event: MouseEvent) {
@@ -65,19 +76,13 @@ function bodyClick(event: MouseEvent) {
 }
 
 const tags = $derived(card.hit.tags);
-const toggle = $derived(
-  card.level === "line"
-    ? { icon: "chevronDown" as const, label: t("card.show") }
-    : {
-        icon: "chevronUp" as const,
-        label: t(card.level === "preview" ? "card.collapse" : "card.close"),
-      },
-);
+const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 </script>
 
 <article
   bind:this={root}
-  class:selected
+  class:selected={selected && !editing}
+  class:line={!open}
   class:row
   class:expanded={card.level === "expanded"}
   class:editing
@@ -85,6 +90,9 @@ const toggle = $derived(
   data-path={card.hit.path}
 >
   <header>
+    <div class="gutter">
+      <IconButton quiet icon={open ? "chevronDown" : "chevronRight"} label={toggleLabel} onclick={onheader} />
+    </div>
     <button class="head" onclick={onheader}>
       <span class="title">{card.hit.title}</span>
       {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
@@ -93,16 +101,14 @@ const toggle = $derived(
       {/if}
     </button>
     {#if status}<small class="status" role="status">{status}</small>{/if}
-    {#if card.pinned || card.level === "expanded"}
-      <div class="actions">
-        {#if card.level === "expanded"}
-          <!-- Quiet at rest; while editing it takes the standard pressed look, which the quiet style lacks. -->
-          <IconButton quiet={!editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
-        {/if}
-        <IconButton quiet icon="bookmark" label={t("card.pin")} pressed={card.pinned} onclick={onpin} />
-        <IconButton quiet icon={toggle.icon} label={toggle.label} onclick={card.level === "line" ? onheader : onclose} />
-      </div>
-    {/if}
+    <div class="actions">
+      {#if card.level === "expanded"}
+        <div class="pencil" class:active={editing}>
+          <IconButton quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
+        </div>
+      {/if}
+      <IconButton quiet icon="bookmark" label={t("card.pin")} pressed={card.pinned} onclick={onpin} />
+    </div>
   </header>
   {#if card.gone}<p class="notice" role="status">{t("notes.gone")}</p>{/if}
   {#if !open && card.hit.snippet}
@@ -112,23 +118,30 @@ const toggle = $derived(
     {@render editor()}
   {:else if open}
     <!-- Built from the editor's parser as DOM nodes; note text never becomes HTML. -->
-    <div
-      bind:this={body}
-      class="body note-content"
-      class:preview={card.level === "preview"}
-      class:clipped
-      onclick={bodyClick}
-      role="presentation"
-      {@attach (element) => {
-        element.replaceChildren(renderNote(text ?? "", card.hit.path));
-      }}
-    ></div>
+    <div class="reading">
+      <div
+        bind:this={body}
+        class="body note-content"
+        class:preview={card.level === "preview"}
+        class:clipped={card.level === "preview" && clipped}
+        onclick={bodyClick}
+        role="presentation"
+        {@attach (element) => {
+          element.replaceChildren(renderNote(text ?? "", card.hit.path));
+        }}
+      ></div>
+      {#if card.level === "preview" && clipped}
+        <div class="reveal"><button onclick={onexpand}>{t("card.showAll")}</button></div>
+      {:else if card.level === "expanded" && card.pinned}
+        <div class="reveal less"><button onclick={onpreview}>{t("card.showLess")}</button></div>
+      {/if}
+    </div>
   {/if}
 </article>
 
 <style>
   article {
-    margin: 0 var(--space-3) var(--space-2);
+    margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
     background: var(--color-surface);
@@ -143,6 +156,9 @@ const toggle = $derived(
 
   article.selected {
     border-color: var(--color-accent);
+  }
+
+  article.selected.line {
     background: var(--color-selected);
   }
 
@@ -150,16 +166,39 @@ const toggle = $derived(
     border-color: var(--color-accent);
   }
 
-  article.selected .title {
+  article.selected.line .title {
     color: var(--color-accent);
   }
 
   header {
+    position: relative;
     display: flex;
     gap: var(--space-1);
     align-items: center;
     padding: var(--space-1);
     border-radius: var(--radius-sm);
+  }
+
+  .gutter {
+    position: absolute;
+    right: calc(100% + 1px);
+    top: var(--space-1);
+    width: var(--panel-inset-left);
+    display: flex;
+    justify-content: center;
+  }
+
+  .gutter, .actions :global(button) {
+    opacity: 0;
+  }
+  article:hover .gutter,
+  article[aria-current="true"] .gutter,
+  .gutter:focus-within,
+  article:hover .actions :global(button),
+  article[aria-current="true"] .actions :global(button),
+  .actions :global(button:focus-visible),
+  .pencil.active :global(button) {
+    opacity: 1;
   }
 
   .actions {
@@ -176,10 +215,6 @@ const toggle = $derived(
     border-bottom: 1px solid var(--color-line);
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
     background: var(--color-surface);
-  }
-
-  article.expanded.selected > header {
-    background: var(--color-selected);
   }
 
   .head {
@@ -240,6 +275,34 @@ const toggle = $derived(
     display: flex;
   }
 
+  .reading {
+    position: relative;
+  }
+  .reveal {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    margin-top: calc(-1 * var(--size-control));
+    padding-bottom: var(--space-1);
+  }
+  .reveal.less {
+    margin-top: 0;
+    padding-bottom: var(--space-2);
+  }
+  .reveal button {
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--font-size-sm);
+  }
+  .reveal button:hover {
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
   .body {
     padding: var(--space-1) var(--space-3) var(--space-3);
     overflow-wrap: anywhere;
@@ -274,4 +337,5 @@ const toggle = $derived(
   .body :global(.note-header) {
     padding-bottom: var(--space-2);
   }
+
 </style>
