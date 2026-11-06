@@ -143,8 +143,10 @@ quoted `#` and `a#b` are literal. The raw text remains unchanged.
 index and asks `notes_texts(paths)` only for new or changed notes, 200 at a time, then forgets removed
 ones. `notes_texts` applies the `notes_open` path rules to each path and leaves out any note it cannot
 read (missing, too large, not UTF-8, outside the folder) instead of failing the call; such a note stays
-findable by name and is retried on the next sync. The caller syncs after each listing, one at a time, and
-the `notes-changed` reread is the trigger. Title and tags come from `markdown.ts`'s frontmatter parser
+findable by name and is retried on the next sync. `FolderIndex` holds the current folder's index and runs
+syncs one at a time; choosing a folder resets it to a new index, and a sync begun earlier fills only the
+old one, so another folder's entries are neither shown nor reused. The caller syncs after each listing,
+and the `notes-changed` reread is the trigger. Title and tags come from `markdown.ts`'s frontmatter parser
 ([0007](decisions/0007-one-markdown-parser.md)); the title falls back to the file name, and the body is
 the text after the frontmatter. Matching ignores case and accents (per-character folding, so offsets
 map back to the original text) and requires every word somewhere in title, tags or body, as substrings.
@@ -219,7 +221,11 @@ an empty file). No Markdown serialization occurs.
 Each editor owns an autosave instance. Blur flushes. Every way out of editing goes through one guarded
 leave that flushes and refuses on conflict or error: Esc, the toggle, closing the card or expanding
 another (all through the list's level change), typing in the search, creating or restoring a note,
-choosing a folder and `panel-hidden`. Pinning keeps editing. Leaving temporarily makes the editor read-only,
+choosing a folder, an explicit close (Esc from the bar, the shortcut), which stays open if the leave
+refuses, and `panel-hidden`. While the folder picker is open no editor opens, and an editor read that
+started before a folder change or rename is dropped, so the editor never shows one folder's note while
+saving into another. Pinning keeps editing and gives the editor its focus back after the card moves
+between sections. Leaving temporarily makes the editor read-only,
 flushes and rereads the note from disk. Esc blurs synchronously, like TextField, and stops there.
 Conflicts keep the text and stop saving;
 Keep my version rereads the disk version and saves the latest editor text against it (another race
@@ -301,7 +307,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   `composedPath`, since the editor sits in a shadow root). → and ← in the bar act on the selected card only
   with the caret at the end of the text. Esc goes in layers: while editing, it leaves editing (from the
   editor through its keymap, or from a button) and the card header takes the focus; next, it clears the
-  search and focuses the bar; from the empty bar it calls `panel_close`. Outside a field, a printable key
+  search and focuses the bar; from the empty bar it leaves editing the guarded way and then calls
+  `panel_close`. A missing pinned item is selectable; Enter or Delete removes it. Ctrl+D ignores key
+  repeat and a toggle in flight. Outside a field, a printable key
   other than Space focuses the bar, which then receives it; Ctrl+F focuses the bar and selects its text
   from anywhere but a field. ↑ and ↓ on an expanded selected card ask `arrowScroll` (pure, in `list.ts`)
   whether to scroll the list about three lines or move the selection; Alt moves directly. Without a

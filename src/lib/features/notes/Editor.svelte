@@ -44,6 +44,9 @@ let disposed = false;
 let deleted = $state(false);
 let updated = $state(false);
 let replacing = false;
+export function focus() {
+  view?.focus();
+}
 export function moved(next: string) {
   path = next;
   view?.dispatch({ effects: location.reconfigure(notePath.of(next)) });

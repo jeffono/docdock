@@ -119,6 +119,35 @@ export async function syncIndex(
   for (const note of stale) index.set(note.path, build(note, texts.get(note.path) ?? null));
 }
 
+/**
+ * The index of the current folder, with its syncs run one at a time in call order. `reset` starts an
+ * empty index for another folder: a sync called before it fills only the old index, so a slow read of
+ * the previous folder never shows up in, or is reused by, the new one.
+ */
+export class FolderIndex {
+  index: SearchIndex = new Map();
+  #queue: Promise<void> = Promise.resolve();
+  readonly #read: (paths: string[]) => Promise<Read[]>;
+
+  constructor(read: (paths: string[]) => Promise<Read[]>) {
+    this.#read = read;
+  }
+
+  reset() {
+    this.index = new Map();
+  }
+
+  sync(listed: Listed[]): Promise<void> {
+    const target = this.index;
+    const run = this.#queue.then(() => syncIndex(target, listed, this.#read));
+    this.#queue = run.catch(() => {});
+    return run;
+  }
+}
+
+/** The root pinned list is metadata, not a note shown in the list or search. */
+export const isPinnedList = (path: string) => path.toLowerCase() === "_pinned.md";
+
 export type Snippet = {
   text: string;
   /** Offsets into `text` of every match, in order. */
@@ -204,8 +233,7 @@ export function search(index: SearchIndex, query: string): Results {
   const ranked: { entry: Entry; tier: number }[] = [];
   let exactTitle = false;
   for (const entry of index.values()) {
-    // The root pinned list is metadata, not a note shown in the list or search.
-    if (entry.path.toLowerCase() === "_pinned.md") continue;
+    if (isPinnedList(entry.path)) continue;
     if (terms.length && entry.titleKey === whole) exactTitle = true;
     const inTitle = terms.map((term) => entry.titleKey.includes(term));
     const inTags = terms.map((term) => entry.tagKeys.some((tag) => tag.includes(term)));

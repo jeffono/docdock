@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type Listed, type Read, type SearchIndex, search, syncIndex } from "./search";
+import { FolderIndex, type Listed, type Read, type SearchIndex, search, syncIndex } from "./search";
 
 type Note = { path: string; text: string; modified?: number };
 
@@ -207,5 +207,29 @@ describe("syncIndex", () => {
     });
     expect(retried).toBe(true);
     expect(paths(index, "readable")).toEqual(["broken.md"]);
+  });
+});
+
+describe("FolderIndex", () => {
+  test("a sync of the previous folder that ends after a reset is neither shown nor reused", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const listed: Listed[] = [{ path: "a.md", name: "a", modified: 1 }];
+    // The same path and modified time in both folders: only the text tells them apart.
+    let calls = 0;
+    const folder = new FolderIndex(async (p) => {
+      const first = calls++ === 0;
+      if (first) await gate;
+      return p.map((path) => ({ path, text: first ? "alpha" : "beta", modified: 1 }));
+    });
+    const previous = folder.sync(listed);
+    folder.reset();
+    const current = folder.sync(listed);
+    release();
+    await Promise.all([previous, current]);
+    expect(paths(folder.index, "alpha")).toEqual([]);
+    expect(paths(folder.index, "beta")).toEqual(["a.md"]);
   });
 });

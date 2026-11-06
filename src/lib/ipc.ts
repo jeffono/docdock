@@ -83,9 +83,6 @@ export const pinnedList = () => invoke<Pinned>("pinned_list");
 export const pinnedAdd = (target: string, title: string) =>
   invoke<Pinned>("pinned_add", { target, title });
 export const pinnedRemove = (target: string) => invoke<Pinned>("pinned_remove", { target });
-/** `to` is the position among the items. */
-export const pinnedMove = (target: string, to: number) =>
-  invoke<Pinned>("pinned_move", { target, to });
 export const pinnedSetCollapsed = (target: string, collapsed: boolean) =>
   invoke<Pinned>("pinned_set_collapsed", { target, collapsed });
 export const pinnedRestore = () => invoke<Pinned>("pinned_restore");

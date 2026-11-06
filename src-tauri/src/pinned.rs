@@ -77,7 +77,7 @@ fn items(lines: &[Line]) -> Vec<(usize, Item)> {
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         if let Some((mark, len)) = fence {
-            if fence_marker(line.body).is_some_and(|(m, l)| m == mark && l >= len) {
+            if closes(line.body, mark, len) {
                 fence = None;
             }
             continue;
@@ -111,6 +111,15 @@ fn fence_marker(body: &str) -> Option<(u8, usize)> {
     let mark = *rest.first().filter(|&&b| b == b'`' || b == b'~')?;
     let len = rest.iter().take_while(|&&b| b == mark).count();
     (indent <= 3 && len >= 3).then_some((mark, len))
+}
+
+/// Whether `body` closes a fence opened with `len` `mark` characters (CommonMark): the same character, at
+/// least as many, at most three spaces before and only whitespace after. "```example" inside is text.
+fn closes(body: &str, mark: u8, len: usize) -> bool {
+    fence_marker(body).is_some_and(|(m, l)| {
+        let rest = &body.trim_start_matches(' ')[l..];
+        m == mark && l >= len && rest.trim_matches([' ', '\t']).is_empty()
+    })
 }
 
 fn item(body: &str) -> Option<Item> {
@@ -332,28 +341,6 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
-/// Moves the item pointing to `target` to position `to` among the items (clamped to the last). Only the
-/// item lines trade places: the lines between them, and each line's terminator, stay where they are.
-pub fn move_item(text: &str, target: &str, to: usize) -> String {
-    let lines = lines(text);
-    let items = items(&lines);
-    let Some(from) = items.iter().position(|(_, item)| same(item, target)) else {
-        return text.to_owned();
-    };
-    let mut order: Vec<usize> = (0..items.len()).collect();
-    let moved = order.remove(from);
-    order.insert(to.min(items.len() - 1), moved);
-    let mut bodies: Vec<&str> = lines.iter().map(|l| l.body).collect();
-    for (slot, &source) in order.iter().enumerate() {
-        bodies[items[slot].0] = lines[items[source].0].body;
-    }
-    lines
-        .iter()
-        .zip(bodies)
-        .flat_map(|(l, body)| [body, l.end])
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +417,12 @@ mod tests {
     }
 
     #[test]
+    fn unpin_keeps_a_fence_whose_inner_line_only_looks_like_a_closing_fence() {
+        let block = "```md\n```example\n- [A](a.md)\n```\n";
+        assert_eq!(unpin(&format!("{block}- [A](a.md)\n"), "a.md"), block);
+    }
+
+    #[test]
     fn pinning_a_url_with_parentheses_again_changes_nothing() {
         let once = pin("", Kind::Url, "https://example.com/a(b)", "A");
         assert_eq!(pin(&once, Kind::Url, "https://example.com/a(b)", "A"), once);
@@ -500,26 +493,5 @@ mod tests {
     fn unpin_of_a_missing_target_changes_nothing() {
         let text = "- [A](a.md)\r\n";
         assert_eq!(unpin(text, "b.md"), text);
-    }
-
-    #[test]
-    fn move_swaps_only_item_lines() {
-        let text = "# Pinned\r\n- [A](a.md)\r\nkeep me\n- [B](b.md)\r\n- [C](c.md)";
-        assert_eq!(
-            move_item(text, "c.md", 0),
-            "# Pinned\r\n- [C](c.md)\r\nkeep me\n- [A](a.md)\r\n- [B](b.md)"
-        );
-    }
-
-    #[test]
-    fn move_to_a_position_past_the_end_goes_last() {
-        let text = "- [A](a.md)\n- [B](b.md)\n";
-        assert_eq!(move_item(text, "a.md", 9), "- [B](b.md)\n- [A](a.md)\n");
-    }
-
-    #[test]
-    fn move_of_a_missing_target_changes_nothing() {
-        let text = "- [A](a.md)\n- [B](b.md)\n";
-        assert_eq!(move_item(text, "z.md", 0), text);
     }
 }

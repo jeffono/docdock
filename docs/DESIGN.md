@@ -98,9 +98,9 @@ pinned and unpinned notes differ only in section and starting state.
 - **Alignment:** one content column for the whole panel. The top bar title, the search field, section
   labels and cards start `--space-4` + `--space-2` from the panel's left edge and end `--space-3` from
   the right edge; the left inset holds the chevron gutter. Nothing else uses its own margin.
-- **Selection:** a line keeps the selected background, accent title and accent border. An open card
-  shows only the accent border, so long content and text selection stay readable. The editing card
-  shows no selection style; its editing border already marks it.
+- **Selection:** a line, like a missing-note row, keeps the selected background, accent title and
+  accent border. An open card shows only the accent border, so long content and text selection stay
+  readable. The editing card shows no selection style; its editing border already marks it.
 - **Chevron:** in the gutter, aligned with the title, right for a line and down for an open card. It
   shows on hover, on the selected item and on keyboard focus; its space is always reserved.
 - **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
@@ -109,7 +109,8 @@ pinned and unpinned notes differ only in section and starting state.
   no border and no background; the bookmark is filled when pinned and outline otherwise. While
   editing, the pencil stays visible in the accent color, still without border or background. Hover
   keeps the lighter surface and foreground color. Tooltips and accessible labels include shortcuts:
-  "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)" and "Open (→)" / "Close (←)".
+  "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)", "Open (→)" / "Close (←)" and "Remove from
+  pinned (Delete)".
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
   vertical and right inset and a quiet remove icon.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
@@ -117,11 +118,13 @@ pinned and unpinned notes differ only in section and starting state.
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
-- **Tab stops:** search bar → list → top bar buttons (including the folder action), reversed with
-  Shift+Tab. Card controls stay clickable and labeled but are outside the Tab sequence. The list is
-  one Tab stop; entering it without a selection selects the first item. Its only focus indicator is
-  the selected card's existing style, without an additional outline. The editor keeps Tab indentation.
-  Search exposes the selection through a combobox controlling the listbox and stable item ids.
+- **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
+  pinned items") → list → top bar buttons (including the folder action), reversed with Shift+Tab. Card
+  controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
+  entering it without a selection selects the first item. Its only focus indicator is the selected
+  card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
+  labeled region of plain groups, not a listbox, since cards hold buttons, links and the editor; the
+  selected item has `aria-current` and a polite live region announces it.
 - **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below
   work as from the search bar, and typing a character goes to the search bar. Enter acts on the
   selection even on a focused button; Space presses the button.
@@ -138,7 +141,8 @@ pinned and unpinned notes differ only in section and starting state.
 | Alt+↑ / Alt+↓  | Select the previous / next item directly                                                 |
 | PgUp / PgDn    | Scroll the list by about one screen                                                      |
 | → / ←          | Open / close one level: line, preview, expanded                                          |
-| Enter          | Expand the selected item, or run "Create"                                                |
+| Enter          | Expand the selected item, run "Create", or remove a selected missing pinned item         |
+| Delete         | Remove the selected missing pinned item                                                  |
 | Ctrl+Enter     | Create a note with the exact typed text                                                  |
 | Ctrl+D         | Toggle pin on the selected card from search, the list or its editor                      |
 | Ctrl+E         | Toggle editing on the selected card                                                      |
