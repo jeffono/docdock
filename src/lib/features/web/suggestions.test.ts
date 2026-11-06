@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { barDefault, LatestQuery, webEntries, webQuery } from "./suggestions";
+import { barDefault, historyEntries, LatestQuery, webEntries, webQuery } from "./suggestions";
 
 it.each(["todo.md", "file.txt", "1.5"])("Enter preserves the note match for %s", (query) => {
   const items = webEntries(query, false, [], []);
@@ -40,4 +40,17 @@ it("discards responses superseded by another query, even after returning to the 
   const current = latest.next();
   expect(latest.accepts(first)).toBe(false);
   expect(latest.accepts(current)).toBe(true);
+});
+
+it("history opening returns recent local addresses without a query or engine suggestions", () => {
+  const history = [
+    "https://example.com/",
+    "https://duckduckgo.com/?q=rust",
+    "https://a.test/",
+    "https://b.test/",
+    "https://c.test/",
+    "https://d.test/",
+  ];
+  expect(historyEntries(history).map((item) => item.url)).toEqual(history.slice(0, 5));
+  expect(historyEntries([])).toEqual([]);
 });

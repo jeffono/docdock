@@ -21,7 +21,7 @@ const paths = {
 let { name, filled = false }: { name: keyof typeof paths; filled?: boolean } = $props();
 </script>
 
-<svg class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
+<svg class:pin={name === "pin"} class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
 
 <style>
   svg {
@@ -32,6 +32,11 @@ let { name, filled = false }: { name: keyof typeof paths; filled?: boolean } = $
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  svg.pin {
+    width: calc(var(--size-icon) * 0.88);
+    height: calc(var(--size-icon) * 0.88);
   }
 
   svg.filled {

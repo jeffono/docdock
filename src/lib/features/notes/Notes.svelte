@@ -39,6 +39,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
   barDefault,
+  historyEntries,
   LatestQuery,
   searchAddress,
   type WebEntry,
@@ -75,10 +76,15 @@ let error = $state("");
 let query = $state("");
 let address = $state("");
 let addressEditing = $state(false);
+let showingHistory = $state(false);
 let history = $state<string[]>([]);
 let remote = $state<string[]>([]);
 let suggestionsElement = $state<HTMLElement>();
 const latest = new LatestQuery();
+$effect(() => {
+  void browser;
+  showingHistory = false;
+});
 const inputQuery = $derived(browser ? address : query);
 const intent = $derived(webQuery(inputQuery, browser));
 const webItems = $derived(webEntries(inputQuery, browser, history, remote));
@@ -89,7 +95,7 @@ $effect(() => {
   const text = intent;
   const revision = latest.next();
   remote = [];
-  if (text === null || text.length < 2 || (browser && !addressEditing)) return;
+  if (showingHistory || text === null || text.length < 2 || (browser && !addressEditing)) return;
   const timer = setTimeout(() => {
     void webSuggestions(text)
       .then((items) => {
@@ -127,6 +133,7 @@ $effect(() => {
   };
 });
 async function activateWeb(entry: WebEntry) {
+  showingHistory = false;
   if (entry.kind === "intent") {
     query = `? ${entry.text}`;
     selection = "";
@@ -272,7 +279,9 @@ const model = $derived(
 );
 const listRows = $derived(rows(model, editing ? selected : ""));
 const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
-const shownWebItems = $derived(browser && !addressEditing ? [] : webItems);
+const shownWebItems = $derived(
+  showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
+);
 const keys = $derived([...noteKeys, ...shownWebItems.map((item) => item.key)]);
 const active = $derived(
   keys.includes(selection)
@@ -652,6 +661,7 @@ export function focusSearch() {
 
 /** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
 function typed() {
+  showingHistory = false;
   if (browser) addressEditing = true;
   selection = "";
   void leaveEditor();
@@ -694,6 +704,12 @@ async function closePanel() {
  * the panel. A pinned panel stays.
  */
 function escapeKey(inBar: boolean) {
+  if (showingHistory) {
+    showingHistory = false;
+    addressEditing = false;
+    selection = "";
+    return;
+  }
   if (editing && !inBar) {
     void leaveByKeyboard();
     return;
@@ -802,7 +818,22 @@ function caretAtEnd(event: KeyboardEvent): boolean {
 
 /** The search bar's keys. Runs in capture, before the field's own Esc. */
 function barKey(event: KeyboardEvent) {
-  if (event.target instanceof HTMLInputElement && !event.isComposing) listKey(event, true);
+  if (!(event.target instanceof HTMLInputElement) || event.isComposing) return;
+  if (
+    event.key === "ArrowDown" &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    !event.metaKey &&
+    !shownWebItems.length
+  ) {
+    event.preventDefault();
+    showingHistory = true;
+    addressEditing = browser;
+    selection = historyEntries(history)[0]?.key ?? "";
+    return;
+  }
+  listKey(event, true);
 }
 
 /** A text field or the editor keeps its keys; the editor sits in a shadow root. */
@@ -925,7 +956,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydown={shortcut} onblur={() => { addressEditing = false; }} />
+<svelte:window onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
 
 {#snippet noteEditor()}
   {#if opened}

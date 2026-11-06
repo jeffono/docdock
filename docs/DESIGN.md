@@ -164,7 +164,10 @@ pinned and unpinned notes differ only in section and starting state.
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the folder picker and panel pin. There is no app name or page title. The same search
+controls, then the folder picker and panel pin. The panel is 460 logical pixels wide by default.
+The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
+Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
+Button tooltips include their working shortcuts. There is no app name or page title. The same search
 field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
@@ -173,6 +176,9 @@ logical pixels inside the panel sides and bottom so the focus band remains visib
 
 In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
 local addresses, then engine suggestions. The same arrows, Enter and selected row style apply.
+When the suggestion list is closed, ↓ opens the five most recent local addresses (including
+search result URLs), even with an empty bar or the current URL. This does not request engine
+suggestions; typing resumes the normal suggestion rules.
 Suggestions float below the bar on one solid surface, with icons for search, history and Open;
 only the selected row is highlighted. The native page is clipped behind them without moving or resizing. Esc restores
 the current URL and dismisses suggestions before the next Esc closes the panel.
@@ -199,16 +205,17 @@ a secondary Discard my changes button. Errors appear in red beside this notice.
 
 Windows editor shortcuts:
 
-| Shortcut                                      | Action                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------- |
-| Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+Shift+` | Toggle bold / italic / strikethrough / inline code                        |
-| Ctrl+K                                        | Insert a link; put the cursor in its destination, or its label when empty |
-| Ctrl+1…6 / Ctrl+0                             | Toggle heading level / make paragraph                                     |
-| Ctrl+Shift+8 / Ctrl+Shift+7 / Ctrl+Shift+9    | Toggle bullet / numbered / task list                                      |
-| Ctrl+Shift+.                                  | Toggle blockquote                                                         |
-| Enter / Backspace                             | Continue / remove Markdown list or quote markup                           |
-| Tab / Shift+Tab                               | Indent / outdent list items                                               |
-| Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                     |
+| Shortcut                                      | Action                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+Shift+` | Toggle bold / italic / strikethrough / inline code                                         |
+| Ctrl+J                                        | Join the current and next line, or all selected lines; strip following list/quote prefixes |
+| Ctrl+K                                        | Insert a link; put the cursor in its destination, or its label when empty                  |
+| Ctrl+1…6 / Ctrl+0                             | Toggle heading level / make paragraph                                                      |
+| Ctrl+Shift+8 / Ctrl+Shift+7 / Ctrl+Shift+9    | Toggle bullet / numbered / task list                                                       |
+| Ctrl+Shift+.                                  | Toggle blockquote                                                                          |
+| Enter / Backspace                             | Continue / remove Markdown list or quote markup                                            |
+| Tab / Shift+Tab                               | Indent / outdent list items                                                                |
+| Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
 
 Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every

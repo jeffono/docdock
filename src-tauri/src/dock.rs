@@ -13,7 +13,7 @@ use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 const POLL: Duration = Duration::from_millis(50);
 const SLIDE: Duration = Duration::from_millis(150);
 /// Width in logical pixels; on the monitor it becomes `width * dpi / 96`.
-const PANEL_WIDTH: u32 = 420;
+const PANEL_WIDTH: u32 = 460;
 const BASE_DPI: u32 = 96;
 /// Two bars above the page, in logical pixels: twice `--size-bar` in `tokens.css`.
 const WEB_TOP: u32 = 88;
@@ -627,12 +627,12 @@ mod tests {
             bottom: 2160,
         };
         let rect = panel_rect(&screen, Side::Right);
-        assert_eq!((rect.left, rect.right, rect.top), (-565, -40, 47));
+        assert_eq!((rect.left, rect.right, rect.top), (-615, -40, 47));
         assert_eq!(parked_x(&screen, Side::Right, rect), 0);
         let rect = panel_rect(&screen, Side::Left);
-        assert_eq!((rect.left, rect.right, rect.top), (-3800, -3275, 47));
+        assert_eq!((rect.left, rect.right, rect.top), (-3800, -3225, 47));
         // Parked entirely beyond the left edge, touching it.
-        assert_eq!(parked_x(&screen, Side::Left, rect), -3840 - 525);
+        assert_eq!(parked_x(&screen, Side::Left, rect), -3840 - 575);
     }
 
     #[test]

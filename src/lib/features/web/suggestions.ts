@@ -9,6 +9,15 @@ export type WebEntry = {
 export function webQuery(query: string, browser: boolean): string | null {
   return browser || query.trimStart().startsWith("?") ? query.trim().replace(/^\?\s*/, "") : null;
 }
+/** Recent addresses already include searches as their locally stored result URLs. */
+export function historyEntries(history: string[]): WebEntry[] {
+  return history.slice(0, 5).map((url) => ({
+    key: `web:history:${url}`,
+    kind: "open",
+    text: url,
+    url,
+  }));
+}
 export function webEntries(
   query: string,
   browser: boolean,

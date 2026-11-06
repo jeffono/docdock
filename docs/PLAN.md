@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: browser UI rework done; last polish batch next, then stage close.
+- M4 on `m4-web-pages`: polish done; browser accelerator task next, then stage close.
 
 ## Completed
 
@@ -38,7 +38,7 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
 - [x] (standard) Rethink the browser UI with the user's observations: Notes/Browser tabs, shared
   search bar with "+", preserved focus border and floating suggestions
-- [ ] (standard) Polish (2026-11-06): solid, ~12% smaller panel pin when active; ↓ in the bar opens
+- [x] (standard) Polish (2026-11-06): solid, ~12% smaller panel pin when active; ↓ in the bar opens
   address history; Ctrl+J joins lines in the editor; Ctrl+Tab toggles Notes/Browser; shortcuts in
   button tooltips; default panel width 460
 - [ ] (advanced) Disable WebView2 browser accelerators in the main window and block the

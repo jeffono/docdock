@@ -282,6 +282,9 @@ Markdown formatting walks ignore mounted code trees, so embedded syntax cannot b
 No generated highlighting stylesheet or inline style is used. Parser chunks load only when requested
 (some HTML/JavaScript code is already shared with CodeMirror Markdown support).
 
+Ctrl+Tab is handled in the main window capture phase, before editor keymaps, and switches the
+Notes/Browser view through the guarded editor leave path. The page window has separate keyboard handling.
+
 **Editor.** The pencil in an expanded card's header, or Ctrl+E on the selected card, opens
 `features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. The one
 editor is a snippet `Notes.svelte` hands to the edited card, which draws it in place of its content; it

@@ -27,7 +27,7 @@ let {
 </script>
 
 <button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {tabindex} {disabled} {onclick}>
-  <Icon name={icon} filled={icon === "bookmark" && pressed === true} />
+  <Icon name={icon} filled={(icon === "bookmark" || icon === "pin") && pressed === true} />
 </button>
 
 <style>

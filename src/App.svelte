@@ -42,7 +42,23 @@ onMount(() => {
   const visible = onWebVisible((value) => {
     web = value;
   });
+  const shortcut = (event: KeyboardEvent) => {
+    if (
+      event.isComposing ||
+      !event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey ||
+      event.metaKey ||
+      event.key !== "Tab"
+    )
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) void action(switchMode(!web));
+  };
+  window.addEventListener("keydown", shortcut, true);
   return () => {
+    window.removeEventListener("keydown", shortcut, true);
     for (const listener of [stop, state, visible]) void listener.then((unlisten) => unlisten());
   };
 });
@@ -64,8 +80,8 @@ function togglePin() {
 <main class:focused={focus.focused} class:left={focus.side === "left"}>
   <header>
     <nav aria-label={t("app.mode")}>
-      <button class:active={!web} aria-pressed={!web} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
-      <button class:active={web} aria-pressed={web} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
+      <button class:active={!web} aria-pressed={!web} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
+      <button class:active={web} aria-pressed={web} title={t("web.browserShortcut")} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
     </nav>
     {#if web}
       <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(webHistory(true))} />
