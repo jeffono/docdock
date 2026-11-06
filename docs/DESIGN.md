@@ -14,6 +14,10 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 - Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
 - Light and dark themes follow Windows. Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
+- Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
+  keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
+  functions, orange types, green tags and gray comments. Punctuation and other identifiers keep the
+  foreground color. Shared by reading and editing, without added emphasis or italics.
 
 ## Typography
 

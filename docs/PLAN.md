@@ -3,10 +3,7 @@
 Each task indicates the model level (see `AGENTS.md`). Mark `[x]` in the commit that completes it and
 detail each stage when it is next.
 
-## In progress
-
-- M4 on `m4-web-pages`: browser mode, unified address bar, page pins and save-page notes implemented;
-  code colors on `code-colors`.
+- M4 on `m4-web-pages`: all first-pass tasks done; browser UI rework in progress with the user.
 
 ## Completed
 
@@ -35,8 +32,10 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (standard) Pin pages in `_pinned.md`; pinned web cards open the page
 - [x] (advanced) Read the page selection from Rust without letting the page talk to Rust
 - [x] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
-- [ ] (standard) Code colors with CodeMirror parsers
+- [x] (standard) Code colors with CodeMirror parsers, in the GitHub Light and Dark Default palette
 - [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
+- [ ] (standard) Rethink the browser UI with the user's observations; first, show the mobile version of
+  the search results page
 
 ## M5 — Distribute
 

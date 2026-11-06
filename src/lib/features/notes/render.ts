@@ -1,6 +1,7 @@
 // Reading view: notes rendered from the editor's own parser into a small element model, then into
 // DOM nodes. Note text only ever becomes text nodes or allowlisted attribute values; no HTML is parsed.
 import type { SyntaxNode } from "@lezer/common";
+import { codeLanguage, codeSpans } from "./code-colors";
 import {
   alertKind,
   type Definitions,
@@ -172,8 +173,19 @@ class Renderer {
         return el("li", {}, children);
       }
       case "FencedCode":
-      case "CodeBlock":
-        return el("pre", {}, [el("code", {}, [this.code(node)])]);
+      case "CodeBlock": {
+        const text = this.code(node);
+        const info = node.getChild("CodeInfo");
+        const children: Content[] = [];
+        let pos = 0;
+        for (const span of codeSpans(text, info ? this.slice(info.from, info.to) : "")) {
+          if (span.from > pos) children.push(text.slice(pos, span.from));
+          children.push(el("span", { class: span.className }, [text.slice(span.from, span.to)]));
+          pos = span.to;
+        }
+        if (pos < text.length) children.push(text.slice(pos));
+        return el("pre", {}, [el("code", {}, children)]);
+      }
       case "HorizontalRule":
         return el("hr");
       case "Table":
@@ -412,8 +424,19 @@ export function toDom(content: Content[], doc: Document = document): DocumentFra
 }
 
 /** A note that cannot be rendered still shows its text. */
-export function renderNote(text: string, note: string): DocumentFragment {
+export async function renderNote(text: string, note: string): Promise<DocumentFragment> {
   try {
+    const loads: Promise<unknown>[] = [];
+    noteParser.parse(text).iterate({
+      enter(node) {
+        if (node.name !== "FencedCode") return;
+        const info = node.node.getChild("CodeInfo");
+        const language = info && codeLanguage(text.slice(info.from, info.to));
+        if (language) loads.push(language.load());
+      },
+    });
+    // A failed chunk must not hide the note, including other successfully loaded grammars.
+    await Promise.allSettled(loads);
     return toDom(noteModel(text, note));
   } catch (error) {
     console.error(error);

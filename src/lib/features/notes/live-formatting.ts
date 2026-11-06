@@ -7,6 +7,7 @@ import {
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
+import { IterMode } from "@lezer/common";
 import {
   alertKind,
   definitions,
@@ -193,6 +194,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
   };
   for (const visible of view.visibleRanges)
     syntaxTree(view.state).iterate({
+      mode: IterMode.IgnoreMounts,
       from: visible.from,
       to: visible.to,
       enter(node) {

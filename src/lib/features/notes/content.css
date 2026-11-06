@@ -1,6 +1,28 @@
 .note-content .cm-line {
   padding: 0;
 }
+
+.note-content .code-comment {
+  color: var(--color-code-comment);
+}
+.note-content .code-keyword {
+  color: var(--color-code-keyword);
+}
+.note-content .code-string {
+  color: var(--color-code-string);
+}
+.note-content .code-constant {
+  color: var(--color-code-constant);
+}
+.note-content .code-function {
+  color: var(--color-code-function);
+}
+.note-content .code-type {
+  color: var(--color-code-type);
+}
+.note-content .code-tag {
+  color: var(--color-code-tag);
+}
 .note-content .note-header {
   padding-bottom: var(--space-3);
 }
