@@ -4,6 +4,7 @@ import Notes from "./lib/features/notes/Notes.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
   onPanelFocus,
+  onToggleMode,
   onWebState,
   onWebVisible,
   type PageState,
@@ -42,6 +43,7 @@ onMount(() => {
   const visible = onWebVisible((value) => {
     web = value;
   });
+  const toggle = onToggleMode(() => void action(switchMode(!web)));
   const shortcut = (event: KeyboardEvent) => {
     if (
       event.isComposing ||
@@ -59,7 +61,8 @@ onMount(() => {
   window.addEventListener("keydown", shortcut, true);
   return () => {
     window.removeEventListener("keydown", shortcut, true);
-    for (const listener of [stop, state, visible]) void listener.then((unlisten) => unlisten());
+    for (const listener of [stop, state, visible, toggle])
+      void listener.then((unlisten) => unlisten());
   };
 });
 

@@ -49,6 +49,9 @@ export const onWebState = (handler: (state: PageState | null) => void) =>
 export const onWebVisible = (handler: (visible: boolean) => void) =>
   listen<boolean>("web-visible", (event) => handler(event.payload));
 
+/** Ctrl+Tab typed while the page window had focus, filtered natively before the page sees it. */
+export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode", () => handler());
+
 export type NotesFolder = { path: string; available: boolean };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
 export type Note = { path: string; name: string; modified: number };

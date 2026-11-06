@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use crate::dock::Request;
 use crate::error::Error;
 use crate::platform::browser::Read;
+use crate::platform::edge;
 
 const LABEL: &str = "web";
 
@@ -102,6 +103,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     *ready = false;
     let window = build()?;
     let setup = crate::platform::guard(&window, frame_allowed)
+        .and_then(|()| edge::filter(&window, edge::Owner::Page))
         .and_then(|()| crate::platform::browser::mobile(&window))
         .and_then(|()| crate::platform::browser::observe(&window));
     if let Err(error) = setup {

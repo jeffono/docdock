@@ -1,6 +1,7 @@
 //! Operating system-specific code. Currently Windows only.
 
 pub mod browser;
+pub mod edge;
 mod files;
 mod guard;
 mod windows;

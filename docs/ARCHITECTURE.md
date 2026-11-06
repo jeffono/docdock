@@ -159,6 +159,16 @@ per-monitor DPI awareness (PMv2).
   `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
   still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
+- **Edge features:** `platform/edge.rs` filters WebView2's accelerator keys and context menu in both
+  windows, installed natively before the first navigation, so no script or channel is involved.
+  Edge's dialogs and popups (downloads, history, print, save, view source, DevTools, find) either
+  cannot be closed in the panel or take focus from it, which closes the panel; the find bar is a
+  separate popup window. Keys outside an allowlist lose their browser action
+  (`IsBrowserAcceleratorKeyEnabled = false`) but still reach the content as key events, so the
+  editor gets Ctrl+J. The page keeps reload, zoom and back/forward; the UI keeps none, except
+  DevTools in debug builds. Ctrl+Tab on the page is consumed natively and emitted to `main` as
+  `panel-toggle-mode`; the page never sees it. Context menus keep only editing items, plus
+  back/forward/reload on the page; unknown or future items are dropped.
 - **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
   or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
   `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
@@ -283,7 +293,7 @@ No generated highlighting stylesheet or inline style is used. Parser chunks load
 (some HTML/JavaScript code is already shared with CodeMirror Markdown support).
 
 Ctrl+Tab is handled in the main window capture phase, before editor keymaps, and switches the
-Notes/Browser view through the guarded editor leave path. The page window has separate keyboard handling.
+Notes/Browser view through the guarded editor leave path. On the page, see "Edge features".
 
 **Editor.** The pencil in an expanded card's header, or Ctrl+E on the selected card, opens
 `features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. The one

@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: polish done; browser accelerator task next, then stage close.
+- M4 on `m4-web-pages`: all tasks done; stage close next (test review, cross-provider review, CI).
 
 ## Completed
 
@@ -41,9 +41,9 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (standard) Polish (2026-11-06): solid, ~12% smaller panel pin when active; ↓ in the bar opens
   address history; Ctrl+J joins lines in the editor; Ctrl+Tab toggles Notes/Browser; shortcuts in
   button tooltips; default panel width 460
-- [ ] (advanced) Disable WebView2 browser accelerators in the main window and block the
-  non-applicable ones in the page window (keep reload, find and zoom); app shortcuts such as
-  Ctrl+Tab still work with the page focused, without letting the page talk to Rust
+- [x] (advanced) Filter WebView2's accelerator keys and context menus in both windows (the page keeps
+  reload, zoom and history; find is blocked because its popup closes the panel); Ctrl+Tab works
+  with the page focused, without letting the page talk to Rust
 
 ## M4.1 — Preferences
 

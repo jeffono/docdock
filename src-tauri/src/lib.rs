@@ -66,6 +66,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
             let window = main_window::create(app)?;
+            platform::edge::filter(&window, platform::edge::Owner::Ui)
+                .map_err(|error| format!("{error:?}"))?;
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();
