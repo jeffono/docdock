@@ -131,8 +131,13 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         onclick={bodyClick}
         role="presentation"
         {@attach (element) => {
-          element.replaceChildren(renderNote(text ?? "", card.hit.path));
-          for (const link of element.querySelectorAll("a")) link.tabIndex = -1;
+          let current = true;
+          void renderNote(text ?? "", card.hit.path).then((fragment) => {
+            if (!current) return;
+            element.replaceChildren(fragment);
+            for (const link of element.querySelectorAll("a")) link.tabIndex = -1;
+          });
+          return () => { current = false; };
         }}
       ></div>
       {#if card.level === "preview" && clipped}

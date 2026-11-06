@@ -14,6 +14,9 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 - Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
 - Light and dark themes follow Windows. Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
+- Code syntax uses restrained semantic tokens in both themes: muted comments, violet keywords/types/tags,
+  green strings and ochre literals. Punctuation and identifiers keep the foreground color. These are
+  content semantics, shared by reading and editing, without adding emphasis or decorative italics.
 
 ## Typography
 

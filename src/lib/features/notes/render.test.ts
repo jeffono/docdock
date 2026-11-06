@@ -1,4 +1,8 @@
+import { ensureSyntaxTree } from "@codemirror/language";
+import { highlightTree } from "@lezer/highlight";
 import { expect, test } from "vitest";
+import { codeHighlighter, codeLanguage, codeSpans } from "./code-colors";
+import { editorExtensions, editorState } from "./editor";
 import { type Content, noteModel } from "./render";
 
 const html = (content: Content[]): string =>
@@ -11,6 +15,64 @@ const html = (content: Content[]): string =>
       return `<${item.tag}${attrs}>${html(item.children ?? [])}</${item.tag}>`;
     })
     .join("");
+
+test("highlighted code preserves hostile text using only fixed-class spans", async () => {
+  await codeLanguage("html")?.load();
+  const source = '<script>alert(1)</script><img src=x onerror="alert(1)"> &amp;';
+  const model = noteModel(`\x60\x60\x60html\n${source}\n\x60\x60\x60`, "a.md");
+  const text = (items: Content[]): string =>
+    items
+      .map((item) => {
+        if (typeof item === "string") return item;
+        expect(["pre", "code", "span"]).toContain(item.tag);
+        if (item.tag === "span")
+          expect(item.attrs).toEqual({
+            class: expect.stringMatching(/^code-(comment|keyword|string|literal)$/),
+          });
+        else expect(item.attrs).toEqual({});
+        return text(item.children ?? []);
+      })
+      .join("");
+  expect(text(model)).toBe(source);
+});
+
+test("unknown and unlabeled fences remain plain without interpreting their contents", () => {
+  for (const info of ["", "unknown", 'html" onclick="alert(1)', "__proto__"]) {
+    expect(
+      noteModel(`\x60\x60\x60${info}\n<img src=x onerror=alert(1)>\n\x60\x60\x60`, "a.md"),
+    ).toEqual([
+      {
+        tag: "pre",
+        attrs: {},
+        children: [{ tag: "code", attrs: {}, children: ["<img src=x onerror=alert(1)>"] }],
+      },
+    ]);
+  }
+});
+
+test("editor fences and reading use identical language spans without coloring surrounding Markdown", async () => {
+  await codeLanguage("TS extra metadata")?.load();
+  const code = 'const count: number = 42; // keep\nconst label = "ok";';
+  const prefix = "# Plain heading\n\n\x60\x60\x60ts\n";
+  const state = editorState(
+    `${prefix}${code}\n\x60\x60\x60`,
+    editorExtensions(
+      () => {},
+      () => {},
+      "Note",
+    ),
+  );
+  const tree = ensureSyntaxTree(state, state.doc.length, 1000);
+  expect(tree).not.toBeNull();
+  const spans: ReturnType<typeof codeSpans> = [];
+  if (tree)
+    highlightTree(tree, codeHighlighter, (from, to, className) =>
+      spans.push({ from: from - prefix.length, to: to - prefix.length, className }),
+    );
+  const reading = codeSpans(code, "typescript");
+  expect(reading.length).toBeGreaterThan(0);
+  expect(spans).toEqual(reading);
+});
 
 test("untrusted markup stays text and only safe destinations become links or images", () => {
   const out = html(

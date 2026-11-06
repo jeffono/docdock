@@ -13,6 +13,11 @@
   --color-selected: light-dark(#e3edfd, #1f2d44);
   --color-danger: light-dark(#b3261e, #f2857d);
 
+  --color-code-comment: var(--color-muted);
+  --color-code-keyword: light-dark(#655087, #b7a2d4);
+  --color-code-string: light-dark(#38674e, #97bda7);
+  --color-code-literal: light-dark(#795c33, #c9b18b);
+
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;

@@ -195,6 +195,16 @@ of allowlisted tags and attributes, then DOM nodes, rebuilt when the note or its
 HTML stays text; links and images follow the shared destination rules; footnote definitions render
 where they are written.
 
+Fenced code uses `code-colors.ts`: a shared registry of lazy local Lezer grammars for JavaScript,
+TypeScript, JSX/TSX, JSON, CSS and HTML. These cover common web snippets with four grammar packages;
+unknown or unlabeled languages stay plain. Reading waits for the matching cached grammar loads, then
+builds only text and fixed-class spans in the allowlisted model. A failed load leaves code plain;
+card attachment cleanup prevents a late load replacing newer content. The editor mounts the same
+parsers through CodeMirror's `codeLanguages`, with the same scoped highlighter and external CSS tokens.
+Markdown formatting walks ignore mounted code trees, so embedded syntax cannot become note widgets.
+No generated highlighting stylesheet or inline style is used. Parser chunks load only when requested
+(some HTML/JavaScript code is already shared with CodeMirror Markdown support).
+
 **Editor.** The pencil in an expanded card's header, or Ctrl+E on the selected card, opens
 `features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. The one
 editor is a snippet `Notes.svelte` hands to the edited card, which draws it in place of its content; it
