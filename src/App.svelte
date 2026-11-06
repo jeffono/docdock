@@ -1,9 +1,11 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import Notes from "./lib/features/notes/Notes.svelte";
+import Preferences from "./lib/features/preferences/Preferences.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
   onPanelFocus,
+  onPanelSearch,
   onToggleMode,
   onWebState,
   onWebVisible,
@@ -20,6 +22,8 @@ import IconButton from "./lib/ui/IconButton.svelte";
 let notes: Notes;
 let pinned = $state(false);
 let web = $state(false);
+let preferences = $state(false);
+let previousWeb = false;
 let page = $state<PageState | null>(null);
 let error = $state("");
 async function action(work: Promise<void>) {
@@ -42,9 +46,24 @@ onMount(() => {
   });
   const visible = onWebVisible((value) => {
     web = value;
+    if (value) preferences = false;
   });
   const toggle = onToggleMode(() => void action(switchMode(!web)));
+  const search = onPanelSearch(() => {
+    if (preferences)
+      void action(
+        switchMode(false)
+          .then(() => tick())
+          .then(() => notes.focusSearch()),
+      );
+  });
   const shortcut = (event: KeyboardEvent) => {
+    if (preferences && event.key === "Escape" && !event.isComposing) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void action(switchMode(previousWeb));
+      return;
+    }
     if (
       event.isComposing ||
       !event.ctrlKey ||
@@ -61,7 +80,7 @@ onMount(() => {
   window.addEventListener("keydown", shortcut, true);
   return () => {
     window.removeEventListener("keydown", shortcut, true);
-    for (const listener of [stop, state, visible, toggle])
+    for (const listener of [stop, state, visible, toggle, search])
       void listener.then((unlisten) => unlisten());
   };
 });
@@ -70,7 +89,16 @@ async function switchMode(value: boolean) {
   if (!(await notes.leaveEditor())) return;
   await webSetVisible(value);
   web = value;
+  preferences = false;
   if (value) notes.focusSearch();
+}
+async function togglePreferences() {
+  if (preferences) return switchMode(previousWeb);
+  if (!(await notes.leaveEditor())) return;
+  previousWeb = web;
+  await webSetVisible(false);
+  web = false;
+  preferences = true;
 }
 function togglePin() {
   pinned = !pinned;
@@ -83,7 +111,7 @@ function togglePin() {
 <main class:focused={focus.focused} class:left={focus.side === "left"}>
   <header>
     <nav aria-label={t("app.mode")}>
-      <button class:active={!web} aria-pressed={!web} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
+      <button class:active={!web && !preferences} aria-pressed={!web && !preferences} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
       <button class:active={web} aria-pressed={web} title={t("web.browserShortcut")} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
     </nav>
     {#if web}
@@ -91,11 +119,12 @@ function togglePin() {
       <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
     {/if}
     <span class="spacer"></span>
-    <IconButton quiet icon="folder" label={t("notes.choose")} onclick={() => notes.choose()} />
+    <IconButton quiet icon="settings" label={t("preferences.title")} pressed={preferences} onclick={() => action(togglePreferences())} />
     <IconButton quiet icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
-  <Notes bind:this={notes} browser={web} pageUrl={page?.url ?? ""} />
+  {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
+  <Notes bind:this={notes} browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>

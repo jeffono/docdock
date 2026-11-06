@@ -32,7 +32,15 @@ src-tauri/src/           Backend (Rust)
 
 Create folders when the first feature needs them.
 
-The tray chooses the screen side, exits the app and controls Windows startup; a second instance simply
+Preferences and the tray share the screen-side operation in `tray.rs`: save through the existing
+locked atomic settings update, update both tray check marks, and request the panel move. The
+`panel-focus` report synchronizes the Preferences radios, including changes from the tray. A failed
+save still moves for this session, with an error reported to the caller. No settings format changed.
+Preferences keeps Notes mounted but hidden and suspends its keyboard handling; the page window is
+hidden through the same operation used by the Notes tab. Formatting shortcut descriptions live with
+the editor bindings.
+
+The tray also exits the app and controls Windows startup; a second instance simply
 exits.
 
 ## Flow
@@ -68,7 +76,7 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
 animates. Thus opening, closing and animating do not compete. Coordinates are physical pixels, with
 per-monitor DPI awareness (PMv2).
 
-- **Side:** right by default, or left, chosen in the tray and saved in `settings.json`; a missing or
+- **Side:** right by default, or left, chosen in Preferences or the tray and saved in `settings.json`; a missing or
   unknown value means right. Everything below mirrors on the left. Switching moves the windows at once,
   without animation, keeping the panel open or closed.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on

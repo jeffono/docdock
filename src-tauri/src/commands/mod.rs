@@ -39,6 +39,15 @@ pub fn panel_close(requests: State<'_, Sender<Request>>) {
     send(requests, Request::Close);
 }
 
+#[tauri::command]
+pub fn panel_set_side(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    side: crate::dock::Side,
+) -> Result<(), Error> {
+    crate::tray::select_side(&app, side, &requests)
+}
+
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.
 #[tauri::command]
 pub async fn web_open(

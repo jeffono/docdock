@@ -1,6 +1,7 @@
 import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import type { Command, KeyBinding } from "@codemirror/view";
+import type { MessageKey } from "../../i18n";
 
 /** Only remove complete matching pairs; never consume adjacent user text. */
 export function toggleInline(text: string, from: number, to: number, marker: string) {
@@ -170,16 +171,23 @@ export function inList(state: EditorState) {
   return /^\s*(?:[-+*]|\d+[.)])\s/.test(state.doc.lineAt(state.selection.main.head).text);
 }
 
-export const formattingKeymap: KeyBinding[] = [
-  { key: "Ctrl-j", run: join, preventDefault: true },
-  { key: "Ctrl-b", run: inline("**") },
-  { key: "Ctrl-i", run: inline("*") },
-  { key: "Ctrl-Shift-x", run: inline("~~") },
-  { key: "Ctrl-Shift-`", run: inline("`"), preventDefault: true },
-  { key: "Ctrl-k", run: link },
-  ...Array.from({ length: 7 }, (_, level) => ({ key: `Ctrl-${level}`, run: block(level) })),
-  { key: "Ctrl-Shift-8", run: block("bullet") },
-  { key: "Ctrl-Shift-7", run: block("number") },
-  { key: "Ctrl-Shift-9", run: block("task") },
-  { key: "Ctrl-Shift-.", run: block("quote") },
+export const formattingShortcuts: (KeyBinding & { description: MessageKey; level?: number })[] = [
+  { description: "shortcut.join", key: "Ctrl-j", run: join, preventDefault: true },
+  { description: "shortcut.bold", key: "Ctrl-b", run: inline("**") },
+  { description: "shortcut.italic", key: "Ctrl-i", run: inline("*") },
+  { description: "shortcut.strike", key: "Ctrl-Shift-x", run: inline("~~") },
+  { description: "shortcut.code", key: "Ctrl-Shift-`", run: inline("`"), preventDefault: true },
+  { description: "shortcut.link", key: "Ctrl-k", run: link },
+  ...Array.from({ length: 7 }, (_, level) => ({
+    description: (level ? "shortcut.heading" : "shortcut.paragraph") as MessageKey,
+    level,
+    key: `Ctrl-${level}`,
+    run: block(level),
+  })),
+  { description: "shortcut.bullet", key: "Ctrl-Shift-8", run: block("bullet") },
+  { description: "shortcut.number", key: "Ctrl-Shift-7", run: block("number") },
+  { description: "shortcut.task", key: "Ctrl-Shift-9", run: block("task") },
+  { description: "shortcut.quote", key: "Ctrl-Shift-.", run: block("quote") },
 ];
+
+export const formattingKeymap: KeyBinding[] = formattingShortcuts;

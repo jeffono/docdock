@@ -26,6 +26,7 @@ pub fn run() {
         commands::panel_activate,
         commands::panel_set_pinned,
         commands::panel_close,
+        commands::panel_set_side,
         commands::web_open,
         commands::web_set_visible,
         commands::web_history,

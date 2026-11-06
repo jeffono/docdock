@@ -130,7 +130,7 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → top bar buttons (including the folder action), reversed with Shift+Tab. Card
+  pinned items") → list → top bar buttons (including Preferences), reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
@@ -160,6 +160,17 @@ pinned and unpinned notes differ only in section and starting state.
 | Ctrl+F         | Focus the search bar and select its text                                                 |
 | Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
 | Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
+
+## Preferences
+
+The top bar gear replaces the folder action and opens a third view with quiet General, Browser and
+Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
+Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
+General contains the folder path, folder picker and panel side; side changes mirror the tray. Browser
+shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
+editor bindings. Appearance is omitted until panel width supplies its first setting. Sections scroll
+inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
+Notes query so returning to Notes starts with an empty search.
 
 ## Panel navigation
 

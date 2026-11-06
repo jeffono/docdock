@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.1 on `preferences`: Preferences view first.
+- M4.1 on `preferences`: Preferences view done; resizable width next.
 
 ## Completed
 
@@ -26,7 +26,7 @@ detail each stage when it is next.
 Decided 2026-11-06: a third panel view opened by a gear icon replacing the folder icon, sections
 General, Appearance, Browser and Shortcuts; settings stay in the existing atomic `settings.json`.
 
-- [ ] (standard) Preferences view; move the folder choice and panel side there (the tray keeps the
+- [x] (standard) Preferences view; move the folder choice and panel side there (the tray keeps the
   side, in sync); returning to Notes after opening a page leaves the search field empty
 - [ ] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
 - [ ] (standard) Note order: name, modified or created, ascending or descending, saved; drag to

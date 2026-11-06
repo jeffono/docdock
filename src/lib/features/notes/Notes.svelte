@@ -68,7 +68,11 @@ import {
 import { pageNote } from "./page";
 import { FolderIndex, isPinnedList, search } from "./search";
 
-let { browser = false, pageUrl = "" }: { browser?: boolean; pageUrl?: string } = $props();
+let {
+  browser = false,
+  pageUrl = "",
+  inactive = false,
+}: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -410,6 +414,7 @@ export async function choose() {
     await refresh(await notesChoose());
   } catch (e) {
     error = errorText(e);
+    return error;
   } finally {
     choosing = false;
   }
@@ -627,6 +632,7 @@ function changed(changes: NotesChanges) {
 async function openPage(url: string) {
   if (!(await leaveEditor())) return false;
   await webOpen(url);
+  query = "";
   return true;
 }
 
@@ -850,7 +856,7 @@ function inField(event: KeyboardEvent): boolean {
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (event.defaultPrevented || event.isComposing) return;
+  if (inactive || event.defaultPrevented || event.isComposing) return;
   if (
     browser &&
     !tools?.contains(event.target as Node) &&
@@ -939,6 +945,7 @@ onMount(() => {
   // The shortcut goes to the search bar with its text selected, so typing replaces it; pressed with
   // the bar already focused, it closes the panel.
   const search = onPanelSearch((toggle) => {
+    if (inactive) return;
     const input = bar();
     if (toggle && (!input || document.activeElement === input)) {
       void closePanel();
@@ -981,7 +988,7 @@ onMount(() => {
   {/if}
 {/snippet}
 
-<section aria-label={t("notes.label")}>
+<section hidden={inactive} aria-label={t("notes.label")}>
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
         value={inputQuery}
@@ -1128,6 +1135,7 @@ onMount(() => {
   .content[hidden] {
     display: none;
   }
+  section[hidden] { display: none; }
   section {
     position: relative;
     display: flex;

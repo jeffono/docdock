@@ -22,6 +22,8 @@ export function panelClose(): Promise<void> {
   return invoke("panel_close");
 }
 
+export const panelSetSide = (side: PanelFocus["side"]) => invoke<void>("panel_set_side", { side });
+
 /** Whether the panel window or its page is foreground; `side` is the screen edge it docks to. */
 export type PanelFocus = { focused: boolean; side: "left" | "right" };
 export const onPanelFocus = (handler: (focus: PanelFocus) => void): Promise<UnlistenFn> =>
