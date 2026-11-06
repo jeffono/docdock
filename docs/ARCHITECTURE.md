@@ -122,7 +122,8 @@ per-monitor DPI awareness (PMv2).
 - **Hidden panel:** the window is disabled. `WS_EX_NOACTIVATE` alone is not enough: when the foreground app
   closed, Windows activated the off-screen panel and the keyboard went to an invisible window. When the slide
   out ends, `dock.rs` emits `panel-hidden` to the UI (the page's `visibilitychange` does not fire for a
-  window moved off-screen).
+  window moved off-screen). The UI then blurs its focused element: WebView2 keeps its inner focus after the
+  foreground moves away, so a hover-opened panel would otherwise show a focused bar without focus.
 - **Collapsed panel (_planned_):** WebView2 reduces memory use while hidden.
 - **Monitor changes:** at each cursor poll, the panel re-reads the monitors. If layout, resolution, DPI or
   taskbar changes the chosen monitor, the windows move to the new position without animation.

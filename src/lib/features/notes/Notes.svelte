@@ -620,6 +620,9 @@ onMount(() => {
     void leaveEditor().then((left) => {
       if (left) expanded = "";
     });
+    // WebView2 keeps its inner focus after Windows moves the foreground away: without this, a
+    // hover-opened panel would show a focused bar and caret while it has no focus.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
   // The shortcut goes to the search bar with its text selected, so typing replaces it; pressed with
   // the bar already focused, it closes the panel.
