@@ -5,8 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: tabs, shared search/plus bar and native floating suggestions implemented;
-  focus border preserved; awaiting further user observations.
+- M4 on `m4-web-pages`: browser UI rework done; last polish batch next, then stage close.
 
 ## Completed
 
@@ -37,8 +36,31 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
 - [x] (standard) Code colors with CodeMirror parsers, in the GitHub Light and Dark Default palette
 - [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
-- [ ] (standard) Rethink the browser UI with the user's observations; tabs, shared search/plus bar,
-  preserved focus border and floating suggestions implemented; continue with the next observations
+- [x] (standard) Rethink the browser UI with the user's observations: Notes/Browser tabs, shared
+  search bar with "+", preserved focus border and floating suggestions
+- [ ] (advanced) Polish (2026-11-06): solid, ~12% smaller panel pin when active; disable WebView2
+  browser accelerators in the main window and block the non-applicable ones in the page window
+  (keep reload, find and zoom) while app shortcuts still work with the page focused; ↓ in the bar
+  opens address history; Ctrl+J joins lines in the editor; Ctrl+Tab toggles Notes/Browser;
+  shortcuts in button tooltips; default panel width 460
+
+## M4.1 — Preferences
+
+Decided 2026-11-06: a third panel view opened by a gear icon replacing the folder icon, sections
+General, Appearance, Browser and Shortcuts; settings in a JSON file in `app_config_dir`, written
+atomically.
+
+- [ ] (standard) Preferences view and settings file; move the folder choice and panel side there
+- [ ] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
+- [ ] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
+  reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
+- [ ] (standard) Optional grouping by date when ordering by date
+
+## M4.2 — Editor
+
+- [ ] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
+- [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips
+- [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
 
 ## M5 — Distribute
 
