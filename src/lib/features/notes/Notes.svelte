@@ -91,14 +91,18 @@ function leaveEditor(): Promise<boolean> {
   });
   return leaving;
 }
+/** Note whose editor read is in flight; a rename of it cancels the open. */
+let opening: string | null = null;
 async function edit(path: string) {
   if (editing || choosing) return;
   const current = generation;
+  opening = path;
   try {
     error = "";
     const note = await notesOpen(path);
-    // A folder change or rename since the read: the note may belong to another folder now.
-    if (editing || choosing || current !== generation) return;
+    // A folder change or rename since the read: the note may belong to another folder now, or
+    // saving under the old path would bring the renamed file back.
+    if (editing || choosing || current !== generation || opening !== path) return;
     contents[path] = note;
     opened = note;
     version = note.version;
@@ -107,6 +111,8 @@ async function edit(path: string) {
     editing = true;
   } catch (e) {
     error = errorText(e);
+  } finally {
+    if (opening === path) opening = null;
   }
 }
 /**
@@ -439,6 +445,7 @@ let again = false;
 /** One reload at a time; changes during it cause one more. */
 function changed(changes: NotesChanges) {
   for (const [from, to] of changes.renames) {
+    if (opening === from) opening = null;
     if (from in contents) {
       contents[to] = contents[from];
       delete contents[from];
