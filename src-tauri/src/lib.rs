@@ -7,6 +7,7 @@ mod i18n;
 mod main_window;
 mod notes;
 pub mod panel;
+mod pinned;
 mod platform;
 mod shortcut;
 mod tray;
@@ -24,17 +25,23 @@ pub fn run() {
         commands::app_locale,
         commands::panel_activate,
         commands::panel_set_pinned,
-        commands::panel_set_editing,
+        commands::panel_close,
         commands::web_open,
         commands::web_close,
         commands::notes_folder,
         commands::notes_choose,
         commands::notes_list,
         commands::notes_open,
+        commands::notes_texts,
         commands::notes_save,
         commands::notes_paste_image,
         commands::notes_leftovers,
         commands::notes_restore,
+        commands::pinned_list,
+        commands::pinned_add,
+        commands::pinned_remove,
+        commands::pinned_set_collapsed,
+        commands::pinned_restore,
         commands::open_external,
     ];
     tauri::Builder::default()
@@ -61,7 +68,12 @@ pub fn run() {
             app.manage(locale);
             shortcut::setup(app, requests.clone());
             app.manage(requests);
-            dock::start(window.hwnd()?.0 as isize, receiver, side);
+            dock::start(
+                app.handle().clone(),
+                window.hwnd()?.0 as isize,
+                receiver,
+                side,
+            );
             Ok(())
         })
         // App commands need no capability from a local origin. Without this barrier, the page

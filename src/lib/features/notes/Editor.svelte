@@ -4,7 +4,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
 import { errorText, t } from "../../i18n";
-import { notesOpen, notesPasteImage, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
+import { notesOpen, notesPasteImage, notesSave, type OpenNote } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
@@ -44,6 +44,9 @@ let disposed = false;
 let deleted = $state(false);
 let updated = $state(false);
 let replacing = false;
+export function focus() {
+  view?.focus();
+}
 export function moved(next: string) {
   path = next;
   view?.dispatch({ effects: location.reconfigure(notePath.of(next)) });
@@ -137,9 +140,6 @@ const extensions = () => [
   ...editorExtensions(
     onleave,
     (focused) => {
-      void panelSetEditing(focused).catch((e) => {
-        error = errorText(e);
-      });
       if (!focused) void saving.flush();
     },
     t("editor.label"),
@@ -231,7 +231,6 @@ onMount(() => {
     disposed = true;
     saving.stop();
     view?.destroy();
-    void panelSetEditing(false);
   };
 });
 </script>
@@ -268,10 +267,8 @@ onMount(() => {
 </div>
 
 <style>
-.editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.surface { flex: 1; min-height: 0; overflow: auto; }
-.notice { padding: var(--space-2) calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch) var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
-.notice { border-bottom: 1px solid var(--color-line); }
+/* Grows with the text inside the card; the list is the only scroller. */
+.notice { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); font-size: var(--font-size-sm); }
 p { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .discard { border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); font: inherit; padding: 0 var(--space-2); min-height: var(--size-control); }

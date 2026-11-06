@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
@@ -12,27 +12,62 @@ import {
   notesList,
   notesOpen,
   notesRestore,
+  notesSave,
+  notesTexts,
   type OpenNote,
   onNotesChanged,
+  onPanelHidden,
+  onPanelSearch,
   openExternal,
-  panelSetEditing,
+  type Pinned,
+  panelClose,
+  pinnedAdd,
+  pinnedList,
+  pinnedRemove,
+  pinnedRestore,
+  pinnedSetCollapsed,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import type { AutosaveState } from "./autosave";
+import CardView from "./Card.svelte";
 import Editor from "./Editor.svelte";
-import { renderNote } from "./render";
-import "./content.css";
+import {
+  arrowScroll,
+  buildList,
+  type Card,
+  deeper,
+  defaultKey,
+  enter,
+  entryKey,
+  isMissing,
+  type Level,
+  move,
+  navKeys,
+  noteFileName,
+  rows,
+  shallower,
+} from "./list";
+import { FolderIndex, isPinnedList, search } from "./search";
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
-let selected = $state("");
 let error = $state("");
 let query = $state("");
-let gone = $state(false);
 let leftovers = $state<Leftover[]>([]);
-/** Version of the open note, to tell a real change from a reread of the same bytes. */
+let pinned = $state<Pinned>({ items: [], restorable: false });
+/** Path of the one expanded card, or "". Not remembered when the panel closes. */
+let expanded = $state("");
+/** Chosen with the arrows or the mouse; "" means the default for the query. */
+let selection = $state("");
+/** Raw text of the notes shown as preview or expanded. */
+let contents = $state<Record<string, OpenNote>>({});
+
+// One card edits at a time, in place: the editor replaces the expanded card's content.
+/** The note being edited; while editing it is also the expanded card. */
+let selected = $state("");
+/** Version of the edited note, to tell a real change from a reread of the same bytes. */
 let version = "";
 let opened = $state<OpenNote | null>(null);
 let editing = $state(false);
@@ -45,6 +80,8 @@ function leaveEditor(): Promise<boolean> {
   leaving = (async () => {
     const note = await editor?.finish();
     if (!note) return false;
+    contents[selected] = note;
+    selected = "";
     opened = note;
     version = note.version;
     editing = false;
@@ -54,48 +91,157 @@ function leaveEditor(): Promise<boolean> {
   });
   return leaving;
 }
-async function toggleEditor() {
-  if (editing) await leaveEditor();
-  else editing = true;
+/** Note whose editor read is in flight; a rename of it cancels the open. */
+let opening: string | null = null;
+async function edit(path: string) {
+  if (editing || choosing) return;
+  const current = generation;
+  opening = path;
+  try {
+    error = "";
+    const note = await notesOpen(path);
+    // A folder change or rename since the read: the note may belong to another folder now, or
+    // saving under the old path would bring the renamed file back.
+    if (editing || choosing || current !== generation || opening !== path) return;
+    contents[path] = note;
+    opened = note;
+    version = note.version;
+    selected = path;
+    expanded = path;
+    editing = true;
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    if (opening === path) opening = null;
+  }
 }
-
-let chrome = $state<HTMLElement>();
-/** The edit button sits over the first line and scrolls away with the content, like text would. */
-function follow(event: Event) {
-  const top = (event.target as Element).scrollTop ?? 0;
-  if (chrome) chrome.style.transform = top ? `translateY(${-top}px)` : "";
+/**
+ * Leaving by keyboard (Esc or Ctrl+E): the card stays expanded and the list takes focus, so the
+ * next Esc reaches the list rules instead of closing the panel.
+ */
+async function leaveByKeyboard() {
+  if (!(await leaveEditor())) return;
+  await tick();
+  const focused = document.activeElement;
+  if (focused && focused !== document.body) return;
+  list?.focus();
 }
-
-// A new scroller starts at the top.
-$effect(() => {
-  void editing;
-  void selected;
-  if (chrome) chrome.style.transform = "";
-});
-
-function shortcut(event: KeyboardEvent) {
-  if (
-    !selected ||
-    event.defaultPrevented ||
-    !event.ctrlKey ||
-    event.altKey ||
-    event.shiftKey ||
-    event.key.toLowerCase() !== "e"
-  )
-    return;
-  event.preventDefault();
-  void toggleEditor();
-}
-
-const visible = $derived(
-  notes.filter((note) => note.path.toLowerCase().includes(query.trim().toLowerCase())),
+const saveText = $derived(
+  saveStatus === "saved"
+    ? t("editor.saved")
+    : saveStatus === "saving" || saveStatus === "pending"
+      ? t("editor.saving")
+      : "",
 );
 
 /**
- * Bumped by every action that replaces what is shown: choosing a folder or opening a note. A read
- * that started before the bump answers for an old folder or note and is dropped.
+ * Bumped by every action that replaces what is shown: choosing a folder or renaming the open note. A
+ * read that started before the bump answers for an old folder or note and is dropped.
  */
 let generation = 0;
+
+// Search: the index follows the listing, one sync at a time, and starts over with each folder.
+const folderIndex = new FolderIndex(notesTexts);
+let indexVersion = $state(0);
+async function sync(list: Note[]): Promise<void> {
+  await folderIndex.sync(list);
+  indexVersion++;
+}
+
+const results = $derived.by(() => {
+  void indexVersion;
+  return search(folderIndex.index, query);
+});
+const kept = $derived.by(() => {
+  void indexVersion;
+  if (!expanded || results.hits.some((hit) => hit.path === expanded)) return null;
+  const listed = notes.some((note) => note.path === expanded);
+  if (!listed && !contents[expanded]) return null;
+  const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+  const entry = listed ? folderIndex.index.get(expanded) : undefined;
+  return {
+    path: expanded,
+    title: entry?.title ?? name,
+    tags: entry?.tags ?? [],
+    modified: entry?.modified ?? 0,
+    snippet: null,
+    gone: !listed,
+  };
+});
+const model = $derived(
+  buildList({
+    hits: results.hits,
+    exactTitle: results.exactTitle,
+    query,
+    pinned: pinned.items,
+    expanded,
+    kept,
+    editing,
+  }),
+);
+const listRows = $derived(rows(model, editing ? selected : ""));
+const keys = $derived(navKeys(model));
+const active = $derived(keys.includes(selection) ? selection : defaultKey(model, query));
+
+/** What a screen reader hears when the selection changes. */
+const announced = $derived.by(() => {
+  if (active === "create" && model.create !== null) return t("list.create", { text: model.create });
+  const entry = [...model.pinned, ...model.notes].find((e) => entryKey(e) === active);
+  if (!entry) return "";
+  return isMissing(entry) ? `${entry.title}, ${t("card.missing")}` : entry.hit.title;
+});
+
+function cardFor(path: string): Card | undefined {
+  for (const entry of [...model.pinned, ...model.notes])
+    if (!isMissing(entry) && entry.hit.path === path) return entry;
+}
+
+// Preview and expanded cards need their text.
+const wanted = $derived([
+  ...pinned.items
+    .filter((i) => i.kind === "note" && !i.missing && !i.collapsed)
+    .map((i) => i.target),
+  ...(expanded ? [expanded] : []),
+]);
+const loading = new Set<string>();
+async function load(path: string) {
+  const current = generation;
+  loading.add(path);
+  try {
+    const note = await notesOpen(path);
+    if (current === generation) contents[path] = note;
+  } catch (e) {
+    if (current === generation) error = errorText(e);
+  } finally {
+    loading.delete(path);
+  }
+}
+function loadWanted() {
+  for (const path of wanted) if (!(path in contents) && !loading.has(path)) void load(path);
+}
+$effect(() => {
+  void wanted;
+  untrack(loadWanted);
+});
+
+async function reloadContents(current: number) {
+  const listed = new Set(notes.map((note) => note.path));
+  const keep = new Set([...wanted, selected]);
+  for (const path of Object.keys(contents)) if (!keep.has(path)) delete contents[path];
+  await Promise.all(
+    Object.keys(contents)
+      .filter((path) => path !== selected && listed.has(path))
+      .map(async (path) => {
+        try {
+          const note = await notesOpen(path);
+          if (current === generation && note.version !== contents[path]?.version)
+            contents[path] = note;
+        } catch {
+          // Keeps the last content; the listing says if the note is gone.
+        }
+      }),
+  );
+}
 
 async function refresh(value: NotesFolder | null) {
   const current = ++generation;
@@ -105,10 +251,21 @@ async function refresh(value: NotesFolder | null) {
   selected = "";
   opened = null;
   leftovers = [];
+  contents = {};
+  expanded = "";
+  selection = "";
+  pinned = { items: [], restorable: false };
+  folderIndex.reset();
+  indexVersion++;
   if (!value?.available) return;
   const list = await notesList();
   if (current !== generation) return;
   notes = list;
+  await sync(list);
+  if (current !== generation) return;
+  const state = await pinnedList();
+  if (current !== generation) return;
+  pinned = state;
   const found = await notesLeftovers();
   if (current === generation) leftovers = found;
 }
@@ -116,43 +273,127 @@ async function refresh(value: NotesFolder | null) {
 async function restore(path: string) {
   try {
     error = "";
+    if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
-    notes = await notesList();
-    await open(note);
+    const list = await notesList();
+    notes = list;
+    await sync(list);
+    expanded = note;
+    selection = note;
   } catch (e) {
     error = errorText(e);
   }
 }
 
+/** While the folder picker is open no editor can open: its note would belong to the old folder. */
+let choosing = false;
 async function choose() {
+  if (choosing) return;
+  choosing = true;
   try {
     error = "";
     if (!(await leaveEditor())) return;
     await refresh(await notesChoose());
   } catch (e) {
     error = errorText(e);
+  } finally {
+    choosing = false;
   }
 }
 
-async function open(path: string) {
-  if (!(await leaveEditor())) return;
-  const current = ++generation;
+/** Creates the note for the typed text and opens it expanded. */
+async function create(text: string) {
   try {
     error = "";
-    const note = await notesOpen(path);
-    if (current !== generation) return;
-    opened = note;
-    version = note.version;
-    selected = path;
-    gone = false;
+    if (!(await leaveEditor())) return;
+    const taken = notes.map((note) => note.path);
+    // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const name = noteFileName(text, taken);
+      const result = await notesSave(name, "", "");
+      if (result.status === "saved") {
+        const list = await notesList();
+        notes = list;
+        await sync(list);
+        query = "";
+        expanded = name;
+        selection = name;
+        return;
+      }
+      taken.push(name);
+    }
+    error = errorText({ code: "saveFailed", detail: text });
   } catch (e) {
     error = errorText(e);
   }
 }
 
+/** Moves a card to `level`; for a pinned card, line against open is also remembered. */
+async function setLevel(card: Card, level: Level) {
+  const path = card.hit.path;
+  try {
+    error = "";
+    // Closing the edited card or expanding another leaves editing first: it saves, or refuses on a
+    // conflict or error and then nothing changes.
+    if (editing && (path !== selected || level !== "expanded") && !(await leaveEditor())) return;
+    selection = path;
+    if (level === "expanded") expanded = path;
+    else if (expanded === path) expanded = "";
+    if (!card.pinned) return;
+    const item = pinned.items.find((i) => i.target === path);
+    const collapsed = level === "line";
+    if (item && item.collapsed !== collapsed) pinned = await pinnedSetCollapsed(path, collapsed);
+  } catch (e) {
+    error = errorText(e);
+  }
+}
+
+function toggle(card: Card) {
+  const level = card.level === "line" ? deeper(card) : "line";
+  if (level) void setLevel(card, level);
+}
+
+let pinning = false;
+/** `refocus`: the toggle came from the editor, which can lose focus when its card changes section. */
+async function pinOrUnpin(card: Card, refocus = false) {
+  if (pinning) return;
+  pinning = true;
+  selection = card.hit.path;
+  try {
+    error = "";
+    pinned = card.pinned
+      ? await pinnedRemove(card.hit.path)
+      : await pinnedAdd(card.hit.path, card.hit.title);
+    if (refocus) {
+      await tick();
+      editor?.focus();
+    }
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    pinning = false;
+  }
+}
+
+async function pinnedAction(action: () => Promise<Pinned>) {
+  try {
+    error = "";
+    pinned = await action();
+  } catch (e) {
+    error = errorText(e);
+  }
+}
+
+/** Removes a pinned item whose note is gone; the selection moves to the next item, else the previous. */
+async function removeMissing(target: string) {
+  const at = keys.indexOf(target);
+  await pinnedAction(() => pinnedRemove(target));
+  if (selection === target) selection = keys[at] ?? keys[at - 1] ?? "";
+}
+
 /**
- * Rereads after a change on disk. The open note is replaced only if its bytes changed, so a save of
+ * Rereads after a change on disk. The edited note is replaced only if its bytes changed, so a save of
  * the same text does not disturb it; a note that disappeared keeps its last content on screen.
  */
 async function reload() {
@@ -175,16 +416,22 @@ async function reload() {
   const list = await notesList();
   if (stale()) return;
   notes = list;
+  await sync(list);
+  if (stale()) return;
+  const state = await pinnedList();
+  if (stale()) return;
+  pinned = state;
+  await reloadContents(current);
+  loadWanted();
+  if (stale()) return;
   const path = selected;
   if (!path) return;
   if (!notes.some((note) => note.path === path)) {
-    gone = true;
     if (editing) editor?.missing();
     return;
   }
   const note = await notesOpen(path);
   if (stale()) return;
-  gone = false;
   if (note.version !== version) {
     if (editing && !editor?.reload(note, editRevision)) return;
     opened = note;
@@ -198,6 +445,13 @@ let again = false;
 /** One reload at a time; changes during it cause one more. */
 function changed(changes: NotesChanges) {
   for (const [from, to] of changes.renames) {
+    if (opening === from) opening = null;
+    if (from in contents) {
+      contents[to] = contents[from];
+      delete contents[from];
+    }
+    if (expanded === from) expanded = to;
+    if (selection === from) selection = to;
     if (selected !== from) continue;
     selected = to;
     editor?.moved(to);
@@ -221,9 +475,10 @@ function changed(changes: NotesChanges) {
   })();
 }
 
-function linkClick(event: MouseEvent) {
+/** A click on a link in a card's content; true if it was one. */
+function linkClick(event: MouseEvent): boolean {
   const link = (event.target as Element).closest("a");
-  if (!link) return;
+  if (!link) return false;
   event.preventDefault();
   const href = link.getAttribute("href") ?? "";
   if (href.startsWith("#")) {
@@ -234,34 +489,287 @@ function linkClick(event: MouseEvent) {
     void openExternal(href).catch((e) => {
       error = errorText(e);
     });
+  return true;
 }
 
-function directory(path: string) {
-  return path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+let tools = $state<HTMLElement>();
+let list = $state<HTMLElement>();
+const bar = () => tools?.querySelector("input");
+
+/** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
+function typed() {
+  selection = "";
+  void leaveEditor();
+}
+
+/** About three lines of the list's text: one ↑ or ↓ step inside a long expanded card. */
+function lineStep(element: HTMLElement): number {
+  return 3 * (Number.parseFloat(getComputedStyle(element).lineHeight) || 20);
+}
+
+/** ↑ / ↓ scroll a long expanded card before leaving it; with Alt they always move the selection. */
+function arrow(event: KeyboardEvent) {
+  const down = event.key === "ArrowDown";
+  const card = cardFor(active);
+  if (!event.altKey && list && card?.level === "expanded") {
+    const element = list.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"]`);
+    if (element) {
+      const delta = arrowScroll(
+        element.getBoundingClientRect(),
+        list.getBoundingClientRect(),
+        down,
+        lineStep(list),
+      );
+      if (delta) {
+        list.scrollBy({ top: delta });
+        return;
+      }
+    }
+  }
+  selection = move(keys, active, down ? 1 : -1);
+}
+
+/** An explicit close leaves editing first, the guarded way; on a conflict or error the panel stays. */
+async function closePanel() {
+  if (await leaveEditor()) await panelClose();
+}
+
+/**
+ * Esc, in layers: leave editing; clear the search and return to the bar; from the empty bar, close
+ * the panel. A pinned panel stays.
+ */
+function escapeKey(inBar: boolean) {
+  if (editing && !inBar) {
+    void leaveByKeyboard();
+    return;
+  }
+  const input = bar();
+  if (query || (input && !inBar)) {
+    query = "";
+    selection = "";
+    input?.focus();
+    return;
+  }
+  void closePanel();
+}
+
+/** List keys, from the search bar (`inBar`) or from anywhere in the panel outside a text field. */
+function listKey(event: KeyboardEvent, inBar: boolean) {
+  // Without a folder there is no list: buttons keep Enter and the arrows.
+  if (!list && event.key !== "Escape") return;
+  const modified = event.ctrlKey || event.shiftKey || event.metaKey;
+  switch (event.key) {
+    case "Escape":
+      // Before the field's own Esc, which would leave it.
+      event.preventDefault();
+      event.stopPropagation();
+      escapeKey(inBar);
+      return;
+    case "ArrowDown":
+    case "ArrowUp":
+      if (modified) return;
+      event.preventDefault();
+      arrow(event);
+      return;
+    case "PageDown":
+    case "PageUp":
+      if (modified || event.altKey || !list) return;
+      event.preventDefault();
+      list.scrollBy({ top: (event.key === "PageDown" ? 0.9 : -0.9) * list.clientHeight });
+      return;
+    case "ArrowRight":
+    case "ArrowLeft": {
+      if (modified || event.altKey) return;
+      // In the bar the arrows move the caret; they open and close only from its natural place, the end.
+      if (inBar && !caretAtEnd(event)) return;
+      const card = cardFor(active);
+      const level = card && (event.key === "ArrowRight" ? deeper(card) : shallower(card));
+      if (!card || !level) return;
+      event.preventDefault();
+      void setLevel(card, level);
+      return;
+    }
+    case "Enter": {
+      event.preventDefault();
+      if (event.ctrlKey) {
+        if (query.trim()) void create(query.trim());
+        return;
+      }
+      const action = enter(model, active);
+      if (action?.action === "create") void create(action.text);
+      else if (action?.action === "remove") void removeMissing(action.target);
+      else if (action) {
+        const card = cardFor(action.path);
+        if (card) void setLevel(card, "expanded");
+      }
+      return;
+    }
+    case "Delete": {
+      const action = enter(model, active);
+      if (modified || event.altKey || action?.action !== "remove") return;
+      if (inBar && !caretAtEnd(event)) return;
+      event.preventDefault();
+      void removeMissing(action.target);
+      return;
+    }
+  }
+  // Type to search: the key lands in the bar once it has the focus. Space stays with buttons.
+  const printable = event.key.length === 1 && event.key !== " ";
+  if (!inBar && printable && !event.ctrlKey && !event.altKey && !event.metaKey) bar()?.focus();
+}
+
+/** The key's field has its caret at the end with nothing selected, where the key edits nothing. */
+function caretAtEnd(event: KeyboardEvent): boolean {
+  const input = event.target;
+  return (
+    !(input instanceof HTMLInputElement) ||
+    (input.selectionStart === input.selectionEnd && input.selectionEnd === input.value.length)
+  );
+}
+
+/** The search bar's keys. Runs in capture, before the field's own Esc. */
+function barKey(event: KeyboardEvent) {
+  if (event.target instanceof HTMLInputElement && !event.isComposing) listKey(event, true);
+}
+
+/** A text field or the editor keeps its keys; the editor sits in a shadow root. */
+function inField(event: KeyboardEvent): boolean {
+  const target = event.composedPath()[0];
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || target.matches("input, textarea, select"))
+  );
+}
+
+function shortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing) return;
+  const input = bar();
+  const inBar = input !== undefined && input !== null && event.target === input;
+  const field = !inBar && inField(event);
+  const ctrl = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+  const key = event.key.toLowerCase();
+  // Cycle the three areas without entering card controls or leaving the WebView.
+  if (
+    key === "tab" &&
+    !field &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    list &&
+    input
+  ) {
+    // Recovery actions (leftovers, a deleted pinned list) sit between the bar and the cards.
+    const stops = [
+      input,
+      ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
+      list,
+      ...document.querySelectorAll<HTMLElement>("main > header button"),
+      ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
+    ];
+    const target = event.target as HTMLElement;
+    const own = stops.indexOf(target);
+    const at = own >= 0 ? own : list.contains(target) ? stops.indexOf(list) : -1;
+    if (at >= 0) {
+      event.preventDefault();
+      stops[(at + (event.shiftKey ? stops.length - 1 : 1)) % stops.length].focus();
+      return;
+    }
+  }
+  const inEditor =
+    editing &&
+    event
+      .composedPath()
+      .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
+  if (ctrl && key === "d" && (!field || inEditor)) {
+    const card = cardFor(inEditor ? selected : active);
+    if (!card) return;
+    event.preventDefault();
+    // Held down, the key repeats: one press is one toggle.
+    if (!event.repeat) void pinOrUnpin(card, inEditor);
+    return;
+  }
+  if (ctrl && key === "e") {
+    const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
+    if (!path) return;
+    event.preventDefault();
+    if (editing) void leaveByKeyboard();
+    else void edit(path);
+    return;
+  }
+  if (ctrl && key === "f" && !field) {
+    event.preventDefault();
+    input?.focus();
+    input?.select();
+    return;
+  }
+  // The bar's keys ran in capture.
+  if (!inBar && !field) listKey(event, false);
 }
 
 onMount(() => {
   const unlisten = onNotesChanged(changed);
+  // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
+  const hidden = onPanelHidden(() => {
+    void leaveEditor().then((left) => {
+      if (left) expanded = "";
+    });
+    // WebView2 keeps its inner focus after Windows moves the foreground away: without this, a
+    // hover-opened panel would show a focused bar and caret while it has no focus.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  // The shortcut goes to the search bar with its text selected, so typing replaces it; pressed with
+  // the bar already focused, it closes the panel.
+  const search = onPanelSearch((toggle) => {
+    const input = bar();
+    if (toggle && (!input || document.activeElement === input)) {
+      void closePanel();
+      return;
+    }
+    input?.focus();
+    input?.select();
+  });
   notesFolder()
     .then(refresh)
     .catch((e) => {
       error = errorText(e);
     });
-  return () => void unlisten.then((stop) => stop());
+  return () => {
+    void unlisten.then((stop) => stop());
+    void hidden.then((stop) => stop());
+    void search.then((stop) => stop());
+  };
 });
 </script>
 
 <svelte:window onkeydown={shortcut} />
 
+{#snippet noteEditor()}
+  {#if opened}
+    <Editor
+      bind:this={editor}
+      path={selected}
+      note={opened}
+      onstatus={(state) => {
+        saveStatus = state;
+      }}
+      onleave={() => void leaveByKeyboard()}
+      ondiscard={() => {
+        void load(selected);
+        selected = "";
+        editing = false;
+      }}
+    />
+  {/if}
+{/snippet}
+
 <section aria-label={t("notes.label")}>
   {#if folder?.available}
-    <div class="tools">
+    <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
         bind:value={query}
+        aria-controls="note-list"
         aria-label={t("notes.search")}
         placeholder={t("notes.searchPlaceholder")}
-        onfocus={() => panelSetEditing(true)}
-        onblur={() => panelSetEditing(false)}
       />
       <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
     </div>
@@ -282,56 +790,73 @@ onMount(() => {
         {/each}
       </section>
     {/if}
-    {#if visible.length > 0}
-      <ul class:compact={selected}>
-        {#each visible as note (note.path)}
-          <li>
-            <button
-              class:current={note.path === selected}
-              aria-current={note.path === selected}
-              title={note.path}
-              onclick={() => open(note.path)}
-            >
-              <span>{note.name}</span><small>{directory(note.path)}</small>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <p class="message">{notes.length > 0 ? t("notes.noMatch") : t("notes.emptyFolder")}</p>
-    {/if}
-    {#if selected}
-      {#if gone && !editing}<p class="message" role="status">{t("notes.gone")}</p>{/if}
-      <div class="note-area" class:editing onscrollcapture={follow}>
-      <div class="edit-tools" bind:this={chrome}>
-        {#if editing && (saveStatus === "saved" || saveStatus === "saving" || saveStatus === "pending")}
-          <small role="status">{t(saveStatus === "saved" ? "editor.saved" : "editor.saving")}</small>
-        {/if}
-        <IconButton icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={toggleEditor} />
-      </div>
-      {#if editing && opened}
-        <Editor
-          bind:this={editor}
-          path={selected}
-          note={opened}
-          onstatus={(state) => { saveStatus = state; }}
-          onleave={() => void leaveEditor()}
-          ondiscard={() => {
-            editing = false;
-          }}
-        />
-      {:else}
-      <!-- Built from the editor's parser as DOM nodes; note text never becomes HTML. -->
-      <div
-        class="note note-content"
-        onclick={linkClick}
-        ondblclick={() => { editing = true; }}
-        role="presentation"
-        {@attach (element) => { element.replaceChildren(renderNote(opened?.text ?? "", selected)); }}
-      ></div>
+    <!-- Plain structure: cards hold buttons, links and the editor, so they cannot be listbox options.
+      The selected item carries aria-current and the live region announces it. -->
+    <p class="announce" aria-live="polite">{announced}</p>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
+    <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
+      tabindex="0" bind:this={list}
+      onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
+      {#if pinned.restorable}
+        <div class="restore">
+          <p class="message">{t("pinned.deleted")}</p>
+          <Button onclick={() => pinnedAction(pinnedRestore)}>{t("pinned.restore")}</Button>
+        </div>
       {/if}
-      </div>
-    {/if}
+      {#if model.create !== null}
+        {@const text = model.create}
+        <button tabindex="-1" aria-current={active === "create" || undefined} class="create" class:selected={active === "create"} onclick={() => create(text)}>
+          {t("list.create", { text })}
+        </button>
+      {/if}
+      <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
+      {#each listRows as row (row.key)}
+        {#if "heading" in row}
+          <h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>
+        {:else if isMissing(row.entry)}
+          {@const entry = row.entry}
+          {@const current = active === entry.target}
+          <div
+            class="missing"
+            class:selected={current}
+            role="group"
+            aria-label={entry.title}
+            aria-current={current || undefined}
+            {@attach (element) => {
+              if (current) element.scrollIntoView({ block: "nearest" });
+            }}
+          >
+            <span class="title" title={entry.target}>{entry.title}</span>
+            <small>{t("card.missing")}</small>
+            <IconButton
+              tabindex={-1}
+              quiet
+              icon="x"
+              label={t("card.remove")}
+              onclick={() => removeMissing(entry.target)}
+            />
+          </div>
+        {:else}
+          {@const card = row.entry}
+          {@const edited = editing && card.hit.path === selected}
+          <CardView
+            {card}
+            text={contents[card.hit.path]?.text}
+            selected={active === card.hit.path}
+            onheader={() => toggle(card)}
+            onexpand={() => setLevel(card, "expanded")}
+            onpreview={() => setLevel(card, "preview")}
+            onpin={() => pinOrUnpin(card)}
+            onedit={() => (edited ? leaveEditor() : edit(card.hit.path))}
+            onlink={linkClick}
+            editing={edited}
+            status={edited ? saveText : ""}
+            editor={edited ? noteEditor : undefined}
+          />
+        {/if}
+      {/each}
+      {#if !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
+    </div>
   {:else}
     <div class="empty">
       <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
@@ -350,72 +875,113 @@ onMount(() => {
     min-height: 0;
   }
 
-  .note-area { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid transparent; border-radius: var(--radius-sm); }
-  .note-area.editing { border-color: var(--color-accent); }
-  .edit-tools { position: absolute; z-index: 1; top: var(--space-2); right: var(--space-3); display: flex; gap: var(--space-2); align-items: center; border-radius: var(--radius-sm); background: var(--color-bg); }
-  .edit-tools small { color: var(--color-muted); font-size: var(--font-size-sm); }
+  .list {
+    flex: 1;
+    padding-bottom: var(--space-2);
+    overflow-y: auto;
+  }
+
+  .list:focus-visible {
+    outline: none;
+  }
+
+  h2 {
+    margin: 0;
+    padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+  }
+
+  .create {
+    display: block;
+    box-sizing: border-box;
+    width: calc(100% - var(--panel-inset-left) - var(--panel-inset-right));
+    min-height: var(--size-control);
+    margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
+    padding: var(--space-1) var(--space-2);
+    overflow: hidden;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-accent);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .create:hover,
+  .create.selected {
+    background: var(--color-selected);
+  }
+
+  .create.selected {
+    border-color: var(--color-accent);
+  }
+
+  .missing {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
+    /* The title starts where card titles do: header padding plus title padding. */
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+  }
+
+  .missing .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-muted);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .missing small {
+    flex: none;
+    color: var(--color-muted);
+  }
+
+  /* Like a selected line. */
+  .missing.selected {
+    border-color: var(--color-accent);
+    background: var(--color-selected);
+  }
+
+  .missing.selected .title {
+    color: var(--color-accent);
+  }
+
+  /* Heard, not seen. */
+  .announce {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .restore {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
+  }
 
   .tools {
     display: flex;
     flex: none;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-3) var(--space-2);
-  }
-
-  ul {
-    flex: 1;
-    margin: 0;
-    padding: 0 var(--space-3) var(--space-2);
-    overflow-y: auto;
-    list-style: none;
-  }
-
-  ul.compact {
-    flex: 0 1 auto;
-    max-height: 30%;
-    border-bottom: 1px solid var(--color-line);
-  }
-
-  li button {
-    display: flex;
-    gap: var(--space-2);
-    justify-content: space-between;
-    box-sizing: border-box;
-    width: 100%;
-    padding: var(--space-1) var(--space-2);
-    border: 0;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--color-muted);
-    font: inherit;
-    font-size: var(--font-size-sm);
-    text-align: left;
-  }
-
-  li button:hover {
-    background: var(--color-surface);
-    color: var(--color-fg);
-  }
-
-  li button.current {
-    background: var(--color-selected);
-    color: var(--color-accent);
-    font-weight: 600;
-  }
-
-  li span,
-  li small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  li small {
-    flex: none;
-    max-width: 45%;
-    font-size: var(--font-size-sm);
-    font-weight: 400;
-    opacity: 0.75;
+    padding: var(--space-3) var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
   }
 
   .leftovers {
@@ -431,7 +997,7 @@ onMount(() => {
     display: flex;
     gap: var(--space-2);
     align-items: center;
-    padding: 0 var(--space-3) 0 var(--space-4);
+    padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
     font-size: var(--font-size-sm);
   }
 
@@ -451,9 +1017,13 @@ onMount(() => {
   .message,
   .error {
     margin: 0;
-    padding: var(--space-1) var(--space-4);
+    padding: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
     font-size: var(--font-size-sm);
     overflow-wrap: anywhere;
+  }
+
+  .restore .message {
+    padding: 0;
   }
 
   .message {
@@ -469,7 +1039,7 @@ onMount(() => {
     flex-direction: column;
     gap: var(--space-2);
     align-items: flex-start;
-    padding: var(--space-4);
+    padding: var(--space-4) var(--panel-inset-right) var(--space-4) var(--panel-inset-left);
   }
 
   .empty p {
@@ -482,13 +1052,4 @@ onMount(() => {
     font-size: var(--font-size-sm);
     overflow-wrap: anywhere;
   }
-
-  .note {
-    flex: 1;
-    min-height: 0;
-    padding: var(--space-3) var(--space-4) var(--space-4);
-    overflow-y: auto;
-    overflow-wrap: anywhere;
-  }
-
 </style>

@@ -1,11 +1,9 @@
 :host {
   display: block;
-  height: 100%;
   color: var(--color-fg);
   font: inherit;
 }
 :host .cm-editor {
-  min-height: 100%;
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
 }
@@ -17,7 +15,8 @@
   line-height: var(--line-height);
 }
 :host .cm-editor .cm-content {
-  padding: var(--space-3) var(--space-4) var(--space-4);
+  /* The card body's padding, so entering editing does not move the text. */
+  padding: var(--space-1) var(--space-3) var(--space-3);
   caret-color: var(--color-fg);
 }
 :host .cm-editor .cm-cursor {
@@ -89,9 +88,4 @@
 :host :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
-}
-
-/* Above `.cm-line { padding: 0 }`: room for the floating edit button, on the first line only. */
-:host .cm-editor .cm-content > :first-child {
-  padding-inline-end: var(--edit-chrome-width);
 }

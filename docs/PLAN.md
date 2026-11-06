@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: M3 — find and pin.
+Nothing. Next: M4.
 
 ## Completed
 
@@ -15,14 +15,8 @@ Nothing. Next: M3 — find and pin.
   pasted images.
 - M2.1 — Editor polish: save robustness, live formatting, editor chrome and one Markdown parser for
   both views; see `docs/decisions/0007-one-markdown-parser.md`.
-
-## M3 — Find and pin
-
-- [ ] (standard) Content search with an in-memory index; FTS5 only if slowness is measured
-- [ ] (standard) Unified bar: search notes and create a note with the typed text, as in Notational Velocity
-- [ ] (standard) Pinned notes in an accordion at the top, open by default; see
-  `docs/decisions/0005-pinned-items.md`
-- [ ] (standard) Restore deleted `_pinned.md`
+- M3 — Find and pin: content search, unified bar, pinned cards and note rows, in-place editing, focused
+  panel and list keyboard; see "Note list" in `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`.
 
 ## M4 — Web pages
 

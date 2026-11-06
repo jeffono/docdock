@@ -5,19 +5,33 @@ const en = {
   "app.web": "Web page",
   "app.pin": "Pin panel",
   "notes.label": "Notes",
-  "notes.search": "Search notes",
-  "notes.searchPlaceholder": "Search notes…",
+  "notes.search": "Search or create a note",
+  "notes.searchPlaceholder": "Search or create a note…",
   "notes.changeFolder": "Change folder: {path}",
-  "notes.noMatch": "No note with that name.",
-  "notes.emptyFolder": "No notes in this folder.",
+  "notes.emptyFolder":
+    "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
   "notes.unavailable": "The notes folder is not available.",
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
   "notes.gone": "This note was moved or deleted outside the app.",
+  "list.pinned": "Pinned",
+  "list.notes": "Notes",
+  "list.create": "Create “{text}”",
+  "card.pin": "Pin (Ctrl+D)",
+  "card.unpin": "Unpin (Ctrl+D)",
+  "card.show": "Open (→)",
+  "card.showAll": "Show all",
+  "card.showLess": "Show less",
+  "card.collapse": "Close (←)",
+  "card.close": "Close note",
+  "card.missing": "Note not found",
+  "card.remove": "Remove from pinned (Delete)",
+  "pinned.deleted": "The pinned list was deleted.",
+  "pinned.restore": "Restore pinned items",
   "editor.updated": "Updated from disk",
   "editor.undo": "Undo",
   "editor.deleted": "Deleted outside the app; your next edit recreates it.",
-  "editor.toggle": "Edit note",
+  "editor.toggle": "Edit (Ctrl+E)",
   "editor.saving": "Saving…",
   "editor.saved": "Saved",
   "editor.label": "Note text",
@@ -50,6 +64,8 @@ const en = {
     "The note changed outside the app; the external version was kept at {external} and your text at {ours}: {detail}",
   "error.oursKept":
     "The note changed outside the app while saving; a copy of your text was kept at {path}.",
+  "error.pinnedChanged":
+    "The pinned list changed outside the app while it was being updated; try again.",
   "error.invalidUrl": "Invalid address: {detail}",
   "error.urlNotAllowed": "Address not allowed: {url}",
   "error.linkNotAllowed": "Only web and email links open outside the app.",
@@ -61,19 +77,33 @@ const ptBR: Record<MessageKey, string> = {
   "app.web": "Página web",
   "app.pin": "Fixar painel",
   "notes.label": "Notas",
-  "notes.search": "Buscar nas notas",
-  "notes.searchPlaceholder": "Buscar nas notas…",
+  "notes.search": "Buscar ou criar uma nota",
+  "notes.searchPlaceholder": "Buscar ou criar uma nota…",
   "notes.changeFolder": "Trocar pasta: {path}",
-  "notes.noMatch": "Nenhuma nota com esse nome.",
-  "notes.emptyFolder": "Nenhuma nota nesta pasta.",
+  "notes.emptyFolder":
+    "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
   "notes.unavailable": "A pasta de notas não está disponível.",
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
+  "list.pinned": "Fixados",
+  "list.notes": "Notas",
+  "list.create": "Criar “{text}”",
+  "card.pin": "Fixar (Ctrl+D)",
+  "card.unpin": "Desafixar (Ctrl+D)",
+  "card.show": "Abrir (→)",
+  "card.showAll": "Mostrar tudo",
+  "card.showLess": "Mostrar menos",
+  "card.collapse": "Fechar (←)",
+  "card.close": "Fechar nota",
+  "card.missing": "Nota não encontrada",
+  "card.remove": "Remover dos fixados (Delete)",
+  "pinned.deleted": "A lista de fixados foi apagada.",
+  "pinned.restore": "Restaurar fixados",
   "editor.updated": "Atualizada do disco",
   "editor.undo": "Desfazer",
   "editor.deleted": "Apagada fora do app; sua próxima edição a recria.",
-  "editor.toggle": "Editar nota",
+  "editor.toggle": "Editar (Ctrl+E)",
   "editor.saving": "Salvando…",
   "editor.saved": "Salvo",
   "editor.label": "Texto da nota",
@@ -105,6 +135,8 @@ const ptBR: Record<MessageKey, string> = {
     "A nota mudou fora do app; a versão externa ficou em {external} e o seu texto em {ours}: {detail}",
   "error.oursKept":
     "A nota mudou fora do app durante o salvamento; uma cópia do seu texto ficou em {path}.",
+  "error.pinnedChanged":
+    "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
   "error.linkNotAllowed": "Só links da web e de e-mail abrem fora do app.",
@@ -134,6 +166,12 @@ export function errorText(error: unknown): string {
     return t("error.unexpected", { detail: JSON.stringify(error) });
   }
   return t("error.unexpected", { detail: String(error) });
+}
+
+export function date(ms: number): string {
+  return new Date(ms).toLocaleDateString(document.documentElement.lang || "en", {
+    dateStyle: "short",
+  });
 }
 
 export function dateTime(ms: number): string {

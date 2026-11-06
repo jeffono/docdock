@@ -35,8 +35,8 @@ pub fn panel_set_pinned(requests: State<'_, Sender<Request>>, pinned: bool) {
 }
 
 #[tauri::command]
-pub fn panel_set_editing(requests: State<'_, Sender<Request>>, editing: bool) {
-    send(requests, Request::SetEditing(editing));
+pub fn panel_close(requests: State<'_, Sender<Request>>) {
+    send(requests, Request::Close);
 }
 
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.
@@ -74,6 +74,14 @@ pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
 pub fn notes_open(app: AppHandle, path: String) -> Result<crate::notes::OpenNote, Error> {
     crate::notes::open(&app, &path)
 }
+/// Many notes in one call for the search index; unreadable ones are left out.
+#[tauri::command(async)]
+pub fn notes_texts(
+    app: AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<crate::notes::NoteText>, Error> {
+    crate::notes::texts(&app, &paths)
+}
 /// `async` keeps file I/O off the main thread.
 #[tauri::command(async)]
 pub fn notes_save(
@@ -110,6 +118,35 @@ pub fn notes_leftovers(app: AppHandle) -> Result<Vec<crate::notes::Leftover>, Er
 #[tauri::command(async)]
 pub fn notes_restore(app: AppHandle, path: String) -> Result<String, Error> {
     crate::notes::restore(&app, &path)
+}
+/// The pinned commands return the state after the change, so the UI needs no second call.
+#[tauri::command(async)]
+pub fn pinned_list(app: AppHandle) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::pinned(&app)
+}
+#[tauri::command(async)]
+pub fn pinned_add(
+    app: AppHandle,
+    target: String,
+    title: String,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::pin(&app, &target, &title)
+}
+#[tauri::command(async)]
+pub fn pinned_remove(app: AppHandle, target: String) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::unpin(&app, &target)
+}
+#[tauri::command(async)]
+pub fn pinned_set_collapsed(
+    app: AppHandle,
+    target: String,
+    collapsed: bool,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::set_collapsed(&app, &target, collapsed)
+}
+#[tauri::command(async)]
+pub fn pinned_restore(app: AppHandle) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::restore_pinned(&app)
 }
 
 #[tauri::command]
