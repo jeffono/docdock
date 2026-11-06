@@ -32,7 +32,7 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (standard) Unified bar as address bar, with local history and suggestions; see
   `docs/decisions/0006-search-suggestions.md`. Level 2 and a settings screen stay out of M4.
 - [ ] (standard) Pin pages in `_pinned.md`; pinned web cards open the page
-- [ ] (advanced) Read the page selection from Rust without letting the page talk to Rust
+- [x] (advanced) Read the page selection from Rust without letting the page talk to Rust
 - [ ] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
 - [ ] (standard) Code colors with CodeMirror parsers
 - [ ] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`

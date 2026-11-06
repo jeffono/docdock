@@ -20,5 +20,7 @@ many sites block it.
 - The page shares the UI's WebView2 profile; only the rendering process is separate.
 - `add_child` would require removing `WS_EX_NOACTIVATE` from the main window, so it was ruled out.
 - The page does not talk to Rust: focus and Esc are observed by the panel thread.
+- Rust may pull data from the page by running a constant script through WebView2 `ExecuteScript` and
+  decoding its result as untrusted; the page still has no bridge, message or host object to call Rust.
 - Without a web page, the hidden app uses about 160 MB of private memory; the page adds whatever the site
   requires (github.com exceeded 450 MB in development).

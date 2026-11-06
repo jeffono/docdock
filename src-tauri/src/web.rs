@@ -2,12 +2,14 @@
 //! capability, only navigates over HTTP(S), and never opens another window.
 
 use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
 
 use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 use crate::dock::Request;
 use crate::error::Error;
+use crate::platform::browser::Read;
 
 const LABEL: &str = "web";
 
@@ -90,6 +92,67 @@ pub fn history(app: &AppHandle, back: bool) -> Result<(), Error> {
     Ok(())
 }
 
+/// Long enough for a passage of several pages, short enough to stay a quote in a note.
+const SELECTION_MAX_CHARS: usize = 20_000;
+/// The script's slice keeps honest pages under this: at most six JSON bytes per UTF-16 unit.
+const SELECTION_MAX_JSON: usize = 256 * 1024;
+/// Fixed: no data is ever interpolated. `slice` uses `SELECTION_MAX_CHARS` and `toWellFormed`
+/// repairs a surrogate pair it may cut, which strict JSON decoding would reject.
+const SELECTION_SCRIPT: &str = "getSelection().toString().slice(0, 20000).toWellFormed()";
+/// A hostile or hung page delays the command at most this long.
+const SELECTION_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(serde::Serialize)]
+pub struct PageSelection {
+    url: String,
+    title: String,
+    /// Plain text; empty without a selection or when the page did not answer in time.
+    selection: String,
+}
+
+/// The page controls `getSelection` and prototypes, so its answer can be anything: only a JSON
+/// string is accepted, without controls other than newline and tab, with LF line endings.
+fn decode_selection(json: &str) -> String {
+    if json.len() > SELECTION_MAX_JSON {
+        return String::new();
+    }
+    let Ok(text) = serde_json::from_str::<String>(json) else {
+        return String::new();
+    };
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let text: String = text
+        .chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect();
+    text.trim().chars().take(SELECTION_MAX_CHARS).collect()
+}
+
+/// Current page and its selection in the main frame; selections inside iframes are not read.
+/// Blocks the calling thread, never the WebView2 UI thread, for at most `SELECTION_TIMEOUT`.
+pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
+    let Some(window) = app.get_webview_window(LABEL) else {
+        return Ok(None);
+    };
+    let deadline = Instant::now() + SELECTION_TIMEOUT;
+    let reply = crate::platform::browser::read(&window, SELECTION_SCRIPT)?;
+    let wait = || reply.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+    let Ok(Read::Page { url, title }) = wait() else {
+        return Ok(None);
+    };
+    if !Url::parse(&url).is_ok_and(|url| is_web(&url)) {
+        return Ok(None);
+    }
+    let selection = match wait() {
+        Ok(Read::Script(Some(json))) => decode_selection(&json),
+        _ => String::new(),
+    };
+    Ok(Some(PageSelection {
+        url,
+        title,
+        selection,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +170,46 @@ mod tests {
         assert!(parse_url("http://tauri.app/").is_err());
         assert!(parse_url("http://note-asset.example/").is_err());
         assert!(parse_url("https://tauri.app/").is_ok());
+    }
+
+    #[test]
+    fn selection_must_be_a_json_string() {
+        for json in [
+            "3",
+            "null",
+            "{\"text\":\"a\"}",
+            "[\"a\"]",
+            "not json",
+            "\"a\" \"b\"",
+        ] {
+            assert_eq!(decode_selection(json), "", "{json}");
+        }
+        assert_eq!(decode_selection("\"quoted text\""), "quoted text");
+    }
+
+    #[test]
+    fn selection_is_cut_at_the_character_limit() {
+        let json = serde_json::to_string(&"é".repeat(SELECTION_MAX_CHARS + 5)).unwrap();
+        assert_eq!(decode_selection(&json).chars().count(), SELECTION_MAX_CHARS);
+    }
+
+    #[test]
+    fn oversized_selection_json_is_rejected() {
+        let json = serde_json::to_string(&"a".repeat(SELECTION_MAX_JSON)).unwrap();
+        assert_eq!(decode_selection(&json), "");
+    }
+
+    #[test]
+    fn selection_keeps_only_newline_and_tab_controls() {
+        assert_eq!(
+            decode_selection(r#""a\u0000b\u001bc\u007fd\u0085e\tf\ng""#),
+            "abcde\tf\ng"
+        );
+    }
+
+    #[test]
+    fn selection_line_endings_become_lf() {
+        assert_eq!(decode_selection(r#""a\r\nb\rc\nd""#), "a\nb\nc\nd");
     }
 }
 

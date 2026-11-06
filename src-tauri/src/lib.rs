@@ -29,6 +29,7 @@ pub fn run() {
         commands::web_open,
         commands::web_set_visible,
         commands::web_history,
+        commands::web_selection,
         commands::web_suggestions,
         commands::web_addresses,
         commands::web_suggestion_height,

@@ -137,6 +137,17 @@ per-monitor DPI awareness (PMv2).
   history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
   remains first for Enter. Browser suggestions reserve their measured height above the native page
   via the panel thread; Esc or moving focus to the page dismisses them and restores its bounds.
+- **Page selection:** `web_selection` returns the native URL and title and the page's selected text, or
+  null without an http(s) page. `platform/browser.rs` runs one constant script,
+  `getSelection().toString()` sliced and made well-formed, through WebView2 `ExecuteScript` in the main
+  frame; its one-shot completion handler is the only receiver, so the page still has nothing to call.
+  The handler runs on the WebView2 UI thread and sends over a channel that the command waits on from a
+  worker thread, for two seconds at most; a hung or hostile page leaves the selection empty, and stays
+  frozen itself (navigating away waits on its renderer) while the panel keeps working. The result
+  is untrusted (the page owns `getSelection` and prototypes): only a JSON string up to 256 KiB is
+  accepted, line endings become LF, controls other than newline and tab are removed, and the text is
+  trimmed and cut at 20,000 characters. A navigation during the script discards it. Selections inside
+  iframes are not read.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
