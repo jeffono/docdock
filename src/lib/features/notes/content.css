@@ -11,8 +11,17 @@
 .note-content .code-string {
   color: var(--color-code-string);
 }
-.note-content .code-literal {
-  color: var(--color-code-literal);
+.note-content .code-constant {
+  color: var(--color-code-constant);
+}
+.note-content .code-function {
+  color: var(--color-code-function);
+}
+.note-content .code-type {
+  color: var(--color-code-type);
+}
+.note-content .code-tag {
+  color: var(--color-code-tag);
 }
 .note-content .note-header {
   padding-bottom: var(--space-3);

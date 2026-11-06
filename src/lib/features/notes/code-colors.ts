@@ -53,9 +53,26 @@ export function codeLanguage(info: string) {
 export const codeHighlighter = tagHighlighter(
   [
     { tag: tags.comment, class: "code-comment" },
-    { tag: [tags.keyword, tags.typeName, tags.tagName], class: "code-keyword" },
-    { tag: [tags.string, tags.attributeValue], class: "code-string" },
-    { tag: [tags.number, tags.bool, tags.null], class: "code-literal" },
+    { tag: [tags.keyword, tags.operator], class: "code-keyword" },
+    { tag: [tags.string, tags.regexp, tags.attributeValue], class: "code-string" },
+    {
+      tag: [
+        tags.number,
+        tags.bool,
+        tags.null,
+        tags.atom,
+        tags.definition(tags.variableName),
+        tags.propertyName,
+        tags.attributeName,
+      ],
+      class: "code-constant",
+    },
+    {
+      tag: [tags.function(tags.variableName), tags.function(tags.propertyName)],
+      class: "code-function",
+    },
+    { tag: [tags.typeName, tags.className], class: "code-type" },
+    { tag: tags.tagName, class: "code-tag" },
   ],
   { scope: (node) => tops.has(node) },
 );

@@ -13,10 +13,14 @@
   --color-selected: light-dark(#e3edfd, #1f2d44);
   --color-danger: light-dark(#b3261e, #f2857d);
 
-  --color-code-comment: var(--color-muted);
-  --color-code-keyword: light-dark(#655087, #b7a2d4);
-  --color-code-string: light-dark(#38674e, #97bda7);
-  --color-code-literal: light-dark(#795c33, #c9b18b);
+  /* GitHub Light Default and GitHub Dark Default syntax colors. */
+  --color-code-comment: light-dark(#6e7781, #8b949e);
+  --color-code-keyword: light-dark(#cf222e, #ff7b72);
+  --color-code-string: light-dark(#0a3069, #a5d6ff);
+  --color-code-constant: light-dark(#0550ae, #79c0ff);
+  --color-code-function: light-dark(#8250df, #d2a8ff);
+  --color-code-type: light-dark(#953800, #ffa657);
+  --color-code-tag: light-dark(#116329, #7ee787);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;

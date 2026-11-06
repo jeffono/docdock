@@ -27,7 +27,9 @@ test("highlighted code preserves hostile text using only fixed-class spans", asy
         expect(["pre", "code", "span"]).toContain(item.tag);
         if (item.tag === "span")
           expect(item.attrs).toEqual({
-            class: expect.stringMatching(/^code-(comment|keyword|string|literal)$/),
+            class: expect.stringMatching(
+              /^code-(comment|keyword|string|constant|function|type|tag)$/,
+            ),
           });
         else expect(item.attrs).toEqual({});
         return text(item.children ?? []);
