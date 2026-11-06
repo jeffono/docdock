@@ -666,10 +666,6 @@ pub fn unpin(app: &AppHandle, target: &str) -> Result<Pinned, Error> {
     })?;
     pinned(app)
 }
-pub fn move_pinned(app: &AppHandle, target: &str, to: usize) -> Result<Pinned, Error> {
-    edit_pinned(&root(app)?, |text| pinned::move_item(text, target, to))?;
-    pinned(app)
-}
 pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<Pinned, Error> {
     update(app, |settings| {
         if collapsed {

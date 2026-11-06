@@ -40,7 +40,6 @@ pub fn run() {
         commands::pinned_list,
         commands::pinned_add,
         commands::pinned_remove,
-        commands::pinned_move,
         commands::pinned_set_collapsed,
         commands::pinned_restore,
         commands::open_external,

@@ -137,14 +137,6 @@ pub fn pinned_remove(app: AppHandle, target: String) -> Result<crate::notes::Pin
     crate::notes::unpin(&app, &target)
 }
 #[tauri::command(async)]
-pub fn pinned_move(
-    app: AppHandle,
-    target: String,
-    to: usize,
-) -> Result<crate::notes::Pinned, Error> {
-    crate::notes::move_pinned(&app, &target, to)
-}
-#[tauri::command(async)]
 pub fn pinned_set_collapsed(
     app: AppHandle,
     target: String,

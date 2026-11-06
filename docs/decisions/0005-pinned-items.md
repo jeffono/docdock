@@ -10,7 +10,7 @@ The list must follow the folder between computers, work outside the app and avoi
 - **Format:** ordinary markdown. Each list item with a link is a pinned item, in file order: a relative
   link to a note, with spaces as `%20`, or an http(s) URL for a page. No `[[wikilinks]]`, which only
   Obsidian understands.
-- **Line editing:** pinning adds a line, unpinning removes that link's line and reordering moves lines.
+- **Line editing:** pinning adds a line, unpinning removes that link's line and reordering, when added, moves lines.
   The app never rewrites the entire file, so handwritten headings and comments remain.
 - **Pin position:** a new line goes after the last item, or at the end of the file if there is none; it
   uses the file's first line terminator.

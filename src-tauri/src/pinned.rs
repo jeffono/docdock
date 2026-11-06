@@ -332,28 +332,6 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
-/// Moves the item pointing to `target` to position `to` among the items (clamped to the last). Only the
-/// item lines trade places: the lines between them, and each line's terminator, stay where they are.
-pub fn move_item(text: &str, target: &str, to: usize) -> String {
-    let lines = lines(text);
-    let items = items(&lines);
-    let Some(from) = items.iter().position(|(_, item)| same(item, target)) else {
-        return text.to_owned();
-    };
-    let mut order: Vec<usize> = (0..items.len()).collect();
-    let moved = order.remove(from);
-    order.insert(to.min(items.len() - 1), moved);
-    let mut bodies: Vec<&str> = lines.iter().map(|l| l.body).collect();
-    for (slot, &source) in order.iter().enumerate() {
-        bodies[items[slot].0] = lines[items[source].0].body;
-    }
-    lines
-        .iter()
-        .zip(bodies)
-        .flat_map(|(l, body)| [body, l.end])
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,26 +478,5 @@ mod tests {
     fn unpin_of_a_missing_target_changes_nothing() {
         let text = "- [A](a.md)\r\n";
         assert_eq!(unpin(text, "b.md"), text);
-    }
-
-    #[test]
-    fn move_swaps_only_item_lines() {
-        let text = "# Pinned\r\n- [A](a.md)\r\nkeep me\n- [B](b.md)\r\n- [C](c.md)";
-        assert_eq!(
-            move_item(text, "c.md", 0),
-            "# Pinned\r\n- [C](c.md)\r\nkeep me\n- [A](a.md)\r\n- [B](b.md)"
-        );
-    }
-
-    #[test]
-    fn move_to_a_position_past_the_end_goes_last() {
-        let text = "- [A](a.md)\n- [B](b.md)\n";
-        assert_eq!(move_item(text, "a.md", 9), "- [B](b.md)\n- [A](a.md)\n");
-    }
-
-    #[test]
-    fn move_of_a_missing_target_changes_nothing() {
-        let text = "- [A](a.md)\n- [B](b.md)\n";
-        assert_eq!(move_item(text, "z.md", 0), text);
     }
 }
