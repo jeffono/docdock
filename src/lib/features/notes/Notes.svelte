@@ -23,6 +23,7 @@ import {
   panelClose,
   pinnedAdd,
   pinnedList,
+  pinnedMove,
   pinnedRemove,
   pinnedRestore,
   pinnedSetCollapsed,
@@ -65,6 +66,9 @@ import {
   rows,
   shallower,
 } from "./list";
+import NoteOrder from "./NoteOrder.svelte";
+import { orderHits } from "./order";
+import { noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { FolderIndex, isPinnedList, search } from "./search";
 
@@ -157,7 +161,7 @@ function webLabel(entry: WebEntry): string {
   return t(entry.kind === "open" ? "web.openAddress" : "web.search", { text: entry.text });
 }
 let leftovers = $state<Leftover[]>([]);
-let pinned = $state<Pinned>({ items: [], restorable: false });
+let pinned = $state<Pinned>({ version: "", items: [], restorable: false });
 /** Path of the one expanded card, or "". Not remembered when the panel closes. */
 let expanded = $state("");
 /** Chosen with the arrows or the mouse; "" means the default for the query. */
@@ -272,7 +276,7 @@ const kept = $derived.by(() => {
 });
 const model = $derived(
   buildList({
-    hits: results.hits,
+    hits: orderHits(results.hits, notes, $noteOrder, query),
     exactTitle: results.exactTitle,
     query,
     pinned: pinned.items,
@@ -371,7 +375,7 @@ async function refresh(value: NotesFolder | null) {
   contents = {};
   expanded = "";
   selection = "";
-  pinned = { items: [], restorable: false };
+  pinned = { version: "", items: [], restorable: false };
   folderIndex.reset();
   indexVersion++;
   if (!value?.available) return;
@@ -529,6 +533,63 @@ async function pinOrUnpin(card: Card, refocus = false) {
   }
 }
 
+let reordering = false;
+let dragged: { target: string; base: string } | null = null;
+async function reorder(target: string, to: string, base = pinned.version) {
+  if (reordering || editing || target === to) return;
+  reordering = true;
+  try {
+    error = "";
+    pinned = await pinnedMove(target, to, base);
+    selection = target;
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    reordering = false;
+  }
+}
+/** Only headers drag, preserving native note text selection. */
+function pinDrag(target: string) {
+  return (element: HTMLElement) => {
+    const handle = element.querySelector<HTMLElement>(".head") ?? element;
+    handle.draggable = !editing;
+    const start = (event: DragEvent) => {
+      if (editing || reordering) {
+        event.preventDefault();
+        return;
+      }
+      dragged = { target, base: pinned.version };
+      event.dataTransfer?.setData("text/plain", target);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    };
+    const over = (event: DragEvent) => {
+      if (dragged && !editing) {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      }
+    };
+    const drop = (event: DragEvent) => {
+      if (!dragged) return;
+      event.preventDefault();
+      void reorder(dragged.target, target, dragged.base);
+      dragged = null;
+    };
+    const end = () => {
+      dragged = null;
+    };
+    handle.addEventListener("dragstart", start);
+    handle.addEventListener("dragend", end);
+    element.addEventListener("dragover", over);
+    element.addEventListener("drop", drop);
+    return () => {
+      handle.draggable = false;
+      handle.removeEventListener("dragstart", start);
+      handle.removeEventListener("dragend", end);
+      element.removeEventListener("dragover", over);
+      element.removeEventListener("drop", drop);
+    };
+  };
+}
 async function pinnedAction(action: () => Promise<Pinned>) {
   try {
     error = "";
@@ -752,6 +813,23 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       return;
     case "ArrowDown":
     case "ArrowUp":
+      if (
+        event.altKey &&
+        event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !browser &&
+        !editing
+      ) {
+        const entries = model.pinned.map(entryKey);
+        const at = entries.indexOf(active);
+        const to = entries[at + (event.key === "ArrowUp" ? -1 : 1)];
+        if (at >= 0) {
+          event.preventDefault();
+          if (to) void reorder(active, to);
+        }
+        return;
+      }
       if (modified) return;
       event.preventDefault();
       arrow(event);
@@ -887,7 +965,7 @@ function shortcut(event: KeyboardEvent) {
     const stops = [
       input,
       ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
-      ...(!browser ? [list] : []),
+      ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>("select")] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
     ];
@@ -1051,11 +1129,12 @@ onMount(() => {
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
         {#if "heading" in row}
-          <h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>
+          <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
           <div
+            {@attach pinDrag(entry.target)}
             class="missing"
             class:selected={current}
             role="group"
@@ -1080,6 +1159,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
+            drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
@@ -1154,6 +1234,7 @@ onMount(() => {
     outline: none;
   }
 
+  .section-heading { display: flex; align-items: center; gap: var(--space-2); padding-right: var(--panel-inset-right); }
   h2 {
     margin: 0;
     padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);

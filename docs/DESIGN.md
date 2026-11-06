@@ -82,6 +82,13 @@ pinned and unpinned notes differ only in section and starting state.
 - **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
+- **Order:** a quiet native select beside "Notes" and the same select in Preferences > General share
+  one saved choice: name (display title), modified or created, ascending or descending. The default is
+  modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
+  Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
+- **Reorder pins:** drag a pinned header onto another pinned item to move it to that position, or use
+  Alt+Shift+↑ / Alt+Shift+↓ on the selected pinned item (including web and missing items). Selection
+  follows the item. Reordering is unavailable while editing. A stale file produces a nearby error.
 - **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
   title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
   the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
@@ -130,7 +137,7 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → top bar buttons (including Preferences), reversed with Shift+Tab. Card
+  pinned items") → list → note order → top bar buttons (including Preferences), reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
@@ -146,27 +153,28 @@ pinned and unpinned notes differ only in section and starting state.
   (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
   tag. → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
 
-| Shortcut       | Action                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| ↑ / ↓          | Select a card or row; on a long expanded card, first scroll about three lines to its end |
-| Alt+↑ / Alt+↓  | Select the previous / next item directly                                                 |
-| PgUp / PgDn    | Scroll the list by about one screen                                                      |
-| → / ←          | Open / close one level: line, preview, expanded                                          |
-| Enter          | Expand the selected item, run "Create", or remove a selected missing pinned item         |
-| Delete         | Remove the selected missing pinned item                                                  |
-| Ctrl+Enter     | Create a note with the exact typed text                                                  |
-| Ctrl+D         | Toggle pin on the selected card from search, the list or its editor                      |
-| Ctrl+E         | Toggle editing on the selected card                                                      |
-| Ctrl+F         | Focus the search bar and select its text                                                 |
-| Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
-| Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
+| Shortcut                  | Action                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| ↑ / ↓                     | Select a card or row; on a long expanded card, first scroll about three lines to its end |
+| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                  |
+| Alt+↑ / Alt+↓             | Select the previous / next item directly                                                 |
+| PgUp / PgDn               | Scroll the list by about one screen                                                      |
+| → / ←                     | Open / close one level: line, preview, expanded                                          |
+| Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
+| Delete                    | Remove the selected missing pinned item                                                  |
+| Ctrl+Enter                | Create a note with the exact typed text                                                  |
+| Ctrl+D                    | Toggle pin on the selected card from search, the list or its editor                      |
+| Ctrl+E                    | Toggle editing on the selected card                                                      |
+| Ctrl+F                    | Focus the search bar and select its text                                                 |
+| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
+| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close         |
 
 ## Preferences
 
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker and panel side; side changes mirror the tray. Browser
+General contains the folder path, folder picker, note order and panel side; side changes mirror the tray. Browser
 shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
 editor bindings. Appearance shows the panel width, how to resize it and a reset. Sections scroll
 inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the

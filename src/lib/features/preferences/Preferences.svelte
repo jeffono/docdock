@@ -10,6 +10,7 @@ import {
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { formattingShortcuts } from "../notes/formatting";
+import NoteOrder from "../notes/NoteOrder.svelte";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
@@ -42,6 +43,7 @@ const panelShortcuts: [string, MessageKey][] = [
   ["Ctrl+Tab", "shortcut.mode"],
   ["↑ / ↓", "shortcut.arrows"],
   ["Alt+↑ / Alt+↓", "shortcut.direct"],
+  ["Alt+Shift+↑ / Alt+Shift+↓", "shortcut.reorder"],
   ["PgUp / PgDn", "shortcut.page"],
   ["→ / ←", "shortcut.level"],
   ["Enter", "shortcut.enter"],
@@ -73,6 +75,7 @@ const panelShortcuts: [string, MessageKey][] = [
         {#if folder && !folder.available}<p role="alert">{t("notes.unavailable")}</p>{/if}
         <Button disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
       </div>
+      <div class="setting"><h3>{t("order.label")}</h3><NoteOrder /><p>{t("order.search")}</p></div>
       <fieldset disabled={busy}>
         <legend>{t("preferences.side")}</legend>
         {#each ["left", "right"] as value}

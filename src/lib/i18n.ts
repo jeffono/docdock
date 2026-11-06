@@ -2,6 +2,16 @@
 import type { Locale } from "./ipc";
 
 const en = {
+  "order.label": "Note order",
+  "order.modified-desc": "Modified: newest first",
+  "order.modified-asc": "Modified: oldest first",
+  "order.created-desc": "Created: newest first",
+  "order.created-asc": "Created: oldest first",
+  "order.name-asc": "Name: A–Z",
+  "order.name-desc": "Name: Z–A",
+  "order.search": "Search results keep relevance order. Pinned items keep manual order.",
+  "shortcut.reorder": "Move selected pinned item up / down",
+
   "preferences.title": "Preferences",
   "preferences.general": "General",
   "preferences.browser": "Browser",
@@ -130,6 +140,15 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
+  "order.label": "Ordem das notas",
+  "order.modified-desc": "Modificação: recentes primeiro",
+  "order.modified-asc": "Modificação: antigas primeiro",
+  "order.created-desc": "Criação: recentes primeiro",
+  "order.created-asc": "Criação: antigas primeiro",
+  "order.name-asc": "Nome: A–Z",
+  "order.name-desc": "Nome: Z–A",
+  "order.search": "A busca mantém a relevância. Os fixados mantêm a ordem manual.",
+  "shortcut.reorder": "Mover item fixado selecionado para cima / baixo",
   "preferences.title": "Preferências",
   "preferences.general": "Geral",
   "preferences.browser": "Navegador",

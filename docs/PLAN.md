@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.1 on `preferences`: Preferences view and width done; note order on `note-order` (Codex worktree).
+- M4.1 on `preferences`: Preferences, width and note order done; date grouping next.
 
 ## Completed
 
@@ -29,7 +29,7 @@ General, Appearance, Browser and Shortcuts; settings stay in the existing atomic
 - [x] (standard) Preferences view; move the folder choice and panel side there (the tray keeps the
   side, in sync); returning to Notes after opening a page leaves the search field empty
 - [x] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
-- [ ] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
+- [x] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
   reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
 - [ ] (standard) Optional grouping by date when ordering by date
 

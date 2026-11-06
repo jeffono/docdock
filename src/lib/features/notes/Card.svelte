@@ -9,6 +9,7 @@ import "./content.css";
 
 let {
   card,
+  drag,
   text,
   selected,
   onheader,
@@ -23,6 +24,7 @@ let {
   editor,
 }: {
   card: Card;
+  drag?: (element: HTMLElement) => () => void;
   /** Raw text of the note once read; the line state does not need it. */
   text: string | undefined;
   /** Chosen with the arrows or the mouse. */
@@ -82,6 +84,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 </script>
 
 <div
+  {@attach drag}
   class="card"
   role="group"
   aria-label={card.hit.title}

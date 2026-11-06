@@ -341,10 +341,61 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
+/// Moves item bodies between item slots. Unknown lines and all line terminators stay in place,
+/// including an unterminated last line. Duplicate targets retain all their lines.
+pub fn move_item(text: &str, target: &str, to: &str) -> String {
+    let lines = lines(text);
+    let entries = items(&lines);
+    let Some(from) = entries.iter().position(|(_, item)| same(item, target)) else {
+        return text.to_owned();
+    };
+    let Some(to) = entries.iter().position(|(_, item)| same(item, to)) else {
+        return text.to_owned();
+    };
+    let mut bodies: Vec<&str> = lines.iter().map(|line| line.body).collect();
+    let mut reordered: Vec<&str> = entries.iter().map(|(i, _)| lines[*i].body).collect();
+    let moved = reordered.remove(from);
+    reordered.insert(to, moved);
+    for ((i, _), body) in entries.iter().zip(reordered) {
+        bodies[*i] = body;
+    }
+    lines
+        .iter()
+        .zip(bodies)
+        .flat_map(|(line, body)| [body, line.end])
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn move_preserves_unknown_lines_and_mixed_terminators() {
+        let text = "# Pins\r\n- [A](a.md)\n<!-- comment -->\r\n- [B](b.md)\rprose\n- [C](c.md)";
+        assert_eq!(
+            move_item(text, "a.md", "c.md"),
+            "# Pins\r\n- [B](b.md)\n<!-- comment -->\r\n- [C](c.md)\rprose\n- [A](a.md)"
+        );
+        assert_eq!(
+            move_item(&move_item(text, "a.md", "c.md"), "a.md", "b.md"),
+            text
+        );
+    }
+    #[test]
+    fn move_does_not_touch_hidden_or_duplicate_links() {
+        let text = "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [A](a.md)\n- [A copy](a.md)\n- [B](b.md)\n";
+        assert_eq!(
+            move_item(text, "a.md", "b.md"),
+            "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [A copy](a.md)\n- [B](b.md)\n- [A](a.md)\n"
+        );
+    }
+    #[test]
+    fn move_missing_target_is_noop() {
+        let text = "- [A](a.md)\n";
+        assert_eq!(move_item(text, "missing.md", "a.md"), text);
+        assert_eq!(move_item(text, "a.md", "missing.md"), text);
+    }
     fn targets(text: &str) -> Vec<(String, Kind)> {
         parse(text)
             .into_iter()
