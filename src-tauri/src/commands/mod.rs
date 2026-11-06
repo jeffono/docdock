@@ -59,10 +59,13 @@ pub fn web_history(app: AppHandle, back: bool) -> Result<(), Error> {
     web::history(&app, back)
 }
 
-/// `async`: waits off the main thread while the WebView2 UI thread runs the selection script.
-#[tauri::command(async)]
-pub fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>, Error> {
-    web::selection(&app)
+/// Waits on a blocking-pool thread while the WebView2 UI thread runs the selection script, so a
+/// hung page holds neither the main thread nor an async runtime worker that other commands need.
+#[tauri::command]
+pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>, Error> {
+    tauri::async_runtime::spawn_blocking(move || web::selection(&app))
+        .await
+        .map_err(Error::unexpected)?
 }
 
 #[tauri::command]

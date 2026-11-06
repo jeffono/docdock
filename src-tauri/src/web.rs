@@ -107,10 +107,11 @@ pub fn history(app: &AppHandle, back: bool) -> Result<(), Error> {
 
 /// Long enough for a passage of several pages, short enough to stay a quote in a note.
 const SELECTION_MAX_CHARS: usize = 20_000;
-/// The script's slice keeps honest pages under this: at most six JSON bytes per UTF-16 unit.
+/// The script's slice keeps the response under this: at most six JSON bytes per UTF-16 unit.
 const SELECTION_MAX_JSON: usize = 256 * 1024;
-/// Fixed: no data is ever interpolated. `slice` uses `SELECTION_MAX_CHARS` and `toWellFormed`
-/// repairs a surrogate pair it may cut, which strict JSON decoding would reject.
+/// Fixed: no data is ever interpolated. It runs in an isolated world, so these are the browser's
+/// own builtins, not the page's. `slice` uses `SELECTION_MAX_CHARS` and `toWellFormed` repairs a
+/// surrogate pair it may cut, which strict JSON decoding would reject.
 const SELECTION_SCRIPT: &str = "getSelection().toString().slice(0, 20000).toWellFormed()";
 /// A hostile or hung page delays the command at most this long.
 const SELECTION_TIMEOUT: Duration = Duration::from_secs(2);
@@ -123,13 +124,32 @@ pub struct PageSelection {
     selection: String,
 }
 
-/// The page controls `getSelection` and prototypes, so its answer can be anything: only a JSON
-/// string is accepted, without controls other than newline and tab, with LF line endings.
+#[derive(serde::Deserialize)]
+struct Evaluated {
+    result: Remote,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum Remote {
+    String {
+        value: String,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// Decodes a `Runtime.evaluate` response. The page cannot reach the script's world but owns the
+/// selected text, so only a string result is accepted, without controls other than newline and
+/// tab, with LF line endings.
 fn decode_selection(json: &str) -> String {
     if json.len() > SELECTION_MAX_JSON {
         return String::new();
     }
-    let Ok(text) = serde_json::from_str::<String>(json) else {
+    let Ok(Evaluated {
+        result: Remote::String { value: text },
+    }) = serde_json::from_str(json)
+    else {
         return String::new();
     };
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -185,6 +205,11 @@ mod tests {
         assert!(parse_url("https://tauri.app/").is_ok());
     }
 
+    /// A `Runtime.evaluate` response whose string result is the JSON literal `value`.
+    fn evaluated(value: &str) -> String {
+        format!(r#"{{"result":{{"type":"string","value":{value}}}}}"#)
+    }
+
     #[test]
     fn frames_keep_embedded_documents_but_never_internal_origins() {
         for url in [
@@ -207,43 +232,52 @@ mod tests {
     }
 
     #[test]
-    fn selection_must_be_a_json_string() {
+    fn selection_must_be_a_string_result() {
         for json in [
-            "3",
-            "null",
-            "{\"text\":\"a\"}",
-            "[\"a\"]",
+            r#"{"result":{"type":"number","value":3}}"#,
+            r#"{"result":{"type":"object","value":{"text":"a"}}}"#,
+            r#"{"result":{"type":"object","subtype":"error"},"exceptionDetails":{"text":"a"}}"#,
+            r#"{"result":{"type":"string"}}"#,
+            r#"{"result":{"type":"string","value":3}}"#,
+            r#"{"result":{"value":"a"}}"#,
+            r#""a""#,
             "not json",
-            "\"a\" \"b\"",
         ] {
             assert_eq!(decode_selection(json), "", "{json}");
         }
-        assert_eq!(decode_selection("\"quoted text\""), "quoted text");
+        assert_eq!(
+            decode_selection(&evaluated(r#""quoted text""#)),
+            "quoted text"
+        );
     }
 
     #[test]
     fn selection_is_cut_at_the_character_limit() {
-        let json = serde_json::to_string(&"é".repeat(SELECTION_MAX_CHARS + 5)).unwrap();
-        assert_eq!(decode_selection(&json).chars().count(), SELECTION_MAX_CHARS);
+        let value = serde_json::to_string(&"é".repeat(SELECTION_MAX_CHARS + 5)).unwrap();
+        let text = decode_selection(&evaluated(&value));
+        assert_eq!(text.chars().count(), SELECTION_MAX_CHARS);
     }
 
     #[test]
     fn oversized_selection_json_is_rejected() {
-        let json = serde_json::to_string(&"a".repeat(SELECTION_MAX_JSON)).unwrap();
-        assert_eq!(decode_selection(&json), "");
+        let value = serde_json::to_string(&"a".repeat(SELECTION_MAX_JSON)).unwrap();
+        assert_eq!(decode_selection(&evaluated(&value)), "");
     }
 
     #[test]
     fn selection_keeps_only_newline_and_tab_controls() {
         assert_eq!(
-            decode_selection(r#""a\u0000b\u001bc\u007fd\u0085e\tf\ng""#),
+            decode_selection(&evaluated(r#""a\u0000b\u001bc\u007fd\u0085e\tf\ng""#)),
             "abcde\tf\ng"
         );
     }
 
     #[test]
     fn selection_line_endings_become_lf() {
-        assert_eq!(decode_selection(r#""a\r\nb\rc\nd""#), "a\nb\nc\nd");
+        assert_eq!(
+            decode_selection(&evaluated(r#""a\r\nb\rc\nd""#)),
+            "a\nb\nc\nd"
+        );
     }
 }
 
