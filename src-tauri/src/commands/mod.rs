@@ -216,3 +216,21 @@ pub fn web_addresses(app: AppHandle) -> Vec<String> {
 pub fn web_overlay(requests: State<'_, Sender<Request>>, height: u32) {
     send(requests, Request::SetWebOverlay(height.min(16384)));
 }
+
+#[tauri::command]
+pub fn notes_order(app: AppHandle) -> Result<crate::notes::NoteOrder, Error> {
+    crate::notes::note_order(&app)
+}
+#[tauri::command]
+pub fn notes_set_order(app: AppHandle, order: crate::notes::NoteOrder) -> Result<(), Error> {
+    crate::notes::set_note_order(&app, order)
+}
+#[tauri::command]
+pub fn pinned_move(
+    app: AppHandle,
+    target: String,
+    to: String,
+    base: String,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::move_pinned(&app, &target, &to, &base)
+}

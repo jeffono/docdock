@@ -10,7 +10,7 @@ The list must follow the folder between computers, work outside the app and avoi
 - **Format:** ordinary markdown. Each list item with a link is a pinned item, in file order: a relative
   link to a note, with spaces as `%20`, or an http(s) URL for a page. No `[[wikilinks]]`, which only
   Obsidian understands.
-- **Line editing:** pinning adds a line, unpinning removes that link's line and reordering, when added, moves lines.
+- **Line editing:** pinning adds a line, unpinning removes that link's line and reordering moves item bodies among item line slots, leaving non-item lines and line terminators in place.
   The app never rewrites the entire file, so handwritten headings and comments remain.
 - **Pin position:** a new line goes after the last item, or at the end of the file if there is none; it
   uses the file's first line terminator.
@@ -23,4 +23,6 @@ The list must follow the folder between computers, work outside the app and avoi
 - A note renamed or moved outside the app breaks the link; the item appears as "note not found", with an
   option to remove it.
 - External edits to `_pinned.md` arrive through M2's external change handling.
+- Reordering from a displayed list requires its last-read version. External changes reject the move
+  with a warning instead of silently reapplying stale positional intent.
 - The file is user content: M2's atomic writes apply.

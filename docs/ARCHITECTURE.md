@@ -451,22 +451,39 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 
+## Note order
+
+The UI's `order.ts` sorts only unfiltered hits before `buildList`: displayed title, modified or
+created time, ascending or descending, with path as a deterministic tie-breaker. The default preserves
+modified descending. Nonempty queries retain search relevance and pinned entries retain file order.
+`notes_list` includes filesystem creation time (Windows birth time), falling back to modified when
+unavailable; notes are never changed to store dates. The `note_order` field in the existing atomic
+settings file is updated under the settings mutex. Missing, malformed or unknown order values default without
+invalidating other settings. Both order controls use one shared store, updated after successful IPC.
+The main window disables Tauri's native file-drop interception so HTML header dragging works on Windows.
+
 ## Pinned items
 
 Decision in [0005](decisions/0005-pinned-items.md). `pinned.rs` is pure: text in, text out. An item is a
 single-line list entry (`-`, `*`, `+`, `1.`) whose first link is a relative note path (`%20` decoded, a
 leading `./` and any `#fragment` dropped) or an http(s) URL; images, other schemes, anchors and lines
-that are not list items are ignored, as are lines inside fenced code blocks and HTML comments. Edits move whole lines and never rewrite the file: each line keeps
-its own terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
+that are not list items are ignored, as are lines inside fenced code blocks and HTML comments.
+Edits change item lines without reconstructing markdown: each line slot keeps
+its terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
 Pinning adds one `- [title](path)` line after the last item, or at the end of the file if there is
 none, with the file's first line terminator (LF in an empty file); an item already pinned (notes compare
-case-insensitively, URLs in their written, escaped form) changes nothing. Unpinning removes every line pointing to the target. Moving trades
-the item lines among themselves, so headings and prose between items stay where they are.
+case-insensitively, URLs in their written, escaped form) changes nothing. Unpinning removes every line
+pointing to the target. Moving rotates item bodies among item slots, so headings and prose between items and even an
+unterminated final line stay in place. Duplicate target lines are preserved; the first match moves.
 
 `notes.rs` reads and writes the file. An edit reads `_pinned.md` with its version, applies the line edit
-and saves through `save_note_in`, the same atomic path as notes. If the file changed in between, it is
+and saves through the same atomic replacement as notes. For pin/unpin, if the file changed in between, it is
 read again and the edit reapplied to the new text; after three losses it fails with `pinnedChanged` and
-writes nothing. A missing file is created. A note item whose path no longer resolves to a note inside the
+writes nothing. Pinning may create a missing file. Reordering instead requires the opaque version
+returned by `pinned_list`: a stale displayed version, a deleted file, or a save conflict fails with
+`pinnedChanged` without retrying the positional intent against changed content. Drag captures that
+version at drag start; keyboard movement uses the currently displayed version. A note item whose path
+no longer resolves to a note inside the
 folder is reported `missing`. Targets are the keys: `pinned_*` commands (`pinned_list`, `_add`, `_remove`,
 `_move`, `_set_collapsed`, `_restore`) all answer with the state after the change. Which items are
 collapsed to one line is a set of targets in `settings.json`, per computer, changed under the same lock as

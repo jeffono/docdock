@@ -40,6 +40,8 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 struct Settings {
     #[serde(default)]
     search_engine: crate::web::SearchEngine,
+    #[serde(default, deserialize_with = "order_or_default")]
+    note_order: NoteOrder,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
     #[serde(default, deserialize_with = "side_or_default")]
@@ -47,6 +49,26 @@ struct Settings {
     /// Pinned targets shown as one line on this computer; the rest start as previews.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     collapsed: BTreeSet<String>,
+}
+#[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NoteOrder {
+    NameAsc,
+    NameDesc,
+    ModifiedAsc,
+    #[default]
+    ModifiedDesc,
+    CreatedAsc,
+    CreatedDesc,
+}
+fn order_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<NoteOrder, D::Error> {
+    Ok(NoteOrder::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+pub fn note_order(app: &AppHandle) -> Result<NoteOrder, Error> {
+    Ok(load(&config(app)?).note_order)
+}
+pub fn set_note_order(app: &AppHandle, order: NoteOrder) -> Result<(), Error> {
+    update(app, |settings| settings.note_order = order)
 }
 /// An unknown side must not make the folder unreadable.
 fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
@@ -63,6 +85,7 @@ pub struct Note {
     name: String,
     /// Last write, in milliseconds since the Unix epoch; 0 if unknown.
     modified: u64,
+    created: u64,
 }
 /// One note as the search index needs it.
 #[derive(Serialize, Debug, PartialEq)]
@@ -266,6 +289,12 @@ fn list(root: &Path) -> Result<Vec<Note>, Error> {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned(),
+                created: fs::metadata(&path)
+                    .and_then(|m| m.created())
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or_else(|| modified(&path)),
                 modified: modified(&path),
             });
         }
@@ -535,6 +564,7 @@ pub struct PinnedItem {
 }
 #[derive(Serialize)]
 pub struct Pinned {
+    version: String,
     items: Vec<PinnedItem>,
     /// `_pinned.md` is gone but a copy of its last read version can bring it back.
     restorable: bool,
@@ -589,8 +619,9 @@ fn read_pinned(root: &Path) -> Result<Option<(String, String)>, Error> {
 static PINNED_COPY: Mutex<()> = Mutex::new(());
 fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Result<Pinned, Error> {
     let guard = PINNED_COPY.lock().unwrap_or_else(|e| e.into_inner());
-    let Some((text, _)) = read_pinned(root)? else {
+    let Some((text, version)) = read_pinned(root)? else {
         return Ok(Pinned {
+            version: String::new(),
             items: Vec::new(),
             restorable: restorable_copy(store, root).is_some(),
         });
@@ -606,6 +637,7 @@ fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Resu
         })
         .collect();
     Ok(Pinned {
+        version,
         items,
         restorable: false,
     })
@@ -671,6 +703,27 @@ pub fn unpin(app: &AppHandle, target: &str) -> Result<Pinned, Error> {
     update(app, |settings| {
         settings.collapsed.remove(target);
     })?;
+    pinned(app)
+}
+/// Reorder only the version the UI displayed; never silently apply a stale positional intent.
+fn move_pinned_in(root: &Path, target: &str, to: &str, base: &str) -> Result<(), Error> {
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let (text, current) = read_pinned(root)?.ok_or(Error::PinnedChanged)?;
+    if current != base {
+        return Err(Error::PinnedChanged);
+    }
+    let edited = pinned::move_item(&text, target, to);
+    if edited == text {
+        return Ok(());
+    }
+    let path = resolve(root, PINNED, markdown)?;
+    match replace_note(&path, edited.as_bytes(), base)? {
+        Saved::Saved { .. } => Ok(()),
+        Saved::Conflict => Err(Error::PinnedChanged),
+    }
+}
+pub fn move_pinned(app: &AppHandle, target: &str, to: &str, base: &str) -> Result<Pinned, Error> {
+    move_pinned_in(&root(app)?, target, to, base)?;
     pinned(app)
 }
 pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<Pinned, Error> {
@@ -1252,6 +1305,54 @@ mod tests {
         assert_eq!(fs::read_to_string(&leftover).unwrap(), "novo");
         let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
         assert_eq!(paths, ["a.md"]);
+    }
+    #[test]
+    fn reorder_rejects_a_stale_displayed_version() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        let original = "- [A](a.md)\n- [B](b.md)\n";
+        fs::write(root.join(PINNED), original).unwrap();
+        let base = version(original.as_bytes());
+        let external = format!("# External edit\n{original}");
+        fs::write(root.join(PINNED), &external).unwrap();
+        assert!(matches!(
+            move_pinned_in(&root, "a.md", "b.md", &base),
+            Err(Error::PinnedChanged)
+        ));
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), external);
+    }
+    #[test]
+    fn reorder_does_not_recreate_an_externally_deleted_file() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        assert!(matches!(
+            move_pinned_in(&root, "a.md", "b.md", "old"),
+            Err(Error::PinnedChanged)
+        ));
+        assert!(!root.join(PINNED).exists());
+    }
+    #[test]
+    fn reorder_atomically_preserves_handwritten_content() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        let original = "# Pins\r\n- [A](a.md)\r\n<!-- keep -->\n- [B](b.md)";
+        fs::write(root.join(PINNED), original).unwrap();
+        move_pinned_in(&root, "b.md", "a.md", &version(original.as_bytes())).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "# Pins\r\n- [B](b.md)\r\n<!-- keep -->\n- [A](a.md)"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    }
+    #[test]
+    fn invalid_note_order_does_not_discard_other_settings() {
+        for value in ["null", "42", "{}", "\"future-order\""] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"folder":"notes","note_order":{value}}}"#))
+                    .unwrap();
+            assert_eq!(settings.note_order, NoteOrder::ModifiedDesc);
+            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        }
     }
     /// A notes folder and a separate place for the copy of `_pinned.md`.
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
