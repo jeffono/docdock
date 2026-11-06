@@ -37,6 +37,7 @@ pub enum Request {
     Close,
     /// The web page window was created and is still invisible.
     AttachWeb(isize),
+    SetWebVisible(bool),
     /// Global shortcut.
     Shortcut,
     /// Side chosen in the tray.
@@ -179,6 +180,7 @@ struct Dock {
     window: PanelWindow,
     /// Web page window, if present.
     web: Option<PanelWindow>,
+    web_visible: bool,
     side: Side,
     monitor: Monitor,
     rect: Rect,
@@ -216,7 +218,9 @@ impl Dock {
             self.parked_x
         };
         self.window.place(self.rect, monitor.bounds, self.x);
-        if let Some(web) = &mut self.web {
+        if self.web_visible
+            && let Some(web) = &mut self.web
+        {
             web.place(web_rect(&monitor, self.rect), monitor.bounds, self.x);
         }
     }
@@ -241,6 +245,29 @@ impl Dock {
                 let web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
                 web.set_enabled(self.is_open());
                 self.web = Some(web);
+                self.web_visible = true;
+                let _ = self.app.emit_to("main", "web-visible", true);
+                Action::None
+            }
+            Request::SetWebVisible(visible) => {
+                if let Some(mut web) = self.web.filter(PanelWindow::exists) {
+                    if !visible {
+                        if web.is_foreground() {
+                            self.window.activate();
+                        }
+                        web.hide();
+                    } else {
+                        web.place(
+                            web_rect(&self.monitor, self.rect),
+                            self.monitor.bounds,
+                            self.x,
+                        );
+                        web.set_enabled(self.is_open());
+                    }
+                    self.web = Some(web);
+                    self.web_visible = visible;
+                    let _ = self.app.emit_to("main", "web-visible", visible);
+                }
                 Action::None
             }
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
@@ -316,7 +343,7 @@ impl Dock {
     fn focus(&self) -> Focus {
         if self.window.is_foreground() {
             Focus::Panel
-        } else if self.web.is_some_and(|web| web.is_foreground()) {
+        } else if self.web_visible && self.web.is_some_and(|web| web.is_foreground()) {
             Focus::Page
         } else if platform::foreground_window().is_some() {
             Focus::Elsewhere
@@ -336,8 +363,15 @@ impl Dock {
 
     /// Panel windows. The page window disappears from the list if destroyed, for example by Alt+F4.
     fn windows(&mut self) -> Vec<PanelWindow> {
-        self.web = self.web.filter(PanelWindow::exists);
-        std::iter::once(self.window).chain(self.web).collect()
+        if self.web.is_some_and(|web| !web.exists()) {
+            self.web = None;
+            self.web_visible = false;
+            let _ = self.app.emit_to("main", "web-state", Option::<()>::None);
+            let _ = self.app.emit_to("main", "web-visible", false);
+        }
+        std::iter::once(self.window)
+            .chain(self.web.filter(|_| self.web_visible))
+            .collect()
     }
 
     fn is_foreground(&mut self) -> bool {
@@ -449,6 +483,7 @@ pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, sid
         app,
         window,
         web: None,
+        web_visible: false,
         side,
         monitor,
         rect,

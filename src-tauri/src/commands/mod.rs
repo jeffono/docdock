@@ -50,8 +50,13 @@ pub async fn web_open(
 }
 
 #[tauri::command]
-pub fn web_close(app: AppHandle) -> Result<(), Error> {
-    web::close(&app)
+pub fn web_set_visible(requests: State<'_, Sender<Request>>, visible: bool) {
+    send(requests, Request::SetWebVisible(visible));
+}
+
+#[tauri::command]
+pub fn web_history(app: AppHandle, back: bool) -> Result<(), Error> {
+    web::history(&app, back)
 }
 
 #[tauri::command]

@@ -52,7 +52,9 @@ fn navigate_here(app: &AppHandle, url: Url) {
 pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Result<(), Error> {
     let url = parse_url(raw_url)?;
     if let Some(window) = app.get_webview_window(LABEL) {
-        return Ok(window.navigate(url)?);
+        window.navigate(url)?;
+        let _ = requests.send(Request::SetWebVisible(true));
+        return Ok(());
     }
     let main = app
         .get_webview_window("main")
@@ -75,16 +77,17 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
             .build()
     };
     let window = build()?;
+    crate::platform::browser::observe(&window)?;
     let hwnd = window.hwnd()?;
     let _ = requests.send(Request::AttachWeb(hwnd.0 as isize));
     Ok(())
 }
 
-pub fn close(app: &AppHandle) -> Result<(), Error> {
-    match app.get_webview_window(LABEL) {
-        Some(window) => Ok(window.destroy()?),
-        None => Ok(()),
+pub fn history(app: &AppHandle, back: bool) -> Result<(), Error> {
+    if let Some(window) = app.get_webview_window(LABEL) {
+        crate::platform::browser::history(&window, back)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]

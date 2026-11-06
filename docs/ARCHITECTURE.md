@@ -56,7 +56,7 @@ already in its language. An unknown code shows as an unexpected error with its r
 
 ## Panel
 
-M0 prototype. `panel.rs` is a pure state machine, without Win32 access:
+`panel.rs` is a pure state machine, without Win32 access:
 
 ```text
 Hidden → Arming (cursor at edge, waiting) → Open → Pinned
@@ -109,13 +109,22 @@ per-monitor DPI awareness (PMv2).
   cursor. UI `pointerdown` requests activation, which makes the panel summoned at the next poll. At each cursor poll, the panel remembers the last foreground
   app outside itself and the native picker; on close, focus returns to that app unless the user is already
   in another. If it no longer exists, focus goes to the desktop.
-- **Web page:** its own window (`web.rs`), owned by the panel, below the top bar. The panel thread positions
+- **Web page:** its own window (`web.rs`), owned by the panel, below the header and unified bar. The panel thread positions
   and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
   because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
   capability, Tauri rejects remote-origin commands and `lib.rs` accepts commands only from the `main`
   window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
   navigate in the page window itself.
+- **Browser mode:** a shown page replaces the note list. Notes hides and disables its native window,
+  retaining its document and history; Return to page restores it at the current panel position.
+  Hidden pages are excluded from positioning, sliding, activation and focus tracking. Closing the panel
+  disables the shown page too. Back/forward use WebView2's history, guarded by native availability.
+  `platform/browser.rs` observes SourceChanged, DocumentTitleChanged and HistoryChanged on the WebView2
+  UI thread and emits `web-state` (URL, title, back/forward availability) to main. The page sends no
+  messages to Rust. The panel thread emits `web-visible` after switching visibility. UI metadata is text.
+  Enter in the unified search bar opens http(s) addresses and bare domains as a minimal bridge;
+  address history and suggestions remain a separate M4 task.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
@@ -325,6 +334,8 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
   from the header's "Pin panel" thumbtack. Card actions use its `quiet` prop; the bookmark fills when
   pressed. The root `_pinned.md` entry is skipped by `search` for both empty and nonempty queries.
+- **Links:** rendered-note http(s) links open in the panel; Ctrl+click and mailto use the validated
+  external-open command. Anchors keep scrolling within the note. Main navigation rules stay strict.
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 

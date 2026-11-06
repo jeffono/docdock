@@ -10,6 +10,7 @@ let {
   accent = false,
   onclick,
   tabindex,
+  disabled = false,
 }: {
   icon: ComponentProps<typeof Icon>["name"];
   label: string;
@@ -21,10 +22,11 @@ let {
   accent?: boolean;
   onclick: () => void;
   tabindex?: number;
+  disabled?: boolean;
 } = $props();
 </script>
 
-<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {tabindex} {onclick}>
+<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {tabindex} {disabled} {onclick}>
   <Icon name={icon} filled={icon === "bookmark" && pressed === true} />
 </button>
 
@@ -45,7 +47,7 @@ let {
       color var(--duration);
   }
 
-  button:hover {
+  button:hover:not(:disabled) {
     background: var(--color-surface);
     color: var(--color-fg);
   }
@@ -58,6 +60,11 @@ let {
 
   button.accent:not(:hover) {
     color: var(--color-accent);
+  }
+
+  button:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   button.quiet {

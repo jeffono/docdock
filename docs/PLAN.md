@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: browser mode delegated; code colors on `code-colors`.
+- M4 on `m4-web-pages`: browser mode implemented; code colors on `code-colors`.
 
 ## Completed
 
@@ -25,7 +25,7 @@ browser bar has back/forward for the page history plus a separate button back to
 creates a note with `title` and `url` in frontmatter and the page selection, if any, quoted in the body;
 a note with `url:` expands like any note and offers "Open page".
 
-- [ ] (standard) Browser mode: a shown page replaces the note list; a "Notes" button hides the page
+- [x] (standard) Browser mode: a shown page replaces the note list; a "Notes" button hides the page
   window (kept loaded, not destroyed) and shows the list again; back/forward follow the page history and
   are disabled when unavailable; Rust reports URL, title and history state to the UI; links in rendered
   notes open in the panel, Ctrl+click in the default browser. Replaces the M0 globe toggle and `WebBar`.

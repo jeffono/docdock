@@ -2,11 +2,10 @@
 import type { Locale } from "./ipc";
 
 const en = {
-  "app.web": "Web page",
   "app.pin": "Pin panel",
   "notes.label": "Notes",
   "notes.search": "Search or create a note",
-  "notes.searchPlaceholder": "Search or create a note…",
+  "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.changeFolder": "Change folder: {path}",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
@@ -43,7 +42,10 @@ const en = {
     "Interrupted saves left these copies. Restoring turns each one into a note; nothing is deleted.",
   "leftovers.restore": "Restore {note}",
   "web.address": "Page address",
-  "web.open": "Open",
+  "web.page": "Return to page",
+  "web.notes": "Notes",
+  "web.back": "Back",
+  "web.forward": "Forward",
   "error.unexpected": "Something went wrong: {detail}",
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is not available.",
@@ -74,11 +76,10 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
-  "app.web": "Página web",
   "app.pin": "Fixar painel",
   "notes.label": "Notas",
   "notes.search": "Buscar ou criar uma nota",
-  "notes.searchPlaceholder": "Buscar ou criar uma nota…",
+  "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.changeFolder": "Trocar pasta: {path}",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
@@ -115,7 +116,10 @@ const ptBR: Record<MessageKey, string> = {
     "Salvamentos interrompidos deixaram estas cópias. Restaurar transforma cada uma em nota; nada é apagado.",
   "leftovers.restore": "Restaurar {note}",
   "web.address": "Endereço da página",
-  "web.open": "Abrir",
+  "web.page": "Voltar à página",
+  "web.notes": "Notas",
+  "web.back": "Voltar",
+  "web.forward": "Avançar",
   "error.unexpected": "Algo deu errado: {detail}",
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas não está disponível.",

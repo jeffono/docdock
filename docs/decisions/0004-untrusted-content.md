@@ -38,9 +38,9 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
 - The UI's `<form>` must call `preventDefault`: `form-action 'none'` blocks actual submission.
 - CSP covers subframes and `on_navigation` covers the main frame. This control fails open for a URL the
   `url` crate cannot parse, which Chromium should not produce.
-- Links in rendered content do not navigate. To open them in the default browser, the UI intercepts the
-  click and calls a command that validates http(s) and mailto. Never relax `on_navigation` or
-  `on_new_window` for this.
+- Links in rendered content do not navigate main. The UI intercepts clicks: http(s) opens in the panel
+  browser through its validated command; Ctrl+click and mailto use the command that validates external
+  http(s) and mailto links. Never relax `on_navigation` or `on_new_window` for this.
 - The `note-asset` path is relative to the notes folder, with percent-encoding. The renderer builds
   `src` as `http://note-asset.localhost/<path>`.
 - Accepted risk: swapping a folder in the notes tree for a junction between `resolve` and the write can

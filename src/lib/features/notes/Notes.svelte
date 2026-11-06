@@ -26,10 +26,12 @@ import {
   pinnedRemove,
   pinnedRestore,
   pinnedSetCollapsed,
+  webOpen,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import { parseAddress } from "../web/address";
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import Editor from "./Editor.svelte";
@@ -50,6 +52,8 @@ import {
   shallower,
 } from "./list";
 import { FolderIndex, isPinnedList, search } from "./search";
+
+let { browser = false }: { browser?: boolean } = $props();
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -475,6 +479,13 @@ function changed(changes: NotesChanges) {
   })();
 }
 
+/** Leave editing through its save guard before replacing the list. */
+async function openPage(url: string) {
+  if (!(await leaveEditor())) return false;
+  await webOpen(url);
+  return true;
+}
+
 /** A click on a link in a card's content; true if it was one. */
 function linkClick(event: MouseEvent): boolean {
   const link = (event.target as Element).closest("a");
@@ -486,9 +497,11 @@ function linkClick(event: MouseEvent): boolean {
     const id = href.slice(1);
     document.getElementById(id.startsWith("note-") ? id : `note-${id}`)?.scrollIntoView();
   } else if (/^(https?:|mailto:)/i.test(href))
-    void openExternal(href).catch((e) => {
-      error = errorText(e);
-    });
+    void (event.ctrlKey || /^mailto:/i.test(href) ? openExternal(href) : openPage(href)).catch(
+      (e) => {
+        error = errorText(e);
+      },
+    );
   return true;
 }
 
@@ -555,6 +568,21 @@ function escapeKey(inBar: boolean) {
 
 /** List keys, from the search bar (`inBar`) or from anywhere in the panel outside a text field. */
 function listKey(event: KeyboardEvent, inBar: boolean) {
+  if (inBar && event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    const url = parseAddress(query);
+    if (url) {
+      event.preventDefault();
+      void openPage(url)
+        .then((opened) => {
+          if (opened) query = "";
+        })
+        .catch((e) => {
+          error = errorText(e);
+        });
+      return;
+    }
+  }
+  if (browser && event.key !== "Escape") return;
   // Without a folder there is no list: buttons keep Enter and the arrows.
   if (!list && event.key !== "Escape") return;
   const modified = event.ctrlKey || event.shiftKey || event.metaKey;
@@ -643,6 +671,13 @@ function inField(event: KeyboardEvent): boolean {
 
 function shortcut(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return;
+  if (browser && !tools?.contains(event.target as Node)) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      void panelClose();
+    }
+    return;
+  }
   const input = bar();
   const inBar = input !== undefined && input !== null && event.target === input;
   const field = !inBar && inField(event);
@@ -763,7 +798,6 @@ onMount(() => {
 {/snippet}
 
 <section aria-label={t("notes.label")}>
-  {#if folder?.available}
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
         bind:value={query}
@@ -771,8 +805,10 @@ onMount(() => {
         aria-label={t("notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
+      <IconButton icon="folder" label={folder ? t("notes.changeFolder", { path: folder.path }) : t("notes.choose")} onclick={choose} />
     </div>
+  <div class="content" hidden={browser}>
+  {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>
@@ -865,9 +901,17 @@ onMount(() => {
       <Button onclick={choose}>{t("notes.choose")}</Button>
     </div>
   {/if}
+  </div>
 </section>
 
 <style>
+  .content {
+    display: contents;
+  }
+
+  .content[hidden] {
+    display: none;
+  }
   section {
     display: flex;
     flex: 1;
@@ -981,7 +1025,10 @@ onMount(() => {
     display: flex;
     flex: none;
     gap: var(--space-2);
-    padding: var(--space-3) var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
+    box-sizing: border-box;
+    height: var(--size-bar);
+    align-items: center;
+    padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
   }
 
   .leftovers {

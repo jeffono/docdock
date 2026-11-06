@@ -1,5 +1,6 @@
 //! Operating system-specific code. Currently Windows only.
 
+pub mod browser;
 mod files;
 mod windows;
 

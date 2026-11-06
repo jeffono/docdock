@@ -38,9 +38,13 @@ export function webOpen(url: string): Promise<void> {
   return invoke("web_open", { url });
 }
 
-export function webClose(): Promise<void> {
-  return invoke("web_close");
-}
+export const webSetVisible = (visible: boolean) => invoke<void>("web_set_visible", { visible });
+export const webHistory = (back: boolean) => invoke<void>("web_history", { back });
+export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
+export const onWebState = (handler: (state: PageState | null) => void) =>
+  listen<PageState | null>("web-state", (event) => handler(event.payload));
+export const onWebVisible = (handler: (visible: boolean) => void) =>
+  listen<boolean>("web-visible", (event) => handler(event.payload));
 
 export type NotesFolder = { path: string; available: boolean };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
