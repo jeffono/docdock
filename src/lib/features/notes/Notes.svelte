@@ -58,12 +58,18 @@ import {
   move,
   navKeys,
   noteFileName,
+  pageHost,
+  pinnedPageUrl,
   rows,
   shallower,
 } from "./list";
 import { FolderIndex, isPinnedList, search } from "./search";
 
-let { browser = false, pageUrl = "" }: { browser?: boolean; pageUrl?: string } = $props();
+let {
+  browser = false,
+  pageUrl = "",
+  pageTitle = "",
+}: { browser?: boolean; pageUrl?: string; pageTitle?: string } = $props();
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -143,6 +149,23 @@ function webLabel(entry: WebEntry): string {
 }
 let leftovers = $state<Leftover[]>([]);
 let pinned = $state<Pinned>({ items: [], restorable: false });
+const pageTarget = $derived(pinnedPageUrl(pageUrl));
+const pagePinned = $derived(
+  pinned.items.some((item) => item.kind === "url" && pinnedPageUrl(item.target) === pageTarget),
+);
+async function togglePagePin() {
+  if (!pageTarget || pinning) return;
+  pinning = true;
+  try {
+    await pinnedAction(() =>
+      pagePinned
+        ? pinnedRemove(pageTarget)
+        : pinnedAdd(pageTarget, pageTitle.trim() || pageHost(pageTarget)),
+    );
+  } finally {
+    pinning = false;
+  }
+}
 /** Path of the one expanded card, or "". Not remembered when the panel closes. */
 let expanded = $state("");
 /** Chosen with the arrows or the mouse; "" means the default for the query. */
@@ -430,6 +453,7 @@ async function create(text: string) {
 
 /** Moves a card to `level`; for a pinned card, line against open is also remembered. */
 async function setLevel(card: Card, level: Level) {
+  if (card.url) return;
   const path = card.hit.path;
   try {
     error = "";
@@ -449,6 +473,12 @@ async function setLevel(card: Card, level: Level) {
 }
 
 function toggle(card: Card) {
+  if (card.url) {
+    void openPage(card.url).catch((e) => {
+      error = errorText(e);
+    });
+    return;
+  }
   const level = card.level === "line" ? deeper(card) : "line";
   if (level) void setLevel(card, level);
 }
@@ -721,7 +751,11 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       const action = enter(model, active);
       if (action?.action === "create") void create(action.text);
       else if (action?.action === "remove") void removeMissing(action.target);
-      else if (action) {
+      else if (action?.action === "openPage") {
+        void openPage(action.url).catch((e) => {
+          error = errorText(e);
+        });
+      } else if (action) {
         const card = cardFor(action.path);
         if (card) void setLevel(card, "expanded");
       }
@@ -824,7 +858,7 @@ function shortcut(event: KeyboardEvent) {
   }
   if (!browser && ctrl && key === "e") {
     const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
-    if (!path) return;
+    if (!path || cardFor(path)?.url) return;
     event.preventDefault();
     if (editing) void leaveByKeyboard();
     else void edit(path);
@@ -905,6 +939,9 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
+      {#if browser}
+        <IconButton icon="bookmark" label={t(pagePinned ? "web.unpin" : "web.pin")} pressed={pagePinned} disabled={!folder?.available || !pageTarget} onclick={togglePagePin} />
+      {/if}
       <IconButton icon="folder" label={folder ? t("notes.changeFolder", { path: folder.path }) : t("notes.choose")} onclick={choose} />
     </div>
   {#if browser && addressEditing}
@@ -916,6 +953,7 @@ onMount(() => {
     </div>
   {/if}
   <p class="announce" aria-live="polite">{announced}</p>
+  {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
   <div class="content" hidden={browser}>
   {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -1004,7 +1042,7 @@ onMount(() => {
         <button class="create" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
           {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
       {/each}
-      {#if !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
+      {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}

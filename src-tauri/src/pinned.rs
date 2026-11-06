@@ -429,6 +429,24 @@ mod tests {
     }
 
     #[test]
+    fn page_title_and_escaped_url_round_trip() {
+        let text = pin(
+            "",
+            Kind::Url,
+            "https://example.com/a(b)?x=%20",
+            " [Page] \\ title\r\n next ",
+        );
+        assert_eq!(
+            parse(&text),
+            vec![Item {
+                target: "https://example.com/a%28b%29?x=%20".into(),
+                title: "[Page] \\ title next".into(),
+                kind: Kind::Url,
+            }]
+        );
+    }
+
+    #[test]
     fn finds_the_link_after_a_task_checkbox() {
         assert_eq!(
             targets("- [ ] [Todo](todo.md)\n"),

@@ -7,6 +7,8 @@ import type { Hit } from "./search";
 export type Level = "line" | "preview" | "expanded";
 export type Card = {
   hit: Hit;
+  /** Web cards stay one line and open this URL instead of expanding. */
+  url?: string;
   pinned: boolean;
   level: Level;
   /** The note was deleted or moved outside the app; it stays on screen with its last content. */
@@ -52,7 +54,25 @@ export function buildList(input: {
   const pinned: (Card | Missing)[] = [];
   let held: Card | null = null;
   for (const item of input.pinned) {
-    // Web pages come with M4.
+    if (item.kind === "url") {
+      if (
+        !pinnedPaths.has(item.target) &&
+        (!searching ||
+          `${item.title} ${item.target}`
+            .toLocaleLowerCase()
+            .includes(query.trim().toLocaleLowerCase()))
+      ) {
+        pinned.push({
+          hit: { path: item.target, title: item.title, tags: [], modified: 0, snippet: null },
+          url: item.target,
+          pinned: true,
+          level: "line",
+          gone: false,
+        });
+      }
+      pinnedPaths.add(item.target);
+      continue;
+    }
     // A hand-edited file may list a note twice; it shows once.
     if (item.kind !== "note" || pinnedPaths.has(item.target)) continue;
     pinnedPaths.add(item.target);
@@ -170,6 +190,7 @@ export function arrowScroll(card: Span, view: Span, down: boolean, step: number)
 export type Activation =
   | { action: "create"; text: string }
   | { action: "open"; path: string }
+  | { action: "openPage"; url: string }
   | { action: "remove"; target: string };
 
 /** Enter on the selected key: run "Create", expand the card, or remove a missing pinned item. */
@@ -178,12 +199,16 @@ export function enter(model: ListModel, key: string): Activation | null {
     return model.create === null ? null : { action: "create", text: model.create };
   if (model.pinned.some((entry) => isMissing(entry) && entry.target === key))
     return { action: "remove", target: key };
+  const page = model.pinned.find(
+    (entry) => !isMissing(entry) && entry.url && entry.hit.path === key,
+  );
+  if (page && !isMissing(page) && page.url) return { action: "openPage", url: page.url };
   return navKeys(model).includes(key) ? { action: "open", path: key } : null;
 }
 
 /** The level one step further open (→), or null when already expanded. Pinned cards pass through preview. */
 export function deeper(card: Card): Level | null {
-  if (card.level === "expanded") return null;
+  if (card.url || card.level === "expanded") return null;
   return card.level === "line" && card.pinned ? "preview" : "expanded";
 }
 
@@ -221,4 +246,23 @@ export function noteFileName(text: string, taken: Iterable<string>): string {
   let name = `${stem}.md`;
   for (let n = 2; used.has(name.toLowerCase()); n++) name = `${stem} ${n}.md`;
   return name;
+}
+
+/** Same escaping as pinned.rs URL: preserve existing escapes, encode link delimiters and controls. */
+export function pinnedPageUrl(url: string): string {
+  return Array.from(url, (c) =>
+    c.charCodeAt(0) <= 32 || c.charCodeAt(0) === 127 || "()<>".includes(c)
+      ? `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`
+      : c.charCodeAt(0) > 127
+        ? encodeURIComponent(c)
+        : c,
+  ).join("");
+}
+
+export function pageHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }

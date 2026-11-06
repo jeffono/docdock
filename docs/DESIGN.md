@@ -78,6 +78,10 @@ pinned and unpinned notes differ only in section and starting state.
 - **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
+- **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
+  title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
+  the bookmark removes it. Browser mode has a pressed bookmark beside the address bar for the current
+  page, distinct from the panel thumbtack.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
   editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and

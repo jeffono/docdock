@@ -11,6 +11,7 @@ import {
   move,
   navKeys,
   noteFileName,
+  pinnedPageUrl,
   rows,
   shallower,
 } from "./list";
@@ -237,4 +238,31 @@ describe("noteFileName", () => {
   it("caps very long names", () => {
     expect(noteFileName("x".repeat(500), []).length).toBeLessThanOrEqual(103);
   });
+});
+
+it("keeps web pages between notes in file order without loading content", () => {
+  const model = buildList({
+    ...base,
+    pinned: [
+      item("b.md"),
+      item("https://example.com/a%28b%29", { kind: "url", title: "Page", collapsed: false }),
+      item("a.md"),
+    ],
+  });
+  expect(paths(model.pinned)).toEqual(["b.md", "https://example.com/a%28b%29", "a.md"]);
+  expect(model.pinned[1]).toMatchObject({ level: "line", url: "https://example.com/a%28b%29" });
+});
+it("activates a pinned page as a page rather than a note read", () => {
+  const url = "https://example.com/";
+  expect(enter(buildList({ ...base, pinned: [item(url, { kind: "url" })] }), url)).toEqual({
+    action: "openPage",
+    url,
+  });
+});
+it("compares pages in the escaped written form without decoding or changing case", () => {
+  expect(pinnedPageUrl("https://example.com/a(b)<c> x%20Y")).toBe(
+    "https://example.com/a%28b%29%3Cc%3E%20x%20Y",
+  );
+  expect(pinnedPageUrl("https://example.com/café")).toBe("https://example.com/caf%C3%A9");
+  expect(pinnedPageUrl("https://EXAMPLE.com/%2f")).toBe("https://EXAMPLE.com/%2f");
 });

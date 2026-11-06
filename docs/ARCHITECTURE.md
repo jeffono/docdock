@@ -318,7 +318,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Data:** one `search.ts` index, synced after each `notes_list`, serialized; `pinned_list` after each
   `notes-changed`. A card in preview or expanded needs its raw text, read with `notes_open` into
   `contents` and refreshed on `notes-changed`; entries nobody shows are dropped. Web items of
-  `_pinned.md` are skipped until M4.
+  `_pinned.md` appear in file order as one-line cards with the link label and host; no preview or
+  network fetch is needed. Click or Enter opens the page through the save guard, and the bookmark
+  removes it. Web cards ignore collapsed state and participate in the same selection model.
 - **State:** one `expanded` path (not remembered: `panel-hidden` clears it once editing is left);
   `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
   query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
@@ -343,6 +345,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Creating:** `notes_save(name, "", "")` at the folder root with `noteFileName` (no separators, drive or
   `..`, no device names, case-insensitive uniqueness, never `_pinned.md`); a conflict because another app
   took the name tries the next number. The empty file's title is its name.
+- **Page pin:** browser mode offers a bookmark beside the address bar. It pins the current title
+  (host when empty) through `pinned_add`, which escapes the label; URL comparison uses the same
+  escaped form written by `pinned.rs`, preserving existing percent escapes and case.
 - **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
   from the header's "Pin panel" thumbtack. Card actions use its `quiet` prop; the bookmark fills when
   pressed. The root `_pinned.md` entry is skipped by `search` for both empty and nonempty queries.
