@@ -38,11 +38,12 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
 - [x] (standard) Rethink the browser UI with the user's observations: Notes/Browser tabs, shared
   search bar with "+", preserved focus border and floating suggestions
-- [ ] (advanced) Polish (2026-11-06): solid, ~12% smaller panel pin when active; disable WebView2
-  browser accelerators in the main window and block the non-applicable ones in the page window
-  (keep reload, find and zoom) while app shortcuts still work with the page focused; ↓ in the bar
-  opens address history; Ctrl+J joins lines in the editor; Ctrl+Tab toggles Notes/Browser;
-  shortcuts in button tooltips; default panel width 460
+- [ ] (standard) Polish (2026-11-06): solid, ~12% smaller panel pin when active; ↓ in the bar opens
+  address history; Ctrl+J joins lines in the editor; Ctrl+Tab toggles Notes/Browser; shortcuts in
+  button tooltips; default panel width 460
+- [ ] (advanced) Disable WebView2 browser accelerators in the main window and block the
+  non-applicable ones in the page window (keep reload, find and zoom); app shortcuts such as
+  Ctrl+Tab still work with the page focused, without letting the page talk to Rust
 
 ## M4.1 — Preferences
 
