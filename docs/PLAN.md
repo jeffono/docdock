@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: M4.
+- M4 on `m4-web-pages`: browser mode delegated; code colors on `code-colors`.
 
 ## Completed
 
@@ -20,11 +20,20 @@ Nothing. Next: M4.
 
 ## M4 — Web pages
 
-- [ ] (standard) Browser in place of notes, with a back button; the page is hidden, not closed
+Product choices (2026-11-06): links in notes open in the panel, Ctrl+click in the default browser; the
+browser bar has back/forward for the page history plus a separate button back to notes; saving a page
+creates a note with `title` and `url` in frontmatter and the page selection, if any, quoted in the body;
+a note with `url:` expands like any note and offers "Open page".
+
+- [ ] (standard) Browser mode: a shown page replaces the note list; a "Notes" button hides the page
+  window (kept loaded, not destroyed) and shows the list again; back/forward follow the page history and
+  are disabled when unavailable; Rust reports URL, title and history state to the UI; links in rendered
+  notes open in the panel, Ctrl+click in the default browser. Replaces the M0 globe toggle and `WebBar`.
 - [ ] (standard) Unified bar as address bar, with local history and suggestions; see
-  `docs/decisions/0006-search-suggestions.md`
-- [ ] (standard) Pin pages in `_pinned.md`
-- [ ] (standard) Save pages as notes with `url:` in frontmatter
+  `docs/decisions/0006-search-suggestions.md`. Level 2 and a settings screen stay out of M4.
+- [ ] (standard) Pin pages in `_pinned.md`; pinned web cards open the page
+- [ ] (advanced) Read the page selection from Rust without letting the page talk to Rust
+- [ ] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
 - [ ] (standard) Code colors with CodeMirror parsers
 - [ ] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
 
