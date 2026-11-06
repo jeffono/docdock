@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: all tasks done; stage close next (test review, cross-provider review, CI).
+- Nothing; M4.1 is next.
 
 ## Completed
 
@@ -17,33 +17,9 @@ detail each stage when it is next.
   both views; see `docs/decisions/0007-one-markdown-parser.md`.
 - M3 — Find and pin: content search, unified bar, pinned cards and note rows, in-place editing, focused
   panel and list keyboard; see "Note list" in `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`.
-
-## M4 — Web pages
-
-Product choices (2026-11-06): links in notes open in the panel, Ctrl+click in the default browser; the
-top bar has Notes/Browser tabs and discreet back/forward for page history; saving a page
-creates a note with `title` and `url` in frontmatter and the page selection, if any, quoted in the body;
-a note with `url:` expands like any note and offers "Open page".
-
-- [x] (standard) Browser mode: a shown page replaces the note list; a "Notes" button hides the page
-  window (kept loaded, not destroyed) and shows the list again; back/forward follow the page history and
-  are disabled when unavailable; Rust reports URL, title and history state to the UI; links in rendered
-  notes open in the panel, Ctrl+click in the default browser. Replaces the M0 globe toggle and `WebBar`.
-- [x] (standard) Unified bar as address bar, with local history and suggestions; see
-  `docs/decisions/0006-search-suggestions.md`. Level 2 and a settings screen stay out of M4.
-- [x] (standard) Pin pages in `_pinned.md`; pinned web cards open the page
-- [x] (advanced) Read the page selection from Rust without letting the page talk to Rust
-- [x] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
-- [x] (standard) Code colors with CodeMirror parsers, in the GitHub Light and Dark Default palette
-- [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
-- [x] (standard) Rethink the browser UI with the user's observations: Notes/Browser tabs, shared
-  search bar with "+", preserved focus border and floating suggestions
-- [x] (standard) Polish (2026-11-06): solid, ~12% smaller panel pin when active; ↓ in the bar opens
-  address history; Ctrl+J joins lines in the editor; Ctrl+Tab toggles Notes/Browser; shortcuts in
-  button tooltips; default panel width 460
-- [x] (advanced) Filter WebView2's accelerator keys and context menus in both windows (the page keeps
-  reload, zoom and history; find is blocked because its popup closes the panel); Ctrl+Tab works
-  with the page focused, without letting the page talk to Rust
+- M4 — Web pages: mobile browser tab with history and suggestions, page selection read from Rust,
+  pages saved as notes, code colors and Edge features filtered; see "Untrusted content" in
+  `docs/ARCHITECTURE.md`.
 
 ## M4.1 — Preferences
 
