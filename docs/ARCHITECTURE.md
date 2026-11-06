@@ -117,7 +117,10 @@ per-monitor DPI awareness (PMv2).
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
   navigate in the page window itself. `on_navigation` sees only the main frame, so `platform/guard.rs`
   cancels iframe navigations to Tauri's origins and every external scheme launch from any frame; the
-  window is created blank and navigates only once the guard is installed.
+  window is created blank and navigates only once the guard and the navigation observers are
+  installed. Tauri registers the window before that, so one lock covers the whole open: a concurrent
+  open waits instead of navigating the unguarded window, and a window whose setup failed is never
+  navigated.
 - **Browser mode:** a shown page replaces the note list. Notes hides and disables its native window,
   retaining its document and history; Return to page restores it at the current panel position.
   Hidden pages are excluded from positioning, sliding, activation and focus tracking. Closing the panel
@@ -139,23 +142,36 @@ per-monitor DPI awareness (PMv2).
   history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
   remains first for Enter. Browser suggestions reserve their measured height above the native page
   via the panel thread; Esc or moving focus to the page dismisses them and restores its bounds.
-- **Page selection:** `web_selection` returns the native URL and title and the page's selected text, or
-  null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
-  `getSelection().toString()` sliced to 20,000 UTF-16 units and made well-formed, through WebView2's
-  DevTools protocol: `Target.getTargetInfo` (the page target id is the main frame id),
-  `Page.createIsolatedWorld` (world `docdock`, reused per document) and `Runtime.evaluate` in that
-  context. The isolated world shares the DOM but not the page's globals or prototypes, so the page
-  cannot replace `getSelection`, `slice` or `toWellFormed` there, and the response stays under about
-  120 KB. The one-shot completion handlers are the only receivers; the page cannot call or observe
-  the world. Handlers run on the WebView2 UI thread and send over a channel that the async command
-  waits on in a blocking-pool thread (`spawn_blocking`), for two seconds at most, so concurrent calls
-  against a hung page hold no async runtime worker; the page stays frozen itself (navigating away
-  waits on its renderer) while the panel keeps working. `NavigationStarting` increments a navigation counter; the result counts
-  only if the counter and URL are unchanged, so a same-URL reload or A → B → A discards it. The
-  response is still untrusted: only a string result up to 256 KiB is accepted, line endings become
-  LF, controls other than newline and tab are removed, and the text is trimmed and cut at 20,000
-  characters. Selections inside iframes are not read. Native URL and title are bounded by Chromium
-  (2 MB URLs, 4,096-character titles), also in the `Target.getTargetInfo` response.
+- **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
+  or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
+  `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
+  well-formed, through WebView2's DevTools protocol: `Target.getTargetInfo` (the page target id is
+  the main frame id), `Page.createIsolatedWorld` (world `docdock`, reused per document), then
+  `Runtime.enable` only to receive that world's `executionContextCreated` with its `uniqueId`,
+  `Runtime.disable`, and `Runtime.evaluate` with `uniqueContextId`. A numeric context id may name
+  another context, even the page's own world, after a cross-process navigation; a `uniqueId` names
+  one context of one document, so evaluation never lands elsewhere. Exactly one isolated `docdock`
+  context of the main frame with the returned id must match, with a `uniqueId`, or nothing is
+  evaluated. While enabled, `Runtime` serializes the page's console calls, so a page can notice a read
+  happening, but nothing more. The isolated world shares the DOM but not the page's globals or
+  prototypes, so the page cannot replace `getSelection`, `slice` or `toWellFormed` there, and the
+  response stays under about 150 KB. The one-shot completion handlers are the only receivers; the
+  page cannot call or observe the world. Handlers run on the WebView2 UI thread and send over a
+  channel that the async command waits on in a blocking-pool thread (`spawn_blocking`), for two
+  seconds at most, so concurrent calls against a hung page hold no async runtime worker; the page
+  stays frozen itself (navigating away waits on its renderer) while the panel keeps working.
+  Navigation identity changes on `NavigationStarting` and on commit (`ContentLoading`); a navigation
+  is in flight until it commits or `NavigationCompleted` reports it, and a commit settles older ones.
+  Nothing is evaluated while one is in flight, since its document may commit mid-read before the UI
+  thread hears of it, and the result counts only if the identity and URL are unchanged before and
+  after evaluation, so a same-URL reload or A → B → A discards it. The title comes from the same
+  evaluation because WebView2's native title can still be the previous document's after the next
+  one commits; without a result, the native title is returned with an empty selection. The response
+  is still untrusted: only an array of two strings up to 256 KiB is accepted; the title loses
+  controls, the selection's line endings become LF and controls other than newline and tab are
+  removed; both are trimmed and cut at their limits. Selections inside iframes are not read. Native
+  URL and title are bounded by Chromium (2 MB URLs, 4,096-character titles), also in the
+  `Target.getTargetInfo` response.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.

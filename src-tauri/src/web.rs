@@ -2,6 +2,7 @@
 //! capability, only navigates over HTTP(S), and never opens another window.
 
 use std::sync::mpsc::Sender;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use tauri::webview::NewWindowResponse;
@@ -56,10 +57,21 @@ fn navigate_here(app: &AppHandle, url: Url) {
     }
 }
 
+/// Whether the page window, if any, has its guard and observers. The window is registered before
+/// they are installed, so the lock is held across the whole `open`: a concurrent open must neither
+/// navigate that window early nor create a second one. Never taken on the WebView2 UI thread,
+/// which `open` waits on.
+static READY: Mutex<bool> = Mutex::new(false);
+
 /// Navigates the existing window or creates an invisible one; the panel thread positions and shows it.
 pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Result<(), Error> {
     let url = parse_url(raw_url)?;
+    let mut ready = READY.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(window) = app.get_webview_window(LABEL) {
+        // Still registered after a failed setup, until its destruction completes.
+        if !*ready {
+            return Err(Error::unexpected("page window not guarded"));
+        }
         window.navigate(url)?;
         let _ = requests.send(Request::SetWebVisible(true));
         return Ok(());
@@ -86,12 +98,15 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
             })
             .build()
     };
+    *ready = false;
     let window = build()?;
-    if let Err(error) = crate::platform::guard(&window, frame_allowed) {
+    let setup = crate::platform::guard(&window, frame_allowed)
+        .and_then(|()| crate::platform::browser::observe(&window));
+    if let Err(error) = setup {
         let _ = window.destroy();
         return Err(error);
     }
-    crate::platform::browser::observe(&window)?;
+    *ready = true;
     window.navigate(url)?;
     let hwnd = window.hwnd()?;
     let _ = requests.send(Request::AttachWeb(hwnd.0 as isize));
@@ -107,12 +122,17 @@ pub fn history(app: &AppHandle, back: bool) -> Result<(), Error> {
 
 /// Long enough for a passage of several pages, short enough to stay a quote in a note.
 const SELECTION_MAX_CHARS: usize = 20_000;
-/// The script's slice keeps the response under this: at most six JSON bytes per UTF-16 unit.
+/// Chromium's own limit for native titles.
+const TITLE_MAX_CHARS: usize = 4_096;
+/// The script's slices keep the response under this: at most six JSON bytes per UTF-16 unit.
 const SELECTION_MAX_JSON: usize = 256 * 1024;
 /// Fixed: no data is ever interpolated. It runs in an isolated world, so these are the browser's
-/// own builtins, not the page's. `slice` uses `SELECTION_MAX_CHARS` and `toWellFormed` repairs a
-/// surrogate pair it may cut, which strict JSON decoding would reject.
-const SELECTION_SCRIPT: &str = "getSelection().toString().slice(0, 20000).toWellFormed()";
+/// own builtins, not the page's. The slices use `TITLE_MAX_CHARS` and `SELECTION_MAX_CHARS`, and
+/// `toWellFormed` repairs a surrogate pair they may cut, which strict JSON decoding would reject.
+/// The title comes from the same evaluation as the selection: WebView2's native title can still
+/// be the previous document's after the next one commits.
+const SELECTION_SCRIPT: &str = "[document.title.slice(0, 4096), \
+    getSelection().toString().slice(0, 20000)].map((text) => text.toWellFormed())";
 /// A hostile or hung page delays the command at most this long.
 const SELECTION_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -132,32 +152,38 @@ struct Evaluated {
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Remote {
-    String {
-        value: String,
-    },
+    /// The script's array: title, then selection.
+    Object { value: (String, String) },
     #[serde(other)]
     Other,
 }
 
-/// Decodes a `Runtime.evaluate` response. The page cannot reach the script's world but owns the
-/// selected text, so only a string result is accepted, without controls other than newline and
-/// tab, with LF line endings.
-fn decode_selection(json: &str) -> String {
+/// Decodes a `Runtime.evaluate` response into title and selection. The page cannot reach the
+/// script's world but owns its title and selected text, so only an array of two strings is
+/// accepted. The title keeps no controls; the selection keeps newline and tab, with LF line endings.
+fn decode_page(json: &str) -> Option<(String, String)> {
     if json.len() > SELECTION_MAX_JSON {
-        return String::new();
+        return None;
     }
     let Ok(Evaluated {
-        result: Remote::String { value: text },
+        result: Remote::Object {
+            value: (title, text),
+        },
     }) = serde_json::from_str(json)
     else {
-        return String::new();
+        return None;
     };
+    let title: String = title.chars().filter(|c| !c.is_control()).collect();
+    let title = title.trim().chars().take(TITLE_MAX_CHARS).collect();
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let text: String = text
         .chars()
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
         .collect();
-    text.trim().chars().take(SELECTION_MAX_CHARS).collect()
+    Some((
+        title,
+        text.trim().chars().take(SELECTION_MAX_CHARS).collect(),
+    ))
 }
 
 /// Current page and its selection in the main frame; selections inside iframes are not read.
@@ -175,10 +201,12 @@ pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
     if !Url::parse(&url).is_ok_and(|url| is_web(&url)) {
         return Ok(None);
     }
-    let selection = match wait() {
-        Ok(Read::Script(Some(json))) => decode_selection(&json),
-        _ => String::new(),
-    };
+    // Without a script result, the native title stands, possibly lagging behind the URL.
+    let (title, selection) = match wait() {
+        Ok(Read::Script(json)) => decode_page(&json),
+        _ => None,
+    }
+    .unwrap_or((title, String::new()));
     Ok(Some(PageSelection {
         url,
         title,
@@ -205,9 +233,13 @@ mod tests {
         assert!(parse_url("https://tauri.app/").is_ok());
     }
 
-    /// A `Runtime.evaluate` response whose string result is the JSON literal `value`.
+    /// A `Runtime.evaluate` response whose selection is the JSON literal `value`.
     fn evaluated(value: &str) -> String {
-        format!(r#"{{"result":{{"type":"string","value":{value}}}}}"#)
+        format!(r#"{{"result":{{"type":"object","subtype":"array","value":["",{value}]}}}}"#)
+    }
+
+    fn decode_selection(json: &str) -> String {
+        decode_page(json).map(|(_, text)| text).unwrap_or_default()
     }
 
     #[test]
@@ -232,10 +264,14 @@ mod tests {
     }
 
     #[test]
-    fn selection_must_be_a_string_result() {
+    fn page_text_must_be_two_strings() {
         for json in [
             r#"{"result":{"type":"number","value":3}}"#,
+            r#"{"result":{"type":"string","value":"a"}}"#,
             r#"{"result":{"type":"object","value":{"text":"a"}}}"#,
+            r#"{"result":{"type":"object","value":["a"]}}"#,
+            r#"{"result":{"type":"object","value":["a","b","c"]}}"#,
+            r#"{"result":{"type":"object","value":[1,"b"]}}"#,
             r#"{"result":{"type":"object","subtype":"error"},"exceptionDetails":{"text":"a"}}"#,
             r#"{"result":{"type":"string"}}"#,
             r#"{"result":{"type":"string","value":3}}"#,
@@ -249,6 +285,15 @@ mod tests {
             decode_selection(&evaluated(r#""quoted text""#)),
             "quoted text"
         );
+    }
+
+    #[test]
+    fn title_is_bounded_and_without_controls() {
+        let title = format!("a\tb\n{}", "é".repeat(TITLE_MAX_CHARS));
+        let json = serde_json::json!({ "result": { "type": "object", "value": [title, ""] } });
+        let (title, _) = decode_page(&json.to_string()).unwrap();
+        assert!(title.starts_with("abé"));
+        assert_eq!(title.chars().count(), TITLE_MAX_CHARS);
     }
 
     #[test]

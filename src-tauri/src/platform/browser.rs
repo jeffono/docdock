@@ -1,20 +1,67 @@
 //! Observe native WebView2 state on its UI thread. No message bridge in remote pages: Rust may run a
 //! fixed script in an isolated world and read its result, but the page has nothing it can call.
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Mutex, PoisonError};
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager, WebviewWindow};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 use webview2_com::{
-    CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, DocumentTitleChangedEventHandler,
-    HistoryChangedEventHandler, NavigationStartingEventHandler, SourceChangedEventHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, ContentLoadingEventHandler,
+    DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
+    HistoryChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    SourceChangedEventHandler,
 };
 use windows::core::{BOOL, HSTRING, PWSTR};
 
-/// Main-frame navigations started in the page window, so a result can be tied to one document even
-/// across a same-URL reload or A → B → A. One counter suffices: there is a single page window.
-static NAVIGATIONS: AtomicU64 = AtomicU64::new(0);
+use crate::error::Error;
+
+/// Main-frame navigations of the page window, so a result can be tied to one document even across
+/// a same-URL reload or A → B → A. Only the WebView2 UI thread touches it, and there is a single
+/// page window.
+#[derive(Default)]
+struct Navigations {
+    /// Changes when a navigation starts and when a document commits.
+    changes: u64,
+    /// Started and neither committed nor finished.
+    pending: Vec<u64>,
+}
+
+impl Navigations {
+    fn starting(&mut self, id: u64) {
+        self.changes += 1;
+        self.pending.push(id);
+    }
+
+    /// `ContentLoading`: a new document replaced the old one. Older navigations can no longer
+    /// commit, so they stop counting even if WebView2 never reports them finished.
+    fn committed(&mut self, id: u64) {
+        self.changes += 1;
+        self.pending.retain(|pending| *pending > id);
+    }
+
+    /// `NavigationCompleted`: also raised for navigations that failed or were cancelled.
+    fn finished(&mut self, id: u64) {
+        self.pending.retain(|pending| *pending != id);
+    }
+
+    /// None while a navigation is in flight: its document may commit in the middle of a read,
+    /// before WebView2 tells the UI thread.
+    fn identity(&self) -> Option<u64> {
+        self.pending.is_empty().then_some(self.changes)
+    }
+}
+
+static NAVIGATIONS: Mutex<Navigations> = Mutex::new(Navigations {
+    changes: 0,
+    pending: Vec::new(),
+});
+
+fn navigations() -> std::sync::MutexGuard<'static, Navigations> {
+    NAVIGATIONS.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,11 +97,17 @@ fn report(app: &tauri::AppHandle, page: &ICoreWebView2) -> windows::core::Result
     Ok(())
 }
 
-pub fn observe(window: &WebviewWindow) -> tauri::Result<()> {
+/// Installs the observers before the page loads anything: reads trust the navigation state only
+/// because these handlers see every navigation. Waits for the WebView2 UI thread, so never call it
+/// from that thread.
+pub fn observe(window: &WebviewWindow) -> Result<(), Error> {
     let app = window.app_handle().clone();
+    let (sender, receiver) = mpsc::channel();
     window.with_webview(move |view| unsafe {
         let install = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
+            // A previous page window, destroyed while loading, leaves nothing in flight.
+            navigations().pending.clear();
             let handle = app.clone();
             let source = SourceChangedEventHandler::create(Box::new(move |page, _| {
                 if let Some(page) = page {
@@ -76,8 +129,28 @@ pub fn observe(window: &WebviewWindow) -> tauri::Result<()> {
                 }
                 Ok(())
             }));
-            let navigation = NavigationStartingEventHandler::create(Box::new(|_, _| {
-                NAVIGATIONS.fetch_add(1, Ordering::Relaxed);
+            let starting = NavigationStartingEventHandler::create(Box::new(|_, args| {
+                if let Some(args) = args {
+                    let mut id = 0;
+                    args.NavigationId(&mut id)?;
+                    navigations().starting(id);
+                }
+                Ok(())
+            }));
+            let committed = ContentLoadingEventHandler::create(Box::new(|_, args| {
+                if let Some(args) = args {
+                    let mut id = 0;
+                    args.NavigationId(&mut id)?;
+                    navigations().committed(id);
+                }
+                Ok(())
+            }));
+            let finished = NavigationCompletedEventHandler::create(Box::new(|_, args| {
+                if let Some(args) = args {
+                    let mut id = 0;
+                    args.NavigationId(&mut id)?;
+                    navigations().finished(id);
+                }
                 Ok(())
             }));
             let handle = app.clone();
@@ -92,13 +165,18 @@ pub fn observe(window: &WebviewWindow) -> tauri::Result<()> {
             page.add_SourceChanged(&source, &mut token)?;
             page.add_HistoryChanged(&history, &mut token)?;
             page.add_DocumentTitleChanged(&title, &mut token)?;
-            page.add_NavigationStarting(&navigation, &mut token)?;
+            page.add_NavigationStarting(&starting, &mut token)?;
+            page.add_ContentLoading(&committed, &mut token)?;
+            page.add_NavigationCompleted(&finished, &mut token)?;
             report(&app, &page)
         };
-        if let Err(error) = install() {
-            eprintln!("[web] observe: {error}");
-        }
-    })
+        let _ = sender.send(install());
+    })?;
+    match receiver.recv() {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(Error::unexpected(format!("page observers: {error}"))),
+        Err(_) => Err(Error::unexpected("page observers not installed")),
+    }
 }
 
 pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
@@ -132,8 +210,8 @@ pub enum Read {
         url: String,
         title: String,
     },
-    /// `Runtime.evaluate` response JSON; `None` if a navigation started or the URL changed meanwhile.
-    Script(Option<String>),
+    /// `Runtime.evaluate` response JSON, sent only if it came from the document of `Page`.
+    Script(String),
 }
 
 /// Isolated world for Rust's own scripts: it shares the DOM but not the page's globals or
@@ -144,21 +222,27 @@ const WORLD: &str = "docdock";
 /// main frame through the DevTools protocol. The page cannot call Rust: only these one-shot
 /// completion handlers receive results, which are untrusted. The page cannot override the
 /// expression's builtins there, so the expression's own length limit bounds the response.
+/// Nothing is evaluated while a navigation is in flight, and the result is dropped unless the
+/// document is still the one whose URL and title were reported.
 /// The handlers run on the WebView2 UI thread, so the caller waits on the receiver from another thread.
 pub fn read(window: &WebviewWindow, expression: &'static str) -> tauri::Result<Receiver<Read>> {
     let (sender, receiver) = mpsc::channel();
     window.with_webview(move |view| unsafe {
         let run = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
-            let document = current(&page)?;
+            let url = source(&page)?;
             let mut title = PWSTR::null();
             page.DocumentTitle(&mut title)?;
             let title = CoTaskMemPWSTR::from(title).to_string();
+            let identity = navigations().identity();
             let _ = sender.send(Read::Page {
-                url: document.1.clone(),
+                url: url.clone(),
                 title,
             });
-            evaluate(&page, document, expression, sender)
+            match identity {
+                Some(identity) => evaluate(&page, Document { identity, url }, expression, sender),
+                None => Ok(()),
+            }
         };
         if let Err(error) = run() {
             eprintln!("[web] read: {error}");
@@ -179,8 +263,10 @@ fn evaluate(
         "Target.getTargetInfo",
         json!({}),
         move |page, info| {
-            let info = parse(&info);
-            let Some(frame) = info["targetInfo"]["targetId"].as_str() else {
+            let Some(frame) = parse(&info)["targetInfo"]["targetId"]
+                .as_str()
+                .map(str::to_owned)
+            else {
                 return Ok(());
             };
             let world = json!({ "frameId": frame, "worldName": WORLD });
@@ -189,7 +275,9 @@ fn evaluate(
                 "Page.createIsolatedWorld",
                 world,
                 move |page, world| match parse(&world)["executionContextId"].as_i64() {
-                    Some(context) => evaluate_in(page, context, document, expression, reply),
+                    Some(id) => unique_context(page, frame, id, move |page, context| {
+                        evaluate_in(page, context, document, expression, reply)
+                    }),
                     None => Ok(()),
                 },
             )
@@ -197,23 +285,86 @@ fn evaluate(
     )
 }
 
-/// The result counts only if no navigation started and the URL is unchanged since `document`.
+/// The world's `uniqueId`. Chromium may reuse a numeric context id for another context after a
+/// cross-process navigation, even the page's own world, where its prototypes rule again and the
+/// response is unbounded; a `uniqueId` names one context of one document only. Only
+/// `Runtime.enable` reports it, so the domain stays enabled just long enough to list the contexts.
+/// `then` runs only if exactly one context matches.
+fn unique_context(
+    page: &ICoreWebView2,
+    frame: String,
+    id: i64,
+    then: impl FnOnce(&ICoreWebView2, String) -> windows::core::Result<()> + 'static,
+) -> windows::core::Result<()> {
+    let found = Rc::new(RefCell::new(Vec::new()));
+    let sink = found.clone();
+    let created = DevToolsProtocolEventReceivedEventHandler::create(Box::new(move |_, args| {
+        if let Some(args) = args {
+            let mut event = PWSTR::null();
+            unsafe { args.ParameterObjectAsJson(&mut event)? };
+            let event = parse(&CoTaskMemPWSTR::from(event).to_string());
+            if let Some(context) = world_context(&event, &frame, id) {
+                sink.borrow_mut().push(context);
+            }
+        }
+        Ok(())
+    }));
+    let events = unsafe {
+        page.GetDevToolsProtocolEventReceiver(&HSTRING::from("Runtime.executionContextCreated"))?
+    };
+    let mut token = 0;
+    unsafe { events.add_DevToolsProtocolEventReceived(&created, &mut token)? };
+    // Enabling reports every existing context before its response.
+    call(page, "Runtime.enable", json!({}), move |page, _| {
+        unsafe { events.remove_DevToolsProtocolEventReceived(token)? };
+        call(page, "Runtime.disable", json!({}), |_, _| Ok(()))?;
+        match found.take().as_slice() {
+            [context] => then(page, context.clone()),
+            _ => Ok(()),
+        }
+    })
+}
+
+/// The `uniqueId` of an `executionContextCreated` event for this read's world: isolated, named
+/// `WORLD`, in the main frame, with the id `Page.createIsolatedWorld` returned. Without a
+/// `uniqueId` the browser would not know `uniqueContextId` either, and might ignore it and
+/// evaluate in the page's own world, so the read fails closed.
+fn world_context(event: &Value, frame: &str, id: i64) -> Option<String> {
+    let context = &event["context"];
+    let aux = &context["auxData"];
+    let ours = context["id"].as_i64() == Some(id)
+        && context["name"] == WORLD
+        && aux["type"] == "isolated"
+        && aux["isDefault"] == false
+        && aux["frameId"] == frame;
+    let unique = context["uniqueId"]
+        .as_str()
+        .filter(|unique| !unique.is_empty());
+    unique.filter(|_| ours).map(str::to_owned)
+}
+
+/// Evaluates in the context named by `context` only, and only if the document is unchanged before
+/// and after.
 fn evaluate_in(
     page: &ICoreWebView2,
-    context: i64,
+    context: String,
     document: Document,
     expression: &'static str,
     reply: Sender<Read>,
 ) -> windows::core::Result<()> {
+    if !unchanged(page, &document) {
+        return Ok(());
+    }
     let script = json!({
         "expression": expression,
-        "contextId": context,
+        "uniqueContextId": context,
         "returnByValue": true,
         "silent": true,
     });
     call(page, "Runtime.evaluate", script, move |page, result| {
-        let same = unsafe { current(page) }.is_ok_and(|now| now == document);
-        let _ = reply.send(Read::Script(same.then_some(result)));
+        if unchanged(page, &document) {
+            let _ = reply.send(Read::Script(result));
+        }
         Ok(())
     })
 }
@@ -240,16 +391,106 @@ fn parse(json: &str) -> Value {
     serde_json::from_str(json).unwrap_or_default()
 }
 
-/// Identifies the shown document: navigations started so far and the URL.
-type Document = (u64, String);
+/// The document a read started on: its settled navigation identity and URL.
+struct Document {
+    identity: u64,
+    url: String,
+}
 
-unsafe fn current(page: &ICoreWebView2) -> windows::core::Result<Document> {
-    let navigations = NAVIGATIONS.load(Ordering::Relaxed);
-    Ok((navigations, unsafe { source(page)? }))
+/// No navigation started or committed since `document`, none is in flight, and the URL is the same.
+fn unchanged(page: &ICoreWebView2, document: &Document) -> bool {
+    navigations().identity() == Some(document.identity)
+        && unsafe { source(page) }.is_ok_and(|url| url == document.url)
 }
 
 unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
     let mut url = PWSTR::null();
     unsafe { page.Source(&mut url)? };
     Ok(CoTaskMemPWSTR::from(url).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_navigation_in_flight_has_no_identity() {
+        let mut navigations = Navigations::default();
+        navigations.starting(1);
+        assert_eq!(navigations.identity(), None);
+    }
+
+    #[test]
+    fn a_commit_gives_the_new_document_another_identity() {
+        let mut navigations = Navigations::default();
+        let before = navigations.identity();
+        navigations.starting(1);
+        navigations.committed(1);
+        assert!(navigations.identity().is_some());
+        assert_ne!(navigations.identity(), before);
+    }
+
+    #[test]
+    fn a_cancelled_navigation_settles_when_finished() {
+        let mut navigations = Navigations::default();
+        navigations.starting(1);
+        navigations.finished(1);
+        assert!(navigations.identity().is_some());
+    }
+
+    #[test]
+    fn finishing_one_navigation_leaves_another_in_flight() {
+        let mut navigations = Navigations::default();
+        navigations.starting(1);
+        navigations.starting(2);
+        navigations.finished(2);
+        assert_eq!(navigations.identity(), None);
+    }
+
+    #[test]
+    fn a_commit_settles_older_navigations() {
+        let mut navigations = Navigations::default();
+        navigations.starting(1);
+        navigations.starting(2);
+        navigations.committed(2);
+        assert!(navigations.identity().is_some());
+    }
+
+    fn created(context: Value) -> Value {
+        json!({ "context": context })
+    }
+
+    fn world(id: i64, frame: &str) -> Value {
+        json!({
+            "id": id,
+            "name": WORLD,
+            "uniqueId": "-1.2",
+            "auxData": { "isDefault": false, "type": "isolated", "frameId": frame },
+        })
+    }
+
+    #[test]
+    fn only_this_reads_world_is_evaluated() {
+        assert_eq!(
+            world_context(&created(world(3, "F")), "F", 3).as_deref(),
+            Some("-1.2")
+        );
+        let mut main = world(3, "F");
+        main["name"] = json!("");
+        main["auxData"] = json!({ "isDefault": true, "type": "default", "frameId": "F" });
+        for (context, frame, id) in [
+            (main, "F", 3),
+            (world(3, "iframe"), "F", 3),
+            (world(4, "F"), "F", 3),
+        ] {
+            assert_eq!(world_context(&created(context), frame, id), None);
+        }
+    }
+
+    #[test]
+    fn a_context_without_unique_id_is_never_evaluated() {
+        let mut context = world(3, "F");
+        context.as_object_mut().unwrap().remove("uniqueId");
+        assert_eq!(world_context(&created(context), "F", 3), None);
+    }
 }
