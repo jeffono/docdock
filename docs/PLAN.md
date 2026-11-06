@@ -3,7 +3,9 @@
 Each task indicates the model level (see `AGENTS.md`). Mark `[x]` in the commit that completes it and
 detail each stage when it is next.
 
-- M4 on `m4-web-pages`: all first-pass tasks done; browser UI rework in progress with the user.
+## In progress
+
+- M4 on `m4-web-pages`: all first-pass tasks done; browser UI rework in progress with the user.
 
 ## Completed
 
