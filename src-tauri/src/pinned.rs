@@ -77,7 +77,7 @@ fn items(lines: &[Line]) -> Vec<(usize, Item)> {
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         if let Some((mark, len)) = fence {
-            if fence_marker(line.body).is_some_and(|(m, l)| m == mark && l >= len) {
+            if closes(line.body, mark, len) {
                 fence = None;
             }
             continue;
@@ -111,6 +111,15 @@ fn fence_marker(body: &str) -> Option<(u8, usize)> {
     let mark = *rest.first().filter(|&&b| b == b'`' || b == b'~')?;
     let len = rest.iter().take_while(|&&b| b == mark).count();
     (indent <= 3 && len >= 3).then_some((mark, len))
+}
+
+/// Whether `body` closes a fence opened with `len` `mark` characters (CommonMark): the same character, at
+/// least as many, at most three spaces before and only whitespace after. "```example" inside is text.
+fn closes(body: &str, mark: u8, len: usize) -> bool {
+    fence_marker(body).is_some_and(|(m, l)| {
+        let rest = &body.trim_start_matches(' ')[l..];
+        m == mark && l >= len && rest.trim_matches([' ', '\t']).is_empty()
+    })
 }
 
 fn item(body: &str) -> Option<Item> {
@@ -405,6 +414,12 @@ mod tests {
 ```
 "
         );
+    }
+
+    #[test]
+    fn unpin_keeps_a_fence_whose_inner_line_only_looks_like_a_closing_fence() {
+        let block = "```md\n```example\n- [A](a.md)\n```\n";
+        assert_eq!(unpin(&format!("{block}- [A](a.md)\n"), "a.md"), block);
     }
 
     #[test]
