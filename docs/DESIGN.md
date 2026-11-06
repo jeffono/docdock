@@ -82,6 +82,10 @@ pinned and unpinned notes differ only in section and starting state.
   title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
   the bookmark removes it. Browser mode has a pressed bookmark beside the address bar for the current
   page, distinct from the panel thumbtack.
+- **Page notes:** browser mode offers "Save as note" beside the address bar. It saves the page title,
+  URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
+  annotations. A note with an http(s) `url:` has an "Open page" arrow action left of the pencil; it
+  keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
   editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and
@@ -90,8 +94,8 @@ pinned and unpinned notes differ only in section and starting state.
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
   returns to a row when closed; there is no separate note view.
-- **Editing:** only through the pencil in the card header or Ctrl+E on the selected card; entering from
-  preview expands the card. One card edits at a time and shows its own save status, conflict and
+- **Editing:** Save as note opens a newly captured page in edit mode. Otherwise use the pencil in
+  the card header or Ctrl+E on the selected card; entering from preview expands the card. One card edits at a time and shows its own save status, conflict and
   errors. If the search would hide it, it stays at the top until editing ends. Closing the card,
   expanding another, typing in the search or the panel closing first leave editing, which saves; on a
   conflict or error nothing else happens until it is resolved. The Note editor rules below apply

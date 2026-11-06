@@ -165,10 +165,12 @@ per-monitor DPI awareness (PMv2).
 `notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
-which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title and
-tag scalars, flow lists and block lists are extracted as plain text by `features/notes/markdown.ts`.
+which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title,
+http(s) url and tag scalars, flow lists and block lists are extracted as plain text by
+`features/notes/markdown.ts`.
 The small parser ignores unsupported YAML; an unquoted `#` after whitespace starts a comment, while
-quoted `#` and `a#b` are literal. The raw text remains unchanged.
+quoted `#` and `a#b` are literal. Double-quoted scalars accept JSON escapes; single-quoted scalars
+accept doubled apostrophes. The raw text remains unchanged.
 
 **Search.** `features/notes/search.ts` keeps an in-memory index in the UI, a pure module without IPC.
 `notes_list` carries each note's modified time (ms since the Unix epoch); `syncIndex` compares it with the
@@ -356,6 +358,15 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Creating:** `notes_save(name, "", "")` at the folder root with `noteFileName` (no separators, drive or
   `..`, no device names, case-insensitive uniqueness, never `_pinned.md`); a conflict because another app
   took the name tries the next number. The empty file's title is its name.
+- **Save page as note:** the browser bar reads `web_selection` on demand. `page.ts` writes title and
+  URL as double-quoted YAML scalars (escaping controls and line breaks), and prefixes every selected
+  line with `> ` (blank lines with `>`); no selection leaves the body empty. The existing create flow
+  uses a sanitized title, falling back to the host, and `noteFileName` at the folder root, with an empty
+  base and conflict retries. After saving it hides the page and expands the note in edit mode. An
+  unavailable folder/page or pending capture disables the action; errors use the existing notice.
+- **Note page action:** the search index carries the parsed http(s) `url:` separately from web-pin
+  card URLs, so notes keep their expand/edit behavior. Their header offers Open page through the same
+  guarded `openPage` path as links, flushing edits before opening. Other schemes are ignored.
 - **Page pin:** browser mode offers a bookmark beside the address bar. It pins the current title
   (host when empty) through `pinned_add`, which escapes the label; URL comparison uses the same
   escaped form written by `pinned.rs`, preserving existing percent escapes and case.

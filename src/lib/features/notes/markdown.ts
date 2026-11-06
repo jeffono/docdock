@@ -216,32 +216,57 @@ export function alertKind(firstLine: string): string | null {
 /** The supported YAML subset treats an unquoted `#` after whitespace as a comment. */
 function scalar(raw: string): string | null {
   const value = raw.trim();
-  if (/^["']/.test(value)) {
-    const end = value.indexOf(value[0], 1),
-      rest = value.slice(end + 1).trim(),
-      result = value.slice(1, end);
-    return end > 0 && (!rest || rest.startsWith("#")) && result && !/["'\\]/.test(result)
-      ? result
-      : null;
+  if (value.startsWith('"')) {
+    const match = value.match(/^"(?:[^"\\]|\\.)*"/);
+    if (!match || !/^(?:#.*)?$/.test(value.slice(match[0].length).trim())) return null;
+    try {
+      return JSON.parse(match[0]) || null;
+    } catch {
+      return null;
+    }
+  }
+  if (value.startsWith("'")) {
+    const match = value.match(/^'((?:[^']|'')*)'(?:\s*#.*)?$/);
+    return match ? match[1].replace(/''/g, "'") || null : null;
   }
   const result = value.replace(/(^|\s)#.*$/, "").trim();
   return !result || /^[[{|>\-&*!%@`]/.test(result) || /["'[\]{},]|: /.test(result) ? null : result;
 }
 
-export type Frontmatter = { end: number; title: string | null; tags: string[] };
+/** JSON strings are YAML scalars; also escape YAML's extra line breaks and controls. */
+export function quoteYaml(text: string): string {
+  return JSON.stringify(text).replace(
+    /[\u007f-\u009f\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/** Only absolute HTTP(S) metadata offers a page action. Rust validates again. */
+export function pageUrl(value: string | null): string | null {
+  if (!value || !/^https?:\/\//i.test(value)) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export type Frontmatter = { end: number; title: string | null; tags: string[]; url: string | null };
 
 /**
- * A `---` block closed on a later `---` line, at the very start. Reads only title and tag scalar and
+ * A `---` block closed on a later `---` line, at the very start. Reads title, url and tag scalar and
  * list forms; unsupported YAML is ignored. `end` is the 1-based number of the closing line.
  */
 export function frontmatter(line: (n: number) => string, lines: number): Frontmatter | null {
   if (lines < 2 || line(1) !== "---") return null;
   let title: string | null = null,
+    url: string | null = null,
     tags: string[] = [],
     inTags = false;
   for (let n = 2; n <= lines; n++) {
     const text = line(n);
-    if (text === "---") return { end: n, title, tags };
+    if (text === "---") return { end: n, title, tags, url };
     if (/^\s/.test(text)) {
       const item = text.trim().match(/^- (.*)/);
       if (inTags && item) {
@@ -251,9 +276,10 @@ export function frontmatter(line: (n: number) => string, lines: number): Frontma
       continue;
     }
     inTags = false;
-    const match = text.match(/^(title|tags?):\s*(.*)$/);
+    const match = text.match(/^(title|url|tags?):\s*(.*)$/);
     if (!match) continue;
     if (match[1] === "title") title = scalar(match[2]);
+    else if (match[1] === "url") url = pageUrl(scalar(match[2]));
     else {
       inTags = !match[2];
       const list = match[2].match(/^\[(.*)\]$/);

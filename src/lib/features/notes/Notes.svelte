@@ -28,6 +28,8 @@ import {
   pinnedSetCollapsed,
   webAddresses,
   webOpen,
+  webSelection,
+  webSetVisible,
   webSuggestionHeight,
   webSuggestions,
 } from "../../ipc";
@@ -63,6 +65,7 @@ import {
   rows,
   shallower,
 } from "./list";
+import { pageNote } from "./page";
 import { FolderIndex, isPinnedList, search } from "./search";
 
 let {
@@ -272,6 +275,7 @@ const kept = $derived.by(() => {
     path: expanded,
     title: entry?.title ?? name,
     tags: entry?.tags ?? [],
+    url: entry?.url,
     modified: entry?.modified ?? 0,
     snippet: null,
     gone: !listed,
@@ -411,7 +415,7 @@ async function restore(path: string) {
 /** While the folder picker is open no editor can open: its note would belong to the old folder. */
 let choosing = false;
 async function choose() {
-  if (choosing) return;
+  if (choosing || savingPage) return;
   choosing = true;
   try {
     error = "";
@@ -425,7 +429,7 @@ async function choose() {
 }
 
 /** Creates the note for the typed text and opens it expanded. */
-async function create(text: string) {
+async function create(text: string, content = "", annotate = false) {
   try {
     error = "";
     if (!(await leaveEditor())) return;
@@ -433,7 +437,7 @@ async function create(text: string) {
     // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
     for (let attempt = 0; attempt < 50; attempt++) {
       const name = noteFileName(text, taken);
-      const result = await notesSave(name, "", "");
+      const result = await notesSave(name, content, "");
       if (result.status === "saved") {
         const list = await notesList();
         notes = list;
@@ -441,6 +445,10 @@ async function create(text: string) {
         query = "";
         expanded = name;
         selection = name;
+        if (annotate) {
+          await webSetVisible(false);
+          await edit(name);
+        }
         return;
       }
       taken.push(name);
@@ -448,6 +456,30 @@ async function create(text: string) {
     error = errorText({ code: "saveFailed", detail: text });
   } catch (e) {
     error = errorText(e);
+  }
+}
+
+let savingPage = $state(false);
+let pageUnavailable = $state(false);
+$effect(() => {
+  void pageUrl;
+  void browser;
+  pageUnavailable = false;
+});
+async function savePage() {
+  if (savingPage || choosing) return;
+  savingPage = true;
+  try {
+    error = "";
+    const page = await webSelection();
+    pageUnavailable = page === null;
+    if (!page) return;
+    const note = pageNote(page);
+    await create(note.name, note.text, true);
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    savingPage = false;
   }
 }
 
@@ -940,6 +972,7 @@ onMount(() => {
         placeholder={t("notes.searchPlaceholder")}
       />
       {#if browser}
+        <Button disabled={!folder?.available || !pageTarget || pageUnavailable || savingPage} onclick={savePage}>{t("web.saveNote")}</Button>
         <IconButton icon="bookmark" label={t(pagePinned ? "web.unpin" : "web.pin")} pressed={pagePinned} disabled={!folder?.available || !pageTarget} onclick={togglePagePin} />
       {/if}
       <IconButton icon="folder" label={folder ? t("notes.changeFolder", { path: folder.path }) : t("notes.choose")} onclick={choose} />
@@ -1032,6 +1065,7 @@ onMount(() => {
             onpin={() => pinOrUnpin(card)}
             onedit={() => (edited ? leaveEditor() : edit(card.hit.path))}
             onlink={linkClick}
+            onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
             status={edited ? saveText : ""}
             editor={edited ? noteEditor : undefined}

@@ -17,6 +17,7 @@ let {
   onpin,
   onedit,
   onlink,
+  onpage,
   editing = false,
   status = "",
   editor,
@@ -34,6 +35,7 @@ let {
   onedit: () => void;
   /** Handles a click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
+  onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
   /** Saving… or Saved while editing; empty when a notice explains a problem instead. */
@@ -107,6 +109,9 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     </button>
     {#if status}<small class="status" role="status">{status}</small>{/if}
     <div class="actions">
+      {#if card.hit.url}
+        <IconButton tabindex={-1} quiet icon="arrowRight" label={t("web.openPage")} onclick={() => onpage(card.hit.url!)} />
+      {/if}
       {#if card.level === "expanded"}
         <div class="pencil" class:active={editing}>
           <IconButton tabindex={-1} quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
