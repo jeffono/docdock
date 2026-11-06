@@ -331,7 +331,7 @@ async function setLevel(card: Card, level: Level) {
 }
 
 function toggle(card: Card) {
-  const level = card.level === "line" ? deeper(card) : shallower(card);
+  const level = card.level === "line" ? deeper(card) : "line";
   if (level) void setLevel(card, level);
 }
 
@@ -650,7 +650,7 @@ onMount(() => {
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
             onexpand={() => setLevel(card, "expanded")}
-            onclose={() => toggle(card)}
+            onpreview={() => setLevel(card, "preview")}
             onpin={() => pinOrUnpin(card)}
             onedit={() => (edited ? leaveEditor() : edit(card.hit.path))}
             onlink={linkClick}
@@ -688,7 +688,7 @@ onMount(() => {
 
   h2 {
     margin: 0;
-    padding: var(--space-2) var(--space-4) var(--space-1);
+    padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
     color: var(--color-muted);
     font-size: var(--font-size-sm);
     font-weight: 600;
@@ -697,9 +697,9 @@ onMount(() => {
   .create {
     display: block;
     box-sizing: border-box;
-    width: calc(100% - 2 * var(--space-3));
+    width: calc(100% - var(--panel-inset-left) - var(--panel-inset-right));
     min-height: var(--size-control);
-    margin: 0 var(--space-3) var(--space-2);
+    margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
     padding: var(--space-1) var(--space-2);
     overflow: hidden;
     border: 1px solid var(--color-line);
@@ -727,7 +727,7 @@ onMount(() => {
     display: flex;
     gap: var(--space-2);
     align-items: center;
-    margin: 0 var(--space-3) var(--space-2);
+    margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
     padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
@@ -753,14 +753,14 @@ onMount(() => {
     gap: var(--space-2);
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-1) var(--space-3);
+    padding: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
   }
 
   .tools {
     display: flex;
     flex: none;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-3) var(--space-2);
+    padding: var(--space-3) var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
   }
 
   .leftovers {
@@ -776,7 +776,7 @@ onMount(() => {
     display: flex;
     gap: var(--space-2);
     align-items: center;
-    padding: 0 var(--space-3) 0 var(--space-4);
+    padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
     font-size: var(--font-size-sm);
   }
 
@@ -796,7 +796,7 @@ onMount(() => {
   .message,
   .error {
     margin: 0;
-    padding: var(--space-1) var(--space-4);
+    padding: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
     font-size: var(--font-size-sm);
     overflow-wrap: anywhere;
   }
@@ -818,7 +818,7 @@ onMount(() => {
     flex-direction: column;
     gap: var(--space-2);
     align-items: flex-start;
-    padding: var(--space-4);
+    padding: var(--space-4) var(--panel-inset-right) var(--space-4) var(--panel-inset-left);
   }
 
   .empty p {

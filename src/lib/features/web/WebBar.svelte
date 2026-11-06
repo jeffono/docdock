@@ -40,13 +40,13 @@ async function open(event: SubmitEvent) {
     align-items: center;
     box-sizing: border-box;
     height: var(--size-bar);
-    padding: 0 var(--space-3);
+    padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
     border-bottom: 1px solid var(--color-line);
   }
 
   p {
     margin: 0;
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
     color: var(--color-danger);
     font-size: var(--font-size-sm);
     overflow-wrap: anywhere;

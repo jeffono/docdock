@@ -37,6 +37,8 @@ function toggleWeb() {
 
 <style>
   main {
+    --panel-inset-left: calc(var(--space-4) + var(--space-2));
+    --panel-inset-right: var(--space-3);
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -51,7 +53,7 @@ function toggleWeb() {
     align-items: center;
     box-sizing: border-box;
     height: var(--size-bar);
-    padding: 0 var(--space-3);
+    padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
     border-bottom: 1px solid var(--color-line);
   }
 
