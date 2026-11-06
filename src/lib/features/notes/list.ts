@@ -32,20 +32,35 @@ export function buildList(input: {
   pinned: PinnedItem[];
   /** Path of the expanded card, or "". */
   expanded: string;
-  /** The expanded note when it is no longer listed: shown with its last content. */
-  kept: Hit | null;
+  /**
+   * The expanded note when the hits leave it out, with `gone` when it is no longer listed. A gone note
+   * stays on screen with its last content; a note the search filtered out only stays while edited.
+   */
+  kept: (Hit & { gone: boolean }) | null;
+  /** The expanded card is being edited: whatever the search or `_pinned.md` say, it stays a card. */
+  editing: boolean;
 }): ListModel {
-  const { hits, query, expanded } = input;
+  const { hits, query, expanded, kept, editing } = input;
   const byPath = new Map(hits.map((hit) => [hit.path, hit]));
   const searching = query.trim() !== "";
+  const keptCard = (pinned: boolean): Card | null => {
+    if (!kept || !(editing || (kept.gone && !pinned))) return null;
+    const { gone, ...hit } = kept;
+    return { hit, pinned, level: "expanded", gone };
+  };
   const pinnedPaths = new Set<string>();
   const pinned: (Card | Missing)[] = [];
+  let held: Card | null = null;
   for (const item of input.pinned) {
     // Web pages come with M4.
     // A hand-edited file may list a note twice; it shows once.
     if (item.kind !== "note" || pinnedPaths.has(item.target)) continue;
     pinnedPaths.add(item.target);
     const hit = byPath.get(item.target);
+    if (!hit && item.target === expanded) {
+      held = keptCard(true);
+      if (held) continue;
+    }
     if (item.missing) {
       if (!searching) pinned.push({ target: item.target, title: item.title });
     } else if (hit) {
@@ -57,6 +72,8 @@ export function buildList(input: {
       });
     }
   }
+  // The edited card the search would hide stays at the top of its section until editing ends.
+  if (held) pinned.unshift(held);
   const notes: Card[] = hits
     .filter((hit) => !pinnedPaths.has(hit.path))
     .map((hit) => ({
@@ -65,14 +82,39 @@ export function buildList(input: {
       level: expanded === hit.path ? "expanded" : "line",
       gone: false,
     }));
-  const kept = input.kept;
-  if (kept && !byPath.has(kept.path) && !pinnedPaths.has(kept.path))
-    notes.unshift({ hit: kept, pinned: false, level: "expanded", gone: true });
+  if (kept && !byPath.has(kept.path) && !pinnedPaths.has(kept.path)) {
+    const card = keptCard(false);
+    if (card) notes.unshift(card);
+  }
   return {
     create: searching && !input.exactTitle ? query.trim() : null,
     pinned,
     notes,
   };
+}
+
+export type Row =
+  | { key: string; heading: "pinned" | "notes" }
+  | { key: string; entry: Card | Missing };
+
+/**
+ * The list as one sequence, so a card that changes section, by pinning or by an edit of `_pinned.md`,
+ * moves instead of being rebuilt. The edited card keeps one key even when its note is renamed: rebuilding
+ * it would drop the editor and its unsaved text.
+ */
+export function rows(model: ListModel, editing: string): Row[] {
+  const key = (entry: Card | Missing) =>
+    isMissing(entry)
+      ? `missing:${entry.target}`
+      : entry.hit.path === editing
+        ? "editing"
+        : `note:${entry.hit.path}`;
+  return [
+    ...(model.pinned.length ? [{ key: "heading:pinned", heading: "pinned" as const }] : []),
+    ...model.pinned.map((entry) => ({ key: key(entry), entry })),
+    ...(model.notes.length ? [{ key: "heading:notes", heading: "notes" as const }] : []),
+    ...model.notes.map((entry) => ({ key: key(entry), entry })),
+  ];
 }
 
 /** Keys of what arrows can select, top to bottom: the card paths, and "create" first when offered. */

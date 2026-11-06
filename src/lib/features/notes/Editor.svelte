@@ -268,10 +268,8 @@ onMount(() => {
 </div>
 
 <style>
-.editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.surface { flex: 1; min-height: 0; overflow: auto; }
-.notice { padding: var(--space-2) calc(var(--space-4) + var(--size-control) + var(--space-2) + 9ch) var(--space-2) var(--space-4); font-size: var(--font-size-sm); }
-.notice { border-bottom: 1px solid var(--color-line); }
+/* Grows with the text inside the card; the list is the only scroller. */
+.notice { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); font-size: var(--font-size-sm); }
 p { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .discard { border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); font: inherit; padding: 0 var(--space-2); min-height: var(--size-control); }

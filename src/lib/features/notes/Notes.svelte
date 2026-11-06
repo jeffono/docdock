@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount, untrack } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
@@ -43,6 +43,7 @@ import {
   move,
   navKeys,
   noteFileName,
+  rows,
   shallower,
 } from "./list";
 import { type SearchIndex, search, syncIndex } from "./search";
@@ -60,8 +61,8 @@ let selection = $state("");
 /** Raw text of the notes shown as preview or expanded. */
 let contents = $state<Record<string, OpenNote>>({});
 
-// The editor still opens the way it did before cards: it takes over the panel until the note is left.
-/** The note being edited. */
+// One card edits at a time, in place: the editor replaces the expanded card's content.
+/** The note being edited; while editing it is also the expanded card. */
 let selected = $state("");
 /** Version of the edited note, to tell a real change from a reread of the same bytes. */
 let version = "";
@@ -92,6 +93,7 @@ async function edit(path: string) {
   try {
     error = "";
     const note = await notesOpen(path);
+    if (editing) return;
     contents[path] = note;
     opened = note;
     version = note.version;
@@ -102,22 +104,25 @@ async function edit(path: string) {
     error = errorText(e);
   }
 }
-async function toggleEditor() {
-  if (editing) await leaveEditor();
+/**
+ * Leaving by keyboard (Esc or Ctrl+E): the card stays expanded and its header takes the focus, so the
+ * next Esc reaches the list rules instead of closing the panel.
+ */
+async function leaveByKeyboard() {
+  const path = selected;
+  if (!(await leaveEditor())) return;
+  await tick();
+  const focused = document.activeElement;
+  if (focused && focused !== document.body) return;
+  list?.querySelector<HTMLElement>(`article[data-path="${CSS.escape(path)}"] .head`)?.focus();
 }
-
-let chrome = $state<HTMLElement>();
-/** The edit button sits over the first line and scrolls away with the content, like text would. */
-function follow(event: Event) {
-  const top = (event.target as Element).scrollTop ?? 0;
-  if (chrome) chrome.style.transform = top ? `translateY(${-top}px)` : "";
-}
-
-// A new scroller starts at the top.
-$effect(() => {
-  void editing;
-  if (chrome) chrome.style.transform = "";
-});
+const saveText = $derived(
+  saveStatus === "saved"
+    ? t("editor.saved")
+    : saveStatus === "saving" || saveStatus === "pending"
+      ? t("editor.saving")
+      : "",
+);
 
 /**
  * Bumped by every action that replaces what is shown: choosing a folder or renaming the open note. A
@@ -143,9 +148,20 @@ const results = $derived.by(() => {
   return search(index, query);
 });
 const kept = $derived.by(() => {
-  if (!expanded || notes.some((note) => note.path === expanded) || !contents[expanded]) return null;
-  const title = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-  return { path: expanded, title, tags: [], modified: 0, snippet: null };
+  void indexVersion;
+  if (!expanded || results.hits.some((hit) => hit.path === expanded)) return null;
+  const listed = notes.some((note) => note.path === expanded);
+  if (!listed && !contents[expanded]) return null;
+  const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+  const entry = listed ? index.get(expanded) : undefined;
+  return {
+    path: expanded,
+    title: entry?.title ?? name,
+    tags: entry?.tags ?? [],
+    modified: entry?.modified ?? 0,
+    snippet: null,
+    gone: !listed,
+  };
 });
 const model = $derived(
   buildList({
@@ -155,8 +171,10 @@ const model = $derived(
     pinned: pinned.items,
     expanded,
     kept,
+    editing,
   }),
 );
+const listRows = $derived(rows(model, editing ? selected : ""));
 const keys = $derived(navKeys(model));
 const active = $derived(keys.includes(selection) ? selection : defaultKey(model, query));
 
@@ -242,6 +260,7 @@ async function refresh(value: NotesFolder | null) {
 async function restore(path: string) {
   try {
     error = "";
+    if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
     const list = await notesList();
@@ -268,6 +287,7 @@ async function choose() {
 async function create(text: string) {
   try {
     error = "";
+    if (!(await leaveEditor())) return;
     const taken = notes.map((note) => note.path);
     // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -295,6 +315,9 @@ async function setLevel(card: Card, level: Level) {
   const path = card.hit.path;
   try {
     error = "";
+    // Closing the edited card or expanding another leaves editing first: it saves, or refuses on a
+    // conflict or error and then nothing changes.
+    if (editing && (path !== selected || level !== "expanded") && !(await leaveEditor())) return;
     selection = path;
     if (level === "expanded") expanded = path;
     else if (expanded === path) expanded = "";
@@ -435,6 +458,12 @@ let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
 const bar = () => tools?.querySelector("input");
 
+/** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
+function typed() {
+  selection = "";
+  void leaveEditor();
+}
+
 /** Arrows, Enter and Esc in the search bar; focus stays there. Runs before the field's own Esc. */
 function barKey(event: KeyboardEvent) {
   const input = event.target;
@@ -486,10 +515,18 @@ function barKey(event: KeyboardEvent) {
 
 function shortcut(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
-  if (event.key === "Escape" && !editing) {
-    // Outside a field, Esc clears the search and returns to the bar.
+  if (event.key === "Escape") {
     const field = document.activeElement;
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
+    if (editing) {
+      // Focus is on a button, not in the editor: this press leaves editing. Any editing report tells
+      // the panel the press was handled, so it does not also close.
+      event.preventDefault();
+      void panelSetEditing(false);
+      void leaveByKeyboard();
+      return;
+    }
+    // Outside a field, Esc clears the search and returns to the bar.
     if (!query && !list?.contains(field)) return;
     event.preventDefault();
     query = "";
@@ -501,15 +538,17 @@ function shortcut(event: KeyboardEvent) {
   const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
   if (!path) return;
   event.preventDefault();
-  if (editing) void toggleEditor();
+  if (editing) void leaveByKeyboard();
   else void edit(path);
 }
 
 onMount(() => {
   const unlisten = onNotesChanged(changed);
-  // An expanded card returns to preview when the panel closes; editing keeps the panel open.
+  // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
-    if (!editing) expanded = "";
+    void leaveEditor().then((left) => {
+      if (left) expanded = "";
+    });
   });
   notesFolder()
     .then(refresh)
@@ -525,22 +564,39 @@ onMount(() => {
 
 <svelte:window onkeydown={shortcut} />
 
+{#snippet noteEditor()}
+  {#if opened}
+    <Editor
+      bind:this={editor}
+      path={selected}
+      note={opened}
+      onstatus={(state) => {
+        saveStatus = state;
+      }}
+      onleave={() => void leaveByKeyboard()}
+      ondiscard={() => {
+        void load(selected);
+        selected = "";
+        editing = false;
+      }}
+    />
+  {/if}
+{/snippet}
+
 <section aria-label={t("notes.label")}>
   {#if folder?.available}
-    {#if !editing}
-      <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={() => { selection = ""; }} role="presentation">
-        <TextField
-          bind:value={query}
-          aria-label={t("notes.search")}
-          placeholder={t("notes.searchPlaceholder")}
-          onfocus={() => panelSetEditing(true)}
-          onblur={() => panelSetEditing(false)}
-        />
-        <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
-      </div>
-    {/if}
+    <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
+      <TextField
+        bind:value={query}
+        aria-label={t("notes.search")}
+        placeholder={t("notes.searchPlaceholder")}
+        onfocus={() => panelSetEditing(true)}
+        onblur={() => panelSetEditing(false)}
+      />
+      <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
+    </div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    {#if leftovers.length > 0 && !editing}
+    {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>
         <p class="message">{t("leftovers.notice")}</p>
         {#each leftovers as leftover (leftover.path)}
@@ -556,7 +612,7 @@ onMount(() => {
         {/each}
       </section>
     {/if}
-    <div class="list" bind:this={list} hidden={editing}>
+    <div class="list" bind:this={list}>
       {#if pinned.restorable}
         <div class="restore">
           <p class="message">{t("pinned.deleted")}</p>
@@ -569,38 +625,25 @@ onMount(() => {
           {t("list.create", { text })}
         </button>
       {/if}
-      {#if model.pinned.length > 0}
-        <h2>{t("list.pinned")}</h2>
-        {#each model.pinned as entry (isMissing(entry) ? `missing:${entry.target}` : entry.hit.path)}
-          {#if isMissing(entry)}
-            <div class="missing">
-              <span class="title" title={entry.target}>{entry.title}</span>
-              <small>{t("card.missing")}</small>
-              <IconButton
-                quiet
-                icon="x"
-                label={t("card.remove")}
-                onclick={() => pinnedAction(() => pinnedRemove(entry.target))}
-              />
-            </div>
-          {:else}
-            <CardView
-              card={entry}
-              text={contents[entry.hit.path]?.text}
-              selected={active === entry.hit.path}
-              onheader={() => toggle(entry)}
-              onexpand={() => setLevel(entry, "expanded")}
-              onclose={() => toggle(entry)}
-              onpin={() => pinOrUnpin(entry)}
-              onedit={() => edit(entry.hit.path)}
-              onlink={linkClick}
+      <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
+      {#each listRows as row (row.key)}
+        {#if "heading" in row}
+          <h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>
+        {:else if isMissing(row.entry)}
+          {@const entry = row.entry}
+          <div class="missing">
+            <span class="title" title={entry.target}>{entry.title}</span>
+            <small>{t("card.missing")}</small>
+            <IconButton
+              quiet
+              icon="x"
+              label={t("card.remove")}
+              onclick={() => pinnedAction(() => pinnedRemove(entry.target))}
             />
-          {/if}
-        {/each}
-      {/if}
-      {#if model.notes.length > 0}
-        <h2>{t("list.notes")}</h2>
-        {#each model.notes as card (card.hit.path)}
+          </div>
+        {:else}
+          {@const card = row.entry}
+          {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
             text={contents[card.hit.path]?.text}
@@ -609,35 +652,16 @@ onMount(() => {
             onexpand={() => setLevel(card, "expanded")}
             onclose={() => toggle(card)}
             onpin={() => pinOrUnpin(card)}
-            onedit={() => edit(card.hit.path)}
+            onedit={() => (edited ? leaveEditor() : edit(card.hit.path))}
             onlink={linkClick}
+            editing={edited}
+            status={edited ? saveText : ""}
+            editor={edited ? noteEditor : undefined}
           />
-        {/each}
-      {/if}
+        {/if}
+      {/each}
       {#if notes.length === 0 && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
-    {#if editing && opened}
-      <div class="note-area" onscrollcapture={follow}>
-        <div class="edit-tools" bind:this={chrome}>
-          {#if saveStatus === "saved" || saveStatus === "saving" || saveStatus === "pending"}
-            <small role="status">{t(saveStatus === "saved" ? "editor.saved" : "editor.saving")}</small>
-          {/if}
-          <IconButton icon="pencil" label={t("editor.toggle")} pressed={true} onclick={toggleEditor} />
-        </div>
-        <Editor
-          bind:this={editor}
-          path={selected}
-          note={opened}
-          onstatus={(state) => { saveStatus = state; }}
-          onleave={() => void leaveEditor()}
-          ondiscard={() => {
-            void load(selected);
-            selected = "";
-            editing = false;
-          }}
-        />
-      </div>
-    {/if}
   {:else}
     <div class="empty">
       <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
@@ -660,10 +684,6 @@ onMount(() => {
     flex: 1;
     padding-bottom: var(--space-2);
     overflow-y: auto;
-  }
-
-  .list[hidden] {
-    display: none;
   }
 
   h2 {
@@ -735,10 +755,6 @@ onMount(() => {
     justify-content: space-between;
     padding: var(--space-1) var(--space-3);
   }
-
-  .note-area { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); }
-  .edit-tools { position: absolute; z-index: 1; top: var(--space-2); right: var(--space-3); display: flex; gap: var(--space-2); align-items: center; border-radius: var(--radius-sm); background: var(--color-bg); }
-  .edit-tools small { color: var(--color-muted); font-size: var(--font-size-sm); }
 
   .tools {
     display: flex;

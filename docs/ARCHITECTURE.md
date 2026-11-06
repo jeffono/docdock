@@ -182,14 +182,14 @@ HTML stays text; links and images follow the shared destination rules; footnote 
 where they are written.
 
 **Editor.** The pencil in an expanded card's header, or Ctrl+E on the selected card, opens
-`features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. For now
-the editor takes over the panel below the top bar (the search bar and list are hidden, the list keeps its
-scroll) until the note is left; in-place editing in the card is a later task. Ctrl+E reaches the
+`features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. The one
+editor is a snippet `Notes.svelte` hands to the edited card, which draws it in place of its content; it
+grows with the text, and the list stays the only scroller. Ctrl+E reaches the
 editor through its CodeMirror keymap and the card list through a window listener that ignores handled keys;
 both use the same guarded leave path as Esc and the pencil. Formatting commands apply isolated history
 transactions, editing only markers or selected line prefixes. A Compartment reconfigures the note-path
 facet on rename, rebuilding relative-image decorations without replacing text or history. Autosave
-state is reported to the floating pencil's status. CodeMirror 6
+state is reported to the card header's status. CodeMirror 6
 parses GFM; `live-formatting.ts` decorates visible ranges on document, selection, parser and viewport
 changes. Headings, emphasis, strikethrough, quotes, lists, rules, tasks, code and local images hide
 syntax outside selection lines. Quotes nest up to three drawn bars; alerts and links follow the
@@ -204,8 +204,10 @@ from CodeMirror offsets so untouched CRLF, LF and CR
 line endings, including mixed files, survive edits; new lines use the first existing separator (LF in
 an empty file). No Markdown serialization occurs.
 
-Each editor owns an autosave instance. Blur flushes; Esc, the toggle, opening another note and choosing
-a folder flush and refuse to leave on conflict or error. Leaving temporarily makes the editor read-only,
+Each editor owns an autosave instance. Blur flushes. Every way out of editing goes through one guarded
+leave that flushes and refuses on conflict or error: Esc, the toggle, closing the card or expanding
+another (all through the list's level change), typing in the search, creating or restoring a note,
+choosing a folder and `panel-hidden`. Pinning keeps editing. Leaving temporarily makes the editor read-only,
 flushes and rereads the note from disk. Esc blurs synchronously, like TextField, so the panel
 consumes that press. Focus reports editing to the panel. Conflicts keep the text and stop saving;
 Keep my version rereads the disk version and saves the latest editor text against it (another race
@@ -278,14 +280,22 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   `notes-changed`. A card in preview or expanded needs its raw text, read with `notes_open` into
   `contents` and refreshed on `notes-changed`; entries nobody shows are dropped. Web items of
   `_pinned.md` are skipped until M4.
-- **State:** one `expanded` path (not remembered: `panel-hidden` clears it); `selection` for the arrows,
-  reset by typing, with the first match (else "Create") selected while a query exists. Line against open
-  of a pinned card goes through `pinned_set_collapsed`; expanding a collapsed card also opens it.
+- **State:** one `expanded` path (not remembered: `panel-hidden` clears it once editing is left);
+  `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
+  query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
+  collapsed card also opens it.
 - **Keyboard:** the bar's keydown, in capture phase, handles arrows, Enter and Ctrl+Enter, and Esc with a
   query (clear, stay; calls `panel_set_editing(true)` so the panel sees the press as handled). → and ←
   act on the selected card only with the caret at the end of the text, otherwise they move the caret.
   Outside a field, Esc clears the search and focuses the bar (the focus event spends the press); with
-  nothing to clear it passes through to the panel rules.
+  nothing to clear it passes through to the panel rules. While editing, Esc leaves editing instead,
+  from the editor or from a button (which reports `panel_set_editing(false)` to spend the press), and
+  the card header takes the focus, so the next Esc reaches the rule above.
+- **Editing:** the edited card is the expanded one. `buildList` keeps it as a card while editing even
+  when the search hides it (first in its section) or its pinned note goes missing. `rows` flattens both
+  sections into one keyed block, and the edited card's key is fixed, so pinning, an edit of
+  `_pinned.md` or a rename moves the card instead of rebuilding it, which would drop the editor with
+  its unsaved text.
 - **Creating:** `notes_save(name, "", "")` at the folder root with `noteFileName` (no separators, drive or
   `..`, no device names, case-insensitive uniqueness, never `_pinned.md`); a conflict because another app
   took the name tries the next number. The empty file's title is its name.

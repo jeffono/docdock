@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: M3 — in-place editing in an expanded card (the editor still takes over the panel).
+Nothing. Next: close M3 (test review and cross-provider review).
 
 ## Completed
 
@@ -23,7 +23,7 @@ Nothing. Next: M3 — in-place editing in an expanded card (the editor still tak
   Notational Velocity
 - [x] (standard) Note list with Pinned cards and Notes rows, card states and keyboard; see "Note list" in
   `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`
-- [ ] (standard) In-place editing in an expanded card, replacing the separate note view
+- [x] (standard) In-place editing in an expanded card, replacing the separate note view
 - [x] (standard) Restore deleted `_pinned.md`
 
 ## M4 — Web pages
