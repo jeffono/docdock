@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.1 on `preferences`: Preferences, width and note order done; date grouping next.
+- M4.1 on `preferences`: all tasks done; stage close next.
 
 ## Completed
 
@@ -31,7 +31,7 @@ General, Appearance, Browser and Shortcuts; settings stay in the existing atomic
 - [x] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
 - [x] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
   reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
-- [ ] (standard) Optional grouping by date when ordering by date
+- [x] (standard) Optional grouping by date when ordering by date
 
 ## M4.2 — Editor
 

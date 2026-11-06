@@ -2,6 +2,14 @@
 import type { Locale } from "./ipc";
 
 const en = {
+  "group.label": "Group by date",
+  "group.hint": "Available when ordering by modified or created date. Your choice is kept.",
+  "group.scope":
+    "Group unfiltered Notes by the selected date. Pinned items and search results stay unchanged.",
+  "group.today": "Today",
+  "group.yesterday": "Yesterday",
+  "group.week": "Previous 7 days",
+  "group.month": "Previous 30 days",
   "order.label": "Note order",
   "order.modified-desc": "Modified: newest first",
   "order.modified-asc": "Modified: oldest first",
@@ -140,6 +148,14 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
+  "group.label": "Agrupar por data",
+  "group.hint": "Disponível ao ordenar por modificação ou criação. Sua escolha é mantida.",
+  "group.scope":
+    "Agrupar Notas sem filtro pela data escolhida. Fixados e resultados da busca não mudam.",
+  "group.today": "Hoje",
+  "group.yesterday": "Ontem",
+  "group.week": "7 dias anteriores",
+  "group.month": "30 dias anteriores",
   "order.label": "Ordem das notas",
   "order.modified-desc": "Modificação: recentes primeiro",
   "order.modified-asc": "Modificação: antigas primeiro",

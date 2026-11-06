@@ -134,5 +134,8 @@ export const noteOrders = [
 export type NoteOrder = (typeof noteOrders)[number];
 export const notesOrder = () => invoke<NoteOrder>("notes_order");
 export const notesSetOrder = (order: NoteOrder) => invoke<void>("notes_set_order", { order });
+export const notesGroupByDate = () => invoke<boolean>("notes_group_by_date");
+export const notesSetGroupByDate = (enabled: boolean) =>
+  invoke<void>("notes_set_group_by_date", { enabled });
 export const pinnedMove = (target: string, to: string, base: string) =>
   invoke<Pinned>("pinned_move", { target, to, base });

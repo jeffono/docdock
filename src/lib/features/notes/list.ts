@@ -1,6 +1,7 @@
 // The note list as a pure model: which cards and rows exist, in which order, and what each keyboard
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
+import type { DateGroup } from "./grouping";
 import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
@@ -115,6 +116,7 @@ export function buildList(input: {
 
 export type Row =
   | { key: string; heading: "pinned" | "notes" }
+  | { key: string; dateGroup: DateGroup }
   | { key: string; entry: Card | Missing };
 
 /**
@@ -122,7 +124,11 @@ export type Row =
  * moves instead of being rebuilt. The edited card keeps one key even when its note is renamed: rebuilding
  * it would drop the editor and its unsaved text.
  */
-export function rows(model: ListModel, editing: string): Row[] {
+export function rows(
+  model: ListModel,
+  editing: string,
+  headings: ReadonlyMap<string, DateGroup> = new Map(),
+): Row[] {
   const key = (entry: Card | Missing) =>
     isMissing(entry)
       ? `missing:${entry.target}`
@@ -133,7 +139,13 @@ export function rows(model: ListModel, editing: string): Row[] {
     ...(model.pinned.length ? [{ key: "heading:pinned", heading: "pinned" as const }] : []),
     ...model.pinned.map((entry) => ({ key: key(entry), entry })),
     ...(model.notes.length ? [{ key: "heading:notes", heading: "notes" as const }] : []),
-    ...model.notes.map((entry) => ({ key: key(entry), entry })),
+    ...model.notes.flatMap((entry): Row[] => {
+      const dateGroup = headings.get(entry.hit.path);
+      return [
+        ...(dateGroup ? [{ key: `date:${dateGroup.key}:${entry.hit.path}`, dateGroup }] : []),
+        { key: key(entry), entry },
+      ];
+    }),
   ];
 }
 

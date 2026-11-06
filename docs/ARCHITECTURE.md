@@ -467,6 +467,15 @@ modified descending. Nonempty queries retain search relevance and pinned entries
 unavailable; notes are never changed to store dates. The `note_order` field in the existing atomic
 settings file is updated under the settings mutex. Missing, malformed or unknown order values default without
 invalidating other settings. Both order controls use one shared store, updated after successful IPC.
+The optional `group_by_date` boolean defaults off and uses the same locked atomic update; malformed
+values default independently, preserving other settings. The existing order store loads and saves both
+choices, sharing a busy state between the list and Preferences. Pure `grouping.ts` derives date
+headers from already ordered unpinned cards only, using the selected date and local calendar days
+(rather than elapsed hours across DST). Recent ranges take priority over month/year labels. Month
+names use `Intl.DateTimeFormat` with the user's locale. A 30-second clock refreshes local-day boundaries,
+including after resume. `rows` inserts headers into the existing flat keyed block; card/editor keys
+and `navKeys` stay unchanged, so headers never become arrow targets. Search and name order suppress
+headers without changing the saved choice.
 The main window disables Tauri's native file-drop interception so HTML header dragging works on Windows.
 
 ## Pinned items

@@ -42,6 +42,8 @@ struct Settings {
     search_engine: crate::web::SearchEngine,
     #[serde(default, deserialize_with = "order_or_default")]
     note_order: NoteOrder,
+    #[serde(default, deserialize_with = "bool_or_default")]
+    group_by_date: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
     #[serde(default, deserialize_with = "side_or_default")]
@@ -76,6 +78,15 @@ pub fn note_order(app: &AppHandle) -> Result<NoteOrder, Error> {
 }
 pub fn set_note_order(app: &AppHandle, order: NoteOrder) -> Result<(), Error> {
     update(app, |settings| settings.note_order = order)
+}
+fn bool_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
+    Ok(bool::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+pub fn group_by_date(app: &AppHandle) -> Result<bool, Error> {
+    Ok(load(&config(app)?).group_by_date)
+}
+pub fn set_group_by_date(app: &AppHandle, enabled: bool) -> Result<(), Error> {
+    update(app, |settings| settings.group_by_date = enabled)
 }
 /// An unknown side must not make the folder unreadable.
 fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
@@ -1370,6 +1381,39 @@ mod tests {
             assert_eq!(settings.note_order, NoteOrder::ModifiedDesc);
             assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         }
+    }
+    #[test]
+    fn invalid_grouping_does_not_discard_other_settings() {
+        for value in ["null", "42", "{}", "\"true\"", "[]"] {
+            let settings: Settings = serde_json::from_str(&format!(
+                r#"{{"folder":"notes","note_order":"created-asc","group_by_date":{value}}}"#
+            ))
+            .unwrap();
+            assert!(!settings.group_by_date);
+            assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
+            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        }
+    }
+    #[test]
+    fn grouping_defaults_off() {
+        assert!(
+            !serde_json::from_str::<Settings>("{}")
+                .unwrap()
+                .group_by_date
+        );
+    }
+    #[test]
+    fn grouping_round_trips_when_enabled() {
+        let settings = Settings {
+            group_by_date: true,
+            ..Settings::default()
+        };
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert!(
+            serde_json::from_str::<Settings>(&saved)
+                .unwrap()
+                .group_by_date
+        );
     }
     /// A notes folder and a separate place for the copy of `_pinned.md`.
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {

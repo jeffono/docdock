@@ -231,6 +231,14 @@ pub fn notes_set_order(app: AppHandle, order: crate::notes::NoteOrder) -> Result
     crate::notes::set_note_order(&app, order)
 }
 #[tauri::command]
+pub fn notes_group_by_date(app: AppHandle) -> Result<bool, Error> {
+    crate::notes::group_by_date(&app)
+}
+#[tauri::command]
+pub fn notes_set_group_by_date(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::notes::set_group_by_date(&app, enabled)
+}
+#[tauri::command]
 pub fn pinned_move(
     app: AppHandle,
     target: String,

@@ -40,6 +40,8 @@ pub fn run() {
         commands::notes_list,
         commands::notes_order,
         commands::notes_set_order,
+        commands::notes_group_by_date,
+        commands::notes_set_group_by_date,
         commands::pinned_move,
         commands::notes_open,
         commands::notes_texts,

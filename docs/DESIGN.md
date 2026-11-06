@@ -86,6 +86,12 @@ pinned and unpinned notes differ only in section and starting state.
   one saved choice: name (display title), modified or created, ascending or descending. The default is
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
+- **Date groups:** an optional checkbox beside the order selector, also in Preferences > General,
+  defaults off. It groups only unfiltered Notes when ordered by modified or created date. Name order
+  keeps the choice but disables the checkbox with a hint. Quiet labels use the section-label style:
+  Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
+  months of this year (month names in the user's locale), then earlier years. Boundaries use local
+  calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
 - **Reorder pins:** drag a pinned header onto another pinned item to move it to that position, or use
   Alt+Shift+↑ / Alt+Shift+↓ on the selected pinned item (including web and missing items). Selection
   follows the item. Reordering is unavailable while editing. A stale file produces a nearby error.
@@ -137,7 +143,8 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → note order → top bar buttons (including Preferences), reversed with Shift+Tab. Card
+  pinned items") → list → note order → date grouping (when available) → top bar buttons (including
+  Preferences), reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
@@ -174,7 +181,8 @@ pinned and unpinned notes differ only in section and starting state.
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order and panel side; side changes mirror the tray. Browser
+General contains the folder path, folder picker, note order, date grouping and panel side; side changes
+mirror the tray. Browser
 shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
 editor bindings. Appearance shows the panel width, how to resize it and a reset. Sections scroll
 inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the

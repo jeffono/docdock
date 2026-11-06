@@ -75,7 +75,7 @@ const panelShortcuts: [string, MessageKey][] = [
         {#if folder && !folder.available}<p role="alert">{t("notes.unavailable")}</p>{/if}
         <Button disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
       </div>
-      <div class="setting"><h3>{t("order.label")}</h3><NoteOrder /><p>{t("order.search")}</p></div>
+      <div class="setting"><h3>{t("order.label")}</h3><NoteOrder preferences /><p>{t("order.search")}</p></div>
       <fieldset disabled={busy}>
         <legend>{t("preferences.side")}</legend>
         {#each ["left", "right"] as value}

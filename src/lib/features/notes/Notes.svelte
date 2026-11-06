@@ -50,6 +50,7 @@ import {
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import Editor from "./Editor.svelte";
+import { dateHeadings } from "./grouping";
 import {
   arrowScroll,
   buildList,
@@ -68,7 +69,7 @@ import {
 } from "./list";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
-import { noteOrder } from "./order-store";
+import { groupByDate, noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { FolderIndex, isPinnedList, search } from "./search";
 
@@ -285,7 +286,18 @@ const model = $derived(
     editing,
   }),
 );
-const listRows = $derived(rows(model, editing ? selected : ""));
+let groupingDate = $state(new Date());
+const headings = $derived(
+  dateHeadings(
+    model.notes.map((card) => card.hit),
+    notes,
+    $noteOrder,
+    $groupByDate,
+    query,
+    groupingDate,
+  ),
+);
+const listRows = $derived(rows(model, editing ? selected : "", headings));
 const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
@@ -954,7 +966,7 @@ function shortcut(event: KeyboardEvent) {
   // Cycle the three areas without entering card controls or leaving the WebView.
   if (
     key === "tab" &&
-    !field &&
+    (!field || (event.target instanceof HTMLElement && event.target.closest(".note-order"))) &&
     !event.ctrlKey &&
     !event.altKey &&
     !event.metaKey &&
@@ -965,7 +977,14 @@ function shortcut(event: KeyboardEvent) {
     const stops = [
       input,
       ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
-      ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>("select")] : []),
+      ...(!browser
+        ? [
+            list,
+            ...list.querySelectorAll<HTMLElement>(
+              ".note-order select:not(:disabled), .note-order input:not(:disabled)",
+            ),
+          ]
+        : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
     ];
@@ -1010,6 +1029,10 @@ function shortcut(event: KeyboardEvent) {
 }
 
 onMount(() => {
+  // Refresh after midnight and after a suspended machine resumes, without remounting cards.
+  const clock = window.setInterval(() => {
+    groupingDate = new Date();
+  }, 30_000);
   const unlisten = onNotesChanged(changed);
   // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
@@ -1038,6 +1061,7 @@ onMount(() => {
       error = errorText(e);
     });
   return () => {
+    window.clearInterval(clock);
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
@@ -1130,6 +1154,11 @@ onMount(() => {
       {#each (intent === null ? listRows : []) as row (row.key)}
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
+        {:else if "dateGroup" in row}
+          <h2>{row.dateGroup.kind === "calendarMonth"
+            ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(row.dateGroup.date)
+            : row.dateGroup.kind === "year" ? new Date(row.dateGroup.date).getFullYear()
+            : t(`group.${row.dateGroup.kind}`)}</h2>
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
