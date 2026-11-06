@@ -1,6 +1,6 @@
 <script lang="ts">
 import { errorText, t } from "../../i18n";
-import { panelSetEditing, webOpen } from "../../ipc";
+import { webOpen } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import TextField from "../../ui/TextField.svelte";
 
@@ -23,8 +23,6 @@ async function open(event: SubmitEvent) {
     bind:value={url}
     aria-label={t("web.address")}
     placeholder="https://…"
-    onfocus={() => panelSetEditing(true)}
-    onblur={() => panelSetEditing(false)}
   />
   <Button type="submit">{t("web.open")}</Button>
 </form>

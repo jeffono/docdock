@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PinnedItem } from "../../ipc";
 import {
+  arrowScroll,
   buildList,
   type Card,
   deeper,
@@ -171,6 +172,31 @@ describe("keyboard", () => {
     expect(shallower(card(true, "preview"))).toBe("line");
     expect(shallower(card(false, "expanded"))).toBe("line");
     expect(shallower(card(false, "line"))).toBeNull();
+  });
+});
+
+describe("arrowScroll", () => {
+  const view = { top: 100, bottom: 500 };
+
+  // Bug: ↓ jumps to the next item while the expanded card still has unread text below the view.
+  it("scrolls by a step while the card goes on below, then lets ↓ move", () => {
+    expect(arrowScroll({ top: 120, bottom: 2000 }, view, true, 60)).toBe(60);
+    expect(arrowScroll({ top: 120, bottom: 530 }, view, true, 60)).toBe(30);
+    expect(arrowScroll({ top: 120, bottom: 500.5 }, view, true, 60)).toBe(0);
+  });
+
+  it("mirrors with ↑ on the card top", () => {
+    expect(arrowScroll({ top: -900, bottom: 400 }, view, false, 60)).toBe(-60);
+    expect(arrowScroll({ top: 80, bottom: 400 }, view, false, 60)).toBe(-20);
+    expect(arrowScroll({ top: 99.5, bottom: 400 }, view, false, 60)).toBe(0);
+  });
+
+  // Bug: after PgUp leaves the selected card far below, ↓ crawls toward it three lines at a time.
+  it("brings a card wholly past the edge to it, and moves when it is behind", () => {
+    expect(arrowScroll({ top: 900, bottom: 3000 }, view, true, 60)).toBe(800);
+    expect(arrowScroll({ top: -3000, bottom: -200 }, view, false, 60)).toBe(-700);
+    expect(arrowScroll({ top: -3000, bottom: -200 }, view, true, 60)).toBe(0);
+    expect(arrowScroll({ top: 900, bottom: 3000 }, view, false, 60)).toBe(0);
   });
 });
 

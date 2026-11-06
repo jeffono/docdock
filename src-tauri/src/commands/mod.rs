@@ -35,8 +35,8 @@ pub fn panel_set_pinned(requests: State<'_, Sender<Request>>, pinned: bool) {
 }
 
 #[tauri::command]
-pub fn panel_set_editing(requests: State<'_, Sender<Request>>, editing: bool) {
-    send(requests, Request::SetEditing(editing));
+pub fn panel_close(requests: State<'_, Sender<Request>>) {
+    send(requests, Request::Close);
 }
 
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.

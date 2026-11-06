@@ -136,6 +136,28 @@ export function move(keys: string[], current: string, delta: -1 | 1): string {
   return keys[Math.min(keys.length - 1, Math.max(0, at + delta))];
 }
 
+/** A vertical extent on screen, in pixels; `top` above `bottom`. */
+export type Span = { top: number; bottom: number };
+
+/**
+ * What ↓ (`down`) or ↑ does on a long expanded card: the pixels to scroll the list (`view`) by, or 0
+ * to move the selection. While the card goes on past the edge in that direction, the list scrolls
+ * by `step`, never past the card's end, so the next press moves on. A card wholly outside the view
+ * in that direction is brought to the edge instead of crawled to.
+ */
+export function arrowScroll(card: Span, view: Span, down: boolean, step: number): number {
+  // Fractional layout leaves sub-pixel gaps that must not count as hidden content.
+  const slack = 1;
+  if (down) {
+    if (card.top >= view.bottom) return card.top - view.top;
+    const hidden = card.bottom - view.bottom;
+    return hidden > slack ? Math.min(step, hidden) : 0;
+  }
+  if (card.bottom <= view.top) return card.bottom - view.bottom;
+  const hidden = view.top - card.top;
+  return hidden > slack ? -Math.min(step, hidden) : 0;
+}
+
 export type Activation = { action: "create"; text: string } | { action: "open"; path: string };
 
 /** Enter on the selected key: run "Create", or expand the card. */

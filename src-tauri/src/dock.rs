@@ -32,14 +32,29 @@ pub enum Side {
 pub enum Request {
     Activate,
     SetPinned(bool),
-    SetEditing(bool),
     SetDialog(bool),
+    /// Escape in the empty search bar, or the shortcut while already there.
+    Close,
     /// The web page window was created and is still invisible.
     AttachWeb(isize),
     /// Global shortcut.
     Shortcut,
     /// Side chosen in the tray.
     SetSide(Side),
+}
+
+/// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+struct FocusReport {
+    focused: bool,
+    side: Side,
+}
+
+/// Asks the UI for the search bar. `toggle`: the panel window already had focus, so the UI closes
+/// the panel instead if the bar already has it.
+#[derive(Debug, Clone, Copy, Serialize)]
+struct SearchRequest {
+    toggle: bool,
 }
 
 /// Open panel rectangle, aligned with the work area edge on `side`.
@@ -170,8 +185,9 @@ struct Dock {
     parked_x: i32,
     x: i32,
     panel: Panel,
-    editing: bool,
     dialog: bool,
+    /// Last focus sent to the UI, to send only changes.
+    reported: Option<FocusReport>,
     /// Last foreground app outside the panel, to restore focus when closing.
     previous_focus: Option<isize>,
     /// This Escape press has already been seen or handled.
@@ -214,26 +230,11 @@ impl Dock {
                 }
                 Action::None
             }
-            Request::SetEditing(editing) => {
-                eprintln!("[panel] editing={editing}");
-                let left = self.editing && !editing;
-                self.editing = editing;
-                self.spend_escape();
-                let outside = platform::cursor_pos().is_some_and(|cursor| {
-                    cursor_zone(cursor, self.monitor.bounds, self.rect, self.side)
-                        == CursorZone::Outside
-                });
-                if left && outside {
-                    self.panel.step(Input::EditingLeftOutside, now)
-                } else {
-                    Action::None
-                }
-            }
             Request::SetDialog(dialog) => {
                 self.dialog = dialog;
-                self.spend_escape();
                 Action::None
             }
+            Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
                 let rect = web_rect(&self.monitor, self.rect);
                 let bounds = self.monitor.bounds;
@@ -245,8 +246,17 @@ impl Dock {
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
             Request::SetPinned(false) => self.panel.step(Input::Unpin, now),
             Request::Shortcut => {
+                // Read before activating: only a press made inside the panel can close it.
+                let toggle = self.window.is_foreground();
                 let dialog = self.dialog;
-                self.panel.step(Input::Shortcut { dialog }, now)
+                let action = self.panel.step(Input::Shortcut { dialog }, now);
+                self.apply(action);
+                if action == Action::Summon {
+                    let _ = self
+                        .app
+                        .emit_to("main", "panel-search", SearchRequest { toggle });
+                }
+                Action::None
             }
             Request::SetSide(side) => {
                 self.side = side;
@@ -277,16 +287,30 @@ impl Dock {
         if page_focused && zone == CursorZone::Outside && escape {
             platform::restore_focus(self.previous_focus);
         }
-        // The field can remain focused in the document after the user switches apps.
-        let editing = self.editing && focus == Focus::Panel;
         let tick = Input::Tick {
             zone,
-            editing: editing || page_focused || self.dialog,
+            dialog: self.dialog,
             focus,
-            escape,
         };
         let action = self.panel.step(tick, Instant::now());
         self.apply(action);
+        self.report_focus(focus);
+    }
+
+    /// The accent band follows this. Polling sees the page too, which the UI's own focus events
+    /// cannot, and null focus during transitions keeps the last report instead of flickering.
+    fn report_focus(&mut self, focus: Focus) {
+        if focus == Focus::Unknown {
+            return;
+        }
+        let report = FocusReport {
+            focused: matches!(focus, Focus::Panel | Focus::Page),
+            side: self.side,
+        };
+        if self.reported != Some(report) {
+            self.reported = Some(report);
+            let _ = self.app.emit_to("main", "panel-focus", report);
+        }
     }
 
     fn focus(&self) -> Focus {
@@ -308,12 +332,6 @@ impl Dock {
         let tap = pressed && !self.escape_spent;
         self.escape_spent = pressed;
         tap
-    }
-
-    /// Escape leaving a field or closing the picker arrives before the poll. It was already handled:
-    /// counting it would also close the panel with the same press.
-    fn spend_escape(&mut self) {
-        self.escape_spent = platform::escape_pressed();
     }
 
     /// Panel windows. The page window disappears from the list if destroyed, for example by Alt+F4.
@@ -344,7 +362,10 @@ impl Dock {
     fn show(&mut self) {
         self.set_enabled(true);
         self.window.raise();
-        self.slide = Some(Slide::new(self.x, self.rect.left));
+        // Summoning an open panel only gives it focus.
+        if self.x != self.rect.left || self.slide.is_some() {
+            self.slide = Some(Slide::new(self.x, self.rect.left));
+        }
     }
 
     fn apply(&mut self, action: Action) {
@@ -434,8 +455,8 @@ pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, sid
         parked_x,
         x: parked_x,
         panel: Panel::new(Delays::default()),
-        editing: false,
         dialog: false,
+        reported: None,
         previous_focus: None,
         escape_spent: false,
         slide: None,

@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-M3 list refinements (the two open tasks below). Next: close M3 (test review and cross-provider review).
+Next: close M3 (test review and cross-provider review).
 
 ## Completed
 
@@ -27,7 +27,7 @@ M3 list refinements (the two open tasks below). Next: close M3 (test review and 
 - [x] (standard) Restore deleted `_pinned.md`
 - [x] (standard) List visuals: chevron gutter, hover actions, outline-only selection on open cards,
   "Show all" / "Show less" and one content column; see "Note list" in `docs/DESIGN.md`
-- [ ] (advanced) Focused panel: clicking or the shortcut keeps it open while focused, with an accent band
+- [x] (advanced) Focused panel: clicking or the shortcut keeps it open while focused, with an accent band
   on the inner edge; list keyboard outside the search field, scroll-then-advance in long cards, and the
   shortcut and Ctrl+F reach the search
 
