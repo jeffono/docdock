@@ -927,7 +927,8 @@ onMount(() => {
     gap: var(--space-2);
     align-items: center;
     margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
-    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+    /* The title starts where card titles do: header padding plus title padding. */
+    padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
     font-size: var(--font-size-sm);
@@ -938,6 +939,7 @@ onMount(() => {
     min-width: 0;
     overflow: hidden;
     color: var(--color-muted);
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
