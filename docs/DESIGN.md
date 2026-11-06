@@ -88,8 +88,10 @@ pinned and unpinned notes differ only in section and starting state.
   returns to a row when closed; there is no separate note view.
 - **Editing:** only through the pencil in the card header or Ctrl+E on the selected card; entering from
   preview expands the card. One card edits at a time and shows its own save status, conflict and
-  errors. If the search would hide it, it stays at the top until editing ends. The Note editor rules
-  below apply inside the card.
+  errors. If the search would hide it, it stays at the top until editing ends. Closing the card,
+  expanding another, typing in the search or the panel closing first leave editing, which saves; on a
+  conflict or error nothing else happens until it is resolved. The Note editor rules below apply
+  inside the card.
 - **Mouse:** the header toggles line and preview; the body expands the card. Links work in reading.
 - **Header actions:** from right to left, always expand/collapse, then pin, with nothing between them.
   The pencil appears only when expanded, immediately to the left of pin. All three share one group
@@ -117,13 +119,12 @@ pinned and unpinned notes differ only in section and starting state.
 
 ## Note editor
 
-The fully opaque pencil IconButton floats at the note area's top-right corner in both modes, always
-visible and keyboard reachable with the standard focus ring. It stays pressed during editing. Only the
-first block reserves room for it and the small Saving… / Saved status, in both modes; the rest of the
-note uses the full width, and the button scrolls away with the content (Ctrl+E still works). The
-status is absent on conflict or error, whose notices already explain the problem. The note area keeps
-a 1 px transparent border in reading and an accent border in editing, with `--radius-sm`, so toggling
-does not move the frame. Reading remains the default. Light-theme tags use the selected background
+The editor lives in the card being edited, in place of its content; there is no separate note view and
+no floating chrome. The card keeps its header and its button order: the pencil, left of pin, takes
+the standard pressed IconButton look while editing, and the small Saving… / Saved status sits in the
+header, left of the actions. The status is absent on conflict or error, whose notices sit at the top
+of the card body, above the text. The editing card has an accent border, and its text keeps the reading body's padding, so
+toggling does not move it. Reading remains the default. Light-theme tags use the selected background
 and accent text in both views; dark-theme tags keep their surface background and muted text.
 The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
 Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and

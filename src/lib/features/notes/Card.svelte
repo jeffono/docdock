@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { Snippet } from "svelte";
 import { date, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import Highlight from "./Highlight.svelte";
@@ -16,6 +17,9 @@ let {
   onpin,
   onedit,
   onlink,
+  editing = false,
+  status = "",
+  editor,
 }: {
   card: Card;
   /** Raw text of the note once read; the line state does not need it. */
@@ -30,6 +34,12 @@ let {
   onedit: () => void;
   /** Handles a click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
+  /** This card holds the one editor; the pencil stays pressed. */
+  editing?: boolean;
+  /** Saving… or Saved while editing; empty when a notice explains a problem instead. */
+  status?: string;
+  /** The editor, drawn in place of the content while editing. */
+  editor?: Snippet;
 } = $props();
 
 const open = $derived(card.level !== "line");
@@ -65,7 +75,15 @@ const toggle = $derived(
 );
 </script>
 
-<article bind:this={root} class:selected class:row class:expanded={card.level === "expanded"} aria-current={selected}>
+<article
+  bind:this={root}
+  class:selected
+  class:row
+  class:expanded={card.level === "expanded"}
+  class:editing
+  aria-current={selected}
+  data-path={card.hit.path}
+>
   <header>
     <button class="head" onclick={onheader}>
       <span class="title">{card.hit.title}</span>
@@ -74,10 +92,12 @@ const toggle = $derived(
         <small class="tag">{tags[0]}{#if tags.length > 1}<span class="more"> +{tags.length - 1}</span>{/if}</small>
       {/if}
     </button>
+    {#if status}<small class="status" role="status">{status}</small>{/if}
     {#if card.pinned || card.level === "expanded"}
       <div class="actions">
         {#if card.level === "expanded"}
-          <IconButton quiet icon="pencil" label={t("editor.toggle")} onclick={onedit} />
+          <!-- Quiet at rest; while editing it takes the standard pressed look, which the quiet style lacks. -->
+          <IconButton quiet={!editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
         {/if}
         <IconButton quiet icon="bookmark" label={t("card.pin")} pressed={card.pinned} onclick={onpin} />
         <IconButton quiet icon={toggle.icon} label={toggle.label} onclick={card.level === "line" ? onheader : onclose} />
@@ -88,7 +108,9 @@ const toggle = $derived(
   {#if !open && card.hit.snippet}
     <p class="match"><Highlight snippet={card.hit.snippet} /></p>
   {/if}
-  {#if open}
+  {#if editor}
+    {@render editor()}
+  {:else if open}
     <!-- Built from the editor's parser as DOM nodes; note text never becomes HTML. -->
     <div
       bind:this={body}
@@ -122,6 +144,10 @@ const toggle = $derived(
   article.selected {
     border-color: var(--color-accent);
     background: var(--color-selected);
+  }
+
+  article.editing {
+    border-color: var(--color-accent);
   }
 
   article.selected .title {
@@ -188,7 +214,8 @@ const toggle = $derived(
   }
 
   .date,
-  .tag {
+  .tag,
+  .status {
     flex: none;
     color: var(--color-muted);
     font-size: var(--font-size-sm);
@@ -238,12 +265,10 @@ const toggle = $derived(
     display: none;
   }
 
-  /* The card header sits right above: no leading gap, and no room kept for the floating editor
-     chrome, which cards do not have. */
+  /* The card header sits right above: no leading gap. */
   .body > :global(:first-child),
   .body.preview > :global(.note-header + *) {
     margin-top: 0;
-    padding-inline-end: 0;
   }
 
   .body :global(.note-header) {

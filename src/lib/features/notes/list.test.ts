@@ -10,6 +10,7 @@ import {
   move,
   navKeys,
   noteFileName,
+  rows,
   shallower,
 } from "./list";
 import type { Hit } from "./search";
@@ -29,7 +30,8 @@ const base = {
   query: "",
   pinned: [] as PinnedItem[],
   expanded: "",
-  kept: null,
+  kept: null as (Hit & { gone: boolean }) | null,
+  editing: false,
 };
 const paths = (entries: (Card | { target: string })[]) =>
   entries.map((e) => ("target" in e ? e.target : e.hit.path));
@@ -68,8 +70,50 @@ describe("sections", () => {
   it("expands one card and keeps a vanished expanded note on screen", () => {
     const model = buildList({ ...base, expanded: "a.md", pinned: [item("b.md")] });
     expect(model.notes[0].level).toBe("expanded");
-    const kept = buildList({ ...base, hits: [], expanded: "x.md", kept: hit("x.md") });
+    const gone = { ...hit("x.md"), gone: true };
+    const kept = buildList({ ...base, hits: [], expanded: "x.md", kept: gone });
     expect(kept.notes).toMatchObject([{ gone: true, level: "expanded" }]);
+  });
+});
+
+describe("edited card", () => {
+  const filtered = { ...hit("a.md"), gone: false };
+  const searching = { ...base, hits: [hit("b.md")], query: "b", expanded: "a.md", kept: filtered };
+
+  it("stays at the top while the search hides it, and only while editing", () => {
+    expect(paths(buildList({ ...searching, editing: true }).notes)).toEqual(["a.md", "b.md"]);
+    expect(paths(buildList(searching).notes)).toEqual(["b.md"]);
+  });
+
+  it("stays first among pinned cards while the search hides it", () => {
+    const pinned = [item("b.md"), item("a.md")];
+    const model = buildList({ ...searching, pinned, editing: true });
+    expect(paths(model.pinned)).toEqual(["a.md", "b.md"]);
+    expect(model.pinned[0]).toMatchObject({ pinned: true, level: "expanded" });
+  });
+
+  it("stays a card when its pinned note is deleted, instead of a missing row", () => {
+    const input = {
+      ...base,
+      hits: [],
+      pinned: [item("a.md", { missing: true })],
+      expanded: "a.md",
+      kept: { ...hit("a.md"), gone: true },
+    };
+    expect(buildList({ ...input, editing: true }).pinned).toMatchObject([{ gone: true }]);
+    expect(isMissing(buildList(input).pinned[0])).toBe(true);
+  });
+
+  it("keeps one key across sections and renames, so the editor is not rebuilt", () => {
+    const unpinned = buildList({ ...base, expanded: "a.md", editing: true });
+    const pinned = buildList({ ...base, expanded: "a.md", editing: true, pinned: [item("a.md")] });
+    const key = (model: typeof pinned, path: string) =>
+      rows(model, path).find(
+        (row) => "entry" in row && !isMissing(row.entry) && row.entry.hit.path === path,
+      )?.key;
+    expect(key(unpinned, "a.md")).toBe(key(pinned, "a.md"));
+    const renamed = buildList({ ...base, hits: [hit("z.md")], expanded: "z.md", editing: true });
+    expect(key(renamed, "z.md")).toBe(key(unpinned, "a.md"));
   });
 });
 
