@@ -41,6 +41,8 @@ const en = {
   "leftovers.notice":
     "Interrupted saves left these copies. Restoring turns each one into a note; nothing is deleted.",
   "leftovers.restore": "Restore {note}",
+  "web.openAddress": "Open {text}",
+  "web.search": "Search the web: {text}",
   "web.address": "Page address",
   "web.page": "Return to page",
   "web.notes": "Notes",
@@ -115,6 +117,8 @@ const ptBR: Record<MessageKey, string> = {
   "leftovers.notice":
     "Salvamentos interrompidos deixaram estas cópias. Restaurar transforma cada uma em nota; nada é apagado.",
   "leftovers.restore": "Restaurar {note}",
+  "web.openAddress": "Abrir {text}",
+  "web.search": "Buscar na web: {text}",
   "web.address": "Endereço da página",
   "web.page": "Voltar à página",
   "web.notes": "Notas",

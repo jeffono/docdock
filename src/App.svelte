@@ -68,7 +68,7 @@ function togglePin() {
     <IconButton icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
-  <Notes browser={web} />
+  <Notes browser={web} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>

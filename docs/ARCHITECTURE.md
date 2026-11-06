@@ -123,8 +123,20 @@ per-monitor DPI awareness (PMv2).
   `platform/browser.rs` observes SourceChanged, DocumentTitleChanged and HistoryChanged on the WebView2
   UI thread and emits `web-state` (URL, title, back/forward availability) to main. The page sends no
   messages to Rust. The panel thread emits `web-visible` after switching visibility. UI metadata is text.
-  Enter in the unified search bar opens http(s) addresses and bare domains as a minimal bridge;
-  address history and suggestions remain a separate M4 task.
+  The unified bar shows the current URL, with a separate draft while typing. `suggestions.ts` supplies
+  pure intent, entries and default selection rules; notes, Create and web actions share arrow/Enter
+  selection. Notes queries stay local; choosing Search the web enters `?` mode. URL-like text offers
+  Open explicitly; only an http(s) prefix makes Open the default over notes/Create.
+  In browser or `?` mode, Rust queries DuckDuckGo after a short debounce (minimum two characters).
+  A generation discards stale responses, including A → B → A. `ureq` uses a two-second timeout, no
+  cookies/referer or redirects; JSON is capped at 32 KiB, eight unique phrases of 200 characters,
+  without controls. Failures silently leave local entries. Text is rendered as text; CSP is unchanged.
+  `search_engine` in settings.json defaults to `duckduckgo` (the supported engine), without settings UI.
+  SourceChanged records actual http(s) visits, not submitted input, through a serialized atomic update
+  of `address-history.json` in app_config_dir. Most recent first, deduplicated, 300 entries; corrupt
+  history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
+  remains first for Enter. Browser suggestions reserve their measured height above the native page
+  via the panel thread; Esc or moving focus to the page dismisses them and restores its bounds.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.

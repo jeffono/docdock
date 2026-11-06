@@ -26,12 +26,22 @@ import {
   pinnedRemove,
   pinnedRestore,
   pinnedSetCollapsed,
+  webAddresses,
   webOpen,
+  webSuggestionHeight,
+  webSuggestions,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
-import { parseAddress } from "../web/address";
+import {
+  barDefault,
+  LatestQuery,
+  searchAddress,
+  type WebEntry,
+  webEntries,
+  webQuery,
+} from "../web/suggestions";
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import Editor from "./Editor.svelte";
@@ -53,12 +63,84 @@ import {
 } from "./list";
 import { FolderIndex, isPinnedList, search } from "./search";
 
-let { browser = false }: { browser?: boolean } = $props();
+let { browser = false, pageUrl = "" }: { browser?: boolean; pageUrl?: string } = $props();
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
 let error = $state("");
 let query = $state("");
+let address = $state("");
+let addressEditing = $state(false);
+let history = $state<string[]>([]);
+let remote = $state<string[]>([]);
+let suggestionsElement = $state<HTMLElement>();
+const latest = new LatestQuery();
+const inputQuery = $derived(browser ? address : query);
+const intent = $derived(webQuery(inputQuery, browser));
+const webItems = $derived(webEntries(inputQuery, browser, history, remote));
+$effect(() => {
+  if (browser && !addressEditing) address = pageUrl;
+});
+$effect(() => {
+  const text = intent;
+  const revision = latest.next();
+  remote = [];
+  if (text === null || text.length < 2 || (browser && !addressEditing)) return;
+  const timer = setTimeout(() => {
+    void webSuggestions(text)
+      .then((items) => {
+        if (latest.accepts(revision)) remote = items;
+      })
+      .catch(() => {});
+  }, 180);
+  return () => {
+    clearTimeout(timer);
+    latest.next();
+  };
+});
+$effect(() => {
+  void pageUrl;
+  void browser;
+  void webAddresses()
+    .then((items) => {
+      history = items;
+    })
+    .catch(() => {});
+});
+$effect(() => {
+  const element = suggestionsElement;
+  if (!element || !browser || !addressEditing) {
+    void webSuggestionHeight(0);
+    return;
+  }
+  const observer = new ResizeObserver(() => {
+    void webSuggestionHeight(Math.ceil(element.getBoundingClientRect().height));
+  });
+  observer.observe(element);
+  return () => {
+    observer.disconnect();
+    void webSuggestionHeight(0);
+  };
+});
+async function activateWeb(entry: WebEntry) {
+  if (entry.kind === "intent") {
+    query = `? ${entry.text}`;
+    selection = "";
+    bar()?.focus();
+    return;
+  }
+  try {
+    if (await openPage(entry.url ?? searchAddress(entry.text))) {
+      addressEditing = false;
+      selection = "";
+    }
+  } catch (e) {
+    error = errorText(e);
+  }
+}
+function webLabel(entry: WebEntry): string {
+  return t(entry.kind === "open" ? "web.openAddress" : "web.search", { text: entry.text });
+}
 let leftovers = $state<Leftover[]>([]);
 let pinned = $state<Pinned>({ items: [], restorable: false });
 /** Path of the one expanded card, or "". Not remembered when the panel closes. */
@@ -184,11 +266,24 @@ const model = $derived(
   }),
 );
 const listRows = $derived(rows(model, editing ? selected : ""));
-const keys = $derived(navKeys(model));
-const active = $derived(keys.includes(selection) ? selection : defaultKey(model, query));
+const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
+const shownWebItems = $derived(browser && !addressEditing ? [] : webItems);
+const keys = $derived([...noteKeys, ...shownWebItems.map((item) => item.key)]);
+const active = $derived(
+  keys.includes(selection)
+    ? selection
+    : barDefault(
+        inputQuery,
+        browser,
+        folder?.available ? defaultKey(model, query) : "",
+        shownWebItems,
+      ),
+);
 
 /** What a screen reader hears when the selection changes. */
 const announced = $derived.by(() => {
+  const webEntry = shownWebItems.find((entry) => entry.key === active);
+  if (webEntry) return webLabel(webEntry);
   if (active === "create" && model.create !== null) return t("list.create", { text: model.create });
   const entry = [...model.pinned, ...model.notes].find((e) => entryKey(e) === active);
   if (!entry) return "";
@@ -511,6 +606,7 @@ const bar = () => tools?.querySelector("input");
 
 /** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
 function typed() {
+  if (browser) addressEditing = true;
   selection = "";
   void leaveEditor();
 }
@@ -557,6 +653,15 @@ function escapeKey(inBar: boolean) {
     return;
   }
   const input = bar();
+  if (browser) {
+    if (addressEditing) {
+      addressEditing = false;
+      address = pageUrl;
+      selection = "";
+      input?.focus();
+    } else void closePanel();
+    return;
+  }
   if (query || (input && !inBar)) {
     query = "";
     selection = "";
@@ -568,23 +673,7 @@ function escapeKey(inBar: boolean) {
 
 /** List keys, from the search bar (`inBar`) or from anywhere in the panel outside a text field. */
 function listKey(event: KeyboardEvent, inBar: boolean) {
-  if (inBar && event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey) {
-    const url = parseAddress(query);
-    if (url) {
-      event.preventDefault();
-      void openPage(url)
-        .then((opened) => {
-          if (opened) query = "";
-        })
-        .catch((e) => {
-          error = errorText(e);
-        });
-      return;
-    }
-  }
-  if (browser && event.key !== "Escape") return;
-  // Without a folder there is no list: buttons keep Enter and the arrows.
-  if (!list && event.key !== "Escape") return;
+  if (!list && !shownWebItems.length && event.key !== "Escape") return;
   const modified = event.ctrlKey || event.shiftKey || event.metaKey;
   switch (event.key) {
     case "Escape":
@@ -620,7 +709,13 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     case "Enter": {
       event.preventDefault();
       if (event.ctrlKey) {
-        if (query.trim()) void create(query.trim());
+        if (!browser && intent === null && folder?.available && query.trim())
+          void create(query.trim());
+        return;
+      }
+      const webEntry = shownWebItems.find((entry) => entry.key === active);
+      if (webEntry) {
+        void activateWeb(webEntry);
         return;
       }
       const action = enter(model, active);
@@ -671,7 +766,11 @@ function inField(event: KeyboardEvent): boolean {
 
 function shortcut(event: KeyboardEvent) {
   if (event.defaultPrevented || event.isComposing) return;
-  if (browser && !tools?.contains(event.target as Node)) {
+  if (
+    browser &&
+    !tools?.contains(event.target as Node) &&
+    !(event.ctrlKey && event.key.toLowerCase() === "f")
+  ) {
     if (event.key === "Escape") {
       event.preventDefault();
       void panelClose();
@@ -715,7 +814,7 @@ function shortcut(event: KeyboardEvent) {
     event
       .composedPath()
       .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
-  if (ctrl && key === "d" && (!field || inEditor)) {
+  if (!browser && ctrl && key === "d" && (!field || inEditor)) {
     const card = cardFor(inEditor ? selected : active);
     if (!card) return;
     event.preventDefault();
@@ -723,7 +822,7 @@ function shortcut(event: KeyboardEvent) {
     if (!event.repeat) void pinOrUnpin(card, inEditor);
     return;
   }
-  if (ctrl && key === "e") {
+  if (!browser && ctrl && key === "e") {
     const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
     if (!path) return;
     event.preventDefault();
@@ -776,7 +875,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydown={shortcut} />
+<svelte:window onkeydown={shortcut} onblur={() => { addressEditing = false; }} />
 
 {#snippet noteEditor()}
   {#if opened}
@@ -800,13 +899,23 @@ onMount(() => {
 <section aria-label={t("notes.label")}>
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
-        bind:value={query}
+        value={inputQuery}
+        oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}
         aria-controls="note-list"
-        aria-label={t("notes.search")}
+        aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
       <IconButton icon="folder" label={folder ? t("notes.changeFolder", { path: folder.path }) : t("notes.choose")} onclick={choose} />
     </div>
+  {#if browser && addressEditing}
+    <div class="web-suggestions" bind:this={suggestionsElement}>
+      {#each shownWebItems as entry (entry.key)}
+        <button class="create" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
+      {/each}
+    </div>
+  {/if}
+  <p class="announce" aria-live="polite">{announced}</p>
   <div class="content" hidden={browser}>
   {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -828,7 +937,7 @@ onMount(() => {
     {/if}
     <!-- Plain structure: cards hold buttons, links and the editor, so they cannot be listbox options.
       The selected item carries aria-current and the live region announces it. -->
-    <p class="announce" aria-live="polite">{announced}</p>
+
     <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
       tabindex="0" bind:this={list}
@@ -839,14 +948,14 @@ onMount(() => {
           <Button onclick={() => pinnedAction(pinnedRestore)}>{t("pinned.restore")}</Button>
         </div>
       {/if}
-      {#if model.create !== null}
+      {#if intent === null && model.create !== null}
         {@const text = model.create}
         <button tabindex="-1" aria-current={active === "create" || undefined} class="create" class:selected={active === "create"} onclick={() => create(text)}>
           {t("list.create", { text })}
         </button>
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
-      {#each listRows as row (row.key)}
+      {#each (intent === null ? listRows : []) as row (row.key)}
         {#if "heading" in row}
           <h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>
         {:else if isMissing(row.entry)}
@@ -891,9 +1000,17 @@ onMount(() => {
           />
         {/if}
       {/each}
+      {#each shownWebItems as entry (entry.key)}
+        <button class="create" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
+      {/each}
       {#if !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
+    {#each shownWebItems as entry (entry.key)}
+      <button class="create" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
+    {/each}
     <div class="empty">
       <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
@@ -905,6 +1022,11 @@ onMount(() => {
 </section>
 
 <style>
+  .web-suggestions {
+    flex: none;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
   .content {
     display: contents;
   }

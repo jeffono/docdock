@@ -38,6 +38,7 @@ pub enum Request {
     /// The web page window was created and is still invisible.
     AttachWeb(isize),
     SetWebVisible(bool),
+    SetWebSuggestionHeight(u32),
     /// Global shortcut.
     Shortcut,
     /// Side chosen in the tray.
@@ -82,9 +83,10 @@ fn parked_x(monitor: &Monitor, side: Side, panel: Rect) -> i32 {
 }
 
 /// Web page rectangle: the panel minus the top bar.
-fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
+fn web_rect(monitor: &Monitor, panel: Rect, extra: u32) -> Rect {
     Rect {
-        top: panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32,
+        top: (panel.top + ((WEB_TOP + extra) * monitor.dpi / BASE_DPI) as i32)
+            .min(panel.bottom - 1),
         ..panel
     }
 }
@@ -181,6 +183,7 @@ struct Dock {
     /// Web page window, if present.
     web: Option<PanelWindow>,
     web_visible: bool,
+    suggestion_height: u32,
     side: Side,
     monitor: Monitor,
     rect: Rect,
@@ -221,7 +224,11 @@ impl Dock {
         if self.web_visible
             && let Some(web) = &mut self.web
         {
-            web.place(web_rect(&monitor, self.rect), monitor.bounds, self.x);
+            web.place(
+                web_rect(&monitor, self.rect, self.suggestion_height),
+                monitor.bounds,
+                self.x,
+            );
         }
     }
 
@@ -240,7 +247,7 @@ impl Dock {
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
-                let rect = web_rect(&self.monitor, self.rect);
+                let rect = web_rect(&self.monitor, self.rect, self.suggestion_height);
                 let bounds = self.monitor.bounds;
                 let web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
                 web.set_enabled(self.is_open());
@@ -258,7 +265,7 @@ impl Dock {
                         web.hide();
                     } else {
                         web.place(
-                            web_rect(&self.monitor, self.rect),
+                            web_rect(&self.monitor, self.rect, self.suggestion_height),
                             self.monitor.bounds,
                             self.x,
                         );
@@ -267,6 +274,20 @@ impl Dock {
                     self.web = Some(web);
                     self.web_visible = visible;
                     let _ = self.app.emit_to("main", "web-visible", visible);
+                }
+                Action::None
+            }
+            Request::SetWebSuggestionHeight(height) => {
+                self.suggestion_height = height;
+                if self.web_visible
+                    && let Some(mut web) = self.web
+                {
+                    web.place(
+                        web_rect(&self.monitor, self.rect, height),
+                        self.monitor.bounds,
+                        self.x,
+                    );
+                    self.web = Some(web);
                 }
                 Action::None
             }
@@ -484,6 +505,7 @@ pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, sid
         window,
         web: None,
         web_visible: false,
+        suggestion_height: 0,
         side,
         monitor,
         rect,

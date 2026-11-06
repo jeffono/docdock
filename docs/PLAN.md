@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: browser mode implemented; code colors on `code-colors`.
+- M4 on `m4-web-pages`: browser mode and unified address bar implemented; code colors on `code-colors`.
 
 ## Completed
 
@@ -29,7 +29,7 @@ a note with `url:` expands like any note and offers "Open page".
   window (kept loaded, not destroyed) and shows the list again; back/forward follow the page history and
   are disabled when unavailable; Rust reports URL, title and history state to the UI; links in rendered
   notes open in the panel, Ctrl+click in the default browser. Replaces the M0 globe toggle and `WebBar`.
-- [ ] (standard) Unified bar as address bar, with local history and suggestions; see
+- [x] (standard) Unified bar as address bar, with local history and suggestions; see
   `docs/decisions/0006-search-suggestions.md`. Level 2 and a settings screen stay out of M4.
 - [ ] (standard) Pin pages in `_pinned.md`; pinned web cards open the page
 - [ ] (advanced) Read the page selection from Rust without letting the page talk to Rust

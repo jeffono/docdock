@@ -49,6 +49,13 @@ pub fn observe(window: &WebviewWindow) -> tauri::Result<()> {
             let handle = app.clone();
             let source = SourceChangedEventHandler::create(Box::new(move |page, _| {
                 if let Some(page) = page {
+                    let mut source = PWSTR::null();
+                    page.Source(&mut source)?;
+                    let url = CoTaskMemPWSTR::from(source).to_string();
+                    let app = handle.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        crate::web::addresses(&app, Some(&url));
+                    });
                     report(&handle, &page)?;
                 }
                 Ok(())

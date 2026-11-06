@@ -185,3 +185,16 @@ pub fn note_image(
         ));
     });
 }
+
+#[tauri::command(async)]
+pub fn web_suggestions(app: AppHandle, query: String) -> Vec<String> {
+    web::suggestions(&app, &query)
+}
+#[tauri::command(async)]
+pub fn web_addresses(app: AppHandle) -> Vec<String> {
+    web::addresses(&app, None)
+}
+#[tauri::command]
+pub fn web_suggestion_height(requests: State<'_, Sender<Request>>, height: u32) {
+    send(requests, Request::SetWebSuggestionHeight(height.min(600)));
+}

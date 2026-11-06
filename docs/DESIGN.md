@@ -150,6 +150,19 @@ pinned and unpinned notes differ only in section and starting state.
 | Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
 | Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
 
+## Unified address bar
+
+In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
+local addresses, then engine suggestions. The same arrows, Enter and selected row style apply.
+Suggestions occupy space between the bar and the native page, without covering the field. Esc restores
+the current URL and dismisses suggestions before the next Esc closes the panel.
+
+In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
+after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
+keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
+it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries remain
+local. Web actions use the Create row's tokens and style; all untrusted suggestions appear as text.
+
 ## Note editor
 
 The editor lives in the card being edited, in place of its content; there is no separate note view and
