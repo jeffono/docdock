@@ -27,6 +27,7 @@ pub fn run() {
         commands::panel_set_pinned,
         commands::panel_close,
         commands::panel_set_side,
+        commands::panel_resize,
         commands::web_open,
         commands::web_set_visible,
         commands::web_history,
@@ -81,6 +82,7 @@ pub fn run() {
                 window.hwnd()?.0 as isize,
                 receiver,
                 side,
+                notes::width(app.handle()),
             );
             Ok(())
         })

@@ -1,13 +1,21 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { errorText, type MessageKey, t } from "../../i18n";
-import { type NotesFolder, notesFolder, type PanelFocus, panelSetSide } from "../../ipc";
+import {
+  type NotesFolder,
+  notesFolder,
+  type PanelFocus,
+  panelResize,
+  panelSetSide,
+} from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { formattingShortcuts } from "../notes/formatting";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
-const sections = ["general", "browser", "shortcuts"] as const;
+const sections = ["general", "appearance", "browser", "shortcuts"] as const;
+/** The panel's own width is the setting's current value. */
+let width = $state(window.innerWidth);
 let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
 let error = $state("");
@@ -46,6 +54,8 @@ const panelShortcuts: [string, MessageKey][] = [
 ];
 </script>
 
+<svelte:window bind:innerWidth={width} />
+
 <section aria-label={t("preferences.title")}>
   <h1>{t("preferences.title")}</h1>
   <nav aria-label={t("preferences.title")}>
@@ -69,6 +79,13 @@ const panelShortcuts: [string, MessageKey][] = [
           <label><input type="radio" name="side" checked={side === value} onchange={() => action(() => panelSetSide(value as PanelFocus["side"]))} />{t(`preferences.${value}` as MessageKey)}</label>
         {/each}
       </fieldset>
+    {:else if section === "appearance"}
+      <div class="setting">
+        <h3>{t("preferences.width")}</h3>
+        <p>{t("preferences.widthValue", { width })}</p>
+        <p>{t("preferences.widthHint")}</p>
+        <Button disabled={busy} onclick={() => action(() => panelResize(null, true))}>{t("preferences.widthReset")}</Button>
+      </div>
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
     {:else}

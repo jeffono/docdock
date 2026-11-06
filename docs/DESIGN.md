@@ -163,19 +163,20 @@ pinned and unpinned notes differ only in section and starting state.
 
 ## Preferences
 
-The top bar gear replaces the folder action and opens a third view with quiet General, Browser and
-Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
+The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
+and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
 General contains the folder path, folder picker and panel side; side changes mirror the tray. Browser
 shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
-editor bindings. Appearance is omitted until panel width supplies its first setting. Sections scroll
+editor bindings. Appearance shows the panel width, how to resize it and a reset. Sections scroll
 inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
 Notes query so returning to Notes starts with an empty search.
 
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the folder picker and panel pin. The panel is 460 logical pixels wide by default.
+controls, then the Preferences gear and panel pin. The panel is 460 logical pixels wide by default;
+a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts. There is no app name or page title. The same search

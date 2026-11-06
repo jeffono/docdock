@@ -137,6 +137,8 @@ pub struct PanelWindow {
     height: i32,
     inset: i32,
     overlay_top: i32,
+    /// Horizontal distance from the panel's left edge: windows slide together at the panel's `x`.
+    offset: i32,
 }
 
 impl PanelWindow {
@@ -150,6 +152,7 @@ impl PanelWindow {
             height: 0,
             inset: 0,
             overlay_top: 0,
+            offset: 0,
         };
         window.set_enabled(false);
         unsafe {
@@ -178,7 +181,7 @@ impl PanelWindow {
             SetWindowPos(
                 self.hwnd(),
                 Some(HWND_TOPMOST),
-                x,
+                x + self.offset,
                 self.top,
                 self.width,
                 self.height,
@@ -208,6 +211,11 @@ impl PanelWindow {
         log_failure("SetWindowPos", result);
     }
 
+    /// Places this window `offset` pixels right of the panel's left edge from the next placement on.
+    pub fn set_offset(&mut self, offset: i32) {
+        self.offset = offset;
+    }
+
     /// Reveal the panel border and its floating dropdown without resizing the page viewport.
     /// Stored here so sliding and monitor clipping preserve both cutouts.
     pub fn overlay(&mut self, dpi: u32, height: u32, x: i32) {
@@ -231,7 +239,7 @@ impl PanelWindow {
 
     /// Clips anything beyond the monitor edges so it never appears on a neighboring monitor.
     fn clip(&self, x: i32) {
-        let rect = self.visible_rect(x);
+        let rect = self.visible_rect(x + self.offset);
         unsafe {
             let region = CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
             // The system takes ownership of the region only if the call succeeds.
@@ -267,7 +275,8 @@ pub fn slide_windows(windows: &[PanelWindow], x: i32) {
         let mut batch = BeginDeferWindowPos(windows.len() as i32)?;
         for window in windows {
             window.clip(x);
-            batch = DeferWindowPos(batch, window.hwnd(), None, x, window.top, 0, 0, flags)?;
+            let left = x + window.offset;
+            batch = DeferWindowPos(batch, window.hwnd(), None, left, window.top, 0, 0, flags)?;
         }
         EndDeferWindowPos(batch)
     };
@@ -321,6 +330,7 @@ mod tests {
             height: 712,
             inset: 3,
             overlay_top: 160,
+            offset: 0,
         };
         assert_eq!(
             page.visible_rect(900),

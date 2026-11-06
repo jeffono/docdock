@@ -44,6 +44,13 @@ struct Settings {
     folder: Option<PathBuf>,
     #[serde(default, deserialize_with = "side_or_default")]
     side: Side,
+    /// Panel width in logical pixels; absent for the default.
+    #[serde(
+        default,
+        deserialize_with = "width_or_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    width: Option<u32>,
     /// Pinned targets shown as one line on this computer; the rest start as previews.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     collapsed: BTreeSet<String>,
@@ -51,6 +58,10 @@ struct Settings {
 /// An unknown side must not make the folder unreadable.
 fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
     Ok(Side::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+/// An invalid width must not make the folder unreadable either.
+fn width_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<u32>, D::Error> {
+    Ok(Option::<u32>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 #[derive(Serialize)]
 pub struct Folder {
@@ -117,6 +128,12 @@ fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<(), Err
 }
 pub fn set_side(app: &AppHandle, side: Side) -> Result<(), Error> {
     update(app, |settings| settings.side = side)
+}
+pub fn width(app: &AppHandle) -> Option<u32> {
+    config(app).ok().and_then(|p| load(&p).width)
+}
+pub fn set_width(app: &AppHandle, width: Option<u32>) -> Result<(), Error> {
+    update(app, |settings| settings.width = width)
 }
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
@@ -1405,9 +1422,10 @@ mod tests {
         save(&p, &settings("b")).unwrap();
         assert_eq!(read_settings(&p), Some(t.0.join("b")));
         assert_eq!(load(&p).side, Side::Left);
-        // Older files have no side; an unknown side reads as right and keeps the folder.
-        fs::write(&p, r#"{"folder":"x","side":"top"}"#).unwrap();
+        // Older files have no side; an unknown side or width reads as the default and keeps the folder.
+        fs::write(&p, r#"{"folder":"x","side":"top","width":"wide"}"#).unwrap();
         assert_eq!(load(&p).side, Side::Right);
+        assert_eq!(load(&p).width, None);
         assert_eq!(read_settings(&p), Some(PathBuf::from("x")));
     }
     #[test]

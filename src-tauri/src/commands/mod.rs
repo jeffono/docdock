@@ -48,6 +48,11 @@ pub fn panel_set_side(
     crate::tray::select_side(&app, side, &requests)
 }
 
+#[tauri::command]
+pub fn panel_resize(requests: State<'_, Sender<Request>>, width: Option<u32>, done: bool) {
+    send(requests, Request::Resize { width, done });
+}
+
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.
 #[tauri::command]
 pub async fn web_open(

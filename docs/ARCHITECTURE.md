@@ -79,6 +79,13 @@ per-monitor DPI awareness (PMv2).
 - **Side:** right by default, or left, chosen in Preferences or the tray and saved in `settings.json`; a missing or
   unknown value means right. Everything below mirrors on the left. Switching moves the windows at once,
   without animation, keeping the panel open or closed.
+- **Width:** 460 logical pixels by default, dragged from the inner edge (or arrows on the focused
+  handle) and saved as `width` in `settings.json` when the drag ends; a missing or invalid value
+  means the default. `dock.rs` clamps it to at least 320 and at most half the monitor's work area,
+  so a width saved on a large monitor never covers most of a smaller one. While dragging, the panel
+  stays open as if a dialog held it. The page window starts 4 logical pixels in from the inner
+  edge, so with its 2-pixel region inset a 6-pixel strip of the UI, where the handle sits, runs the
+  full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
   from scrollbars and maximized window buttons. Points outside that monitor are ignored.

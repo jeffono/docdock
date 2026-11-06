@@ -12,6 +12,7 @@ import {
   type PageState,
   type PanelFocus,
   panelActivate,
+  panelResize,
   panelSetPinned,
   webHistory,
   webSetVisible,
@@ -100,6 +101,46 @@ async function togglePreferences() {
   web = false;
   preferences = true;
 }
+/** Dragging the inner edge: the window moves under the pointer, so only screen positions count. */
+let drag: { x: number; width: number } | null = null;
+let frame = 0;
+let pendingWidth = 0;
+function dragWidth(event: PointerEvent) {
+  if (!drag) return 0;
+  const moved = event.screenX - drag.x;
+  return drag.width + (focus.side === "right" ? -moved : moved);
+}
+function resizeStart(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  drag = { x: event.screenX, width: window.innerWidth };
+}
+function resizeMove(event: PointerEvent) {
+  if (!drag) return;
+  pendingWidth = dragWidth(event);
+  // One resize per frame: each one moves two native windows.
+  frame ||= requestAnimationFrame(() => {
+    frame = 0;
+    if (drag) void action(panelResize(pendingWidth, false));
+  });
+}
+function resizeEnd(event: PointerEvent) {
+  if (!drag) return;
+  const width = dragWidth(event);
+  drag = null;
+  cancelAnimationFrame(frame);
+  frame = 0;
+  void action(panelResize(width, true));
+}
+function resizeKey(event: KeyboardEvent) {
+  const step = event.shiftKey ? 50 : 10;
+  const wider = focus.side === "right" ? "ArrowLeft" : "ArrowRight";
+  const narrower = focus.side === "right" ? "ArrowRight" : "ArrowLeft";
+  if (event.key !== wider && event.key !== narrower) return;
+  event.preventDefault();
+  void action(panelResize(window.innerWidth + (event.key === wider ? step : -step), true));
+}
 function togglePin() {
   pinned = !pinned;
   panelSetPinned(pinned);
@@ -109,6 +150,21 @@ function togglePin() {
 <svelte:window onpointerdown={panelActivate} />
 
 <main class:focused={focus.focused} class:left={focus.side === "left"}>
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="resize"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label={t("app.resize")}
+    title={t("app.resize")}
+    tabindex="0"
+    onpointerdown={resizeStart}
+    onpointermove={resizeMove}
+    onpointerup={resizeEnd}
+    onpointercancel={resizeEnd}
+    ondblclick={() => action(panelResize(null, true))}
+    onkeydown={resizeKey}
+  ></div>
   <header>
     <nav aria-label={t("app.mode")}>
       <button class:active={!web && !preferences} aria-pressed={!web && !preferences} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
@@ -155,6 +211,28 @@ function togglePin() {
   main.focused.left::before {
     right: 0;
     left: auto;
+  }
+
+  /* Over the inner edge, where the page window leaves a strip of the UI uncovered. */
+  .resize {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 6px;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+
+  main.left .resize {
+    right: 0;
+    left: auto;
+  }
+
+  .resize:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
   }
 
   header {

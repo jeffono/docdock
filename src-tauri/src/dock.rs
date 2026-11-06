@@ -12,8 +12,13 @@ use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 
 const POLL: Duration = Duration::from_millis(50);
 const SLIDE: Duration = Duration::from_millis(150);
-/// Width in logical pixels; on the monitor it becomes `width * dpi / 96`.
+/// Default width in logical pixels; on the monitor it becomes `width * dpi / 96`.
 const PANEL_WIDTH: u32 = 460;
+/// Narrowest panel; the widest is half the work area, never below this.
+const MIN_WIDTH: u32 = 320;
+/// Extra gap, in logical pixels, between the page and the inner edge: with the page's own 2 px inset it
+/// leaves a 6 px strip of the UI, where the resize handle sits, along the whole panel.
+const HANDLE_GAP: u32 = 4;
 const BASE_DPI: u32 = 96;
 /// Two bars above the page, in logical pixels: twice `--size-bar` in `tokens.css`.
 const WEB_TOP: u32 = 88;
@@ -43,6 +48,12 @@ pub enum Request {
     Shortcut,
     /// Side chosen in the tray.
     SetSide(Side),
+    /// Logical width from the UI's resize handle, `None` for the default. `done` ends a drag and
+    /// saves it; until then the panel stays open as if a dialog held it.
+    Resize {
+        width: Option<u32>,
+        done: bool,
+    },
 }
 
 /// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
@@ -59,9 +70,16 @@ struct SearchRequest {
     toggle: bool,
 }
 
+/// Logical width within the limits of this monitor.
+fn clamp_width(monitor: &Monitor, width: Option<u32>) -> u32 {
+    let work = u32::try_from(monitor.work.right - monitor.work.left).unwrap_or(0);
+    let max = (work * BASE_DPI / monitor.dpi.max(1) / 2).max(MIN_WIDTH);
+    width.unwrap_or(PANEL_WIDTH).clamp(MIN_WIDTH, max)
+}
+
 /// Open panel rectangle, aligned with the work area edge on `side`.
-fn panel_rect(monitor: &Monitor, side: Side) -> Rect {
-    let width = (PANEL_WIDTH * monitor.dpi / BASE_DPI) as i32;
+fn panel_rect(monitor: &Monitor, side: Side, width: Option<u32>) -> Rect {
+    let width = (clamp_width(monitor, width) * monitor.dpi / BASE_DPI) as i32;
     match side {
         Side::Right => Rect {
             left: monitor.work.right - width,
@@ -82,12 +100,26 @@ fn parked_x(monitor: &Monitor, side: Side, panel: Rect) -> i32 {
     }
 }
 
-/// Web page rectangle: the panel minus the top bar.
-fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
+/// Web page rectangle: the panel minus the top bar and the handle gap on the inner edge.
+fn web_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
+    let gap = (HANDLE_GAP * monitor.dpi / BASE_DPI) as i32;
+    let (left, right) = match side {
+        Side::Right => ((panel.left + gap).min(panel.right - 1), panel.right),
+        Side::Left => (panel.left, (panel.right - gap).max(panel.left + 1)),
+    };
     Rect {
         top: (panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32).min(panel.bottom - 1),
+        left,
+        right,
         ..panel
     }
+}
+
+/// Places the page window over the open panel `panel`, sliding with it at `x`.
+fn place_page(web: &mut PanelWindow, monitor: &Monitor, panel: Rect, side: Side, x: i32) {
+    let rect = web_rect(monitor, panel, side);
+    web.set_offset(rect.left - panel.left);
+    web.place(rect, monitor.bounds, x);
 }
 
 /// Only the outer edge of the outermost monitor on `side` holds the cursor; elsewhere it would cross
@@ -184,6 +216,10 @@ struct Dock {
     web_visible: bool,
     overlay_height: u32,
     side: Side,
+    /// Logical width chosen by the user, `None` for the default.
+    width: Option<u32>,
+    /// A resize drag is in progress: the cursor may leave the panel without closing it.
+    resizing: bool,
     monitor: Monitor,
     rect: Rect,
     parked_x: i32,
@@ -210,8 +246,12 @@ impl Dock {
     /// Moves windows to the monitor and side without animation. Any ongoing slide used the old ones.
     fn relocate(&mut self, monitor: Monitor) {
         eprintln!("[panel] placed on {:?}: {monitor:?}", self.side);
+        self.place(monitor);
+    }
+
+    fn place(&mut self, monitor: Monitor) {
         self.monitor = monitor;
-        self.rect = panel_rect(&monitor, self.side);
+        self.rect = panel_rect(&monitor, self.side, self.width);
         self.parked_x = parked_x(&monitor, self.side, self.rect);
         self.slide = None;
         self.x = if self.is_open() {
@@ -224,7 +264,7 @@ impl Dock {
             && let Some(web) = &mut self.web
         {
             web.overlay(monitor.dpi, self.overlay_height, self.x);
-            web.place(web_rect(&monitor, self.rect), monitor.bounds, self.x);
+            place_page(web, &monitor, self.rect, self.side, self.x);
         }
     }
 
@@ -243,10 +283,11 @@ impl Dock {
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
-                let rect = web_rect(&self.monitor, self.rect);
+                let rect = web_rect(&self.monitor, self.rect, self.side);
                 let bounds = self.monitor.bounds;
                 let mut web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
                 web.overlay(self.monitor.dpi, self.overlay_height, self.x);
+                place_page(&mut web, &self.monitor, self.rect, self.side, self.x);
                 web.set_enabled(self.is_open());
                 self.web = Some(web);
                 self.web_visible = true;
@@ -262,11 +303,7 @@ impl Dock {
                         web.hide();
                     } else {
                         web.overlay(self.monitor.dpi, self.overlay_height, self.x);
-                        web.place(
-                            web_rect(&self.monitor, self.rect),
-                            self.monitor.bounds,
-                            self.x,
-                        );
+                        place_page(&mut web, &self.monitor, self.rect, self.side, self.x);
                         web.set_enabled(self.is_open());
                     }
                     self.web = Some(web);
@@ -307,6 +344,15 @@ impl Dock {
                 self.relocate(monitor);
                 Action::None
             }
+            Request::Resize { width, done } => {
+                self.width = width.map(|width| clamp_width(&self.monitor, Some(width)));
+                self.resizing = !done;
+                self.place(self.monitor);
+                if done && let Err(error) = crate::notes::set_width(&self.app, self.width) {
+                    eprintln!("[panel] failed to save width: {error:?}");
+                }
+                Action::None
+            }
         };
         self.apply(action);
     }
@@ -331,7 +377,7 @@ impl Dock {
         }
         let tick = Input::Tick {
             zone,
-            dialog: self.dialog,
+            dialog: self.dialog || self.resizing,
             focus,
         };
         let action = self.panel.step(tick, Instant::now());
@@ -487,9 +533,15 @@ impl Dock {
 }
 
 /// Prepares the window off-screen and starts the panel thread.
-pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, side: Side) {
+pub fn start(
+    app: AppHandle,
+    raw_window: isize,
+    requests: Receiver<Request>,
+    side: Side,
+    width: Option<u32>,
+) {
     let monitor = edge_monitor(platform::monitors(), side).expect("no monitor available");
-    let rect = panel_rect(&monitor, side);
+    let rect = panel_rect(&monitor, side, width);
     let parked_x = parked_x(&monitor, side, rect);
     let bounds = monitor.bounds;
     let window = PanelWindow::prepare(raw_window, rect, bounds, parked_x, Activation::OnRequest);
@@ -501,6 +553,8 @@ pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, sid
         web_visible: false,
         overlay_height: 0,
         side,
+        width,
+        resizing: false,
         monitor,
         rect,
         parked_x,
@@ -626,13 +680,39 @@ mod tests {
             right: -40,
             bottom: 2160,
         };
-        let rect = panel_rect(&screen, Side::Right);
+        let rect = panel_rect(&screen, Side::Right, None);
         assert_eq!((rect.left, rect.right, rect.top), (-615, -40, 47));
         assert_eq!(parked_x(&screen, Side::Right, rect), 0);
-        let rect = panel_rect(&screen, Side::Left);
+        let rect = panel_rect(&screen, Side::Left, None);
         assert_eq!((rect.left, rect.right, rect.top), (-3800, -3225, 47));
         // Parked entirely beyond the left edge, touching it.
         assert_eq!(parked_x(&screen, Side::Left, rect), -3840 - 575);
+    }
+
+    // Catches a width saved on a large monitor covering most of a smaller one, or a sliver panel.
+    #[test]
+    fn width_stays_between_minimum_and_half_the_work_area() {
+        let mut small = monitor(0, 1366);
+        small.dpi = 96;
+        assert_eq!(clamp_width(&small, Some(1200)), 683);
+        assert_eq!(clamp_width(&small, Some(100)), MIN_WIDTH);
+        assert_eq!(clamp_width(&small, None), PANEL_WIDTH);
+        // A monitor narrower than twice the minimum still gets the minimum.
+        let mut tiny = monitor(0, 500);
+        tiny.dpi = 96;
+        assert_eq!(clamp_width(&tiny, Some(400)), MIN_WIDTH);
+    }
+
+    // Catches the page covering the resize handle on the inner edge.
+    #[test]
+    fn the_page_leaves_the_inner_edge_to_the_handle() {
+        let screen = monitor(0, 3840);
+        let panel = panel_rect(&screen, Side::Right, None);
+        let page = web_rect(&screen, panel, Side::Right);
+        assert_eq!((page.left - panel.left, page.right), (5, panel.right));
+        let panel = panel_rect(&screen, Side::Left, None);
+        let page = web_rect(&screen, panel, Side::Left);
+        assert_eq!((page.left, panel.right - page.right), (panel.left, 5));
     }
 
     #[test]
