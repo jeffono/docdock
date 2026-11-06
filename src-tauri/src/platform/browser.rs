@@ -1,11 +1,14 @@
-//! Observe native WebView2 state on its UI thread. No script or message bridge in remote pages.
+//! Observe native WebView2 state on its UI thread. No message bridge in remote pages: Rust may run a
+//! fixed script and read its result, but the page has nothing it can call.
+use std::sync::mpsc::{self, Receiver};
+
 use tauri::{Emitter, Manager, WebviewWindow};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 use webview2_com::{
-    CoTaskMemPWSTR, DocumentTitleChangedEventHandler, HistoryChangedEventHandler,
-    SourceChangedEventHandler,
+    CoTaskMemPWSTR, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
+    HistoryChangedEventHandler, SourceChangedEventHandler,
 };
-use windows::core::{BOOL, PWSTR};
+use windows::core::{BOOL, HSTRING, PWSTR};
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,4 +112,52 @@ pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
             eprintln!("[web] history: {error}");
         }
     })
+}
+
+/// What `read` reports, in order: the native state, then the script result.
+pub enum Read {
+    Page {
+        url: String,
+        title: String,
+    },
+    /// JSON the script returned in the main frame; `None` if it failed or the page navigated meanwhile.
+    Script(Option<String>),
+}
+
+/// Reads URL and title from WebView2, then runs a fixed script in the page's main frame. The page
+/// cannot call Rust: only this one-shot completion handler receives its value, which is untrusted.
+/// The handler runs on the WebView2 UI thread, so the caller waits on the receiver from another thread.
+pub fn read(window: &WebviewWindow, script: &'static str) -> tauri::Result<Receiver<Read>> {
+    let (sender, receiver) = mpsc::channel();
+    window.with_webview(move |view| unsafe {
+        let run = || -> windows::core::Result<()> {
+            let page = view.controller().CoreWebView2()?;
+            let url = source(&page)?;
+            let mut title = PWSTR::null();
+            page.DocumentTitle(&mut title)?;
+            let title = CoTaskMemPWSTR::from(title).to_string();
+            let _ = sender.send(Read::Page {
+                url: url.clone(),
+                title,
+            });
+            let reply = sender.clone();
+            let current = page.clone();
+            let done = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
+                let same = source(&current).is_ok_and(|now| now == url);
+                let _ = reply.send(Read::Script((result.is_ok() && same).then_some(json)));
+                Ok(())
+            }));
+            page.ExecuteScript(&HSTRING::from(script), &done)
+        };
+        if let Err(error) = run() {
+            eprintln!("[web] read: {error}");
+        }
+    })?;
+    Ok(receiver)
+}
+
+unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
+    let mut url = PWSTR::null();
+    unsafe { page.Source(&mut url)? };
+    Ok(CoTaskMemPWSTR::from(url).to_string())
 }

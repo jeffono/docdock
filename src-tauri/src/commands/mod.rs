@@ -59,6 +59,12 @@ pub fn web_history(app: AppHandle, back: bool) -> Result<(), Error> {
     web::history(&app, back)
 }
 
+/// `async`: waits off the main thread while the WebView2 UI thread runs the selection script.
+#[tauri::command(async)]
+pub fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>, Error> {
+    web::selection(&app)
+}
+
 #[tauri::command]
 pub fn notes_folder(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::folder(&app)
