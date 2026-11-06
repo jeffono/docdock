@@ -17,9 +17,22 @@ export function panelSetPinned(pinned: boolean): Promise<void> {
   return invoke("panel_set_pinned", { pinned });
 }
 
-export function panelSetEditing(editing: boolean): Promise<void> {
-  return invoke("panel_set_editing", { editing });
+/** Closes a focused or cursor-opened panel; a pinned one stays. */
+export function panelClose(): Promise<void> {
+  return invoke("panel_close");
 }
+
+/** Whether the panel window or its page is foreground; `side` is the screen edge it docks to. */
+export type PanelFocus = { focused: boolean; side: "left" | "right" };
+export const onPanelFocus = (handler: (focus: PanelFocus) => void): Promise<UnlistenFn> =>
+  listen<PanelFocus>("panel-focus", (event) => handler(event.payload));
+
+/**
+ * The shortcut asks for the search bar. `toggle`: the panel window already had focus before it, so
+ * if the bar already has the focus the shortcut closes the panel instead.
+ */
+export const onPanelSearch = (handler: (toggle: boolean) => void): Promise<UnlistenFn> =>
+  listen<{ toggle: boolean }>("panel-search", (event) => handler(event.payload.toggle));
 
 export function webOpen(url: string): Promise<void> {
   return invoke("web_open", { url });

@@ -60,6 +60,7 @@ M0 prototype. `panel.rs` is a pure state machine, without Win32 access:
 
 ```text
 Hidden → Arming (cursor at edge, waiting) → Open → Pinned
+Open → Summoned (a click gives the panel or its page focus, or the shortcut)
 Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidden
 ```
 
@@ -74,20 +75,30 @@ per-monitor DPI awareness (PMv2).
   the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
   from scrollbars and maximized window buttons. Points outside that monitor are ignored.
 - **Shortcut:** `Ctrl+Alt+Space`, registered by Rust, without permission in the capability. If registration
-  fails, the failure is logged and the panel still opens by cursor. It opens immediately and focuses the
-  panel; if opened by cursor, it closes; if pinned or the native picker is open, it does nothing. The
-  picker is modal and would re-enable the hidden panel window.
-- **Opened by shortcut:** focus governs, not the cursor. It closes via the shortcut, Esc with the panel in
-  the foreground and no field being edited, or when focus moves to another app. A focused page counts as
+  fails, the failure is logged and the panel still opens by cursor. The machine never closes on it: hidden,
+  opened by cursor or summoned, the panel opens at once if needed, takes focus and becomes summoned; pinned,
+  it takes focus and stays pinned. Rust then emits `panel-search` with `toggle`, whether the panel window
+  was already foreground before the press. The UI focuses the search bar and selects its text, or, with
+  `toggle` and the bar already focused, asks to close (`panel_close`), which a pinned panel ignores.
+  Deciding in the UI avoids mirroring the bar's focus in Rust; reading `toggle` before activating keeps a
+  bar that kept DOM focus in a hidden or hover-opened panel from counting. With the native picker open,
+  it does nothing: the picker is modal and would re-enable the hidden panel window.
+- **Summoned (focus governs):** by the shortcut, or once a cursor-opened panel or its page becomes
+  foreground (a click). Focus governs, not the cursor. It closes when the UI asks (`panel_close`: Esc in
+  the empty search bar, or the shortcut there) or when focus moves to another app. A focused page counts as
   panel focus, and the native picker keeps it open. Null focus, common during system transitions, is
-  ignored. After closing this way, the edge only takes effect again once the cursor leaves it.
+  ignored. After closing this way, the edge only takes effect again once the cursor leaves it. Without
+  focus (hover only), the panel never takes it and closes when the cursor leaves.
 - **Shortcut activation:** the key gives the process the right to use `SetForegroundWindow`, provided the
   window is already enabled. If activation fails, with no focus to lose, the panel follows the cursor rule
   and does not get stuck over other windows.
-- **Esc:** each press counts once. The press that leaves a field or closes the picker has already been
-  handled and does not also close the panel, even if the UI reports it before the next poll. Leaving
-  the editor by keyboard with the cursor outside an open panel turns it into a summoned panel, so the
-  next Esc or a focus change closes it, not the cursor that left long before.
+- **Esc:** in the panel window the UI owns it, layer by layer (see "Note list"), and only the last layer
+  asks Rust to close, so no press both leaves a field and closes the panel. Rust reads the key only for
+  a focused page, which does not talk to Rust, and counts each press once.
+- **Focus band:** at each poll, Rust emits `panel-focus` (`focused`, `side`) when it changes: focused while
+  the panel window or its page is foreground; null focus keeps the last report. The UI draws a 2 px accent
+  band on the inner edge. DOM focus events cannot see the page window, a separate window, so polling is
+  the source. The page window covers the band below the top bars.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
   time, targeting 150 ms.
@@ -95,7 +106,7 @@ per-monitor DPI awareness (PMv2).
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.
 - **Focus:** the window uses `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW` and opens without activation by
-  cursor. UI `pointerdown` requests activation. At each cursor poll, the panel remembers the last foreground
+  cursor. UI `pointerdown` requests activation, which makes the panel summoned at the next poll. At each cursor poll, the panel remembers the last foreground
   app outside itself and the native picker; on close, focus returns to that app unless the user is already
   in another. If it no longer exists, focus goes to the desktop.
 - **Web page:** its own window (`web.rs`), owned by the panel, below the top bar. The panel thread positions
@@ -105,7 +116,7 @@ per-monitor DPI awareness (PMv2).
   window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
   navigate in the page window itself.
-- **Focused page:** keeps the panel open, like editing in the UI. With the cursor outside, Esc returns focus
+- **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
 - **Hidden panel:** the window is disabled. `WS_EX_NOACTIVATE` alone is not enough: when the foreground app
@@ -208,8 +219,8 @@ Each editor owns an autosave instance. Blur flushes. Every way out of editing go
 leave that flushes and refuses on conflict or error: Esc, the toggle, closing the card or expanding
 another (all through the list's level change), typing in the search, creating or restoring a note,
 choosing a folder and `panel-hidden`. Pinning keeps editing. Leaving temporarily makes the editor read-only,
-flushes and rereads the note from disk. Esc blurs synchronously, like TextField, so the panel
-consumes that press. Focus reports editing to the panel. Conflicts keep the text and stop saving;
+flushes and rereads the note from disk. Esc blurs synchronously, like TextField, and stops there.
+Conflicts keep the text and stop saving;
 Keep my version rereads the disk version and saves the latest editor text against it (another race
 can conflict again). Discard my changes explicitly replaces the text from disk. Errors stay near
 the editor, with Discard my changes available immediately for read or save failures too. A clean
@@ -284,13 +295,16 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
   query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
   collapsed card also opens it.
-- **Keyboard:** the bar's keydown, in capture phase, handles arrows, Enter and Ctrl+Enter, and Esc with a
-  query (clear, stay; calls `panel_set_editing(true)` so the panel sees the press as handled). → and ←
-  act on the selected card only with the caret at the end of the text, otherwise they move the caret.
-  Outside a field, Esc clears the search and focuses the bar (the focus event spends the press); with
-  nothing to clear it passes through to the panel rules. While editing, Esc leaves editing instead,
-  from the editor or from a button (which reports `panel_set_editing(false)` to spend the press), and
-  the card header takes the focus, so the next Esc reaches the rule above.
+- **Keyboard:** one `listKey` handles the list keys from the bar's keydown, in capture phase, and from a
+  window listener for keys typed anywhere else except a text field or the editor (found through
+  `composedPath`, since the editor sits in a shadow root). → and ← in the bar act on the selected card only
+  with the caret at the end of the text. Esc goes in layers: while editing, it leaves editing (from the
+  editor through its keymap, or from a button) and the card header takes the focus; next, it clears the
+  search and focuses the bar; from the empty bar it calls `panel_close`. Outside a field, a printable key
+  other than Space focuses the bar, which then receives it; Ctrl+F focuses the bar and selects its text
+  from anywhere but a field. ↑ and ↓ on an expanded selected card ask `arrowScroll` (pure, in `list.ts`)
+  whether to scroll the list about three lines or move the selection; Alt moves directly. Without a
+  folder only Esc is handled, so buttons keep Enter.
 - **Editing:** the edited card is the expanded one. `buildList` keeps it as a card while editing even
   when the search hides it (first in its section) or its pinned note goes missing. `rows` flattens both
   sections into one keyed block, and the edited card's key is fixed, so pinning, an edit of

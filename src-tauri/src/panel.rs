@@ -58,7 +58,8 @@ pub enum State {
     Open {
         leaving_since: Option<Instant>,
     },
-    /// Opened by shortcut: focus controls closing. `focused` records whether focus has arrived.
+    /// Opened by shortcut, or given focus by a click while open: focus controls closing. `focused`
+    /// records whether focus has arrived.
     Summoned {
         focused: bool,
     },
@@ -71,13 +72,11 @@ pub enum State {
 /// State machine input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
-    /// Periodic cursor reading. `editing` indicates active editing in the UI, page, or native picker.
-    /// `escape` is a new Escape press.
+    /// Periodic cursor reading. `dialog` indicates that the native picker is open.
     Tick {
         zone: CursorZone,
-        editing: bool,
+        dialog: bool,
         focus: Focus,
-        escape: bool,
     },
     Pin,
     Unpin,
@@ -87,8 +86,8 @@ pub enum Input {
     },
     /// Windows confirmed the focus requested by `Summon`.
     Activated,
-    /// The UI left editing by keyboard while the cursor was outside the panel.
-    EditingLeftOutside,
+    /// The UI asked to close: Escape in the empty search bar, or the shortcut while already there.
+    Close,
 }
 
 /// Effect for the calling layer to perform.
@@ -125,11 +124,15 @@ impl Panel {
         match (self.state, input) {
             // The picker is modal: closing it would re-enable the already hidden panel window.
             (_, Input::Shortcut { dialog: true }) => Action::None,
-            (State::Hidden | State::Arming { .. } | State::Dismissed, Input::Shortcut { .. }) => {
+            // Pinned stays pinned: the shortcut only brings focus to the search bar.
+            (State::Pinned, Input::Shortcut { .. }) => Action::Summon,
+            // An open panel takes focus instead of closing; the UI closes it when the shortcut
+            // arrives with focus already in the search bar.
+            (_, Input::Shortcut { .. }) => {
                 self.state = State::Summoned { focused: false };
                 Action::Summon
             }
-            (State::Open { .. } | State::Summoned { .. }, Input::Shortcut { .. }) => self.dismiss(),
+            (State::Open { .. } | State::Summoned { .. }, Input::Close) => self.dismiss(),
             (State::Dismissed, Input::Tick { zone, .. }) => {
                 if zone != CursorZone::Edge {
                     self.state = State::Hidden;
@@ -159,9 +162,21 @@ impl Panel {
                     Action::None
                 }
             },
-            (State::Open { leaving_since }, Input::Tick { zone, editing, .. }) => {
+            // A click gave the panel or its page focus: from now on focus governs, as if summoned,
+            // so the cursor leaving no longer closes it under the user's typing.
+            (
+                State::Open { .. },
+                Input::Tick {
+                    focus: Focus::Panel | Focus::Page,
+                    ..
+                },
+            ) => {
+                self.state = State::Summoned { focused: true };
+                Action::None
+            }
+            (State::Open { leaving_since }, Input::Tick { zone, dialog, .. }) => {
                 // The edge counts as inside because the panel touches it.
-                let outside = zone == CursorZone::Outside && !editing;
+                let outside = zone == CursorZone::Outside && !dialog;
                 match (outside, leaving_since) {
                     (false, _) => {
                         self.state = State::Open {
@@ -182,22 +197,13 @@ impl Panel {
                     (true, Some(_)) => Action::None,
                 }
             }
-            (
-                State::Summoned { focused },
-                Input::Tick {
-                    editing,
-                    focus,
-                    escape,
-                    ..
-                },
-            ) => match focus {
-                Focus::Panel if escape && !editing => self.dismiss(),
+            (State::Summoned { focused }, Input::Tick { dialog, focus, .. }) => match focus {
                 Focus::Panel | Focus::Page => {
                     self.state = State::Summoned { focused: true };
                     Action::None
                 }
-                // Outside the panel, only the native picker counts as editing.
-                Focus::Elsewhere if editing => Action::None,
+                // The native picker is foreground but belongs to the panel.
+                Focus::Elsewhere if dialog => Action::None,
                 Focus::Elsewhere if focused => self.dismiss(),
                 // Activation failed. With no focus to lose, use the cursor rule so the panel does
                 // not remain stuck above other windows.
@@ -209,12 +215,6 @@ impl Panel {
                 }
                 Focus::Unknown => Action::None,
             },
-            // The user is working by keyboard: keep the panel as if summoned, so the next Escape or
-            // a focus change closes it, instead of closing at once under a cursor that left long ago.
-            (State::Open { .. }, Input::EditingLeftOutside) => {
-                self.state = State::Summoned { focused: true };
-                Action::None
-            }
             (State::Summoned { .. }, Input::Activated) => {
                 self.state = State::Summoned { focused: true };
                 Action::None
@@ -248,27 +248,24 @@ mod tests {
         close: Duration::from_millis(400),
     };
 
-    fn tick(p: &mut Panel, zone: CursorZone, editing: bool, t0: Instant, ms: u64) -> Action {
-        p.step(
-            Input::Tick {
-                zone,
-                editing,
-                focus: Focus::Elsewhere,
-                escape: false,
-            },
-            t0 + Duration::from_millis(ms),
-        )
+    /// Cursor poll while another app has focus: the cursor rule.
+    fn tick(p: &mut Panel, zone: CursorZone, dialog: bool, t0: Instant, ms: u64) -> Action {
+        let tick = Input::Tick {
+            zone,
+            dialog,
+            focus: Focus::Elsewhere,
+        };
+        p.step(tick, t0 + Duration::from_millis(ms))
     }
 
-    /// Poll with the cursor outside, where shortcut opening differs from cursor opening.
-    fn focus_tick(p: &mut Panel, focus: Focus, editing: bool, escape: bool, t0: Instant) -> Action {
+    /// Poll with the cursor outside, where focus governs and the cursor would close the panel.
+    fn focus_tick(p: &mut Panel, focus: Focus, dialog: bool, t0: Instant, ms: u64) -> Action {
         let tick = Input::Tick {
             zone: CursorZone::Outside,
-            editing,
+            dialog,
             focus,
-            escape,
         };
-        p.step(tick, t0)
+        p.step(tick, t0 + Duration::from_millis(ms))
     }
 
     fn shortcut(p: &mut Panel, t0: Instant) -> Action {
@@ -278,10 +275,7 @@ mod tests {
     fn summoned(t0: Instant) -> Panel {
         let mut p = Panel::new(D);
         assert_eq!(shortcut(&mut p, t0), Action::Summon);
-        assert_eq!(
-            focus_tick(&mut p, Focus::Panel, false, false, t0),
-            Action::None
-        );
+        assert_eq!(focus_tick(&mut p, Focus::Panel, false, t0, 0), Action::None);
         p
     }
 
@@ -337,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn pinning_and_editing_prevent_closing() {
+    fn pinning_and_picker_prevent_closing() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         tick(&mut p, CursorZone::Outside, true, t0, 200);
@@ -362,31 +356,29 @@ mod tests {
         );
     }
 
+    /// Bug caught: the user clicks the hover-opened panel to type, moves the mouse away, and the
+    /// panel closes under the keyboard.
     #[test]
-    fn leaving_editor_with_escape_outside_keeps_panel_until_second_escape() {
+    fn click_focus_keeps_cursor_opened_panel_open_after_cursor_leaves() {
+        for focus in [Focus::Panel, Focus::Page] {
+            let t0 = Instant::now();
+            let mut p = opened(t0);
+            for ms in [200, 1000, 60_000] {
+                assert_eq!(focus_tick(&mut p, focus, false, t0, ms), Action::None);
+            }
+            assert_eq!(p.state, State::Summoned { focused: true });
+        }
+    }
+
+    /// Bug caught: a panel focused by a click stays over other windows after the user moves on.
+    #[test]
+    fn click_focused_panel_closes_when_focus_moves_to_another_app() {
         let t0 = Instant::now();
         let mut p = opened(t0);
-        tick(&mut p, CursorZone::Outside, true, t0, 200);
-        p.step(Input::EditingLeftOutside, t0 + Duration::from_millis(300));
+        focus_tick(&mut p, Focus::Panel, false, t0, 200);
         assert_eq!(
-            focus_tick(
-                &mut p,
-                Focus::Panel,
-                false,
-                false,
-                t0 + Duration::from_secs(5)
-            ),
-            Action::None
-        );
-        assert_ne!(
-            focus_tick(
-                &mut p,
-                Focus::Panel,
-                false,
-                true,
-                t0 + Duration::from_secs(6)
-            ),
-            Action::None
+            focus_tick(&mut p, Focus::Elsewhere, false, t0, 250),
+            Action::Hide
         );
     }
 
@@ -398,56 +390,50 @@ mod tests {
         assert_eq!(shortcut(&mut p, t0), Action::Summon);
     }
 
+    /// Bug caught: the shortcut closes a panel the user wanted to type in, opened by hover or
+    /// focused outside the search bar. Closing from the search bar is the UI's `Close`.
     #[test]
-    fn shortcut_opened_panel_ignores_cursor_outside() {
+    fn shortcut_on_open_panel_takes_focus_instead_of_closing() {
         let t0 = Instant::now();
-        let mut p = summoned(t0);
-        for ms in [0, 1000, 60_000] {
-            let at = t0 + Duration::from_millis(ms);
+        for mut p in [opened(t0), summoned(t0)] {
+            assert_eq!(shortcut(&mut p, t0), Action::Summon);
+            assert_eq!(p.state, State::Summoned { focused: false });
+            p.step(Input::Activated, t0);
             assert_eq!(
-                focus_tick(&mut p, Focus::Panel, false, false, at),
+                focus_tick(&mut p, Focus::Panel, false, t0, 60_000),
                 Action::None
             );
         }
     }
 
     #[test]
-    fn escape_only_closes_when_panel_focused_and_no_field_is_being_edited() {
+    fn shortcut_opened_panel_ignores_cursor_outside() {
         let t0 = Instant::now();
         let mut p = summoned(t0);
-        assert_eq!(
-            focus_tick(&mut p, Focus::Panel, true, true, t0),
-            Action::None
-        );
-        assert_eq!(
-            focus_tick(&mut p, Focus::Page, true, true, t0),
-            Action::None
-        );
-        assert_eq!(
-            focus_tick(&mut p, Focus::Panel, false, true, t0),
-            Action::Hide
-        );
+        for ms in [0, 1000, 60_000] {
+            assert_eq!(
+                focus_tick(&mut p, Focus::Panel, false, t0, ms),
+                Action::None
+            );
+        }
     }
 
     #[test]
     fn focus_on_another_app_closes_but_system_transition_does_not() {
         let t0 = Instant::now();
         let mut p = summoned(t0);
+        assert_eq!(focus_tick(&mut p, Focus::Page, false, t0, 0), Action::None);
         assert_eq!(
-            focus_tick(&mut p, Focus::Page, true, false, t0),
-            Action::None
-        );
-        assert_eq!(
-            focus_tick(&mut p, Focus::Unknown, false, false, t0),
+            focus_tick(&mut p, Focus::Unknown, false, t0, 0),
             Action::None
         );
         // The native picker is foreground, but belongs to the panel.
         assert_eq!(
-            focus_tick(&mut p, Focus::Elsewhere, true, false, t0),
+            focus_tick(&mut p, Focus::Elsewhere, true, t0, 0),
             Action::None
         );
         assert_eq!(
-            focus_tick(&mut p, Focus::Elsewhere, false, false, t0),
+            focus_tick(&mut p, Focus::Elsewhere, false, t0, 0),
             Action::Hide
         );
     }
@@ -459,7 +445,7 @@ mod tests {
         shortcut(&mut p, t0);
         p.step(Input::Activated, t0);
         assert_eq!(
-            focus_tick(&mut p, Focus::Elsewhere, false, false, t0),
+            focus_tick(&mut p, Focus::Elsewhere, false, t0, 0),
             Action::Hide
         );
     }
@@ -470,7 +456,7 @@ mod tests {
         let mut p = Panel::new(D);
         shortcut(&mut p, t0);
         assert_eq!(
-            focus_tick(&mut p, Focus::Elsewhere, false, false, t0),
+            focus_tick(&mut p, Focus::Elsewhere, false, t0, 0),
             Action::None
         );
         assert_eq!(
@@ -483,11 +469,13 @@ mod tests {
         );
     }
 
+    /// Bug caught: Escape in the empty search bar, or the shortcut there, leaves the panel open, or
+    /// a stationary cursor at the edge reopens it at once.
     #[test]
-    fn shortcut_closes_and_edge_reopens_only_after_cursor_leaves() {
+    fn close_request_hides_and_edge_reopens_only_after_cursor_leaves() {
         let t0 = Instant::now();
-        let mut p = opened(t0);
-        assert_eq!(shortcut(&mut p, t0), Action::Hide);
+        let mut p = summoned(t0);
+        assert_eq!(p.step(Input::Close, t0), Action::Hide);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 200), Action::None);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 900), Action::None);
         assert_eq!(p.state, State::Dismissed);
@@ -501,12 +489,31 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_does_not_close_when_pinned_or_picker_is_open() {
+    fn shortcut_does_nothing_while_picker_is_open() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         assert_eq!(p.step(Input::Shortcut { dialog: true }, t0), Action::None);
+        assert_eq!(
+            p.state,
+            State::Open {
+                leaving_since: None
+            }
+        );
+    }
+
+    /// Bug caught: the shortcut or Escape unpins the panel by closing it.
+    #[test]
+    fn pinned_panel_takes_focus_from_shortcut_but_never_closes() {
+        let t0 = Instant::now();
+        let mut p = opened(t0);
         p.step(Input::Pin, t0);
-        assert_eq!(shortcut(&mut p, t0), Action::None);
+        assert_eq!(shortcut(&mut p, t0), Action::Summon);
+        p.step(Input::Activated, t0);
+        assert_eq!(p.step(Input::Close, t0), Action::None);
+        assert_eq!(
+            focus_tick(&mut p, Focus::Elsewhere, false, t0, 0),
+            Action::None
+        );
         assert_eq!(p.state, State::Pinned);
     }
 }

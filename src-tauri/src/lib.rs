@@ -25,7 +25,7 @@ pub fn run() {
         commands::app_locale,
         commands::panel_activate,
         commands::panel_set_pinned,
-        commands::panel_set_editing,
+        commands::panel_close,
         commands::web_open,
         commands::web_close,
         commands::notes_folder,

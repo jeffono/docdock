@@ -4,7 +4,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
 import { errorText, t } from "../../i18n";
-import { notesOpen, notesPasteImage, notesSave, type OpenNote, panelSetEditing } from "../../ipc";
+import { notesOpen, notesPasteImage, notesSave, type OpenNote } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
@@ -137,9 +137,6 @@ const extensions = () => [
   ...editorExtensions(
     onleave,
     (focused) => {
-      void panelSetEditing(focused).catch((e) => {
-        error = errorText(e);
-      });
       if (!focused) void saving.flush();
     },
     t("editor.label"),
@@ -231,7 +228,6 @@ onMount(() => {
     disposed = true;
     saving.stop();
     view?.destroy();
-    void panelSetEditing(false);
   };
 });
 </script>

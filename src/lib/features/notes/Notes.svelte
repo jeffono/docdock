@@ -17,9 +17,10 @@ import {
   type OpenNote,
   onNotesChanged,
   onPanelHidden,
+  onPanelSearch,
   openExternal,
   type Pinned,
-  panelSetEditing,
+  panelClose,
   pinnedAdd,
   pinnedList,
   pinnedRemove,
@@ -33,6 +34,7 @@ import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import Editor from "./Editor.svelte";
 import {
+  arrowScroll,
   buildList,
   type Card,
   deeper,
@@ -464,31 +466,86 @@ function typed() {
   void leaveEditor();
 }
 
-/** Arrows, Enter and Esc in the search bar; focus stays there. Runs before the field's own Esc. */
-function barKey(event: KeyboardEvent) {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement) || event.isComposing) return;
+/** About three lines of the list's text: one ↑ or ↓ step inside a long expanded card. */
+function lineStep(element: HTMLElement): number {
+  return 3 * (Number.parseFloat(getComputedStyle(element).lineHeight) || 20);
+}
+
+/** ↑ / ↓ scroll a long expanded card before leaving it; with Alt they always move the selection. */
+function arrow(event: KeyboardEvent) {
+  const down = event.key === "ArrowDown";
+  const card = cardFor(active);
+  if (!event.altKey && list && card?.level === "expanded") {
+    const element = list.querySelector(`article[data-path="${CSS.escape(card.hit.path)}"]`);
+    if (element) {
+      const delta = arrowScroll(
+        element.getBoundingClientRect(),
+        list.getBoundingClientRect(),
+        down,
+        lineStep(list),
+      );
+      if (delta) {
+        list.scrollBy({ top: delta });
+        return;
+      }
+    }
+  }
+  selection = move(keys, active, down ? 1 : -1);
+}
+
+/**
+ * Esc, in layers: leave editing; clear the search and return to the bar; from the empty bar, close
+ * the panel. A pinned panel stays.
+ */
+function escapeKey(inBar: boolean) {
+  if (editing && !inBar) {
+    void leaveByKeyboard();
+    return;
+  }
+  const input = bar();
+  if (query || (input && !inBar)) {
+    query = "";
+    selection = "";
+    input?.focus();
+    return;
+  }
+  void panelClose();
+}
+
+/** List keys, from the search bar (`inBar`) or from anywhere in the panel outside a text field. */
+function listKey(event: KeyboardEvent, inBar: boolean) {
+  // Without a folder there is no list: buttons keep Enter and the arrows.
+  if (!list && event.key !== "Escape") return;
+  const modified = event.ctrlKey || event.shiftKey || event.metaKey;
   switch (event.key) {
     case "Escape":
-      // Clears the search and stays in the field; the next Esc leaves it.
-      if (!query) return;
+      // Before the field's own Esc, which would leave it.
       event.preventDefault();
       event.stopPropagation();
-      query = "";
-      selection = "";
-      // This press is handled: the panel must not also close.
-      void panelSetEditing(true);
+      escapeKey(inBar);
       return;
     case "ArrowDown":
     case "ArrowUp":
+      if (modified) return;
       event.preventDefault();
-      selection = move(keys, active, event.key === "ArrowDown" ? 1 : -1);
+      arrow(event);
+      return;
+    case "PageDown":
+    case "PageUp":
+      if (modified || event.altKey || !list) return;
+      event.preventDefault();
+      list.scrollBy({ top: (event.key === "PageDown" ? 0.9 : -0.9) * list.clientHeight });
       return;
     case "ArrowRight":
     case "ArrowLeft": {
-      // Otherwise the arrows move the caret; they open and close only from its natural place, the end.
-      if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return;
-      if (input.selectionStart !== input.selectionEnd || input.selectionEnd !== input.value.length)
+      if (modified || event.altKey) return;
+      // In the bar the arrows move the caret; they open and close only from its natural place, the end.
+      const input = event.target;
+      if (
+        inBar &&
+        input instanceof HTMLInputElement &&
+        (input.selectionStart !== input.selectionEnd || input.selectionEnd !== input.value.length)
+      )
         return;
       const card = cardFor(active);
       const level = card && (event.key === "ArrowRight" ? deeper(card) : shallower(card));
@@ -509,37 +566,51 @@ function barKey(event: KeyboardEvent) {
         const card = cardFor(action.path);
         if (card) void setLevel(card, "expanded");
       }
+      return;
     }
   }
+  // Type to search: the key lands in the bar once it has the focus. Space stays with buttons.
+  const printable = event.key.length === 1 && event.key !== " ";
+  if (!inBar && printable && !event.ctrlKey && !event.altKey && !event.metaKey) bar()?.focus();
+}
+
+/** The search bar's keys. Runs in capture, before the field's own Esc. */
+function barKey(event: KeyboardEvent) {
+  if (event.target instanceof HTMLInputElement && !event.isComposing) listKey(event, true);
+}
+
+/** A text field or the editor keeps its keys; the editor sits in a shadow root. */
+function inField(event: KeyboardEvent): boolean {
+  const target = event.composedPath()[0];
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || target.matches("input, textarea, select"))
+  );
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (event.defaultPrevented) return;
-  if (event.key === "Escape") {
-    const field = document.activeElement;
-    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) return;
-    if (editing) {
-      // Focus is on a button, not in the editor: this press leaves editing. Any editing report tells
-      // the panel the press was handled, so it does not also close.
-      event.preventDefault();
-      void panelSetEditing(false);
-      void leaveByKeyboard();
-      return;
-    }
-    // Outside a field, Esc clears the search and returns to the bar.
-    if (!query && !list?.contains(field)) return;
+  if (event.defaultPrevented || event.isComposing) return;
+  const input = bar();
+  const inBar = input !== undefined && input !== null && event.target === input;
+  const field = !inBar && inField(event);
+  const ctrl = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+  const key = event.key.toLowerCase();
+  if (ctrl && key === "e") {
+    const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
+    if (!path) return;
     event.preventDefault();
-    query = "";
-    selection = "";
-    bar()?.focus();
+    if (editing) void leaveByKeyboard();
+    else void edit(path);
     return;
   }
-  if (!event.ctrlKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== "e") return;
-  const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
-  if (!path) return;
-  event.preventDefault();
-  if (editing) void leaveByKeyboard();
-  else void edit(path);
+  if (ctrl && key === "f" && !field) {
+    event.preventDefault();
+    input?.focus();
+    input?.select();
+    return;
+  }
+  // The bar's keys ran in capture.
+  if (!inBar && !field) listKey(event, false);
 }
 
 onMount(() => {
@@ -550,6 +621,17 @@ onMount(() => {
       if (left) expanded = "";
     });
   });
+  // The shortcut goes to the search bar with its text selected, so typing replaces it; pressed with
+  // the bar already focused, it closes the panel.
+  const search = onPanelSearch((toggle) => {
+    const input = bar();
+    if (toggle && (!input || document.activeElement === input)) {
+      void panelClose();
+      return;
+    }
+    input?.focus();
+    input?.select();
+  });
   notesFolder()
     .then(refresh)
     .catch((e) => {
@@ -558,6 +640,7 @@ onMount(() => {
   return () => {
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
+    void search.then((stop) => stop());
   };
 });
 </script>
@@ -590,8 +673,6 @@ onMount(() => {
         bind:value={query}
         aria-label={t("notes.search")}
         placeholder={t("notes.searchPlaceholder")}
-        onfocus={() => panelSetEditing(true)}
-        onblur={() => panelSetEditing(false)}
       />
       <IconButton icon="folder" label={t("notes.changeFolder", { path: folder.path })} onclick={choose} />
     </div>

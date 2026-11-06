@@ -111,6 +111,14 @@ pinned and unpinned notes differ only in section and starting state.
   keeps the lighter surface and foreground color, and keyboard focus keeps the standard accent outline.
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
   vertical and right inset and a quiet remove icon.
+- **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
+  another app, Esc from the empty search bar, or the shortcut from the search bar. A pinned panel only
+  closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
+  page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
+  above the content, without moving anything.
+- **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below
+  work as from the search bar, and typing a character goes to the search bar. Enter acts on the
+  selection even on a focused button; Space presses the button.
 - **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
   expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's
   thumbtack that keeps the panel open. Rows and lines show a snippet with the matches highlighted under
@@ -118,14 +126,18 @@ pinned and unpinned notes differ only in section and starting state.
   has it); the expanded card lists every tag. → and ← act on the selected card only with the caret at
   the end of the text, otherwise they move it.
 
-| Shortcut   | Action                                                      |
-| ---------- | ----------------------------------------------------------- |
-| ↑ / ↓      | Select a card or row; focus stays in the search bar         |
-| → / ←      | Open / close one level: line, preview, expanded             |
-| Enter      | Expand the selected item, or run "Create"                   |
-| Ctrl+Enter | Create a note with the exact typed text                     |
-| Ctrl+E     | Toggle editing on the selected card                         |
-| Esc        | Leave editing; next, clear the search and return to the bar |
+| Shortcut       | Action                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| ↑ / ↓          | Select a card or row; on a long expanded card, first scroll about three lines to its end |
+| Alt+↑ / Alt+↓  | Select the previous / next item directly                                                 |
+| PgUp / PgDn    | Scroll the list by about one screen                                                      |
+| → / ←          | Open / close one level: line, preview, expanded                                          |
+| Enter          | Expand the selected item, or run "Create"                                                |
+| Ctrl+Enter     | Create a note with the exact typed text                                                  |
+| Ctrl+E         | Toggle editing on the selected card                                                      |
+| Ctrl+F         | Focus the search bar and select its text                                                 |
+| Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
+| Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
 
 ## Note editor
 
