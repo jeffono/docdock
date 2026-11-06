@@ -92,21 +92,31 @@ pinned and unpinned notes differ only in section and starting state.
   expanding another, typing in the search or the panel closing first leave editing, which saves; on a
   conflict or error nothing else happens until it is resolved. The Note editor rules below apply
   inside the card.
-- **Mouse:** the header toggles line and preview; the body expands the card. Links work in reading.
-- **Header actions:** from right to left, always expand/collapse, then pin, with nothing between them.
-  The pencil appears only when expanded, immediately to the left of pin. All three share one group
-  with `--space-1` gaps and `--size-control` click targets. Icons use the existing `--size-icon`, muted
-  color, no border and no background at rest, including when pinned; the bookmark is filled when
-  pinned and outline otherwise. Hover keeps the lighter surface and foreground color, and keyboard
-  focus keeps the standard accent outline. Headers have `--space-1` inner padding on every side in
-  every state; missing-note rows use the same vertical and right inset and a quiet remove icon.
-
+- **Mouse:** the header and the chevron toggle line and open (preview for pinned cards, expanded for
+  Notes rows); the preview body and its "Show all" button expand the card; an expanded pinned card ends
+  with "Show less", back to preview. Links work in reading.
+- **Alignment:** one content column for the whole panel. The top bar title, the search field, section
+  labels and cards start `--space-4` + `--space-2` from the panel's left edge and end `--space-3` from
+  the right edge; the left inset holds the chevron gutter. Nothing else uses its own margin.
+- **Selection:** a line keeps the selected background, accent title and accent border. An open card
+  shows only the accent border, so long content and text selection stay readable. The editing card
+  shows no selection style; its editing border already marks it.
+- **Chevron:** in the gutter, aligned with the title, right for a line and down for an open card. It
+  shows on hover, on the selected item and on keyboard focus; its space is always reserved.
+- **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
+  expanded, with `--space-1` gaps and `--size-control` click targets. Both show only on hover, on the
+  selected item and on keyboard focus, with their space reserved. Icons use `--size-icon`, muted color,
+  no border and no background; the bookmark is filled when pinned and outline otherwise. While
+  editing, the pencil stays visible in the accent color, still without border or background. Hover
+  keeps the lighter surface and foreground color, and keyboard focus keeps the standard accent outline.
+  Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
+  vertical and right inset and a quiet remove icon.
 - **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
   expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's
-  thumbtack that keeps the panel open; it shows on pinned cards and on any expanded card. Rows and lines
-  show a snippet with the matches highlighted under the title; previews and expanded cards show the
-  content. Cards hide the frontmatter title (the header has it); the expanded card lists every tag.
-  → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
+  thumbtack that keeps the panel open. Rows and lines show a snippet with the matches highlighted under
+  the title; previews and expanded cards show the content. Cards hide the frontmatter title (the header
+  has it); the expanded card lists every tag. → and ← act on the selected card only with the caret at
+  the end of the text, otherwise they move it.
 
 | Shortcut   | Action                                                      |
 | ---------- | ----------------------------------------------------------- |
@@ -120,8 +130,8 @@ pinned and unpinned notes differ only in section and starting state.
 ## Note editor
 
 The editor lives in the card being edited, in place of its content; there is no separate note view and
-no floating chrome. The card keeps its header and its button order: the pencil, left of pin, takes
-the standard pressed IconButton look while editing, and the small Saving… / Saved status sits in the
+no floating chrome. The card keeps its header and its button order: the pencil, left of pin, stays
+visible in the accent color while editing (see Header actions), and the small Saving… / Saved status sits in the
 header, left of the actions. The status is absent on conflict or error, whose notices sit at the top
 of the card body, above the text. The editing card has an accent border, and its text keeps the reading body's padding, so
 toggling does not move it. Reading remains the default. Light-theme tags use the selected background

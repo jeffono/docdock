@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: close M3 (test review and cross-provider review).
+M3 list refinements (the two open tasks below). Next: close M3 (test review and cross-provider review).
 
 ## Completed
 
@@ -25,6 +25,11 @@ Nothing. Next: close M3 (test review and cross-provider review).
   `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`
 - [x] (standard) In-place editing in an expanded card, replacing the separate note view
 - [x] (standard) Restore deleted `_pinned.md`
+- [ ] (standard) List visuals: chevron gutter, hover actions, outline-only selection on open cards,
+  "Show all" / "Show less" and one content column; see "Note list" in `docs/DESIGN.md`
+- [ ] (advanced) Focused panel: clicking or the shortcut keeps it open while focused, with an accent band
+  on the inner edge; list keyboard outside the search field, scroll-then-advance in long cards, and the
+  shortcut and Ctrl+F reach the search
 
 ## M4 — Web pages
 
