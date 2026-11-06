@@ -7,16 +7,77 @@ use std::sync::{Mutex, PoisonError};
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager, WebviewWindow};
-use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Settings2};
 use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, ContentLoadingEventHandler,
     DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
     HistoryChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     SourceChangedEventHandler,
 };
-use windows::core::{BOOL, HSTRING, PWSTR};
+use windows::core::{BOOL, HSTRING, Interface, PWSTR};
 
 use crate::error::Error;
+
+/// Keep the installed engine's versions; only change its desktop identity.
+fn mobile_user_agent(default: &str) -> Option<String> {
+    let start = default.find("(Windows ")?;
+    let end = start + default[start..].find(')')? + 1;
+    let mut mobile = default.to_owned();
+    mobile.replace_range(start..end, "(Linux; Android 10; K)");
+    Some(
+        mobile
+            .replace(" Safari/", " Mobile Safari/")
+            .replace(" Edg/", " EdgA/"),
+    )
+}
+
+/// Prepare only the page window, while still blank. Settings alone leaves Windows Client Hints
+/// on WebView2 156; CDP supplies matching metadata for headers and navigator.userAgentData.
+/// The override belongs to the WebView target and survives document/renderer changes.
+/// Wait off the UI thread for CDP's acknowledgement before allowing the first navigation.
+pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
+    let (sender, receiver) = mpsc::channel();
+    window.with_webview(move |view| unsafe {
+        let prepare = || -> windows::core::Result<()> {
+            let page = view.controller().CoreWebView2()?;
+            let settings = page.Settings()?.cast::<ICoreWebView2Settings2>()?;
+            let mut default = PWSTR::null();
+            settings.UserAgent(&mut default)?;
+            let mobile = mobile_user_agent(&CoTaskMemPWSTR::from(default).to_string())
+                .ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))?;
+            settings.SetUserAgent(&HSTRING::from(&mobile))?;
+            // Omitted brand/version lists use the runtime's own values. No engine version or
+            // hardware capabilities are invented, and touch emulation stays unchanged.
+            let params = json!({
+                "userAgent": mobile,
+                "userAgentMetadata": {
+                    "platform": "Android", "platformVersion": "10.0.0",
+                    "architecture": "", "model": "K", "mobile": true,
+                    "bitness": "", "wow64": false, "formFactors": ["Mobile"],
+                },
+            });
+            let reply = sender.clone();
+            let done =
+                CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, _| {
+                    let _ = reply.send(result);
+                    Ok(())
+                }));
+            page.CallDevToolsProtocolMethod(
+                &HSTRING::from("Emulation.setUserAgentOverride"),
+                &HSTRING::from(params.to_string()),
+                &done,
+            )
+        };
+        if let Err(error) = prepare() {
+            let _ = sender.send(Err(error));
+        }
+    })?;
+    match receiver.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(Error::unexpected(format!("page mobile identity: {error}"))),
+        Err(_) => Err(Error::unexpected("page mobile identity not installed")),
+    }
+}
 
 /// Main-frame navigations of the page window, so a result can be tied to one document even across
 /// a same-URL reload or A → B → A. Only the WebView2 UI thread touches it, and there is a single
@@ -418,6 +479,14 @@ unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mobile_identity_preserves_the_installed_engine_versions() {
+        assert_eq!(
+            mobile_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.1234.5 Safari/537.36 Edg/156.0.2345.6").as_deref(),
+            Some("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.1234.5 Mobile Safari/537.36 EdgA/156.0.2345.6")
+        );
+    }
 
     #[test]
     fn a_navigation_in_flight_has_no_identity() {

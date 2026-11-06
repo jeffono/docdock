@@ -142,6 +142,19 @@ per-monitor DPI awareness (PMv2).
   history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
   remains first for Enter. Browser suggestions reserve their measured height above the native page
   via the panel thread; Esc or moving focus to the page dismisses them and restores its bounds.
+- **Mobile pages:** all sites in `web` receive a mobile Android identity. Before its first real
+  navigation, `platform/browser.rs` reads WebView2's default `Settings2.UserAgent`, replaces the
+  Windows platform with `Linux; Android 10; K`, inserts `Mobile` and changes `Edg/` to `EdgA/`,
+  retaining the installed engine versions. Setting the UA alone left Windows Client Hints on
+  WebView2 156, so `Emulation.setUserAgentOverride` also supplies Android/mobile metadata; omitted
+  brand/version lists retain the runtime's values. Setup waits for CDP acknowledgement (five-second
+  limit), and destroys the blank window on failure, just as for guard/observer installation.
+  The target keeps the override across navigation, reload and renderer replacement (verified after
+  a deliberate renderer crash); a new window installs it again. Real-app checks on DuckDuckGo,
+  GitHub, English Wikipedia and Google Search showed mobile layouts, `Sec-CH-UA-Mobile: ?1`,
+  `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
+  still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
+  native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
 - **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
   or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
   `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made

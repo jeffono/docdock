@@ -57,8 +57,8 @@ fn navigate_here(app: &AppHandle, url: Url) {
     }
 }
 
-/// Whether the page window, if any, has its guard and observers. The window is registered before
-/// they are installed, so the lock is held across the whole `open`: a concurrent open must neither
+/// Whether the page window, if any, has its guard, mobile identity and observers. The window is
+/// registered before setup, so the lock is held across the whole `open`: a concurrent open must neither
 /// navigate that window early nor create a second one. Never taken on the WebView2 UI thread,
 /// which `open` waits on.
 static READY: Mutex<bool> = Mutex::new(false);
@@ -102,6 +102,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     *ready = false;
     let window = build()?;
     let setup = crate::platform::guard(&window, frame_allowed)
+        .and_then(|()| crate::platform::browser::mobile(&window))
         .and_then(|()| crate::platform::browser::observe(&window));
     if let Err(error) = setup {
         let _ = window.destroy();

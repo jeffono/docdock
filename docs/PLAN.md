@@ -5,7 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: all first-pass tasks done; browser UI rework in progress with the user.
+- M4 on `m4-web-pages`: all first-pass tasks done; mobile page identity verified; browser UI rework
+  continues with the user's observations.
 
 ## Completed
 
@@ -36,8 +37,8 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
 - [x] (standard) Code colors with CodeMirror parsers, in the GitHub Light and Dark Default palette
 - [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
-- [ ] (standard) Rethink the browser UI with the user's observations; first, show the mobile version of
-  the search results page
+- [ ] (standard) Rethink the browser UI with the user's observations; all pages now identify as mobile
+  browsers, including search results; continue with the next observations
 
 ## M5 — Distribute
 
