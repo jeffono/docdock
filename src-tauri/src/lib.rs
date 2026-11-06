@@ -32,7 +32,7 @@ pub fn run() {
         commands::web_selection,
         commands::web_suggestions,
         commands::web_addresses,
-        commands::web_suggestion_height,
+        commands::web_overlay,
         commands::notes_folder,
         commands::notes_choose,
         commands::notes_list,

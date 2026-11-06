@@ -122,7 +122,8 @@ per-monitor DPI awareness (PMv2).
   open waits instead of navigating the unguarded window, and a window whose setup failed is never
   navigated.
 - **Browser mode:** a shown page replaces the note list. Notes hides and disables its native window,
-  retaining its document and history; Return to page restores it at the current panel position.
+  retaining its document and history; the Browser tab restores it at the current panel position. The tab can also show an empty state
+  before a native page exists. Both tabs share the search field and a contextual "+" action.
   Hidden pages are excluded from positioning, sliding, activation and focus tracking. Closing the panel
   disables the shown page too. Back/forward use WebView2's history, guarded by native availability.
   `platform/browser.rs` observes SourceChanged, DocumentTitleChanged and HistoryChanged on the WebView2
@@ -140,8 +141,11 @@ per-monitor DPI awareness (PMv2).
   SourceChanged records actual http(s) visits, not submitted input, through a serialized atomic update
   of `address-history.json` in app_config_dir. Most recent first, deduplicated, 300 entries; corrupt
   history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
-  remains first for Enter. Browser suggestions reserve their measured height above the native page
-  via the panel thread; Esc or moving focus to the page dismisses them and restores its bounds.
+  remains first for Enter. Browser suggestions float over the page. `web_overlay` sends their measured height to the panel
+  thread; `platform/windows.rs` combines a top cutout with monitor clipping and a two-logical-pixel
+  side/bottom inset using `SetWindowRgn`. Bounds and viewport never change for suggestions. The stored
+  cutouts are reapplied during every slide frame and DPI relocation; Windows owns successful regions.
+  Esc or moving focus to the page dismisses the dropdown and removes only its top cutout.
 - **Mobile pages:** all sites in `web` receive a mobile Android identity. Before its first real
   navigation, `platform/browser.rs` reads WebView2's default `Settings2.UserAgent`, replaces the
   Windows platform with `Linux; Android 10; K`, inserts `Mobile` and changes `Edg/` to `EdgA/`,
@@ -416,9 +420,8 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Note page action:** the search index carries the parsed http(s) `url:` separately from web-pin
   card URLs, so notes keep their expand/edit behavior. Their header offers Open page through the same
   guarded `openPage` path as links, flushing edits before opening. Other schemes are ignored.
-- **Page pin:** browser mode offers a bookmark beside the address bar. It pins the current title
-  (host when empty) through `pinned_add`, which escapes the label; URL comparison uses the same
-  escaped form written by `pinned.rs`, preserving existing percent escapes and case.
+- **Existing page pins:** `_pinned.md` web entries still open and can be removed from their cards;
+  new captures use the note pin action after saving through "+".
 - **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
   from the header's "Pin panel" thumbtack. Card actions use its `quiet` prop; the bookmark fills when
   pressed. The root `_pinned.md` entry is skipped by `search` for both empty and nonempty queries.

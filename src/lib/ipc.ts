@@ -113,5 +113,4 @@ export const notesRestore = (path: string) => invoke<string>("notes_restore", { 
 
 export const webSuggestions = (query: string) => invoke<string[]>("web_suggestions", { query });
 export const webAddresses = () => invoke<string[]>("web_addresses");
-export const webSuggestionHeight = (height: number) =>
-  invoke<void>("web_suggestion_height", { height });
+export const webOverlay = (height: number) => invoke<void>("web_overlay", { height });

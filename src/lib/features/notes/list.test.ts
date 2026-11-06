@@ -11,7 +11,6 @@ import {
   move,
   navKeys,
   noteFileName,
-  pinnedPageUrl,
   rows,
   shallower,
 } from "./list";
@@ -258,11 +257,4 @@ it("activates a pinned page as a page rather than a note read", () => {
     action: "openPage",
     url,
   });
-});
-it("compares pages in the escaped written form without decoding or changing case", () => {
-  expect(pinnedPageUrl("https://example.com/a(b)<c> x%20Y")).toBe(
-    "https://example.com/a%28b%29%3Cc%3E%20x%20Y",
-  );
-  expect(pinnedPageUrl("https://example.com/café")).toBe("https://example.com/caf%C3%A9");
-  expect(pinnedPageUrl("https://EXAMPLE.com/%2f")).toBe("https://EXAMPLE.com/%2f");
 });

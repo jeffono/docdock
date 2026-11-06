@@ -13,9 +13,10 @@ import {
   webHistory,
   webSetVisible,
 } from "./lib/ipc";
-import Button from "./lib/ui/Button.svelte";
+
 import IconButton from "./lib/ui/IconButton.svelte";
 
+let notes: Notes;
 let pinned = $state(false);
 let web = $state(false);
 let page = $state<PageState | null>(null);
@@ -46,6 +47,12 @@ onMount(() => {
   };
 });
 
+async function switchMode(value: boolean) {
+  if (!(await notes.leaveEditor())) return;
+  await webSetVisible(value);
+  web = value;
+  if (value) notes.focusSearch();
+}
 function togglePin() {
   pinned = !pinned;
   panelSetPinned(pinned);
@@ -56,19 +63,20 @@ function togglePin() {
 
 <main class:focused={focus.focused} class:left={focus.side === "left"}>
   <header>
+    <nav aria-label={t("app.mode")}>
+      <button class:active={!web} aria-pressed={!web} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
+      <button class:active={web} aria-pressed={web} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
+    </nav>
     {#if web}
-      <Button onclick={() => action(webSetVisible(false))}>{t("web.notes")}</Button>
-      <IconButton icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(webHistory(true))} />
-      <IconButton icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
-      <h1 title={page?.url}>{page?.title || page?.url || t("web.address")}</h1>
-    {:else}
-      <h1>DocDock</h1>
-      {#if page}<Button onclick={() => action(webSetVisible(true))}>{t("web.page")}</Button>{/if}
+      <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(webHistory(true))} />
+      <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
     {/if}
-    <IconButton icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
+    <span class="spacer"></span>
+    <IconButton quiet icon="folder" label={t("notes.choose")} onclick={() => notes.choose()} />
+    <IconButton quiet icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
-  <Notes browser={web} pageUrl={page?.url ?? ""} pageTitle={page?.title ?? ""} />
+  <Notes bind:this={notes} browser={web} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>
@@ -117,15 +125,16 @@ function togglePin() {
     margin: 0 var(--space-3);
   }
 
-  h1 {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin: 0;
-    font-size: var(--font-size-lg);
-    font-weight: 600;
-    letter-spacing: var(--tracking-tight);
+  nav { display: flex; gap: var(--space-1); }
+  nav button {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-muted);
+    padding: var(--space-1) var(--space-2);
+    font: inherit;
   }
+  nav button.active { background: var(--color-surface); color: var(--color-fg); font-weight: 600; }
+  header :global(button[aria-pressed="true"]) { background: var(--color-surface); color: var(--color-fg); }
+  .spacer { flex: 1; }
 </style>

@@ -84,9 +84,8 @@ pinned and unpinned notes differ only in section and starting state.
   search. A "Create “…”" item appears when no visible note title matches exactly.
 - **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
   title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
-  the bookmark removes it. Browser mode has a pressed bookmark beside the address bar for the current
-  page, distinct from the panel thumbtack.
-- **Page notes:** browser mode offers "Save as note" beside the address bar. It saves the page title,
+  the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
+- **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
   URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
   annotations. A note with an http(s) `url:` has an "Open page" arrow action left of the pencil; it
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
@@ -98,7 +97,7 @@ pinned and unpinned notes differ only in section and starting state.
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
   returns to a row when closed; there is no separate note view.
-- **Editing:** Save as note opens a newly captured page in edit mode. Otherwise use the pencil in
+- **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
   the card header or Ctrl+E on the selected card; entering from preview expands the card. One card edits at a time and shows its own save status, conflict and
   errors. If the search would hide it, it stays at the top until editing ends. Closing the card,
   expanding another, typing in the search or the panel closing first leave editing, which saves; on a
@@ -162,18 +161,27 @@ pinned and unpinned notes differ only in section and starting state.
 | Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
 | Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
 
+## Panel navigation
+
+The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
+controls, then the folder picker and panel pin. There is no app name or page title. The same search
+field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
+field focused; switching tabs retains the page document and history. The native page is clipped two
+logical pixels inside the panel sides and bottom so the focus band remains visible.
+
 ## Unified address bar
 
 In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
 local addresses, then engine suggestions. The same arrows, Enter and selected row style apply.
-Suggestions occupy space between the bar and the native page, without covering the field. Esc restores
+Suggestions float below the bar on one solid surface, with icons for search, history and Open;
+only the selected row is highlighted. The native page is clipped behind them without moving or resizing. Esc restores
 the current URL and dismisses suggestions before the next Esc closes the panel.
 
 In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
 after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
 keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
 it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries remain
-local. Web actions use the Create row's tokens and style; all untrusted suggestions appear as text.
+local. Web actions use neutral icon rows; all untrusted suggestions appear as text.
 
 ## Note editor
 

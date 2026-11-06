@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4 on `m4-web-pages`: all first-pass tasks done; mobile page identity verified; browser UI rework
-  continues with the user's observations.
+- M4 on `m4-web-pages`: tabs, shared search/plus bar and native floating suggestions implemented;
+  focus border preserved; awaiting further user observations.
 
 ## Completed
 
@@ -22,7 +22,7 @@ detail each stage when it is next.
 ## M4 — Web pages
 
 Product choices (2026-11-06): links in notes open in the panel, Ctrl+click in the default browser; the
-browser bar has back/forward for the page history plus a separate button back to notes; saving a page
+top bar has Notes/Browser tabs and discreet back/forward for page history; saving a page
 creates a note with `title` and `url` in frontmatter and the page selection, if any, quoted in the body;
 a note with `url:` expands like any note and offers "Open page".
 
@@ -37,8 +37,8 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
 - [x] (standard) Code colors with CodeMirror parsers, in the GitHub Light and Dark Default palette
 - [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
-- [ ] (standard) Rethink the browser UI with the user's observations; all pages now identify as mobile
-  browsers, including search results; continue with the next observations
+- [ ] (standard) Rethink the browser UI with the user's observations; tabs, shared search/plus bar,
+  preserved focus border and floating suggestions implemented; continue with the next observations
 
 ## M5 — Distribute
 

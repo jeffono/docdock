@@ -28,12 +28,13 @@ import {
   pinnedSetCollapsed,
   webAddresses,
   webOpen,
+  webOverlay,
   webSelection,
   webSetVisible,
-  webSuggestionHeight,
   webSuggestions,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
+import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
@@ -60,19 +61,13 @@ import {
   move,
   navKeys,
   noteFileName,
-  pageHost,
-  pinnedPageUrl,
   rows,
   shallower,
 } from "./list";
 import { pageNote } from "./page";
 import { FolderIndex, isPinnedList, search } from "./search";
 
-let {
-  browser = false,
-  pageUrl = "",
-  pageTitle = "",
-}: { browser?: boolean; pageUrl?: string; pageTitle?: string } = $props();
+let { browser = false, pageUrl = "" }: { browser?: boolean; pageUrl?: string } = $props();
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -119,16 +114,16 @@ $effect(() => {
 $effect(() => {
   const element = suggestionsElement;
   if (!element || !browser || !addressEditing) {
-    void webSuggestionHeight(0);
+    void webOverlay(0);
     return;
   }
   const observer = new ResizeObserver(() => {
-    void webSuggestionHeight(Math.ceil(element.getBoundingClientRect().height));
+    void webOverlay(Math.ceil(element.getBoundingClientRect().height));
   });
   observer.observe(element);
   return () => {
     observer.disconnect();
-    void webSuggestionHeight(0);
+    void webOverlay(0);
   };
 });
 async function activateWeb(entry: WebEntry) {
@@ -152,23 +147,6 @@ function webLabel(entry: WebEntry): string {
 }
 let leftovers = $state<Leftover[]>([]);
 let pinned = $state<Pinned>({ items: [], restorable: false });
-const pageTarget = $derived(pinnedPageUrl(pageUrl));
-const pagePinned = $derived(
-  pinned.items.some((item) => item.kind === "url" && pinnedPageUrl(item.target) === pageTarget),
-);
-async function togglePagePin() {
-  if (!pageTarget || pinning) return;
-  pinning = true;
-  try {
-    await pinnedAction(() =>
-      pagePinned
-        ? pinnedRemove(pageTarget)
-        : pinnedAdd(pageTarget, pageTitle.trim() || pageHost(pageTarget)),
-    );
-  } finally {
-    pinning = false;
-  }
-}
 /** Path of the one expanded card, or "". Not remembered when the panel closes. */
 let expanded = $state("");
 /** Chosen with the arrows or the mouse; "" means the default for the query. */
@@ -186,7 +164,7 @@ let editing = $state(false);
 let saveStatus = $state<AutosaveState>("saved");
 let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
-function leaveEditor(): Promise<boolean> {
+export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
   leaving = (async () => {
@@ -414,7 +392,7 @@ async function restore(path: string) {
 
 /** While the folder picker is open no editor can open: its note would belong to the old folder. */
 let choosing = false;
-async function choose() {
+export async function choose() {
   if (choosing || savingPage) return;
   choosing = true;
   try {
@@ -665,6 +643,12 @@ function linkClick(event: MouseEvent): boolean {
 let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
 const bar = () => tools?.querySelector("input");
+export function focusSearch() {
+  void tick().then(() => {
+    bar()?.focus();
+    bar()?.select();
+  });
+}
 
 /** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
 function typed() {
@@ -862,7 +846,7 @@ function shortcut(event: KeyboardEvent) {
     const stops = [
       input,
       ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
-      list,
+      ...(!browser ? [list] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
     ];
@@ -971,22 +955,19 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      {#if browser}
-        <Button disabled={!folder?.available || !pageTarget || pageUnavailable || savingPage} onclick={savePage}>{t("web.saveNote")}</Button>
-        <IconButton icon="bookmark" label={t(pagePinned ? "web.unpin" : "web.pin")} pressed={pagePinned} disabled={!folder?.available || !pageTarget} onclick={togglePagePin} />
-      {/if}
-      <IconButton icon="folder" label={folder ? t("notes.changeFolder", { path: folder.path }) : t("notes.choose")} onclick={choose} />
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(query.trim(), "", true)} />
     </div>
-  {#if browser && addressEditing}
+  {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
-        <button class="create" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
+        <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
       {/each}
     </div>
   {/if}
   <p class="announce" aria-live="polite">{announced}</p>
   {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
+  {#if browser && !pageUrl}<div class="empty"><p>{t("web.empty")}</p></div>{/if}
   <div class="content" hidden={browser}>
   {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -1073,15 +1054,15 @@ onMount(() => {
         {/if}
       {/each}
       {#each shownWebItems as entry (entry.key)}
-        <button class="create" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
+        <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
       {/each}
       {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}
-      <button class="create" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }}>{webLabel(entry)}</button>
+      <button class="suggestion" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
     {/each}
     <div class="empty">
       <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
@@ -1095,7 +1076,13 @@ onMount(() => {
 
 <style>
   .web-suggestions {
-    flex: none;
+    position: absolute;
+    z-index: 1;
+    top: var(--size-bar);
+    left: var(--space-1);
+    right: var(--space-1);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-line);
     max-height: 40vh;
     overflow-y: auto;
   }
@@ -1107,6 +1094,7 @@ onMount(() => {
     display: none;
   }
   section {
+    position: relative;
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -1159,6 +1147,23 @@ onMount(() => {
   .create.selected {
     border-color: var(--color-accent);
   }
+
+  .suggestion {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--size-control);
+    padding: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
+    border: 0;
+    background: var(--color-surface);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+  }
+  .suggestion.selected { background: var(--color-selected); }
+  .suggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .missing {
     display: flex;

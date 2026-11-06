@@ -204,6 +204,6 @@ pub fn web_addresses(app: AppHandle) -> Vec<String> {
     web::addresses(&app, None)
 }
 #[tauri::command]
-pub fn web_suggestion_height(requests: State<'_, Sender<Request>>, height: u32) {
-    send(requests, Request::SetWebSuggestionHeight(height.min(600)));
+pub fn web_overlay(requests: State<'_, Sender<Request>>, height: u32) {
+    send(requests, Request::SetWebOverlay(height.min(16384)));
 }

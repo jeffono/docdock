@@ -248,17 +248,6 @@ export function noteFileName(text: string, taken: Iterable<string>): string {
   return name;
 }
 
-/** Same escaping as pinned.rs URL: preserve existing escapes, encode link delimiters and controls. */
-export function pinnedPageUrl(url: string): string {
-  return Array.from(url, (c) =>
-    c.charCodeAt(0) <= 32 || c.charCodeAt(0) === 127 || "()<>".includes(c)
-      ? `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`
-      : c.charCodeAt(0) > 127
-        ? encodeURIComponent(c)
-        : c,
-  ).join("");
-}
-
 export function pageHost(url: string): string {
   try {
     return new URL(url).host;
