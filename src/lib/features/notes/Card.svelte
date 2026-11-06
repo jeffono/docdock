@@ -133,7 +133,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
       {#if card.level === "preview" && clipped}
         <div class="reveal"><button onclick={onexpand}>{t("card.showAll")}</button></div>
       {:else if card.level === "expanded" && card.pinned}
-        <div class="reveal less"><button onclick={onpreview}>{t("card.showLess")}</button></div>
+        <div class="reveal"><button onclick={onpreview}>{t("card.showLess")}</button></div>
       {/if}
     </div>
   {/if}
@@ -278,15 +278,10 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   .reading {
     position: relative;
   }
+  /* Below the fade, never over it: faded text beside the button reads as noise. */
   .reveal {
-    position: relative;
     display: flex;
     justify-content: center;
-    margin-top: calc(-1 * var(--size-control));
-    padding-bottom: var(--space-1);
-  }
-  .reveal.less {
-    margin-top: 0;
     padding-bottom: var(--space-2);
   }
   .reveal button {
@@ -316,6 +311,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 
   .body.clipped {
     mask-image: linear-gradient(to bottom, black calc(100% - 2.5em), transparent);
+    padding-bottom: 0;
   }
 
   /* The header already shows the title. */
