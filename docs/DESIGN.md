@@ -108,7 +108,8 @@ pinned and unpinned notes differ only in section and starting state.
   selected item and on keyboard focus, with their space reserved. Icons use `--size-icon`, muted color,
   no border and no background; the bookmark is filled when pinned and outline otherwise. While
   editing, the pencil stays visible in the accent color, still without border or background. Hover
-  keeps the lighter surface and foreground color, and keyboard focus keeps the standard accent outline.
+  keeps the lighter surface and foreground color. Tooltips and accessible labels include shortcuts:
+  "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)" and "Open (→)" / "Close (←)".
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
   vertical and right inset and a quiet remove icon.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
@@ -116,15 +117,20 @@ pinned and unpinned notes differ only in section and starting state.
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
+- **Tab stops:** search bar → list → top bar buttons (including the folder action), reversed with
+  Shift+Tab. Card controls stay clickable and labeled but are outside the Tab sequence. The list is
+  one Tab stop; entering it without a selection selects the first item. Its only focus indicator is
+  the selected card's existing style, without an additional outline. The editor keeps Tab indentation.
+  Search exposes the selection through a combobox controlling the listbox and stable item ids.
 - **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below
   work as from the search bar, and typing a character goes to the search bar. Enter acts on the
   selection even on a focused button; Space presses the button.
 - **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
   expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's
   thumbtack that keeps the panel open. Rows and lines show a snippet with the matches highlighted under
-  the title; previews and expanded cards show the content. Cards hide the frontmatter title (the header
-  has it); the expanded card lists every tag. → and ← act on the selected card only with the caret at
-  the end of the text, otherwise they move it.
+  the title; previews and expanded cards show the content. Reading cards hide the frontmatter title
+  (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
+  tag. → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
 
 | Shortcut       | Action                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------- |
@@ -134,6 +140,7 @@ pinned and unpinned notes differ only in section and starting state.
 | → / ←          | Open / close one level: line, preview, expanded                                          |
 | Enter          | Expand the selected item, or run "Create"                                                |
 | Ctrl+Enter     | Create a note with the exact typed text                                                  |
+| Ctrl+D         | Toggle pin on the selected card from search, the list or its editor                      |
 | Ctrl+E         | Toggle editing on the selected card                                                      |
 | Ctrl+F         | Focus the search bar and select its text                                                 |
 | Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |

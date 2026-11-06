@@ -107,16 +107,15 @@ async function edit(path: string) {
   }
 }
 /**
- * Leaving by keyboard (Esc or Ctrl+E): the card stays expanded and its header takes the focus, so the
+ * Leaving by keyboard (Esc or Ctrl+E): the card stays expanded and the list takes focus, so the
  * next Esc reaches the list rules instead of closing the panel.
  */
 async function leaveByKeyboard() {
-  const path = selected;
   if (!(await leaveEditor())) return;
   await tick();
   const focused = document.activeElement;
   if (focused && focused !== document.body) return;
-  list?.querySelector<HTMLElement>(`article[data-path="${CSS.escape(path)}"] .head`)?.focus();
+  list?.focus();
 }
 const saveText = $derived(
   saveStatus === "saved"
@@ -179,6 +178,8 @@ const model = $derived(
 const listRows = $derived(rows(model, editing ? selected : ""));
 const keys = $derived(navKeys(model));
 const active = $derived(keys.includes(selection) ? selection : defaultKey(model, query));
+
+const itemId = (key: string) => `note-list-${encodeURIComponent(key)}`;
 
 function cardFor(path: string): Card | undefined {
   for (const entry of [...model.pinned, ...model.notes])
@@ -338,6 +339,7 @@ function toggle(card: Card) {
 }
 
 async function pinOrUnpin(card: Card) {
+  selection = card.hit.path;
   try {
     error = "";
     pinned = card.pinned
@@ -476,7 +478,7 @@ function arrow(event: KeyboardEvent) {
   const down = event.key === "ArrowDown";
   const card = cardFor(active);
   if (!event.altKey && list && card?.level === "expanded") {
-    const element = list.querySelector(`article[data-path="${CSS.escape(card.hit.path)}"]`);
+    const element = list.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"]`);
     if (element) {
       const delta = arrowScroll(
         element.getBoundingClientRect(),
@@ -595,6 +597,41 @@ function shortcut(event: KeyboardEvent) {
   const field = !inBar && inField(event);
   const ctrl = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
   const key = event.key.toLowerCase();
+  // Cycle the three areas without entering card controls or leaving the WebView.
+  if (
+    key === "tab" &&
+    !field &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    list &&
+    input
+  ) {
+    const stops = [
+      input,
+      list,
+      ...document.querySelectorAll<HTMLElement>("main > header button"),
+      ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
+    ];
+    const at = list.contains(event.target as Node) ? 1 : stops.indexOf(event.target as HTMLElement);
+    if (at >= 0) {
+      event.preventDefault();
+      stops[(at + (event.shiftKey ? stops.length - 1 : 1)) % stops.length].focus();
+      return;
+    }
+  }
+  const inEditor =
+    editing &&
+    event
+      .composedPath()
+      .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
+  if (ctrl && key === "d" && (!field || inEditor)) {
+    const card = cardFor(inEditor ? selected : active);
+    if (!card) return;
+    event.preventDefault();
+    void pinOrUnpin(card);
+    return;
+  }
   if (ctrl && key === "e") {
     const path = editing ? selected : (cardFor(active)?.hit.path ?? expanded);
     if (!path) return;
@@ -674,6 +711,11 @@ onMount(() => {
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
         bind:value={query}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={true}
+        aria-controls="note-list"
+        aria-activedescendant={active ? itemId(active) : undefined}
         aria-label={t("notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
@@ -696,7 +738,10 @@ onMount(() => {
         {/each}
       </section>
     {/if}
-    <div class="list" bind:this={list}>
+    <div class="list" id="note-list" role="listbox" aria-label={t("notes.label")}
+      aria-activedescendant={active ? itemId(active) : undefined}
+      tabindex="0" bind:this={list}
+      onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">
           <p class="message">{t("pinned.deleted")}</p>
@@ -705,7 +750,7 @@ onMount(() => {
       {/if}
       {#if model.create !== null}
         {@const text = model.create}
-        <button class="create" class:selected={active === "create"} onclick={() => create(text)}>
+        <button tabindex="-1" role="option" id={itemId("create")} aria-selected={active === "create"} class="create" class:selected={active === "create"} onclick={() => create(text)}>
           {t("list.create", { text })}
         </button>
       {/if}
@@ -719,6 +764,7 @@ onMount(() => {
             <span class="title" title={entry.target}>{entry.title}</span>
             <small>{t("card.missing")}</small>
             <IconButton
+              tabindex={-1}
               quiet
               icon="x"
               label={t("card.remove")}
@@ -730,6 +776,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
+            id={itemId(card.hit.path)}
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
@@ -768,6 +815,10 @@ onMount(() => {
     flex: 1;
     padding-bottom: var(--space-2);
     overflow-y: auto;
+  }
+
+  .list:focus-visible {
+    outline: none;
   }
 
   h2 {

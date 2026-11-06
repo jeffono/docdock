@@ -31,6 +31,9 @@ Next: close M3 (test review and cross-provider review).
   on the inner edge; list keyboard outside the search field, scroll-then-advance in long cards, and the
   shortcut and Ctrl+F reach the search
 
+- [x] (standard) One list Tab stop, selection-only focus, pin shortcut, shortcut labels and accessible
+  search selection; see "Note list" in `docs/DESIGN.md`
+
 ## M4 — Web pages
 
 - [ ] (standard) Browser in place of notes, with a back button; the page is hidden, not closed
