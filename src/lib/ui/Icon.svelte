@@ -1,10 +1,12 @@
 <script lang="ts">
 // Lucide paths (ISC license). Only add icons used by the UI here.
 const paths = {
+  plus: "M12 5v14 M5 12h14",
+  search: "M21 21l-4.34-4.34 M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
   folder:
     "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
-  globe:
-    "M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z",
+  arrowLeft: "m12 19-7-7 7-7 M5 12h14",
+  arrowRight: "m12 5 7 7-7 7 M5 12h14",
   pencil:
     "M21.174 6.812a1 1 0 0 0-3.986-3.986L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.623l4.353-1.32a2 2 0 0 0 .83-.5z M15 5l4 4",
   restore: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5",
@@ -19,7 +21,7 @@ const paths = {
 let { name, filled = false }: { name: keyof typeof paths; filled?: boolean } = $props();
 </script>
 
-<svg class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
+<svg class:pin={name === "pin"} class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
 
 <style>
   svg {
@@ -30,6 +32,11 @@ let { name, filled = false }: { name: keyof typeof paths; filled?: boolean } = $
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  svg.pin {
+    width: calc(var(--size-icon) * 0.88);
+    height: calc(var(--size-icon) * 0.88);
   }
 
   svg.filled {

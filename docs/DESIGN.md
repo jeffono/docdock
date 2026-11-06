@@ -14,6 +14,10 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 - Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
 - Light and dark themes follow Windows. Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
+- Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
+  keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
+  functions, orange types, green tags and gray comments. Punctuation and other identifiers keep the
+  foreground color. Shared by reading and editing, without added emphasis or italics.
 
 ## Typography
 
@@ -78,6 +82,13 @@ pinned and unpinned notes differ only in section and starting state.
 - **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
+- **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
+  title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
+  the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
+- **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
+  URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
+  annotations. A note with an http(s) `url:` has an "Open page" arrow action left of the pencil; it
+  keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
   editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and
@@ -86,8 +97,8 @@ pinned and unpinned notes differ only in section and starting state.
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
   returns to a row when closed; there is no separate note view.
-- **Editing:** only through the pencil in the card header or Ctrl+E on the selected card; entering from
-  preview expands the card. One card edits at a time and shows its own save status, conflict and
+- **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
+  the card header or Ctrl+E on the selected card; entering from preview expands the card. One card edits at a time and shows its own save status, conflict and
   errors. If the search would hide it, it stays at the top until editing ends. Closing the card,
   expanding another, typing in the search or the panel closing first leave editing, which saves; on a
   conflict or error nothing else happens until it is resolved. The Note editor rules below apply
@@ -150,6 +161,34 @@ pinned and unpinned notes differ only in section and starting state.
 | Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
 | Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
 
+## Panel navigation
+
+The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
+controls, then the folder picker and panel pin. The panel is 460 logical pixels wide by default.
+The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
+Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
+Button tooltips include their working shortcuts. There is no app name or page title. The same search
+field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
+field focused; switching tabs retains the page document and history. The native page is clipped two
+logical pixels inside the panel sides and bottom so the focus band remains visible.
+
+## Unified address bar
+
+In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
+local addresses, then engine suggestions. The same arrows, Enter and selected row style apply.
+When the suggestion list is closed, ↓ opens the five most recent local addresses (including
+search result URLs), even with an empty bar or the current URL. This does not request engine
+suggestions; typing resumes the normal suggestion rules.
+Suggestions float below the bar on one solid surface, with icons for search, history and Open;
+only the selected row is highlighted. The native page is clipped behind them without moving or resizing. Esc restores
+the current URL and dismisses suggestions before the next Esc closes the panel.
+
+In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
+after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
+keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
+it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries remain
+local. Web actions use neutral icon rows; all untrusted suggestions appear as text.
+
 ## Note editor
 
 The editor lives in the card being edited, in place of its content; there is no separate note view and
@@ -166,16 +205,17 @@ a secondary Discard my changes button. Errors appear in red beside this notice.
 
 Windows editor shortcuts:
 
-| Shortcut                                      | Action                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------- |
-| Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+Shift+` | Toggle bold / italic / strikethrough / inline code                        |
-| Ctrl+K                                        | Insert a link; put the cursor in its destination, or its label when empty |
-| Ctrl+1…6 / Ctrl+0                             | Toggle heading level / make paragraph                                     |
-| Ctrl+Shift+8 / Ctrl+Shift+7 / Ctrl+Shift+9    | Toggle bullet / numbered / task list                                      |
-| Ctrl+Shift+.                                  | Toggle blockquote                                                         |
-| Enter / Backspace                             | Continue / remove Markdown list or quote markup                           |
-| Tab / Shift+Tab                               | Indent / outdent list items                                               |
-| Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                     |
+| Shortcut                                      | Action                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Ctrl+B / Ctrl+I / Ctrl+Shift+X / Ctrl+Shift+` | Toggle bold / italic / strikethrough / inline code                                         |
+| Ctrl+J                                        | Join the current and next line, or all selected lines; strip following list/quote prefixes |
+| Ctrl+K                                        | Insert a link; put the cursor in its destination, or its label when empty                  |
+| Ctrl+1…6 / Ctrl+0                             | Toggle heading level / make paragraph                                                      |
+| Ctrl+Shift+8 / Ctrl+Shift+7 / Ctrl+Shift+9    | Toggle bullet / numbered / task list                                                       |
+| Ctrl+Shift+.                                  | Toggle blockquote                                                                          |
+| Enter / Backspace                             | Continue / remove Markdown list or quote markup                                            |
+| Tab / Shift+Tab                               | Indent / outdent list items                                                                |
+| Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
 
 Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every

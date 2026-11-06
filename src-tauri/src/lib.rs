@@ -27,7 +27,12 @@ pub fn run() {
         commands::panel_set_pinned,
         commands::panel_close,
         commands::web_open,
-        commands::web_close,
+        commands::web_set_visible,
+        commands::web_history,
+        commands::web_selection,
+        commands::web_suggestions,
+        commands::web_addresses,
+        commands::web_overlay,
         commands::notes_folder,
         commands::notes_choose,
         commands::notes_list,
@@ -61,6 +66,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
             let window = main_window::create(app)?;
+            platform::edge::filter(&window, platform::edge::Owner::Ui)
+                .map_err(|error| format!("{error:?}"))?;
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();

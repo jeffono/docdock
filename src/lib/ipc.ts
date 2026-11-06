@@ -38,9 +38,19 @@ export function webOpen(url: string): Promise<void> {
   return invoke("web_open", { url });
 }
 
-export function webClose(): Promise<void> {
-  return invoke("web_close");
-}
+export const webSetVisible = (visible: boolean) => invoke<void>("web_set_visible", { visible });
+export const webHistory = (back: boolean) => invoke<void>("web_history", { back });
+/** The shown page, if any. `selection` is the main frame's plain text, empty when there is none. */
+export type PageSelection = { url: string; title: string; selection: string };
+export const webSelection = () => invoke<PageSelection | null>("web_selection");
+export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
+export const onWebState = (handler: (state: PageState | null) => void) =>
+  listen<PageState | null>("web-state", (event) => handler(event.payload));
+export const onWebVisible = (handler: (visible: boolean) => void) =>
+  listen<boolean>("web-visible", (event) => handler(event.payload));
+
+/** Ctrl+Tab typed while the page window had focus, filtered natively before the page sees it. */
+export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode", () => handler());
 
 export type NotesFolder = { path: string; available: boolean };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
@@ -103,3 +113,7 @@ export type Leftover = { path: string; note: string; modified: number };
 export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
 /** Resolves to the path of the restored note. */
 export const notesRestore = (path: string) => invoke<string>("notes_restore", { path });
+
+export const webSuggestions = (query: string) => invoke<string[]>("web_suggestions", { query });
+export const webAddresses = () => invoke<string[]>("web_addresses");
+export const webOverlay = (height: number) => invoke<void>("web_overlay", { height });

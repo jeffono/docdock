@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-Nothing. Next: M4.
+- Nothing; M4.1 is next.
 
 ## Completed
 
@@ -17,16 +17,27 @@ Nothing. Next: M4.
   both views; see `docs/decisions/0007-one-markdown-parser.md`.
 - M3 — Find and pin: content search, unified bar, pinned cards and note rows, in-place editing, focused
   panel and list keyboard; see "Note list" in `docs/DESIGN.md` and `docs/decisions/0005-pinned-items.md`.
+- M4 — Web pages: mobile browser tab with history and suggestions, page selection read from Rust,
+  pages saved as notes, code colors and Edge features filtered; see "Untrusted content" in
+  `docs/ARCHITECTURE.md`.
 
-## M4 — Web pages
+## M4.1 — Preferences
 
-- [ ] (standard) Browser in place of notes, with a back button; the page is hidden, not closed
-- [ ] (standard) Unified bar as address bar, with local history and suggestions; see
-  `docs/decisions/0006-search-suggestions.md`
-- [ ] (standard) Pin pages in `_pinned.md`
-- [ ] (standard) Save pages as notes with `url:` in frontmatter
-- [ ] (standard) Code colors with CodeMirror parsers
-- [ ] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
+Decided 2026-11-06: a third panel view opened by a gear icon replacing the folder icon, sections
+General, Appearance, Browser and Shortcuts; settings in a JSON file in `app_config_dir`, written
+atomically.
+
+- [ ] (standard) Preferences view and settings file; move the folder choice and panel side there
+- [ ] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
+- [ ] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
+  reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
+- [ ] (standard) Optional grouping by date when ordering by date
+
+## M4.2 — Editor
+
+- [ ] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
+- [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips
+- [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
 
 ## M5 — Distribute
 

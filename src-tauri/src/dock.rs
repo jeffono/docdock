@@ -13,7 +13,7 @@ use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 const POLL: Duration = Duration::from_millis(50);
 const SLIDE: Duration = Duration::from_millis(150);
 /// Width in logical pixels; on the monitor it becomes `width * dpi / 96`.
-const PANEL_WIDTH: u32 = 420;
+const PANEL_WIDTH: u32 = 460;
 const BASE_DPI: u32 = 96;
 /// Two bars above the page, in logical pixels: twice `--size-bar` in `tokens.css`.
 const WEB_TOP: u32 = 88;
@@ -37,6 +37,8 @@ pub enum Request {
     Close,
     /// The web page window was created and is still invisible.
     AttachWeb(isize),
+    SetWebVisible(bool),
+    SetWebOverlay(u32),
     /// Global shortcut.
     Shortcut,
     /// Side chosen in the tray.
@@ -83,7 +85,7 @@ fn parked_x(monitor: &Monitor, side: Side, panel: Rect) -> i32 {
 /// Web page rectangle: the panel minus the top bar.
 fn web_rect(monitor: &Monitor, panel: Rect) -> Rect {
     Rect {
-        top: panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32,
+        top: (panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32).min(panel.bottom - 1),
         ..panel
     }
 }
@@ -179,6 +181,8 @@ struct Dock {
     window: PanelWindow,
     /// Web page window, if present.
     web: Option<PanelWindow>,
+    web_visible: bool,
+    overlay_height: u32,
     side: Side,
     monitor: Monitor,
     rect: Rect,
@@ -216,7 +220,10 @@ impl Dock {
             self.parked_x
         };
         self.window.place(self.rect, monitor.bounds, self.x);
-        if let Some(web) = &mut self.web {
+        if self.web_visible
+            && let Some(web) = &mut self.web
+        {
+            web.overlay(monitor.dpi, self.overlay_height, self.x);
             web.place(web_rect(&monitor, self.rect), monitor.bounds, self.x);
         }
     }
@@ -238,9 +245,44 @@ impl Dock {
             Request::AttachWeb(raw) => {
                 let rect = web_rect(&self.monitor, self.rect);
                 let bounds = self.monitor.bounds;
-                let web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
+                let mut web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
+                web.overlay(self.monitor.dpi, self.overlay_height, self.x);
                 web.set_enabled(self.is_open());
                 self.web = Some(web);
+                self.web_visible = true;
+                let _ = self.app.emit_to("main", "web-visible", true);
+                Action::None
+            }
+            Request::SetWebVisible(visible) => {
+                if let Some(mut web) = self.web.filter(PanelWindow::exists) {
+                    if !visible {
+                        if web.is_foreground() {
+                            self.window.activate();
+                        }
+                        web.hide();
+                    } else {
+                        web.overlay(self.monitor.dpi, self.overlay_height, self.x);
+                        web.place(
+                            web_rect(&self.monitor, self.rect),
+                            self.monitor.bounds,
+                            self.x,
+                        );
+                        web.set_enabled(self.is_open());
+                    }
+                    self.web = Some(web);
+                    self.web_visible = visible;
+                    let _ = self.app.emit_to("main", "web-visible", visible);
+                } else {
+                    self.web_visible = visible;
+                    let _ = self.app.emit_to("main", "web-visible", visible);
+                }
+                Action::None
+            }
+            Request::SetWebOverlay(height) => {
+                self.overlay_height = height;
+                if let Some(web) = &mut self.web {
+                    web.overlay(self.monitor.dpi, height, self.x);
+                }
                 Action::None
             }
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
@@ -316,7 +358,7 @@ impl Dock {
     fn focus(&self) -> Focus {
         if self.window.is_foreground() {
             Focus::Panel
-        } else if self.web.is_some_and(|web| web.is_foreground()) {
+        } else if self.web_visible && self.web.is_some_and(|web| web.is_foreground()) {
             Focus::Page
         } else if platform::foreground_window().is_some() {
             Focus::Elsewhere
@@ -336,8 +378,15 @@ impl Dock {
 
     /// Panel windows. The page window disappears from the list if destroyed, for example by Alt+F4.
     fn windows(&mut self) -> Vec<PanelWindow> {
-        self.web = self.web.filter(PanelWindow::exists);
-        std::iter::once(self.window).chain(self.web).collect()
+        if self.web.is_some_and(|web| !web.exists()) {
+            self.web = None;
+            self.web_visible = false;
+            let _ = self.app.emit_to("main", "web-state", Option::<()>::None);
+            let _ = self.app.emit_to("main", "web-visible", false);
+        }
+        std::iter::once(self.window)
+            .chain(self.web.filter(|_| self.web_visible))
+            .collect()
     }
 
     fn is_foreground(&mut self) -> bool {
@@ -449,6 +498,8 @@ pub fn start(app: AppHandle, raw_window: isize, requests: Receiver<Request>, sid
         app,
         window,
         web: None,
+        web_visible: false,
+        overlay_height: 0,
         side,
         monitor,
         rect,
@@ -576,12 +627,12 @@ mod tests {
             bottom: 2160,
         };
         let rect = panel_rect(&screen, Side::Right);
-        assert_eq!((rect.left, rect.right, rect.top), (-565, -40, 47));
+        assert_eq!((rect.left, rect.right, rect.top), (-615, -40, 47));
         assert_eq!(parked_x(&screen, Side::Right, rect), 0);
         let rect = panel_rect(&screen, Side::Left);
-        assert_eq!((rect.left, rect.right, rect.top), (-3800, -3275, 47));
+        assert_eq!((rect.left, rect.right, rect.top), (-3800, -3225, 47));
         // Parked entirely beyond the left edge, touching it.
-        assert_eq!(parked_x(&screen, Side::Left, rect), -3840 - 525);
+        assert_eq!(parked_x(&screen, Side::Left, rect), -3840 - 575);
     }
 
     #[test]

@@ -59,6 +59,42 @@ function inline(marker: string): Command {
   };
 }
 
+/** Replace only the joined lines; positions are normalized CodeMirror offsets. */
+export function joinLines(text: string, from: number, originalTo: number) {
+  // A selection ending at the start of a line does not include that line, as in `block()`.
+  const to = originalTo > from && text[originalTo - 1] === "\n" ? originalTo - 1 : originalTo;
+  const start = text.slice(0, from).lastIndexOf("\n") + 1;
+  let end = text.indexOf("\n", to);
+  if (end < 0) end = text.length;
+  // A caret (or selection within one line) joins the following line too.
+  if (!text.slice(from, to).includes("\n") && end < text.length) {
+    const next = text.indexOf("\n", end + 1);
+    end = next < 0 ? text.length : next;
+  }
+  const lines = text.slice(start, end).split("\n");
+  const insert = lines.reduce((joined, line) => {
+    const content = line.replace(
+      /^\s*(?:(?:[-+*]|\d+[.)])\s+(?:\[[ xX]\]\s+)?|\[[ xX]\]\s+|>\s*)?/,
+      "",
+    );
+    return joined + (!joined || /\s$/.test(joined) ? "" : " ") + content;
+  });
+  return { from: start, to: end, insert };
+}
+
+const join: Command = (view) => {
+  if (view.state.readOnly) return false;
+  const { from, to } = view.state.selection.main;
+  const change = joinLines(view.state.doc.toString(), from, to);
+  view.dispatch({
+    changes: change,
+    selection: EditorSelection.cursor(change.from + change.insert.length),
+    annotations: isolateHistory.of("full"),
+    userEvent: "input",
+  });
+  return true;
+};
+
 type Block = "bullet" | "number" | "task" | "quote" | number;
 function block(kind: Block): Command {
   return (view) => {
@@ -135,6 +171,7 @@ export function inList(state: EditorState) {
 }
 
 export const formattingKeymap: KeyBinding[] = [
+  { key: "Ctrl-j", run: join, preventDefault: true },
   { key: "Ctrl-b", run: inline("**") },
   { key: "Ctrl-i", run: inline("*") },
   { key: "Ctrl-Shift-x", run: inline("~~") },

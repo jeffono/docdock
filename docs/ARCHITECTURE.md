@@ -56,7 +56,7 @@ already in its language. An unknown code shows as an unexpected error with its r
 
 ## Panel
 
-M0 prototype. `panel.rs` is a pure state machine, without Win32 access:
+`panel.rs` is a pure state machine, without Win32 access:
 
 ```text
 Hidden → Arming (cursor at edge, waiting) → Open → Pinned
@@ -109,13 +109,98 @@ per-monitor DPI awareness (PMv2).
   cursor. UI `pointerdown` requests activation, which makes the panel summoned at the next poll. At each cursor poll, the panel remembers the last foreground
   app outside itself and the native picker; on close, focus returns to that app unless the user is already
   in another. If it no longer exists, focus goes to the desktop.
-- **Web page:** its own window (`web.rs`), owned by the panel, below the top bar. The panel thread positions
+- **Web page:** its own window (`web.rs`), owned by the panel, below the header and unified bar. The panel thread positions
   and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
   because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
   capability, Tauri rejects remote-origin commands and `lib.rs` accepts commands only from the `main`
   window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
-  navigate in the page window itself.
+  navigate in the page window itself. `on_navigation` sees only the main frame, so `platform/guard.rs`
+  cancels iframe navigations to Tauri's origins and every external scheme launch from any frame; the
+  window is created blank and navigates only once the guard and the navigation observers are
+  installed. Tauri registers the window before that, so one lock covers the whole open: a concurrent
+  open waits instead of navigating the unguarded window, and a window whose setup failed is never
+  navigated.
+- **Browser mode:** a shown page replaces the note list. Notes hides and disables its native window,
+  retaining its document and history; the Browser tab restores it at the current panel position. The tab can also show an empty state
+  before a native page exists. Both tabs share the search field and a contextual "+" action.
+  Hidden pages are excluded from positioning, sliding, activation and focus tracking. Closing the panel
+  disables the shown page too. Back/forward use WebView2's history, guarded by native availability.
+  `platform/browser.rs` observes SourceChanged, DocumentTitleChanged and HistoryChanged on the WebView2
+  UI thread and emits `web-state` (URL, title, back/forward availability) to main. The page sends no
+  messages to Rust. The panel thread emits `web-visible` after switching visibility. UI metadata is text.
+  The unified bar shows the current URL, with a separate draft while typing. `suggestions.ts` supplies
+  pure intent, entries and default selection rules; notes, Create and web actions share arrow/Enter
+  selection. Notes queries stay local; choosing Search the web enters `?` mode. URL-like text offers
+  Open explicitly; only an http(s) prefix makes Open the default over notes/Create.
+  In browser or `?` mode, Rust queries DuckDuckGo after a short debounce (minimum two characters).
+  A generation discards stale responses, including A → B → A. `ureq` uses a two-second timeout, no
+  cookies/referer or redirects; JSON is capped at 32 KiB, eight unique phrases of 200 characters,
+  without controls. Failures silently leave local entries. Text is rendered as text; CSP is unchanged.
+  `search_engine` in settings.json defaults to `duckduckgo` (the supported engine), without settings UI.
+  SourceChanged records actual http(s) visits, not submitted input, through a serialized atomic update
+  of `address-history.json` in app_config_dir. Most recent first, deduplicated, 300 entries; corrupt
+  history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
+  remains first for Enter. Browser suggestions float over the page. `web_overlay` sends their measured height to the panel
+  thread; `platform/windows.rs` combines a top cutout with monitor clipping and a two-logical-pixel
+  side/bottom inset using `SetWindowRgn`. Bounds and viewport never change for suggestions. The stored
+  cutouts are reapplied during every slide frame and DPI relocation; Windows owns successful regions.
+  Esc or moving focus to the page dismisses the dropdown and removes only its top cutout.
+- **Mobile pages:** all sites in `web` receive a mobile Android identity. Before its first real
+  navigation, `platform/browser.rs` reads WebView2's default `Settings2.UserAgent`, replaces the
+  Windows platform with `Linux; Android 10; K`, inserts `Mobile` and changes `Edg/` to `EdgA/`,
+  retaining the installed engine versions. Setting the UA alone left Windows Client Hints on
+  WebView2 156, so `Emulation.setUserAgentOverride` also supplies Android/mobile metadata; omitted
+  brand/version lists retain the runtime's values. Setup waits for CDP acknowledgement (five-second
+  limit), and destroys the blank window on failure, just as for guard/observer installation.
+  The target keeps the override across navigation, reload and renderer replacement (verified after
+  a deliberate renderer crash); a new window installs it again. Real-app checks on DuckDuckGo,
+  GitHub, English Wikipedia and Google Search showed mobile layouts, `Sec-CH-UA-Mobile: ?1`,
+  `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
+  still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
+  native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
+- **Edge features:** `platform/edge.rs` filters WebView2's accelerator keys and context menu in both
+  windows, installed natively before the first navigation, so no script or channel is involved.
+  Edge's dialogs and popups (downloads, history, print, save, view source, DevTools, find) either
+  cannot be closed in the panel or take focus from it, which closes the panel; the find bar is a
+  separate popup window. Keys outside an allowlist lose their browser action
+  (`IsBrowserAcceleratorKeyEnabled = false`) but still reach the content as key events, so the
+  editor gets Ctrl+J. The page keeps reload, zoom and back/forward; the UI keeps none, except
+  DevTools in debug builds. Ctrl+Tab on the page is consumed natively and emitted to `main` as
+  `panel-toggle-mode`; the page never sees it. Context menus keep only editing items, plus
+  back/forward/reload on the page; unknown or future items are dropped.
+- **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
+  or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
+  `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
+  well-formed, through WebView2's DevTools protocol: `Target.getTargetInfo` (the page target id is
+  the main frame id), `Page.createIsolatedWorld` (world `docdock`, reused per document), then
+  `Runtime.enable` only to receive that world's `executionContextCreated` with its `uniqueId`,
+  `Runtime.disable`, and `Runtime.evaluate` with `uniqueContextId`. A numeric context id may name
+  another context, even the page's own world, after a cross-process navigation; a `uniqueId` names
+  one context of one document, so evaluation never lands elsewhere. Exactly one isolated `docdock`
+  context of the main frame with the returned id must match, with a `uniqueId`, or nothing is
+  evaluated. While enabled, `Runtime` serializes the page's console calls, so a page can notice a read
+  happening, but nothing more. The isolated world shares the DOM but not the page's globals or
+  prototypes, so the page cannot replace `getSelection`, `slice` or `toWellFormed` there, and the
+  response stays under about 150 KB. The one-shot completion handlers are the only receivers; the
+  page cannot call or observe the world. Handlers run on the WebView2 UI thread and send over a
+  channel that the async command waits on in a blocking-pool thread (`spawn_blocking`), for two
+  seconds at most, so concurrent calls against a hung page hold no async runtime worker; the page
+  stays frozen itself (navigating away waits on its renderer) while the panel keeps working.
+  Navigation identity changes on `NavigationStarting` and on commit (`ContentLoading`); a navigation
+  is in flight until it commits or `NavigationCompleted` reports it, and a commit settles older ones.
+  Nothing is evaluated while one is in flight, since its document may commit mid-read before the UI
+  thread hears of it, and the result counts only if the identity and URL are unchanged before and
+  after evaluation, so a same-URL reload or A → B → A discards it. The title comes from the same
+  evaluation because WebView2's native title can still be the previous document's after the next
+  one commits; without a result, title and selection are empty. Reads take turns, because a
+  `Runtime.enable` lists contexts only once while the domain is on, and the event handler and the
+  domain are released whether `Runtime.enable` succeeds or fails. The response
+  is still untrusted: only an array of two strings up to 256 KiB is accepted; the title loses
+  controls, the selection's line endings become LF and controls other than newline and tab are
+  removed; both are trimmed and cut at their limits. Selections inside iframes are not read. Native
+  URL and title are bounded by Chromium (2 MB URLs, 4,096-character titles), also in the
+  `Target.getTargetInfo` response.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
@@ -133,10 +218,12 @@ per-monitor DPI awareness (PMv2).
 `notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
 recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
-which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title and
-tag scalars, flow lists and block lists are extracted as plain text by `features/notes/markdown.ts`.
+which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title,
+http(s) url and tag scalars, flow lists and block lists are extracted as plain text by
+`features/notes/markdown.ts`.
 The small parser ignores unsupported YAML; an unquoted `#` after whitespace starts a comment, while
-quoted `#` and `a#b` are literal. The raw text remains unchanged.
+quoted `#` and `a#b` are literal. Double-quoted scalars accept JSON escapes; single-quoted scalars
+accept doubled apostrophes. The raw text remains unchanged.
 
 **Search.** `features/notes/search.ts` keeps an in-memory index in the UI, a pure module without IPC.
 `notes_list` carries each note's modified time (ms since the Unix epoch); `syncIndex` compares it with the
@@ -194,6 +281,19 @@ footnotes, and holds link, image, alert and frontmatter rules. `render.ts` turns
 of allowlisted tags and attributes, then DOM nodes, rebuilt when the note or its path changes. Raw
 HTML stays text; links and images follow the shared destination rules; footnote definitions render
 where they are written.
+
+Fenced code uses `code-colors.ts`: a shared registry of lazy local Lezer grammars for JavaScript,
+TypeScript, JSX/TSX, JSON, CSS and HTML. These cover common web snippets with four grammar packages;
+unknown or unlabeled languages stay plain. Reading waits for the matching cached grammar loads, then
+builds only text and fixed-class spans in the allowlisted model. A failed load leaves code plain;
+card attachment cleanup prevents a late load replacing newer content. The editor mounts the same
+parsers through CodeMirror's `codeLanguages`, with the same scoped highlighter and external CSS tokens.
+Markdown formatting walks ignore mounted code trees, so embedded syntax cannot become note widgets.
+No generated highlighting stylesheet or inline style is used. Parser chunks load only when requested
+(some HTML/JavaScript code is already shared with CodeMirror Markdown support).
+
+Ctrl+Tab is handled in the main window capture phase, before editor keymaps, and switches the
+Notes/Browser view through the guarded editor leave path. On the page, see "Edge features".
 
 **Editor.** The pencil in an expanded card's header, or Ctrl+E on the selected card, opens
 `features/notes/Editor.svelte` with the whole raw text, including frontmatter, read fresh from disk. The one
@@ -297,7 +397,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Data:** one `search.ts` index, synced after each `notes_list`, serialized; `pinned_list` after each
   `notes-changed`. A card in preview or expanded needs its raw text, read with `notes_open` into
   `contents` and refreshed on `notes-changed`; entries nobody shows are dropped. Web items of
-  `_pinned.md` are skipped until M4.
+  `_pinned.md` appear in file order as one-line cards with the link label and host; no preview or
+  network fetch is needed. Click or Enter opens the page through the save guard, and the bookmark
+  removes it. Web cards ignore collapsed state and participate in the same selection model.
 - **State:** one `expanded` path (not remembered: `panel-hidden` clears it once editing is left);
   `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
   query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
@@ -322,9 +424,22 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Creating:** `notes_save(name, "", "")` at the folder root with `noteFileName` (no separators, drive or
   `..`, no device names, case-insensitive uniqueness, never `_pinned.md`); a conflict because another app
   took the name tries the next number. The empty file's title is its name.
+- **Save page as note:** the browser bar reads `web_selection` on demand. `page.ts` writes title and
+  URL as double-quoted YAML scalars (escaping controls and line breaks), and prefixes every selected
+  line with `> ` (blank lines with `>`); no selection leaves the body empty. The existing create flow
+  uses a sanitized title, falling back to the host, and `noteFileName` at the folder root, with an empty
+  base and conflict retries. After saving it hides the page and expands the note in edit mode. An
+  unavailable folder/page or pending capture disables the action; errors use the existing notice.
+- **Note page action:** the search index carries the parsed http(s) `url:` separately from web-pin
+  card URLs, so notes keep their expand/edit behavior. Their header offers Open page through the same
+  guarded `openPage` path as links, flushing edits before opening. Other schemes are ignored.
+- **Existing page pins:** `_pinned.md` web entries still open and can be removed from their cards;
+  new captures use the note pin action after saving through "+".
 - **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
   from the header's "Pin panel" thumbtack. Card actions use its `quiet` prop; the bookmark fills when
   pressed. The root `_pinned.md` entry is skipped by `search` for both empty and nonempty queries.
+- **Links:** rendered-note http(s) links open in the panel; Ctrl+click and mailto use the validated
+  external-open command. Anchors keep scrolling within the note. Main navigation rules stay strict.
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 
@@ -369,3 +484,11 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
   kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.
+- **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
+  scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its
+  own `location` (also cross-origin and nested), meta refresh and an HTTP redirect. WebView2 raised only
+  `FrameNavigationStarting` and `LaunchingExternalUriScheme`, then showed its "open this app?" prompt with
+  "always allow"; one click launched the app. `http://tauri.localhost` in an iframe loaded the UI as a
+  local origin, where only the `main` label and capability rejected `invoke`. Main-frame links and
+  `location`, and `window.open`, stayed blocked by `on_navigation` and `on_new_window`; Chromium blocked
+  `file:` iframes and cross-origin `top.location` without a gesture.

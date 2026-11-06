@@ -1,6 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import { expect, test } from "vitest";
-import { toggleInline } from "./formatting";
+import { joinLines, toggleInline } from "./formatting";
 
 test.each(["**", "*", "~~", "`"])(
   "inline %s toggle removes only matching pairs and preserves surrounding user text",
@@ -39,3 +39,38 @@ test.each(["**", "*", "~~", "`"])(
     );
   },
 );
+
+// Catches content loss or leftover Markdown prefixes when joining editor lines.
+test.each(["- ", "* ", "+ ", "1. ", "2) ", "- [ ] ", "* [x] ", "[X] ", "> ", ">   "])(
+  "join removes the following line's %s prefix and indentation",
+  (prefix) => {
+    expect(joinLines(`first\n  ${prefix}second\nlast`, 2, 2)).toEqual({
+      from: 0,
+      to: 14 + prefix.length,
+      insert: "first second",
+    });
+  },
+);
+test("join spans all selected lines and leaves surrounding lines untouched", () => {
+  const text = "before\nfirst\n- second\n> third\nafter";
+  const change = joinLines(text, 9, 26);
+  expect(EditorState.create({ doc: text }).update({ changes: change }).state.doc.toString()).toBe(
+    "before\nfirst second third\nafter",
+  );
+});
+// Catches Ctrl+J joining, and stripping, a line just below a selection of whole lines.
+test("join ignores the line where a multi-line selection ends at its start", () => {
+  expect(joinLines("first\nsecond\n- third", 0, 13)).toEqual({
+    from: 0,
+    to: 12,
+    insert: "first second",
+  });
+});
+test.each([
+  ["\n  next", "next"],
+  ["first \n next", "first next"],
+  ["first\n next", "first next"],
+  ["last", "last"],
+])("join spacing preserves existing whitespace in %j", (text, insert) => {
+  expect(joinLines(text, 0, 0).insert).toBe(insert);
+});

@@ -3,7 +3,7 @@ import type { Snippet } from "svelte";
 import { date, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import Highlight from "./Highlight.svelte";
-import type { Card } from "./list";
+import { type Card, pageHost } from "./list";
 import { renderNote } from "./render";
 import "./content.css";
 
@@ -17,6 +17,7 @@ let {
   onpin,
   onedit,
   onlink,
+  onpage,
   editing = false,
   status = "",
   editor,
@@ -34,6 +35,7 @@ let {
   onedit: () => void;
   /** Handles a click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
+  onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
   /** Saving… or Saved while editing; empty when a notice explains a problem instead. */
@@ -94,11 +96,12 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   data-path={card.hit.path}
 >
   <header>
-    <div class="gutter">
+    {#if !card.url}<div class="gutter">
       <IconButton tabindex={-1} quiet icon={open ? "chevronDown" : "chevronRight"} label={toggleLabel} onclick={onheader} />
-    </div>
+    </div>{/if}
     <button tabindex="-1" class="head" onclick={onheader}>
       <span class="title">{card.hit.title}</span>
+      {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
       {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
       {#if tags.length > 0}
         <small class="tag">{tags[0]}{#if tags.length > 1}<span class="more"> +{tags.length - 1}</span>{/if}</small>
@@ -106,6 +109,9 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     </button>
     {#if status}<small class="status" role="status">{status}</small>{/if}
     <div class="actions">
+      {#if card.hit.url}
+        <IconButton tabindex={-1} quiet icon="arrowRight" label={t("web.openPage")} onclick={() => onpage(card.hit.url!)} />
+      {/if}
       {#if card.level === "expanded"}
         <div class="pencil" class:active={editing}>
           <IconButton tabindex={-1} quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
@@ -131,8 +137,13 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         onclick={bodyClick}
         role="presentation"
         {@attach (element) => {
-          element.replaceChildren(renderNote(text ?? "", card.hit.path));
-          for (const link of element.querySelectorAll("a")) link.tabIndex = -1;
+          let current = true;
+          void renderNote(text ?? "", card.hit.path).then((fragment) => {
+            if (!current) return;
+            element.replaceChildren(fragment);
+            for (const link of element.querySelectorAll("a")) link.tabIndex = -1;
+          });
+          return () => { current = false; };
         }}
       ></div>
       {#if card.level === "preview" && clipped}

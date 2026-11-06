@@ -10,8 +10,10 @@ import {
   insertNewlineContinueMarkup,
   markdown,
 } from "@codemirror/lang-markdown";
+import { syntaxHighlighting } from "@codemirror/language";
 import { type ChangeSet, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
+import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
 import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
@@ -39,7 +41,8 @@ export function editorExtensions(
   label: string,
 ) {
   return [
-    markdown({ extensions: markdownExtensions, addKeymap: false }),
+    markdown({ extensions: markdownExtensions, addKeymap: false, codeLanguages: codeLanguage }),
+    syntaxHighlighting(codeHighlighter),
     history(),
     keymap.of([
       ...formattingKeymap,

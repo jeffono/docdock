@@ -2,12 +2,10 @@
 import type { Locale } from "./ipc";
 
 const en = {
-  "app.web": "Web page",
   "app.pin": "Pin panel",
   "notes.label": "Notes",
   "notes.search": "Search or create a note",
-  "notes.searchPlaceholder": "Search or create a note…",
-  "notes.changeFolder": "Change folder: {path}",
+  "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
   "notes.unavailable": "The notes folder is not available.",
@@ -42,8 +40,20 @@ const en = {
   "leftovers.notice":
     "Interrupted saves left these copies. Restoring turns each one into a note; nothing is deleted.",
   "leftovers.restore": "Restore {note}",
+  "web.openAddress": "Open {text}",
+  "web.search": "Search the web: {text}",
   "web.address": "Page address",
-  "web.open": "Open",
+  "app.mode": "Panel mode",
+  "web.browser": "Browser",
+  "web.empty": "Type an address or search the web above.",
+  "notes.create": "New note (Ctrl+Enter)",
+  "web.notesShortcut": "Notes (Ctrl+Tab)",
+  "web.browserShortcut": "Browser (Ctrl+Tab)",
+  "web.notes": "Notes",
+  "web.saveNote": "Save as note",
+  "web.openPage": "Open page",
+  "web.back": "Back",
+  "web.forward": "Forward",
   "error.unexpected": "Something went wrong: {detail}",
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is not available.",
@@ -74,12 +84,10 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
-  "app.web": "Página web",
   "app.pin": "Fixar painel",
   "notes.label": "Notas",
   "notes.search": "Buscar ou criar uma nota",
-  "notes.searchPlaceholder": "Buscar ou criar uma nota…",
-  "notes.changeFolder": "Trocar pasta: {path}",
+  "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
   "notes.unavailable": "A pasta de notas não está disponível.",
@@ -114,8 +122,20 @@ const ptBR: Record<MessageKey, string> = {
   "leftovers.notice":
     "Salvamentos interrompidos deixaram estas cópias. Restaurar transforma cada uma em nota; nada é apagado.",
   "leftovers.restore": "Restaurar {note}",
+  "web.openAddress": "Abrir {text}",
+  "web.search": "Buscar na web: {text}",
   "web.address": "Endereço da página",
-  "web.open": "Abrir",
+  "app.mode": "Modo do painel",
+  "web.browser": "Navegador",
+  "web.empty": "Digite um endereço ou busque na web acima.",
+  "notes.create": "Nova nota (Ctrl+Enter)",
+  "web.notesShortcut": "Notas (Ctrl+Tab)",
+  "web.browserShortcut": "Navegador (Ctrl+Tab)",
+  "web.notes": "Notas",
+  "web.saveNote": "Salvar como nota",
+  "web.openPage": "Abrir página",
+  "web.back": "Voltar",
+  "web.forward": "Avançar",
   "error.unexpected": "Algo deu errado: {detail}",
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas não está disponível.",

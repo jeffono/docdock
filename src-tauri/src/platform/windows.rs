@@ -11,9 +11,10 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetAsyncKeyState, VK_ESCAPE};
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
-    GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, SW_HIDE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows::core::BOOL;
 
@@ -134,6 +135,8 @@ pub struct PanelWindow {
     top: i32,
     width: i32,
     height: i32,
+    inset: i32,
+    overlay_top: i32,
 }
 
 impl PanelWindow {
@@ -145,6 +148,8 @@ impl PanelWindow {
             top: rect.top,
             width: 0,
             height: 0,
+            inset: 0,
+            overlay_top: 0,
         };
         window.set_enabled(false);
         unsafe {
@@ -187,6 +192,11 @@ impl PanelWindow {
         HWND(self.raw as *mut _)
     }
 
+    pub fn hide(&self) {
+        self.set_enabled(false);
+        let _ = unsafe { ShowWindow(self.hwnd(), SW_HIDE) };
+    }
+
     pub fn exists(&self) -> bool {
         unsafe { IsWindow(Some(self.hwnd())) }.as_bool()
     }
@@ -198,14 +208,34 @@ impl PanelWindow {
         log_failure("SetWindowPos", result);
     }
 
+    /// Reveal the panel border and its floating dropdown without resizing the page viewport.
+    /// Stored here so sliding and monitor clipping preserve both cutouts.
+    pub fn overlay(&mut self, dpi: u32, height: u32, x: i32) {
+        self.inset = (2 * dpi).div_ceil(96) as i32;
+        self.overlay_top = (height * dpi).div_ceil(96) as i32;
+        self.clip(x);
+    }
+
+    fn visible_rect(&self, x: i32) -> Rect {
+        let left = (self.clip.left - x).clamp(self.inset, self.width);
+        let bottom = (self.height - self.inset).max(0);
+        Rect {
+            left,
+            right: (self.clip.right - x)
+                .clamp(0, self.width - self.inset)
+                .max(left),
+            top: self.overlay_top.min(bottom),
+            bottom,
+        }
+    }
+
     /// Clips anything beyond the monitor edges so it never appears on a neighboring monitor.
     fn clip(&self, x: i32) {
-        let left = (self.clip.left - x).clamp(0, self.width);
-        let right = (self.clip.right - x).clamp(0, self.width);
+        let rect = self.visible_rect(x);
         unsafe {
-            let region = CreateRectRgn(left, 0, right, self.height);
+            let region = CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
             // The system takes ownership of the region only if the call succeeds.
-            if SetWindowRgn(self.hwnd(), Some(region), false) == 0 {
+            if SetWindowRgn(self.hwnd(), Some(region), true) == 0 {
                 let _ = DeleteObject(region.into());
             }
         }
@@ -269,4 +299,37 @@ fn log_failure(call: &str, result: windows::core::Result<()>) {
 /// The user's Windows display language, as a `LANGID`.
 pub fn ui_language() -> u16 {
     unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Catches a slide frame restoring the page over the dropdown or focus band.
+    #[test]
+    fn page_cutouts_survive_sliding_across_the_monitor_edge() {
+        let page = PanelWindow {
+            raw: 0,
+            clip: Rect {
+                left: 0,
+                top: 0,
+                right: 1000,
+                bottom: 800,
+            },
+            top: 88,
+            width: 420,
+            height: 712,
+            inset: 3,
+            overlay_top: 160,
+        };
+        assert_eq!(
+            page.visible_rect(900),
+            Rect {
+                left: 3,
+                top: 160,
+                right: 100,
+                bottom: 709
+            }
+        );
+    }
 }

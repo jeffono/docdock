@@ -238,3 +238,23 @@ describe("noteFileName", () => {
     expect(noteFileName("x".repeat(500), []).length).toBeLessThanOrEqual(103);
   });
 });
+
+it("keeps web pages between notes in file order without loading content", () => {
+  const model = buildList({
+    ...base,
+    pinned: [
+      item("b.md"),
+      item("https://example.com/a%28b%29", { kind: "url", title: "Page", collapsed: false }),
+      item("a.md"),
+    ],
+  });
+  expect(paths(model.pinned)).toEqual(["b.md", "https://example.com/a%28b%29", "a.md"]);
+  expect(model.pinned[1]).toMatchObject({ level: "line", url: "https://example.com/a%28b%29" });
+});
+it("activates a pinned page as a page rather than a note read", () => {
+  const url = "https://example.com/";
+  expect(enter(buildList({ ...base, pinned: [item(url, { kind: "url" })] }), url)).toEqual({
+    action: "openPage",
+    url,
+  });
+});

@@ -38,6 +38,8 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
+    #[serde(default)]
+    search_engine: crate::web::SearchEngine,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
     #[serde(default, deserialize_with = "side_or_default")]
@@ -96,6 +98,11 @@ fn load(path: &Path) -> Settings {
 fn read_settings(path: &Path) -> Option<PathBuf> {
     load(path).folder
 }
+pub fn search_engine(app: &AppHandle) -> crate::web::SearchEngine {
+    config(app)
+        .map(|p| load(&p).search_engine)
+        .unwrap_or_default()
+}
 pub fn side(app: &AppHandle) -> Side {
     config(app).map(|p| load(&p).side).unwrap_or_default()
 }
@@ -127,7 +134,7 @@ fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
 }
 /// Writes a complete temporary file next to `path` and renames it over `path` in one step. Any failure
 /// leaves the previous file intact. Only for the app's own settings; notes use `replace_note`.
-fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let temp = write_temp(path, bytes)?;
     fs::rename(&temp, path).inspect_err(|_| {
         let _ = fs::remove_file(&temp);
@@ -895,13 +902,16 @@ mod tests {
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {
+            // The clock alone collides between parallel tests on Windows.
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let p = std::env::temp_dir().join(format!(
-                "docdock-test-{}-{}",
+                "docdock-test-{}-{}-{}",
                 std::process::id(),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_nanos()
+                    .as_nanos(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ));
             fs::create_dir_all(&p).unwrap();
             Self(p)

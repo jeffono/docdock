@@ -50,8 +50,22 @@ pub async fn web_open(
 }
 
 #[tauri::command]
-pub fn web_close(app: AppHandle) -> Result<(), Error> {
-    web::close(&app)
+pub fn web_set_visible(requests: State<'_, Sender<Request>>, visible: bool) {
+    send(requests, Request::SetWebVisible(visible));
+}
+
+#[tauri::command]
+pub fn web_history(app: AppHandle, back: bool) -> Result<(), Error> {
+    web::history(&app, back)
+}
+
+/// Waits on a blocking-pool thread while the WebView2 UI thread runs the selection script, so a
+/// hung page holds neither the main thread nor an async runtime worker that other commands need.
+#[tauri::command]
+pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>, Error> {
+    tauri::async_runtime::spawn_blocking(move || web::selection(&app))
+        .await
+        .map_err(Error::unexpected)?
 }
 
 #[tauri::command]
@@ -179,4 +193,17 @@ pub fn note_image(
             request.uri().path(),
         ));
     });
+}
+
+#[tauri::command(async)]
+pub fn web_suggestions(app: AppHandle, query: String) -> Vec<String> {
+    web::suggestions(&app, &query)
+}
+#[tauri::command(async)]
+pub fn web_addresses(app: AppHandle) -> Vec<String> {
+    web::addresses(&app, None)
+}
+#[tauri::command]
+pub fn web_overlay(requests: State<'_, Sender<Request>>, height: u32) {
+    send(requests, Request::SetWebOverlay(height.min(16384)));
 }

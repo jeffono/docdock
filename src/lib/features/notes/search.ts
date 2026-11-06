@@ -11,6 +11,7 @@ type Entry = {
   path: string;
   title: string;
   tags: string[];
+  url?: string | null;
   modified: number;
   /** The text after the frontmatter. */
   body: string;
@@ -67,6 +68,7 @@ function words(query: string): string[] {
 
 function build(listed: Listed, read: Read | null): Entry {
   let title = listed.name,
+    url: string | null = null,
     tags: string[] = [],
     body = "";
   if (read) {
@@ -76,12 +78,14 @@ function build(listed: Listed, read: Read | null): Entry {
     if (meta) {
       title = meta.title ?? title;
       tags = meta.tags;
+      url = meta.url;
     }
   }
   return {
     path: listed.path,
     title,
     tags,
+    url,
     modified: read?.modified ?? listed.modified,
     body,
     titleKey: collapse(title),
@@ -160,6 +164,7 @@ export type Hit = {
   path: string;
   title: string;
   tags: string[];
+  url?: string | null;
   modified: number;
   /** Around the first match in the body; null when the match is in the title or tags only. */
   snippet: Snippet | null;
@@ -264,6 +269,7 @@ export function search(index: SearchIndex, query: string): Results {
       path: entry.path,
       title: entry.title,
       tags: entry.tags,
+      url: entry.url,
       modified: entry.modified,
       snippet: terms.length ? snippet(entry, terms) : null,
     })),
