@@ -36,7 +36,7 @@ a note with `url:` expands like any note and offers "Open page".
 - [x] (advanced) Read the page selection from Rust without letting the page talk to Rust
 - [x] (standard) Save pages as notes with `url:` in frontmatter; note cards with `url:` offer "Open page"
 - [ ] (standard) Code colors with CodeMirror parsers
-- [ ] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
+- [x] (advanced) Test whether page iframes trigger external schemes without passing through `on_navigation`
 
 ## M5 — Distribute
 

@@ -27,6 +27,12 @@ fn is_web(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https") && !is_internal(url)
 }
 
+/// Iframes bypass `on_navigation`. They keep `about:`, `data:` and `blob:` documents that sites
+/// embed, never Tauri's internal origins; external schemes are cancelled separately.
+fn frame_allowed(raw: &str) -> bool {
+    Url::parse(raw).is_ok_and(|url| !is_internal(&url))
+}
+
 fn parse_url(raw: &str) -> Result<Url, Error> {
     let url = Url::parse(raw).map_err(|error| Error::InvalidUrl {
         detail: error.to_string(),
@@ -63,8 +69,10 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
         .ok_or_else(|| Error::unexpected("main window missing"))?;
     let handle = app.clone();
     let build = move || {
-        // Owned by the panel: it stays above the panel and is destroyed with it.
-        WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(url))
+        // Owned by the panel: it stays above the panel and is destroyed with it. Blank until the
+        // guard is in place: iframes and external schemes bypass `on_navigation`.
+        let blank = Url::parse("about:blank").expect("valid fixed URL");
+        WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(blank))
             .owner(&main)?
             .visible(false)
             .focused(false)
@@ -79,7 +87,12 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
             .build()
     };
     let window = build()?;
+    if let Err(error) = crate::platform::guard(&window, frame_allowed) {
+        let _ = window.destroy();
+        return Err(error);
+    }
     crate::platform::browser::observe(&window)?;
+    window.navigate(url)?;
     let hwnd = window.hwnd()?;
     let _ = requests.send(Request::AttachWeb(hwnd.0 as isize));
     Ok(())
@@ -170,6 +183,27 @@ mod tests {
         assert!(parse_url("http://tauri.app/").is_err());
         assert!(parse_url("http://note-asset.example/").is_err());
         assert!(parse_url("https://tauri.app/").is_ok());
+    }
+
+    #[test]
+    fn frames_keep_embedded_documents_but_never_internal_origins() {
+        for url in [
+            "https://example.com/embed",
+            "about:srcdoc",
+            "about:blank",
+            "data:text/html,x",
+            "blob:https://example.com/1",
+        ] {
+            assert!(frame_allowed(url), "{url}");
+        }
+        for url in [
+            "http://tauri.localhost/",
+            "http://ipc.localhost/",
+            "http://note-asset.localhost/x.png",
+            "not a url",
+        ] {
+            assert!(!frame_allowed(url), "{url}");
+        }
     }
 
     #[test]

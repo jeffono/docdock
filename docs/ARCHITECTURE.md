@@ -115,7 +115,9 @@ per-monitor DPI awareness (PMv2).
   capability, Tauri rejects remote-origin commands and `lib.rs` accepts commands only from the `main`
   window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
-  navigate in the page window itself.
+  navigate in the page window itself. `on_navigation` sees only the main frame, so `platform/guard.rs`
+  cancels iframe navigations to Tauri's origins and every external scheme launch from any frame; the
+  window is created blank and navigates only once the guard is installed.
 - **Browser mode:** a shown page replaces the note list. Notes hides and disables its native window,
   retaining its document and history; Return to page restores it at the current panel position.
   Hidden pages are excluded from positioning, sliding, activation and focus tracking. Closing the panel
@@ -419,3 +421,11 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
   kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.
+- **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
+  scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its
+  own `location` (also cross-origin and nested), meta refresh and an HTTP redirect. WebView2 raised only
+  `FrameNavigationStarting` and `LaunchingExternalUriScheme`, then showed its "open this app?" prompt with
+  "always allow"; one click launched the app. `http://tauri.localhost` in an iframe loaded the UI as a
+  local origin, where only the `main` label and capability rejected `invoke`. Main-frame links and
+  `location`, and `window.open`, stayed blocked by `on_navigation` and `on_new_window`; Chromium blocked
+  `file:` iframes and cross-origin `top.location` without a gesture.
