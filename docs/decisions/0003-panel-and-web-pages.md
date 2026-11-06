@@ -17,6 +17,10 @@ many sites block it.
 - Remote-origin `invoke` is rejected by Tauri's ACL, but `__TAURI_INTERNALS__` exists on the page.
   Never grant this window a `remote` capability. Custom commands do not require a capability for local
   origins, so `lib.rs` accepts them only from the `main` window and the page does not navigate to app origins.
+- `on_navigation` covers only the main frame. Iframes reached external schemes, which WebView2 offers to
+  launch after a prompt, and loaded app origins; the window therefore cancels every
+  `LaunchingExternalUriScheme` and iframe navigations to app origins, and loads the page only after
+  installing that guard. Mailto and other app links on pages do nothing.
 - The page shares the UI's WebView2 profile; only the rendering process is separate.
 - `add_child` would require removing `WS_EX_NOACTIVATE` from the main window, so it was ruled out.
 - The page does not talk to Rust: focus and Esc are observed by the panel thread.
