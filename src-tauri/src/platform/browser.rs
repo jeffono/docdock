@@ -1,14 +1,20 @@
 //! Observe native WebView2 state on its UI thread. No message bridge in remote pages: Rust may run a
-//! fixed script and read its result, but the page has nothing it can call.
-use std::sync::mpsc::{self, Receiver};
+//! fixed script in an isolated world and read its result, but the page has nothing it can call.
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 
+use serde_json::{Value, json};
 use tauri::{Emitter, Manager, WebviewWindow};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 use webview2_com::{
-    CoTaskMemPWSTR, DocumentTitleChangedEventHandler, ExecuteScriptCompletedHandler,
-    HistoryChangedEventHandler, SourceChangedEventHandler,
+    CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, DocumentTitleChangedEventHandler,
+    HistoryChangedEventHandler, NavigationStartingEventHandler, SourceChangedEventHandler,
 };
 use windows::core::{BOOL, HSTRING, PWSTR};
+
+/// Main-frame navigations started in the page window, so a result can be tied to one document even
+/// across a same-URL reload or A → B → A. One counter suffices: there is a single page window.
+static NAVIGATIONS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +76,10 @@ pub fn observe(window: &WebviewWindow) -> tauri::Result<()> {
                 }
                 Ok(())
             }));
+            let navigation = NavigationStartingEventHandler::create(Box::new(|_, _| {
+                NAVIGATIONS.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }));
             let handle = app.clone();
             let title = DocumentTitleChangedEventHandler::create(Box::new(move |page, _| {
                 if let Some(page) = page {
@@ -82,6 +92,7 @@ pub fn observe(window: &WebviewWindow) -> tauri::Result<()> {
             page.add_SourceChanged(&source, &mut token)?;
             page.add_HistoryChanged(&history, &mut token)?;
             page.add_DocumentTitleChanged(&title, &mut token)?;
+            page.add_NavigationStarting(&navigation, &mut token)?;
             report(&app, &page)
         };
         if let Err(error) = install() {
@@ -114,46 +125,127 @@ pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
     })
 }
 
-/// What `read` reports, in order: the native state, then the script result.
+/// What `read` reports, in order: the native state, then the script result. A failed step drops
+/// the sender instead, so the receiver sees a disconnect.
 pub enum Read {
     Page {
         url: String,
         title: String,
     },
-    /// JSON the script returned in the main frame; `None` if it failed or the page navigated meanwhile.
+    /// `Runtime.evaluate` response JSON; `None` if a navigation started or the URL changed meanwhile.
     Script(Option<String>),
 }
 
-/// Reads URL and title from WebView2, then runs a fixed script in the page's main frame. The page
-/// cannot call Rust: only this one-shot completion handler receives its value, which is untrusted.
-/// The handler runs on the WebView2 UI thread, so the caller waits on the receiver from another thread.
-pub fn read(window: &WebviewWindow, script: &'static str) -> tauri::Result<Receiver<Read>> {
+/// Isolated world for Rust's own scripts: it shares the DOM but not the page's globals or
+/// prototypes, and the page cannot reach it.
+const WORLD: &str = "docdock";
+
+/// Reads URL and title from WebView2, then evaluates a fixed expression in an isolated world of the
+/// main frame through the DevTools protocol. The page cannot call Rust: only these one-shot
+/// completion handlers receive results, which are untrusted. The page cannot override the
+/// expression's builtins there, so the expression's own length limit bounds the response.
+/// The handlers run on the WebView2 UI thread, so the caller waits on the receiver from another thread.
+pub fn read(window: &WebviewWindow, expression: &'static str) -> tauri::Result<Receiver<Read>> {
     let (sender, receiver) = mpsc::channel();
     window.with_webview(move |view| unsafe {
         let run = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
-            let url = source(&page)?;
+            let document = current(&page)?;
             let mut title = PWSTR::null();
             page.DocumentTitle(&mut title)?;
             let title = CoTaskMemPWSTR::from(title).to_string();
             let _ = sender.send(Read::Page {
-                url: url.clone(),
+                url: document.1.clone(),
                 title,
             });
-            let reply = sender.clone();
-            let current = page.clone();
-            let done = ExecuteScriptCompletedHandler::create(Box::new(move |result, json| {
-                let same = source(&current).is_ok_and(|now| now == url);
-                let _ = reply.send(Read::Script((result.is_ok() && same).then_some(json)));
-                Ok(())
-            }));
-            page.ExecuteScript(&HSTRING::from(script), &done)
+            evaluate(&page, document, expression, sender)
         };
         if let Err(error) = run() {
             eprintln!("[web] read: {error}");
         }
     })?;
     Ok(receiver)
+}
+
+/// The page target's id is its main frame's id; the world is reused per document by name.
+fn evaluate(
+    page: &ICoreWebView2,
+    document: Document,
+    expression: &'static str,
+    reply: Sender<Read>,
+) -> windows::core::Result<()> {
+    call(
+        page,
+        "Target.getTargetInfo",
+        json!({}),
+        move |page, info| {
+            let info = parse(&info);
+            let Some(frame) = info["targetInfo"]["targetId"].as_str() else {
+                return Ok(());
+            };
+            let world = json!({ "frameId": frame, "worldName": WORLD });
+            call(
+                page,
+                "Page.createIsolatedWorld",
+                world,
+                move |page, world| match parse(&world)["executionContextId"].as_i64() {
+                    Some(context) => evaluate_in(page, context, document, expression, reply),
+                    None => Ok(()),
+                },
+            )
+        },
+    )
+}
+
+/// The result counts only if no navigation started and the URL is unchanged since `document`.
+fn evaluate_in(
+    page: &ICoreWebView2,
+    context: i64,
+    document: Document,
+    expression: &'static str,
+    reply: Sender<Read>,
+) -> windows::core::Result<()> {
+    let script = json!({
+        "expression": expression,
+        "contextId": context,
+        "returnByValue": true,
+        "silent": true,
+    });
+    call(page, "Runtime.evaluate", script, move |page, result| {
+        let same = unsafe { current(page) }.is_ok_and(|now| now == document);
+        let _ = reply.send(Read::Script(same.then_some(result)));
+        Ok(())
+    })
+}
+
+/// Calls a DevTools protocol method; `then` receives the response JSON only on success.
+fn call(
+    page: &ICoreWebView2,
+    method: &str,
+    params: Value,
+    then: impl FnOnce(&ICoreWebView2, String) -> windows::core::Result<()> + 'static,
+) -> windows::core::Result<()> {
+    let target = page.clone();
+    let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
+        if result.is_ok() {
+            then(&target, json)?;
+        }
+        Ok(())
+    }));
+    let params = HSTRING::from(params.to_string());
+    unsafe { page.CallDevToolsProtocolMethod(&HSTRING::from(method), &params, &done) }
+}
+
+fn parse(json: &str) -> Value {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+/// Identifies the shown document: navigations started so far and the URL.
+type Document = (u64, String);
+
+unsafe fn current(page: &ICoreWebView2) -> windows::core::Result<Document> {
+    let navigations = NAVIGATIONS.load(Ordering::Relaxed);
+    Ok((navigations, unsafe { source(page)? }))
 }
 
 unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
