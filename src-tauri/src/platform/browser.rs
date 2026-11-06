@@ -203,13 +203,11 @@ pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
     })
 }
 
-/// What `read` reports, in order: the native state, then the script result. A failed step drops
+/// What `read` reports, in order: the native URL, then the script result. A failed step drops
 /// the sender instead, so the receiver sees a disconnect.
 pub enum Read {
-    Page {
-        url: String,
-        title: String,
-    },
+    /// The page's URL; its title comes only from the script, in the same document.
+    Page { url: String },
     /// `Runtime.evaluate` response JSON, sent only if it came from the document of `Page`.
     Script(String),
 }
@@ -218,12 +216,12 @@ pub enum Read {
 /// prototypes, and the page cannot reach it.
 const WORLD: &str = "docdock";
 
-/// Reads URL and title from WebView2, then evaluates a fixed expression in an isolated world of the
+/// Reads the URL from WebView2, then evaluates a fixed expression in an isolated world of the
 /// main frame through the DevTools protocol. The page cannot call Rust: only these one-shot
 /// completion handlers receive results, which are untrusted. The page cannot override the
 /// expression's builtins there, so the expression's own length limit bounds the response.
 /// Nothing is evaluated while a navigation is in flight, and the result is dropped unless the
-/// document is still the one whose URL and title were reported.
+/// document is still the one whose URL was reported.
 /// The handlers run on the WebView2 UI thread, so the caller waits on the receiver from another thread.
 pub fn read(window: &WebviewWindow, expression: &'static str) -> tauri::Result<Receiver<Read>> {
     let (sender, receiver) = mpsc::channel();
@@ -231,14 +229,8 @@ pub fn read(window: &WebviewWindow, expression: &'static str) -> tauri::Result<R
         let run = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
             let url = source(&page)?;
-            let mut title = PWSTR::null();
-            page.DocumentTitle(&mut title)?;
-            let title = CoTaskMemPWSTR::from(title).to_string();
             let identity = navigations().identity();
-            let _ = sender.send(Read::Page {
-                url: url.clone(),
-                title,
-            });
+            let _ = sender.send(Read::Page { url: url.clone() });
             match identity {
                 Some(identity) => evaluate(&page, Document { identity, url }, expression, sender),
                 None => Ok(()),
@@ -314,15 +306,29 @@ fn unique_context(
     };
     let mut token = 0;
     unsafe { events.add_DevToolsProtocolEventReceived(&created, &mut token)? };
-    // Enabling reports every existing context before its response.
-    call(page, "Runtime.enable", json!({}), move |page, _| {
-        unsafe { events.remove_DevToolsProtocolEventReceived(token)? };
-        call(page, "Runtime.disable", json!({}), |_, _| Ok(()))?;
-        match found.take().as_slice() {
-            [context] => then(page, context.clone()),
+    let target = page.clone();
+    let receiver = events.clone();
+    // Success or failure, neither the handler nor the domain outlives this read.
+    let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, _| {
+        let _ = unsafe { receiver.remove_DevToolsProtocolEventReceived(token) };
+        let _ = call(&target, "Runtime.disable", json!({}), |_, _| Ok(()));
+        match (result.is_ok(), found.take().as_slice()) {
+            (true, [context]) => then(&target, context.clone()),
             _ => Ok(()),
         }
-    })
+    }));
+    // Enabling reports every existing context before its response.
+    let enabled = unsafe {
+        page.CallDevToolsProtocolMethod(
+            &HSTRING::from("Runtime.enable"),
+            &HSTRING::from("{}"),
+            &done,
+        )
+    };
+    if enabled.is_err() {
+        let _ = unsafe { events.remove_DevToolsProtocolEventReceived(token) };
+    }
+    enabled
 }
 
 /// The `uniqueId` of an `executionContextCreated` event for this read's world: isolated, named

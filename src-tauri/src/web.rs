@@ -62,6 +62,7 @@ fn navigate_here(app: &AppHandle, url: Url) {
 /// navigate that window early nor create a second one. Never taken on the WebView2 UI thread,
 /// which `open` waits on.
 static READY: Mutex<bool> = Mutex::new(false);
+static READING: Mutex<()> = Mutex::new(());
 
 /// Navigates the existing window or creates an invisible one; the panel thread positions and shows it.
 pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Result<(), Error> {
@@ -192,21 +193,23 @@ pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
     let Some(window) = app.get_webview_window(LABEL) else {
         return Ok(None);
     };
+    // `Runtime.enable` lists contexts only to the first of overlapping reads, so reads take turns.
+    let _turn = READING.lock().unwrap_or_else(PoisonError::into_inner);
     let deadline = Instant::now() + SELECTION_TIMEOUT;
     let reply = crate::platform::browser::read(&window, SELECTION_SCRIPT)?;
     let wait = || reply.recv_timeout(deadline.saturating_duration_since(Instant::now()));
-    let Ok(Read::Page { url, title }) = wait() else {
+    let Ok(Read::Page { url }) = wait() else {
         return Ok(None);
     };
     if !Url::parse(&url).is_ok_and(|url| is_web(&url)) {
         return Ok(None);
     }
-    // Without a script result, the native title stands, possibly lagging behind the URL.
+    // Without a script result, no title: the native one may still belong to the previous page.
     let (title, selection) = match wait() {
         Ok(Read::Script(json)) => decode_page(&json),
         _ => None,
     }
-    .unwrap_or((title, String::new()));
+    .unwrap_or_default();
     Ok(Some(PageSelection {
         url,
         title,

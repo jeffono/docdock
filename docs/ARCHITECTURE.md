@@ -166,7 +166,9 @@ per-monitor DPI awareness (PMv2).
   thread hears of it, and the result counts only if the identity and URL are unchanged before and
   after evaluation, so a same-URL reload or A → B → A discards it. The title comes from the same
   evaluation because WebView2's native title can still be the previous document's after the next
-  one commits; without a result, the native title is returned with an empty selection. The response
+  one commits; without a result, title and selection are empty. Reads take turns, because a
+  `Runtime.enable` lists contexts only once while the domain is on, and the event handler and the
+  domain are released whether `Runtime.enable` succeeds or fails. The response
   is still untrusted: only an array of two strings up to 256 KiB is accepted; the title loses
   controls, the selection's line endings become LF and controls other than newline and tab are
   removed; both are trimmed and cut at their limits. Selections inside iframes are not read. Native
