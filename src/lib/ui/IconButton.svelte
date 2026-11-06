@@ -9,6 +9,7 @@ let {
   quiet = false,
   accent = false,
   onclick,
+  tabindex,
 }: {
   icon: ComponentProps<typeof Icon>["name"];
   label: string;
@@ -19,10 +20,11 @@ let {
   /** Accent icon without a pressed surface, for the active editor. */
   accent?: boolean;
   onclick: () => void;
+  tabindex?: number;
 } = $props();
 </script>
 
-<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {onclick}>
+<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {tabindex} {onclick}>
   <Icon name={icon} filled={icon === "bookmark" && pressed === true} />
 </button>
 

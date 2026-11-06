@@ -9,6 +9,7 @@ import "./content.css";
 
 let {
   card,
+  id,
   text,
   selected,
   onheader,
@@ -22,6 +23,7 @@ let {
   editor,
 }: {
   card: Card;
+  id: string;
   /** Raw text of the note once read; the line state does not need it. */
   text: string | undefined;
   /** Chosen with the arrows or the mouse. */
@@ -79,7 +81,13 @@ const tags = $derived(card.hit.tags);
 const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 </script>
 
-<article
+<div
+  class="card"
+  {id}
+  role="option"
+  tabindex="-1"
+  aria-selected={selected}
+  aria-label={card.hit.title}
   bind:this={root}
   class:selected={selected && !editing}
   class:line={!open}
@@ -91,9 +99,9 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 >
   <header>
     <div class="gutter">
-      <IconButton quiet icon={open ? "chevronDown" : "chevronRight"} label={toggleLabel} onclick={onheader} />
+      <IconButton tabindex={-1} quiet icon={open ? "chevronDown" : "chevronRight"} label={toggleLabel} onclick={onheader} />
     </div>
-    <button class="head" onclick={onheader}>
+    <button tabindex="-1" class="head" onclick={onheader}>
       <span class="title">{card.hit.title}</span>
       {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
       {#if tags.length > 0}
@@ -104,10 +112,10 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     <div class="actions">
       {#if card.level === "expanded"}
         <div class="pencil" class:active={editing}>
-          <IconButton quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
+          <IconButton tabindex={-1} quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
         </div>
       {/if}
-      <IconButton quiet icon="bookmark" label={t("card.pin")} pressed={card.pinned} onclick={onpin} />
+      <IconButton tabindex={-1} quiet icon="bookmark" label={t(card.pinned ? "card.unpin" : "card.pin")} pressed={card.pinned} onclick={onpin} />
     </div>
   </header>
   {#if card.gone}<p class="notice" role="status">{t("notes.gone")}</p>{/if}
@@ -128,19 +136,20 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         role="presentation"
         {@attach (element) => {
           element.replaceChildren(renderNote(text ?? "", card.hit.path));
+          for (const link of element.querySelectorAll("a")) link.tabIndex = -1;
         }}
       ></div>
       {#if card.level === "preview" && clipped}
-        <div class="reveal"><button onclick={onexpand}>{t("card.showAll")}</button></div>
+        <div class="reveal"><button tabindex="-1" onclick={onexpand}>{t("card.showAll")}</button></div>
       {:else if card.level === "expanded" && card.pinned}
-        <div class="reveal"><button onclick={onpreview}>{t("card.showLess")}</button></div>
+        <div class="reveal"><button tabindex="-1" onclick={onpreview}>{t("card.showLess")}</button></div>
       {/if}
     </div>
   {/if}
-</article>
+</div>
 
 <style>
-  article {
+  .card {
     margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
@@ -148,25 +157,25 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   }
 
   /* A row is the same card, reduced to its line. */
-  article.row {
+  .card.row {
     margin-bottom: 0;
     border-color: transparent;
     background: transparent;
   }
 
-  article.selected {
+  .card.selected {
     border-color: var(--color-accent);
   }
 
-  article.selected.line {
+  .card.selected.line {
     background: var(--color-selected);
   }
 
-  article.editing {
+  .card.editing {
     border-color: var(--color-accent);
   }
 
-  article.selected.line .title {
+  .card.selected.line .title {
     color: var(--color-accent);
   }
 
@@ -191,11 +200,11 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   .gutter, .actions :global(button) {
     opacity: 0;
   }
-  article:hover .gutter,
-  article[aria-current="true"] .gutter,
+  .card:hover .gutter,
+  .card[aria-current="true"] .gutter,
   .gutter:focus-within,
-  article:hover .actions :global(button),
-  article[aria-current="true"] .actions :global(button),
+  .card:hover .actions :global(button),
+  .card[aria-current="true"] .actions :global(button),
   .actions :global(button:focus-visible),
   .pencil.active :global(button) {
     opacity: 1;
@@ -208,7 +217,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     align-items: center;
   }
 
-  article.expanded > header {
+  .card.expanded > header {
     position: sticky;
     z-index: 1;
     top: 0;
@@ -235,7 +244,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     text-align: left;
   }
 
-  article.row:not(.selected) .head:hover {
+  .card.row:not(.selected) .head:hover {
     background: var(--color-surface);
   }
 
