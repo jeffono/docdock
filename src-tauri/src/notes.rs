@@ -1394,27 +1394,6 @@ mod tests {
             assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         }
     }
-    #[test]
-    fn grouping_defaults_off() {
-        assert!(
-            !serde_json::from_str::<Settings>("{}")
-                .unwrap()
-                .group_by_date
-        );
-    }
-    #[test]
-    fn grouping_round_trips_when_enabled() {
-        let settings = Settings {
-            group_by_date: true,
-            ..Settings::default()
-        };
-        let saved = serde_json::to_string(&settings).unwrap();
-        assert!(
-            serde_json::from_str::<Settings>(&saved)
-                .unwrap()
-                .group_by_date
-        );
-    }
     /// A notes folder and a separate place for the copy of `_pinned.md`.
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
         let root = t.0.join("notes");

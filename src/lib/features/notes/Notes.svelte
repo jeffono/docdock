@@ -987,6 +987,7 @@ function shortcut(event: KeyboardEvent) {
         : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
+      ...document.querySelectorAll<HTMLElement>("main > .resize"),
     ];
     const target = event.target as HTMLElement;
     const own = stops.indexOf(target);

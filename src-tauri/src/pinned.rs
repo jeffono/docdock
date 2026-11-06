@@ -341,23 +341,44 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
-/// Moves item bodies between item slots. Unknown lines and all line terminators stay in place,
-/// including an unterminated last line. Duplicate targets retain all their lines.
+/// Moves `target` to the place of `to`, as the UI shows them: one entry per target, at its first
+/// occurrence. Duplicate lines of a target move with it, after it. Item bodies move between item
+/// slots; unknown lines and all line terminators stay in place, including an unterminated last line.
 pub fn move_item(text: &str, target: &str, to: &str) -> String {
     let lines = lines(text);
     let entries = items(&lines);
-    let Some(from) = entries.iter().position(|(_, item)| same(item, target)) else {
+    // The UI entry each line belongs to: the first line with the same target.
+    let entry: Vec<usize> = entries
+        .iter()
+        .map(|(_, item)| {
+            entries
+                .iter()
+                .position(|(_, first)| same(first, &item.target))
+                .unwrap_or(0)
+        })
+        .collect();
+    let mut shown: Vec<usize> = Vec::new();
+    for &first in &entry {
+        if !shown.contains(&first) {
+            shown.push(first);
+        }
+    }
+    let find = |target: &str| {
+        entries
+            .iter()
+            .position(|(_, item)| same(item, target))
+            .and_then(|first| shown.iter().position(|&e| e == entry[first]))
+    };
+    let (Some(from), Some(to)) = (find(target), find(to)) else {
         return text.to_owned();
     };
-    let Some(to) = entries.iter().position(|(_, item)| same(item, to)) else {
-        return text.to_owned();
-    };
+    let moved = shown.remove(from);
+    shown.insert(to, moved);
+    let mut order: Vec<usize> = (0..entries.len()).collect();
+    order.sort_by_key(|&i| shown.iter().position(|&e| e == entry[i]));
     let mut bodies: Vec<&str> = lines.iter().map(|line| line.body).collect();
-    let mut reordered: Vec<&str> = entries.iter().map(|(i, _)| lines[*i].body).collect();
-    let moved = reordered.remove(from);
-    reordered.insert(to, moved);
-    for ((i, _), body) in entries.iter().zip(reordered) {
-        bodies[*i] = body;
+    for ((slot, _), source) in entries.iter().zip(order) {
+        bodies[*slot] = lines[entries[source].0].body;
     }
     lines
         .iter()
@@ -383,11 +404,24 @@ mod tests {
         );
     }
     #[test]
-    fn move_does_not_touch_hidden_or_duplicate_links() {
-        let text = "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [A](a.md)\n- [A copy](a.md)\n- [B](b.md)\n";
+    fn move_does_not_touch_hidden_links() {
+        let text = "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [A](a.md)\n- [B](b.md)\n";
         assert_eq!(
             move_item(text, "a.md", "b.md"),
-            "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [A copy](a.md)\n- [B](b.md)\n- [A](a.md)\n"
+            "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [B](b.md)\n- [A](a.md)\n"
+        );
+    }
+    // Catches a moved pin staying in place because its duplicate line still came first.
+    #[test]
+    fn duplicate_lines_move_with_their_target() {
+        let text = "- [A](a.md)\n- [A copy](a.md)\n- [B](b.md)\n";
+        assert_eq!(
+            move_item(text, "a.md", "b.md"),
+            "- [B](b.md)\n- [A](a.md)\n- [A copy](a.md)\n"
+        );
+        assert_eq!(
+            move_item(text, "b.md", "a.md"),
+            "- [B](b.md)\n- [A](a.md)\n- [A copy](a.md)\n"
         );
     }
     #[test]

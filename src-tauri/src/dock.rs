@@ -364,6 +364,14 @@ impl Dock {
         if let Some(monitor) = monitor_change(&self.monitor, platform::monitors(), self.side) {
             self.relocate(monitor);
         }
+        // A drag whose end never reached Rust (lost capture, rejected request) must not hold the
+        // panel open forever: the released button ends it with the last width.
+        if self.resizing && !platform::primary_button_down() {
+            self.handle(Request::Resize {
+                width: self.width,
+                done: true,
+            });
+        }
         self.track_focus();
         let zone = cursor_zone(cursor, self.monitor.bounds, self.rect, self.side);
         // A user typing on the page can move the mouse away without losing the panel. The page does

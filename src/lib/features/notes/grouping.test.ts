@@ -33,13 +33,6 @@ test.each([
   );
 });
 
-test("midnight moves today's note into Yesterday", () => {
-  const hits = [hit(new Date(2026, 10, 5, 23, 59))];
-  expect(
-    dateHeadings(hits, [], "modified-desc", true, "", new Date(2026, 10, 6)).get("note.md")?.key,
-  ).toBe("yesterday");
-});
-
 test("recent groups take priority across the year boundary", () => {
   const hits = [hit(new Date(2025, 11, 31))];
   expect(

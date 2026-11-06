@@ -8,13 +8,15 @@ use windows::Win32::Graphics::Gdi::{
     SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetAsyncKeyState, VK_ESCAPE};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    EnableWindow, GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
-    GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, SW_HIDE,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
+    IsWindow, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows::core::BOOL;
 
@@ -69,6 +71,14 @@ pub fn cursor_pos() -> Option<Point> {
 /// press is not missed between reads and the "since last read" bit never goes stale.
 pub fn escape_pressed() -> bool {
     unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) as u16 & 0x8001 != 0 }
+}
+
+/// The primary mouse button is held. `GetAsyncKeyState` reads physical buttons, so swapped buttons
+/// make the right one primary.
+pub fn primary_button_down() -> bool {
+    let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
+    let button = if swapped { VK_RBUTTON } else { VK_LBUTTON };
+    unsafe { GetAsyncKeyState(i32::from(button.0)) < 0 }
 }
 
 unsafe extern "system" fn collect_monitor(

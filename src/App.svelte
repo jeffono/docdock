@@ -115,6 +115,7 @@ function resizeStart(event: PointerEvent) {
   event.preventDefault();
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   drag = { x: event.screenX, width: window.innerWidth };
+  pendingWidth = 0;
 }
 function resizeMove(event: PointerEvent) {
   if (!drag) return;
@@ -125,9 +126,10 @@ function resizeMove(event: PointerEvent) {
     if (drag) void action(panelResize(pendingWidth, false));
   });
 }
-function resizeEnd(event: PointerEvent) {
+/** Idempotent: pointerup, a lost capture or a lost focus may each end the same drag. */
+function resizeEnd(event?: PointerEvent) {
   if (!drag) return;
-  const width = dragWidth(event);
+  const width = event?.type === "pointerup" ? dragWidth(event) : pendingWidth || drag.width;
   drag = null;
   cancelAnimationFrame(frame);
   frame = 0;
@@ -147,7 +149,7 @@ function togglePin() {
 }
 </script>
 
-<svelte:window onpointerdown={panelActivate} />
+<svelte:window onpointerdown={panelActivate} onblur={() => resizeEnd()} />
 
 <main class:focused={focus.focused} class:left={focus.side === "left"}>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -161,7 +163,8 @@ function togglePin() {
     onpointerdown={resizeStart}
     onpointermove={resizeMove}
     onpointerup={resizeEnd}
-    onpointercancel={resizeEnd}
+    onpointercancel={() => resizeEnd()}
+    onlostpointercapture={() => resizeEnd()}
     ondblclick={() => action(panelResize(null, true))}
     onkeydown={resizeKey}
   ></div>
