@@ -59,7 +59,12 @@ onMount(() => {
       );
   });
   const shortcut = (event: KeyboardEvent) => {
-    if (preferences && event.key === "Escape" && !event.isComposing) {
+    if (
+      preferences &&
+      event.key === "Escape" &&
+      !event.isComposing &&
+      !(event.target instanceof Element && event.target.closest("[popover]:popover-open"))
+    ) {
       event.preventDefault();
       event.stopImmediatePropagation();
       void action(switchMode(previousWeb));

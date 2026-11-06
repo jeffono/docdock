@@ -2,10 +2,14 @@
 import type { Snippet } from "svelte";
 import type { HTMLButtonAttributes } from "svelte/elements";
 
-let { children, ...rest }: HTMLButtonAttributes & { children: Snippet } = $props();
+let {
+  children,
+  variant = "primary",
+  ...rest
+}: HTMLButtonAttributes & { children: Snippet; variant?: "primary" | "neutral" } = $props();
 </script>
 
-<button {...rest}>{@render children()}</button>
+<button class:neutral={variant === "neutral"} {...rest}>{@render children()}</button>
 
 <style>
   button {
@@ -24,5 +28,16 @@ let { children, ...rest }: HTMLButtonAttributes & { children: Snippet } = $props
 
   button:hover {
     opacity: 0.88;
+  }
+
+  button.neutral {
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-weight: 400;
+  }
+
+  button.neutral:hover {
+    color: var(--color-fg);
+    opacity: 1;
   }
 </style>

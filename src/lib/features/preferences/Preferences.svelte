@@ -66,14 +66,13 @@ const panelShortcuts: [string, MessageKey][] = [
     {/each}
   </nav>
   {#if error}<p role="alert">{error}</p>{/if}
-  <div class="settings">
-    <h2>{t(`preferences.${section}`)}</h2>
+  <section class="settings" aria-label={t(`preferences.${section}`)}>
     {#if section === "general"}
       <div class="setting">
         <h3>{t("preferences.folder")}</h3>
         <p class="path">{folder?.path ?? t("notes.chooseHint")}</p>
         {#if folder && !folder.available}<p role="alert">{t("notes.unavailable")}</p>{/if}
-        <Button disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
+        <Button variant="neutral" disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
       </div>
       <div class="setting"><h3>{t("order.label")}</h3><NoteOrder preferences /><p>{t("order.search")}</p></div>
       <fieldset disabled={busy}>
@@ -87,7 +86,7 @@ const panelShortcuts: [string, MessageKey][] = [
         <h3>{t("preferences.width")}</h3>
         <p>{t("preferences.widthValue", { width })}</p>
         <p>{t("preferences.widthHint")}</p>
-        <Button disabled={busy} onclick={() => action(() => panelResize(null, true))}>{t("preferences.widthReset")}</Button>
+        <Button variant="neutral" disabled={busy} onclick={() => action(() => panelResize(null, true))}>{t("preferences.widthReset")}</Button>
       </div>
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
@@ -101,7 +100,7 @@ const panelShortcuts: [string, MessageKey][] = [
         <div><dt>Tab / Shift+Tab</dt><dd>{t("shortcut.indent")}</dd></div>
       </dl>
     {/if}
-  </div>
+  </section>
 </section>
 
 <style>
@@ -111,7 +110,7 @@ nav { display: flex; gap: var(--space-1); padding-bottom: var(--space-3); border
 nav button { font: inherit; color: var(--color-muted); background: transparent; border: 0; border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); }
 nav button:hover, nav button.active { background: var(--color-surface); color: var(--color-fg); }
 nav button.active { font-weight: 600; }
-h2 { font-size: var(--font-size-lg); font-weight: 600; margin: var(--space-4) 0; }
+.settings { padding: var(--space-4) 0 0; overflow: visible; }
 h3, legend { font-size: var(--font-size-md); font-weight: 600; margin: 0 0 var(--space-2); }
 p { margin: 0 0 var(--space-3); color: var(--color-muted); }
 p[role="alert"] { color: var(--color-danger); }

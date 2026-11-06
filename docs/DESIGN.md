@@ -35,12 +35,12 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 
 Use `src/lib/ui/` before creating anything. Create a component only if nothing existing works.
 
-| Component    | Use                                                  |
-| ------------ | ---------------------------------------------------- |
-| `Button`     | Primary action, at most one per area                 |
-| `IconButton` | Secondary action, always labeled; toggles on and off |
-| `TextField`  | Single-line input; Esc leaves the field              |
-| `Icon`       | Lucide stroke, text color, width 2                   |
+| Component    | Use                                                                |
+| ------------ | ------------------------------------------------------------------ |
+| `Button`     | Primary action (at most one per area), or neutral secondary action |
+| `IconButton` | Secondary action, always labeled; toggles on and off               |
+| `TextField`  | Single-line input; Esc leaves the field                            |
+| `Icon`       | Lucide stroke, text color, width 2                                 |
 
 ## States
 
@@ -82,13 +82,17 @@ pinned and unpinned notes differ only in section and starting state.
 - **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
-- **Order:** a quiet native select beside "Notes" and the same select in Preferences > General share
+- **Order:** a muted, borderless text button beside "Notes" shows the current order briefly (for example,
+  "Modified ↓"). Its in-webview menu and the same control in Preferences > General share
   one saved choice: name (display title), modified or created, ascending or descending. The default is
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
-- **Date groups:** an optional checkbox beside the order selector, also in Preferences > General,
-  defaults off. It groups only unfiltered Notes when ordered by modified or created date. Name order
-  keeps the choice but disables the checkbox with a hint. Quiet labels use the section-label style:
+- **Order menu:** six single-choice items show a check on the current order; a separator precedes
+  the checkable "Group by date" item. Enter/Space and arrows open and navigate it; Esc, selection and
+  outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
+  stays within the panel, flipping above its button near the bottom. No native popup takes focus.
+- **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
+  by modified or created date. Name order keeps the choice but disables the item with a visible hint. Quiet labels use the section-label style:
   Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
   months of this year (month names in the user's locale), then earlier years. Boundaries use local
   calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
@@ -143,7 +147,7 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → note order → date grouping (when available) → top bar buttons (including
+  pinned items") → list → note order button → top bar buttons (including
   Preferences), reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
@@ -184,8 +188,9 @@ Notes/Browser tab; either tab also leaves Preferences. The global shortcut retur
 General contains the folder path, folder picker, note order, date grouping and panel side; side changes
 mirror the tray. Browser
 shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
-editor bindings. Appearance shows the panel width, how to resize it and a reset. Sections scroll
-inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
+editor bindings. Appearance shows the panel width, how to resize it and a reset. Folder choice and
+width reset use neutral buttons. The active section has an accessible name without repeating the tab
+label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
 Notes query so returning to Notes starts with an empty search.
 
 ## Panel navigation

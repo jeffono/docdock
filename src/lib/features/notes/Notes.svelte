@@ -977,14 +977,7 @@ function shortcut(event: KeyboardEvent) {
     const stops = [
       input,
       ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
-      ...(!browser
-        ? [
-            list,
-            ...list.querySelectorAll<HTMLElement>(
-              ".note-order select:not(:disabled), .note-order input:not(:disabled)",
-            ),
-          ]
-        : []),
+      ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>(".note-order > button")] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
       ...document.querySelectorAll<HTMLElement>("main > .resize"),
