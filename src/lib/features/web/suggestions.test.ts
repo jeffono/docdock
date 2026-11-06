@@ -42,7 +42,7 @@ it("discards responses superseded by another query, even after returning to the 
   expect(latest.accepts(current)).toBe(true);
 });
 
-it("history opening returns recent local addresses without a query or engine suggestions", () => {
+it("history opening lists at most five recent local addresses", () => {
   const history = [
     "https://example.com/",
     "https://duckduckgo.com/?q=rust",

@@ -60,7 +60,9 @@ function inline(marker: string): Command {
 }
 
 /** Replace only the joined lines; positions are normalized CodeMirror offsets. */
-export function joinLines(text: string, from: number, to: number) {
+export function joinLines(text: string, from: number, originalTo: number) {
+  // A selection ending at the start of a line does not include that line, as in `block()`.
+  const to = originalTo > from && text[originalTo - 1] === "\n" ? originalTo - 1 : originalTo;
   const start = text.slice(0, from).lastIndexOf("\n") + 1;
   let end = text.indexOf("\n", to);
   if (end < 0) end = text.length;

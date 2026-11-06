@@ -178,9 +178,14 @@ pub fn filter(window: &WebviewWindow, owner: Owner) -> Result<(), Error> {
             };
             match decide(owner, keys) {
                 Decision::Browser => Ok(()),
-                Decision::Content => args
-                    .cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>()?
-                    .SetIsBrowserAcceleratorKeyEnabled(false),
+                // Runtimes before 120 lack the per-key switch: consume the key rather than let
+                // its browser action run (fail closed; the content then misses it too).
+                Decision::Content => {
+                    match args.cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>() {
+                        Ok(args) => args.SetIsBrowserAcceleratorKeyEnabled(false),
+                        Err(_) => args.SetHandled(true),
+                    }
+                }
                 Decision::ToggleMode => {
                     args.SetHandled(true)?;
                     let _ = app.emit_to("main", "panel-toggle-mode", ());
@@ -221,7 +226,13 @@ pub fn filter(window: &WebviewWindow, owner: Owner) -> Result<(), Error> {
                 .cast::<ICoreWebView2_11>()?
                 .add_ContextMenuRequested(&menu, &mut token)
         };
-        let _ = sender.send(install());
+        let installed = install();
+        if let Err(error) = &installed
+            && owner == Owner::Ui
+        {
+            eprintln!("[edge] UI filter not installed: {error}");
+        }
+        let _ = sender.send(installed);
     })?;
     if owner == Owner::Ui {
         return Ok(());
@@ -320,6 +331,10 @@ mod tests {
             menu(&[Some("copy"), None, Some("print"), None, Some("paste")]),
             [3, 2]
         );
+    }
+
+    #[test]
+    fn a_menu_never_starts_with_a_separator() {
         assert_eq!(menu(&[None, Some("print"), Some("copy")]), [1, 0]);
     }
 

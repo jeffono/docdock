@@ -827,11 +827,15 @@ function barKey(event: KeyboardEvent) {
     !event.metaKey &&
     !shownWebItems.length
   ) {
-    event.preventDefault();
-    showingHistory = true;
-    addressEditing = browser;
-    selection = historyEntries(history)[0]?.key ?? "";
-    return;
+    // Without history, ↓ keeps moving through the notes.
+    const first = historyEntries(history)[0];
+    if (first) {
+      event.preventDefault();
+      showingHistory = true;
+      addressEditing = browser;
+      selection = first.key;
+      return;
+    }
   }
   listKey(event, true);
 }

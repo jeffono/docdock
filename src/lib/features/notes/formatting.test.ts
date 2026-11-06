@@ -58,6 +58,14 @@ test("join spans all selected lines and leaves surrounding lines untouched", () 
     "before\nfirst second third\nafter",
   );
 });
+// Catches Ctrl+J joining, and stripping, a line just below a selection of whole lines.
+test("join ignores the line where a multi-line selection ends at its start", () => {
+  expect(joinLines("first\nsecond\n- third", 0, 13)).toEqual({
+    from: 0,
+    to: 12,
+    insert: "first second",
+  });
+});
 test.each([
   ["\n  next", "next"],
   ["first \n next", "first next"],
