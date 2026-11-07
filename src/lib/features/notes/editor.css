@@ -27,6 +27,7 @@
    hide the drawn layer below the text; drawSelection would otherwise make it transparent. */
 :host .cm-editor .cm-line ::selection,
 :host .cm-editor .cm-line::selection {
+  /* biome-ignore lint/complexity/noImportantStyles: CodeMirror hides it with !important. */
   background-color: var(--color-selected) !important;
 }
 /* Drawn selection, for several cursors; specific enough to win over CodeMirror's focused default. */
