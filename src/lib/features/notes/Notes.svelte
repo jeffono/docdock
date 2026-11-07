@@ -1198,7 +1198,7 @@ onMount(() => {
     <!-- Plain structure: cards hold buttons, links and the editor, so they cannot be listbox options.
       The selected item carries aria-current and the live region announces it. -->
 
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
       tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
