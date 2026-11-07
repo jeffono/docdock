@@ -46,6 +46,12 @@ other notes are not rewritten. A tree view is out of scope.
 - [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
   property" (Ctrl+;)
 - [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
+- [ ] (standard) Close brackets and quotes as they are typed (`closeBrackets` from
+  `@codemirror/autocomplete`)
+- [ ] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
+  them where the intent is unambiguous, such as on leaving the note, else mark the line quietly; never
+  rewrite text the user is still typing
+- [ ] (basic) Theme in Preferences > Appearance: system (default), light or dark
 
 ## M5 — Distribute
 
