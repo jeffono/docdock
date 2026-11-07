@@ -5,8 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.3: all tasks on `editor-search` (find in the note, formatting bar, shortcut sheet, bracket
-  pairing, tag repair, theme), awaiting the closing review and manual check.
+- Next: M4.4 — Move and delete.
 
 ## Completed
 
@@ -25,19 +24,20 @@ detail each stage when it is next.
   drag or keyboard, and list polish; see "Preferences" and "Note list" in `docs/DESIGN.md`.
 - M4.2 — Files: renaming from the card title, automatic names, file names beside differing titles,
   frontmatter completion and Ctrl+;, folder prefixes and grouping; see "Note list" in `docs/DESIGN.md`.
+- M4.3 — Editor: find and replace in the note, several cursors, formatting bar, shortcut sheet on
+  Ctrl+/, bracket pairing, tag repair on leaving and theme choice; see the editor section of
+  `docs/DESIGN.md`.
 
-## M4.3 — Editor
+## M4.4 — Move and delete
 
-- [x] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
-- [x] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
-  property" (Ctrl+;)
-- [x] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
-- [x] (standard) Close brackets and quotes as they are typed (`closeBrackets` from
-  `@codemirror/autocomplete`)
-- [x] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
-  them where the intent is unambiguous, such as on leaving the note, else mark the line quietly; never
-  rewrite text the user is still typing
-- [x] (basic) Theme in Preferences > Appearance: system (default), light or dark
+Renaming already moves files without overwriting and updates `_pinned.md`; links in other notes are
+not rewritten. A tree view is out of scope.
+
+- [ ] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
+  panel is open; pinned entries follow, and an open editor stops saving instead of recreating it
+- [ ] (advanced) Move a note to a folder through a picker that can create it, reusing rename's
+  no-overwrite move and pin updates
+- [ ] (standard) Delete empty folders, or folders to the Recycle Bin after confirmation
 
 ## M5 — Distribute
 
@@ -51,9 +51,6 @@ In no defined order:
 
 - MathML equations with Temml; KaTeX depends on inline styling, blocked by CSP.
 - Mermaid diagrams: require a decision on CSP, which blocks the `<style>` it injects.
-- Move notes to a folder through a picker that can create it; delete only empty folders or to the
-  Recycle Bin. Renaming moves files without overwriting and links in other notes are not rewritten;
-  a tree view is out of scope.
 - Slash commands in the editor, including "Add property" for the frontmatter.
 - Post-its as floating desktop windows.
 - Screenshots.
