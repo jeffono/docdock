@@ -15,6 +15,7 @@ let {
   selected,
   onheader,
   onrename,
+  onrenamestart,
   onexpand,
   onpreview,
   onpin,
@@ -34,9 +35,10 @@ let {
   selected: boolean;
   /** Header click: open a line, close anything else. */
   onheader: () => void;
-  /** Double click on the title starts renaming (`null`); the field then ends it with the new title, or
-   * `null` to cancel. */
+  /** The rename field ended with the new title, or `null` to cancel. */
   onrename: (title: string | null) => void;
+  /** A double click on the title: renaming starts, and the card stays as it was before it. */
+  onrenamestart: () => void;
   onexpand: () => void;
   onpreview: () => void;
   onpin: () => void;
@@ -128,6 +130,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   class:page={!!card.hit.url}
   class:expanded={card.level === "expanded"}
   class:editing
+  class:renaming
   data-path={card.hit.path}
 >
   <header>
@@ -147,13 +150,13 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
       </span>
     {/if}
     <!-- Hidden rather than removed: pinned drag is attached to this button. The second click of a
-         double click only starts renaming: the first already toggled. -->
+         double click only starts renaming: the first toggled at once, and is undone. -->
     <button
       tabindex="-1"
       class="head"
       hidden={renaming}
       onclick={(event) => { if (event.detail < 2) onheader(); }}
-      ondblclick={() => { if (!card.url) onrename(null); }}
+      ondblclick={() => { if (!card.url) onrenamestart(); }}
     >
       <span class="title">{card.hit.title}</span>
       <span class="meta">
@@ -315,7 +318,20 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     min-width: 0;
   }
 
+  /* The card already has the accent border: the field shows only through the accent line under it. */
+  .card.renaming > header {
+    border-bottom: 1px solid var(--color-accent);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  }
+
+  .rename {
+    margin-right: var(--header-actions);
+  }
+
   .rename :global(input) {
+    border: 0;
+    outline: none;
+    background: transparent;
     font-weight: 600;
   }
 

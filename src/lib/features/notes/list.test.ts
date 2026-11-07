@@ -12,6 +12,7 @@ import {
   navKeys,
   noteFileName,
   renamedPath,
+  revealScroll,
   rows,
   shallower,
 } from "./list";
@@ -268,5 +269,17 @@ describe("renamedPath", () => {
   });
   it("lets a case-only change keep the note's own name", () => {
     expect(renamedPath("sub/Note.md", "note", paths)).toBe("sub/note.md");
+  });
+});
+
+describe("revealScroll", () => {
+  const view = { top: 0, bottom: 500 };
+  it("brings an opened card's end into view without pushing its top out", () => {
+    expect(revealScroll({ top: 400, bottom: 700 }, view)).toBe(200);
+    expect(revealScroll({ top: 300, bottom: 1200 }, view)).toBe(300);
+  });
+  it("leaves a shown card and brings one above the view to the top", () => {
+    expect(revealScroll({ top: 100, bottom: 400 }, view)).toBe(0);
+    expect(revealScroll({ top: -50, bottom: 300 }, view)).toBe(-50);
   });
 });

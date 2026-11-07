@@ -122,9 +122,13 @@ pinned and unpinned notes differ only in section and starting state.
 - **Expanded:** no height limit and no inner scroll. While scrolling inside the card, its header
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
-  returns to a row when closed; there is no separate note view.
+  returns to a row when closed; there is no separate note view. Opening grows the card from its top
+  edge while the entries below slide (translation only, never scaling). An opened card whose end falls
+  below the list scrolls into view in twice `--duration`, never pushing its top out.
 - **Renaming:** F2 on the selected card, or in its editor, or a double click on its title, turns the
-  title into a field with the text selected, in place of the title and metadata. Enter or leaving the
+  title into a borderless field with the text selected, in place of the title and metadata; the line
+  under the header turns accent instead of a nested focus ring. The first click of a double click
+  toggles at once and is undone by the second, so the card ends as it was. Enter or leaving the
   field renames; Esc cancels; an empty or unchanged title does nothing. The file name follows the title
   in the same folder, with " 2" and so on when taken; a frontmatter title changes with it. Renaming
   from the editor leaves it and enters it again on the new name.

@@ -1,6 +1,5 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
-import { flip } from "svelte/animate";
 import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
@@ -70,6 +69,7 @@ import {
   navKeys,
   noteFileName,
   renamedPath,
+  revealScroll,
   rows,
   shallower,
 } from "./list";
@@ -531,6 +531,7 @@ async function setLevel(card: Card, level: Level) {
     selection = path;
     if (level === "expanded") expanded = path;
     else if (expanded === path) expanded = "";
+    if (level !== "line") reveal(path);
     if (!card.pinned) return;
     const item = pinned.items.find((i) => i.target === path);
     const collapsed = level === "line";
@@ -548,7 +549,99 @@ function toggle(card: Card) {
     return;
   }
   const level = card.level === "line" ? deeper(card) : "line";
-  if (level) void setLevel(card, level);
+  if (!level) return;
+  lastToggle = {
+    path: card.hit.path,
+    level: card.level,
+    editing: editing && selected === card.hit.path,
+    at: performance.now(),
+    done: setLevel(card, level),
+  };
+}
+
+/**
+ * The last header toggle. Its first click opens or closes at once, for responsiveness; a double click
+ * that follows puts the card back as it was and only starts renaming.
+ */
+let lastToggle: {
+  path: string;
+  level: Level;
+  editing: boolean;
+  at: number;
+  done: Promise<void>;
+} | null = null;
+async function renameByDoubleClick(path: string) {
+  const undo = lastToggle;
+  lastToggle = null;
+  if (undo?.path === path && performance.now() - undo.at < 1000) {
+    await undo.done;
+    const card = cardFor(path);
+    if (card && card.level !== undo.level) await setLevel(card, undo.level);
+    if (undo.editing) resumeEditing = path;
+  }
+  const card = cardFor(path);
+  if (card) void rename(card, null);
+}
+
+/** Opened cards scroll into view, quickly, while their content renders and grows. */
+let stopReveal: (() => void) | null = null;
+function reveal(path: string) {
+  stopReveal?.();
+  const view = list;
+  const card = view?.querySelector<HTMLElement>(`.card[data-path="${CSS.escape(path)}"]`);
+  if (!view || !card) return;
+  const scroll = () => {
+    // Positions without the move animation, which shifts the entry while it plays.
+    const entry = card.closest(".list-entry");
+    const shift = entry ? new DOMMatrix(getComputedStyle(entry).transform).m42 : 0;
+    const rect = card.getBoundingClientRect();
+    const delta = revealScroll(
+      { top: rect.top - shift, bottom: rect.bottom - shift },
+      view.getBoundingClientRect(),
+    );
+    if (delta) scrollListTo(view, view.scrollTop + delta);
+  };
+  const observer = new ResizeObserver(scroll);
+  observer.observe(card);
+  const timer = window.setTimeout(stop, 600);
+  function stop() {
+    observer.disconnect();
+    window.clearTimeout(timer);
+    stopReveal = null;
+  }
+  stopReveal = stop;
+}
+let scrollFrame = 0;
+function scrollListTo(view: HTMLElement, top: number) {
+  cancelAnimationFrame(scrollFrame);
+  const start = view.scrollTop;
+  const duration = 2 * animationDuration;
+  if (!duration) {
+    view.scrollTop = top;
+    return;
+  }
+  const begin = performance.now();
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - begin) / duration);
+    view.scrollTop = start + (top - start) * cubicOut(progress);
+    if (progress < 1) scrollFrame = requestAnimationFrame(step);
+  };
+  scrollFrame = requestAnimationFrame(step);
+}
+
+/**
+ * Moves list entries to their new place by translation only. Svelte's `flip` also scales an entry
+ * whose size changed, so an opening card grew from its middle; it grows from its top edge instead.
+ */
+function slide(_node: HTMLElement, { from, to }: { from: DOMRect; to: DOMRect }) {
+  const dx = from.left - to.left;
+  const dy = from.top - to.top;
+  if (!dx && !dy) return { duration: 0 };
+  return {
+    duration: animationDuration,
+    easing: cubicOut,
+    css: (_t: number, u: number) => `transform: translate(${u * dx}px, ${u * dy}px)`,
+  };
 }
 
 let pinning = false;
@@ -575,6 +668,8 @@ async function pinOrUnpin(card: Card, refocus = false) {
 
 /** Note whose card title is a rename field. */
 let renaming = $state("");
+/** Note whose editor a double click closed on its way to renaming; renaming enters it again. */
+let resumeEditing = "";
 /**
  * Renames the card's note to `title`. `null` starts the field, or cancels it when it is already open.
  * The editor is left first, so no save under the old name follows the move, and is entered again on
@@ -584,15 +679,18 @@ let renaming = $state("");
  */
 async function rename(card: Card, title: string | null) {
   const from = card.hit.path;
-  if (title === null) {
-    if (renaming === from) renaming = "";
-    else if (!renaming && !card.url) renaming = from;
+  if (title === null && renaming !== from) {
+    if (!renaming && !card.url) renaming = from;
     return;
   }
   renaming = "";
-  const typed = title.replace(/\s+/g, " ").trim();
-  if (!typed || typed === card.hit.title) return;
-  const wasEditing = editing && selected === from;
+  const wasEditing = (editing && selected === from) || resumeEditing === from;
+  resumeEditing = "";
+  const typed = title?.replace(/\s+/g, " ").trim();
+  if (!typed || typed === card.hit.title) {
+    if (wasEditing && !editing) await edit(from);
+    return;
+  }
   const follow = async (to: string) => {
     changed({ renames: from === to ? [] : [[from, to]] });
     if (wasEditing) await edit(to);
@@ -1277,7 +1375,7 @@ onMount(() => {
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
-        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:flip={{ duration: animationDuration, easing: cubicOut }}>
+        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:slide>
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "dateGroup" in row}
@@ -1319,6 +1417,7 @@ onMount(() => {
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
             onrename={(title) => rename(card, title)}
+            onrenamestart={() => renameByDoubleClick(card.hit.path)}
             renaming={renaming === card.hit.path}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}

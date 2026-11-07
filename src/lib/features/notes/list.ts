@@ -199,6 +199,17 @@ export function arrowScroll(card: Span, view: Span, down: boolean, step: number)
   return hidden > slack ? -Math.min(step, hidden) : 0;
 }
 
+/**
+ * The pixels to scroll the list (`view`) by so an opened card shows: its end comes into view, but never
+ * by pushing its top out; a card above the view comes to the top. 0 when it already shows.
+ */
+export function revealScroll(card: Span, view: Span): number {
+  const slack = 1;
+  if (card.top < view.top - slack) return card.top - view.top;
+  const hidden = card.bottom - view.bottom;
+  return hidden > slack ? Math.min(hidden, card.top - view.top) : 0;
+}
+
 export type Activation =
   | { action: "create"; text: string }
   | { action: "open"; path: string }
