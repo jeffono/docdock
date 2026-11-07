@@ -1,5 +1,5 @@
 /* Visual decisions are explained in docs/DESIGN.md. Components use these variables instead of fixed
-   values. The theme follows Windows through `light-dark`. */
+   values. The theme uses `light-dark`, following Windows unless overridden in Preferences. */
 :root {
   color-scheme: light dark;
 

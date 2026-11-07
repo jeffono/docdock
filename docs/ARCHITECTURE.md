@@ -476,6 +476,16 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 
+## Theme
+
+The `theme` setting uses the same locked atomic settings update: `system` (default), `light` or `dark`;
+missing or invalid values fall back independently. Before mounting, the UI reads it through IPC and
+sets the root `color-scheme`. Tokens and the editor's shadow root inherit that scheme, including
+shared `content.css` styles. Both native window builders receive the theme and existing windows
+update on a change; Tauri forwards Windows theme changes to WebView2, including page/iframe
+`prefers-color-scheme`. Sites can still choose their own colors. The native blank/loading background
+is WebView2's default and is not overridden by the app's CSS tokens.
+
 ## Note order
 
 The UI's `order.ts` sorts only unfiltered hits before `buildList`: displayed title, modified or

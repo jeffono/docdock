@@ -12,7 +12,8 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 ## Color
 
 - Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
-- Light and dark themes follow Windows. Every new color starts in both themes, in `light-dark`.
+- Light and dark themes follow Windows by default, with a System, Light or Dark choice in Preferences.
+  Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
 - Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
   keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
@@ -231,8 +232,10 @@ shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of 
 keys, deriving formatting keys from the editor bindings. From anywhere in Notes (including search and editing), Ctrl+/ opens
 a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
 or dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
-previous focus, including the editor cursor. No native popup takes panel focus. Appearance shows
-the panel width, how to resize it and a reset. Folder choice and width reset use neutral buttons. The active section has an accessible name without repeating the tab
+previous focus, including the editor cursor. No native popup takes panel focus. Appearance offers
+System (default), Light and Dark theme radio buttons, applied immediately and remembered on this
+computer; it also shows the panel width, how to resize it and a reset. Folder choice and width reset
+use neutral buttons. The active section has an accessible name without repeating the tab
 label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
 Notes query so returning to Notes starts with an empty search.
 

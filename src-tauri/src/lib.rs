@@ -23,6 +23,8 @@ pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::app_version,
         commands::app_locale,
+        commands::app_theme,
+        commands::app_set_theme,
         commands::panel_activate,
         commands::panel_set_pinned,
         commands::panel_close,

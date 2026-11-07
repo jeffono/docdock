@@ -28,6 +28,10 @@ const en = {
   "preferences.browser": "Browser",
   "preferences.appearance": "Appearance",
   "preferences.width": "Panel width",
+  "preferences.theme": "Theme",
+  "preferences.system": "System",
+  "preferences.light": "Light",
+  "preferences.dark": "Dark",
   "preferences.widthValue": "{width} px",
   "preferences.widthHint":
     "Drag the panel's inner edge to resize it; double-click the edge to restore the default.",
@@ -197,6 +201,10 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.browser": "Navegador",
   "preferences.appearance": "Aparência",
   "preferences.width": "Largura do painel",
+  "preferences.theme": "Tema",
+  "preferences.system": "Sistema",
+  "preferences.light": "Claro",
+  "preferences.dark": "Escuro",
   "preferences.widthValue": "{width} px",
   "preferences.widthHint":
     "Arraste a borda interna do painel para redimensioná-lo; clique duas vezes na borda para restaurar o padrão.",

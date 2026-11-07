@@ -37,7 +37,7 @@ detail each stage when it is next.
 - [ ] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
   them where the intent is unambiguous, such as on leaving the note, else mark the line quietly; never
   rewrite text the user is still typing
-- [ ] (basic) Theme in Preferences > Appearance: system (default), light or dark
+- [x] (basic) Theme in Preferences > Appearance: system (default), light or dark
 
 ## M5 — Distribute
 
