@@ -3,7 +3,7 @@ import { highlightTree } from "@lezer/highlight";
 import { expect, test } from "vitest";
 import { codeHighlighter, codeLanguage, codeSpans } from "./code-colors";
 import { editorExtensions, editorState } from "./editor";
-import { type Content, noteModel } from "./render";
+import { type Content, noteModel, noteName } from "./render";
 
 const html = (content: Content[]): string =>
   content
@@ -139,4 +139,25 @@ test("adversarial and edge input renders without hanging, crashing or losing tex
   expect(html(noteModel("![i](a&#32;b.png)", "a.md"))).toContain(
     'src="http://note-asset.localhost/a%20b.png"',
   );
+});
+
+// Bug: an untitled note left with text would keep its Untitled name, or take markup as its name.
+test("an untitled note is named by its frontmatter title, else its top heading, else its first words", () => {
+  expect(noteName("---\ntitle: 'Plan: Q3'\n---\n# Other")).toEqual({
+    title: "Plan: Q3",
+    frontmatter: true,
+  });
+  expect(noteName("---\ntags: [a]\n---\n\n# **Bold** idea\n\ntext")).toEqual({
+    title: "Bold idea",
+    frontmatter: false,
+  });
+  expect(noteName("Intro\n\n# Later")?.title).toBe("Intro Later");
+  expect(noteName("- one\n- [two](https://e.com)\n\n> three")?.title).toBe("one two three");
+});
+
+test("an untitled note's name from its words is cut at a word near 60 characters", () => {
+  const long = "word ".repeat(30);
+  expect(noteName(long)?.title).toBe("word ".repeat(12).trim());
+  expect(noteName("x".repeat(80))?.title).toBe("x".repeat(60));
+  expect(noteName("---\ntags: [a]\n---\n\n![](a.png)\n")).toBeNull();
 });

@@ -64,6 +64,7 @@ import {
   enter,
   entryKey,
   isMissing,
+  isUntitled,
   type Level,
   move,
   navKeys,
@@ -78,6 +79,7 @@ import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { groupByDate, noteOrder } from "./order-store";
 import { pageNote } from "./page";
+import { noteName } from "./render";
 import { FolderIndex, isPinnedList, search } from "./search";
 
 let {
@@ -195,6 +197,9 @@ export function leaveEditor(): Promise<boolean> {
     const field = document.activeElement;
     if (field instanceof HTMLInputElement && field.closest(".card.editing .rename")) field.blur();
     await renamingTask;
+    // An untitled note takes its name from what it shows, while the editor still holds it.
+    const named = editor && isUntitled(selected) ? noteName(editor.text()) : null;
+    if (named) await rename(named.title, named.frontmatter);
     const note = await editor?.finish();
     if (!note) return false;
     contents[selected] = note;
@@ -646,28 +651,33 @@ let renamingTask: Promise<void> | null = null;
  * folder; a frontmatter title, which the card shows, changes with it as an edit of the text. The
  * editor stays open: it saves first and holds later saves until the move, so none brings the old name
  * back. A taken name is retried with the next free one. A rename whose pinned items could not follow
- * still stands. A rename asked while another runs waits for it and starts from its result.
+ * still stands. A rename asked while another runs waits for it and starts from its result. With
+ * `keepTitle`, the frontmatter title stays as it is and the file follows it.
  */
-function rename(title: string): Promise<void> {
+function rename(title: string, keepTitle = false): Promise<void> {
   const typed = title.replace(/\s+/g, " ").trim();
   const previous = renamingTask;
   const task = (async () => {
     await previous;
     const card = editing ? cardFor(selected) : undefined;
     const current = editor;
-    if (!typed || !card || !current || typed === card.hit.title) return;
+    if (!typed || !card || !current || (!keepTitle && typed === card.hit.title)) return;
     const from = card.hit.path;
     const old = card.hit.title;
     try {
       error = "";
       await current.rename(
-        (text) => retitle(text, typed),
+        (text) => (keepTitle ? null : retitle(text, typed)),
         async (version, retitled) => {
           const taken = notes.map((note) => note.path);
           for (let attempt = 0; attempt < 50; attempt++) {
             const to = renamedPath(from, typed, taken);
             if (to === from) return;
-            const shown = retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
+            const shown = keepTitle
+              ? old
+              : retitled
+                ? typed
+                : to.slice(to.lastIndexOf("/") + 1, -3);
             try {
               await notesRename(from, to, version, [old, shown]);
               changed({ renames: [[from, to]] });
@@ -1421,7 +1431,7 @@ onMount(() => {
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
-            onrename={rename}
+            onrename={(title) => rename(title)}
             ontitledone={() => editor?.focus()}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}

@@ -131,7 +131,9 @@ pinned and unpinned notes differ only in section and starting state.
   (which first restores the title) go on to the text; leaving the field renames, and an empty or
   unchanged title does nothing. The file name follows the title in the same folder, with " 2" and so
   on when taken; a frontmatter title changes with it. A double click on the title only opens and
-  closes, as a click does; a double click on the text of a card enters editing.
+  closes, as a click does; a double click on the text of a card enters editing. A note still named
+  `Untitled` or `Untitled N` is named when its editor is left, from what the card shows: the
+  frontmatter title, else a first heading, else its first words (cut at a word near 60 characters).
 - **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
   the card header, Ctrl+E on the selected card or a double click on its text; entering from preview
   expands the card. One card edits at a time and shows its own save status, conflict and

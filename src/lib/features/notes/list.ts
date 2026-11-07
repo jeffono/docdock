@@ -271,6 +271,11 @@ export function noteFileName(text: string, taken: Iterable<string>): string {
   return name;
 }
 
+/** A note named as `noteFileName` names one created without text, which gets a name when left. */
+export function isUntitled(path: string): boolean {
+  return /^Untitled(?: \d+)?\.md$/.test(path.slice(path.lastIndexOf("/") + 1));
+}
+
 /**
  * The path a note gets when renamed to `title`: the same folder and a name free there, as
  * `noteFileName` picks it. `paths` are every note's path; the note's own name counts as free, so a

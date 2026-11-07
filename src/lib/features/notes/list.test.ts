@@ -8,6 +8,7 @@ import {
   defaultKey,
   enter,
   isMissing,
+  isUntitled,
   move,
   navKeys,
   noteFileName,
@@ -209,6 +210,14 @@ describe("arrowScroll", () => {
     expect(arrowScroll({ top: -3000, bottom: -200 }, view, true, 60)).toBe(0);
     expect(arrowScroll({ top: 900, bottom: 3000 }, view, false, 60)).toBe(0);
   });
+});
+
+// Bug: a note the user named would be renamed when left, or an untitled one would keep its name.
+it("only names given to notes created without text count as untitled", () => {
+  for (const path of ["Untitled.md", "Untitled 2.md", "a/Untitled 12.md"])
+    expect(isUntitled(path)).toBe(true);
+  for (const path of ["untitled.md", "Untitled draft.md", "Untitled 2.txt", "Untitled/Ideas.md"])
+    expect(isUntitled(path)).toBe(false);
 });
 
 describe("noteFileName", () => {
