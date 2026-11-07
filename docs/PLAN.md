@@ -5,7 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2 next, on a new branch after `preferences` is merged.
+- M4.2 on `files`: folder search implemented; next implement safe renaming and pinned-path updates,
+  automatic names, folder prefixes and grouping. Folder moving remains deferred.
 
 ## Completed
 

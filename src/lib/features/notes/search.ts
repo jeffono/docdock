@@ -17,6 +17,7 @@ type Entry = {
   body: string;
   /** Folded forms, for matching. */
   titleKey: string;
+  folderKey: string;
   tagKeys: string[];
   bodyKey: string;
   /** Every character keeps its length when folded, so offsets in `bodyKey` are offsets in `body`. */
@@ -89,6 +90,7 @@ function build(listed: Listed, read: Read | null): Entry {
     modified: read?.modified ?? listed.modified,
     body,
     titleKey: collapse(title),
+    folderKey: fold(listed.path.replace(/\\/g, "/").replace(/(^|\/)[^/]*$/, "")),
     tagKeys: tags.map(fold),
     bodyKey: fold(body),
     aligned: [...body.matchAll(/\P{ASCII}/gu)].every(([c]) => foldChar(c).length === c.length),
@@ -228,7 +230,7 @@ function snippet(entry: Entry, terms: string[]): Snippet | null {
 
 /**
  * Every word of `query` must appear in the title (frontmatter title, else the file name), the tags or
- * the body, ignoring case and accents. Order: exact title, title starting with the query, a word in
+ * the body or folder, ignoring case and accents. Order: exact title, title starting with the query, a word in
  * the title, a word in a tag, body only; then newest first. An empty query lists every note by
  * modified time.
  */
@@ -242,7 +244,12 @@ export function search(index: SearchIndex, query: string): Results {
     if (terms.length && entry.titleKey === whole) exactTitle = true;
     const inTitle = terms.map((term) => entry.titleKey.includes(term));
     const inTags = terms.map((term) => entry.tagKeys.some((tag) => tag.includes(term)));
-    if (!terms.every((term, i) => inTitle[i] || inTags[i] || entry.bodyKey.includes(term)))
+    if (
+      !terms.every(
+        (term, i) =>
+          inTitle[i] || inTags[i] || entry.bodyKey.includes(term) || entry.folderKey.includes(term),
+      )
+    )
       continue;
     const tier = !terms.length
       ? BODY
