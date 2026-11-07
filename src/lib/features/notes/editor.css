@@ -23,6 +23,12 @@
 :host .cm-editor .cm-cursor {
   border-left-color: var(--color-fg);
 }
+/* The native selection paints over the opaque code, frontmatter and inline-code backgrounds, which
+   hide the drawn layer below the text; drawSelection would otherwise make it transparent. */
+:host .cm-editor .cm-line ::selection,
+:host .cm-editor .cm-line::selection {
+  background-color: var(--color-selected) !important;
+}
 /* Drawn selection, for several cursors; specific enough to win over CodeMirror's focused default. */
 :host .cm-editor .cm-selectionLayer .cm-selectionBackground,
 :host .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {

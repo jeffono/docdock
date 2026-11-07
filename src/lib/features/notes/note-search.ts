@@ -12,7 +12,7 @@ import {
   searchKeymap,
   setSearchQuery,
 } from "@codemirror/search";
-import { type EditorState, StateEffect, StateField } from "@codemirror/state";
+import { type EditorState, StateEffect, StateField, type Text } from "@codemirror/state";
 import {
   type Command,
   type EditorView,
@@ -38,22 +38,18 @@ const open =
     return openSearchPanel(view);
   };
 
-/** Matches counted before the count shows "999+"; a long note must not slow typing. */
+/** Matches counted before the count shows "999+". */
 const COUNT_LIMIT = 999;
+/** Typing pauses this long before a recount: a scan of a 2 MB note takes over 100 ms. */
+const COUNT_DELAY = 150;
 
-/** The match holding the main selection, 1-based or 0, and how many there are; null for no query. */
-export function matchCount(state: EditorState): { at: number; total: number } | null {
-  const query = getSearchQuery(state);
-  if (!query.valid) return null;
-  const { from, to } = state.selection.main;
+/** Up to `COUNT_LIMIT + 1` matches of the query, as [from, to] pairs. */
+function matches(state: EditorState, query: SearchQuery): [number, number][] {
+  const found: [number, number][] = [];
   const cursor = query.getCursor(state);
-  let total = 0;
-  let at = 0;
-  for (let next = cursor.next(); !next.done && total <= COUNT_LIMIT; next = cursor.next()) {
-    total++;
-    if (next.value.from === from && next.value.to === to) at = total;
-  }
-  return { at, total };
+  for (let next = cursor.next(); !next.done && found.length <= COUNT_LIMIT; next = cursor.next())
+    found.push([next.value.from, next.value.to]);
+  return found;
 }
 
 // Lucide paths (ISC license), as in `ui/Icon.svelte`, which cannot render inside the editor's shadow root.
@@ -153,20 +149,45 @@ function searchPanel(view: EditorView): Panel {
     replaceRow.hidden = !shown;
     toggle.ariaExpanded = String(shown);
     toggle.querySelector("path")?.setAttribute("d", shown ? icons.chevronDown : icons.chevronRight);
-    const counted = query.search ? matchCount(state) : null;
-    count.textContent = !counted
-      ? ""
-      : counted.total === 0
+    showCount(state);
+  }
+  // Matches are counted once per text and query, after a pause; moving between them reuses the count.
+  let counted: { doc: Text; query: SearchQuery; found: [number, number][] } | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  function showCount(state: EditorState) {
+    const query = getSearchQuery(state);
+    if (!query.search || !query.valid) {
+      clearTimeout(timer);
+      count.textContent = "";
+      return;
+    }
+    if (!counted || counted.doc !== state.doc || !counted.query.eq(query)) {
+      count.textContent = "";
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        counted = { doc: view.state.doc, query, found: matches(view.state, query) };
+        showCount(view.state);
+      }, COUNT_DELAY);
+      return;
+    }
+    const { found } = counted;
+    const { from, to } = state.selection.main;
+    const at = found.findIndex(([start, end]) => start === from && end === to) + 1;
+    count.textContent =
+      found.length === 0
         ? t("search.none")
         : t("search.count", {
-            at: counted.at || "?",
-            total: counted.total > COUNT_LIMIT ? `${COUNT_LIMIT}+` : counted.total,
+            at: at || "?",
+            total: found.length > COUNT_LIMIT ? `${COUNT_LIMIT}+` : found.length,
           });
   }
   for (const input of [find, replace]) input.addEventListener("input", commit);
   dom.addEventListener("keydown", (event) => {
     // Ctrl+F again goes on to the panel's search bar.
     if (event.ctrlKey && event.key.toLowerCase() === "f") return;
+    // Plain keys stay here: Tab moves through the panel, and list keys must not act on the cards.
+    // Ctrl shortcuts such as Ctrl+E still reach the panel's handler.
+    if (!event.ctrlKey) event.stopPropagation();
     if (runScopeHandlers(view, event, "search-panel")) {
       event.preventDefault();
       event.stopPropagation();
@@ -182,6 +203,14 @@ function searchPanel(view: EditorView): Panel {
   return {
     dom,
     top: true,
+    // The first Ctrl+F or Ctrl+H must put typing in the field, not in the note.
+    mount() {
+      find.focus();
+      find.select();
+    },
+    destroy() {
+      clearTimeout(timer);
+    },
     update(update) {
       const changed =
         update.docChanged ||
