@@ -1,3 +1,4 @@
+import { autocompletion, completionStatus } from "@codemirror/autocomplete";
 import {
   defaultKeymap,
   history,
@@ -17,6 +18,7 @@ import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
 import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
+import { addProperty, propertyCompletion } from "./properties";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -39,8 +41,10 @@ export function editorExtensions(
   onLeave: () => void,
   onFocus: (focused: boolean) => void,
   label: string,
+  tags: () => string[] = () => [],
 ) {
   return [
+    autocompletion({ override: [propertyCompletion(tags)], icons: false }),
     markdown({ extensions: markdownExtensions, addKeymap: false, codeLanguages: codeLanguage }),
     syntaxHighlighting(codeHighlighter),
     history(),
@@ -53,6 +57,7 @@ export function editorExtensions(
           return true;
         },
       },
+      { key: "Mod-;", run: addProperty },
       { key: "Enter", run: insertNewlineContinueMarkup },
       { key: "Backspace", run: deleteMarkupBackward },
       { key: "Tab", run: (view) => inList(view.state) && indentMore(view) },
@@ -70,8 +75,9 @@ export function editorExtensions(
       blur: () => {
         onFocus(false);
       },
-      keydown: (event) => {
-        if (event.key !== "Escape") return false;
+      keydown: (event, view) => {
+        // Esc first closes an open completion list.
+        if (event.key !== "Escape" || completionStatus(view.state) === "active") return false;
         event.preventDefault();
         event.stopPropagation();
         onLeave();

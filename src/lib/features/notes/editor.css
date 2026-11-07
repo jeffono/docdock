@@ -89,3 +89,25 @@
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+
+/* Frontmatter completion: keys and tags. */
+:host .cm-tooltip.cm-tooltip-autocomplete {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+}
+:host .cm-tooltip-autocomplete > ul > li {
+  padding: 0 var(--space-2);
+}
+:host .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--color-selected);
+  color: var(--color-fg);
+}
+:host .cm-completionMatchedText {
+  text-decoration: none;
+  font-weight: 600;
+}

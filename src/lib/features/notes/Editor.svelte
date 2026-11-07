@@ -19,6 +19,7 @@ let {
   onleave,
   ondiscard,
   onstatus,
+  tags,
 }: {
   path: string;
   note: OpenNote;
@@ -26,6 +27,8 @@ let {
   /** Leaves without saving, after the user chose to drop edits that cannot be saved. */
   ondiscard: () => void;
   onstatus: (state: AutosaveState) => void;
+  /** The folder's tags, offered while typing them in the frontmatter. */
+  tags: () => string[];
 } = $props();
 let host: HTMLDivElement;
 let view: EditorView | undefined;
@@ -151,6 +154,7 @@ const extensions = () => [
       if (!focused) queueMicrotask(() => void saving.flush());
     },
     t("editor.label"),
+    tags,
   ),
 ];
 

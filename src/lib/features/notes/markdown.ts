@@ -245,18 +245,26 @@ export function quoteYaml(text: string): string {
  * `text` with its frontmatter title set to `title`, or null when the frontmatter has no title this
  * reader understands, so the card shows the file name instead. Only that line changes, with its own
  * terminator. The value stays unquoted when it reads back the same and is not another YAML type.
+ * With `create`, a missing or unreadable title is written too, in a new frontmatter block if needed,
+ * with the text's first line terminator.
  */
-export function retitle(text: string, title: string): string | null {
+export function retitle(text: string, title: string, create = false): string | null {
   const lines = text.split(/(?<=\r\n|\n|\r(?!\n))/);
   const bare = (n: number) => lines[n - 1].replace(/\r?\n$|\r$/, "");
   const meta = frontmatter(bare, lines.length);
-  if (!meta?.title) return null;
-  let at = 0;
-  for (let n = 2; n < meta.end; n++) if (/^title:/.test(bare(n))) at = n;
+  if (!meta?.title && !create) return null;
   const plain =
     scalar(title) === title && !/^(?:true|false|yes|no|on|off|null|~|[-+]?[\d.].*)$/i.test(title);
-  const end = lines[at - 1].slice(bare(at).length);
-  lines[at - 1] = `title: ${plain ? title : quoteYaml(title)}${end}`;
+  const line = `title: ${plain ? title : quoteYaml(title)}`;
+  if (!meta) {
+    const newline = text.match(/\r\n|\n|\r/)?.[0] ?? "\n";
+    return `---${newline}${line}${newline}---${newline}${text}`;
+  }
+  let at = 0;
+  for (let n = 2; n < meta.end; n++) if (/^title:/.test(bare(n))) at = n;
+  // A new title goes first in the block, ending as the opening line does.
+  if (!at) lines.splice(1, 0, `${line}${lines[0].slice(3)}`);
+  else lines[at - 1] = `${line}${lines[at - 1].slice(bare(at).length)}`;
   return lines.join("");
 }
 
