@@ -12,12 +12,14 @@ import {
   markdown,
 } from "@codemirror/lang-markdown";
 import { syntaxHighlighting } from "@codemirror/language";
+import { searchPanelOpen } from "@codemirror/search";
 import { type ChangeSet, EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { drawSelection, EditorView, keymap } from "@codemirror/view";
 import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
 import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
+import { noteSearch, noteSearchKeymap } from "./note-search";
 import { addProperty, propertyCompletion } from "./properties";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
@@ -48,6 +50,11 @@ export function editorExtensions(
     markdown({ extensions: markdownExtensions, addKeymap: false, codeLanguages: codeLanguage }),
     syntaxHighlighting(codeHighlighter),
     history(),
+    noteSearch(),
+    // Several cursors: Alt+click adds one, Ctrl+D the next occurrence.
+    EditorState.allowMultipleSelections.of(true),
+    EditorView.clickAddsSelectionRange.of((event) => event.altKey),
+    drawSelection(),
     keymap.of([
       ...formattingKeymap,
       {
@@ -62,6 +69,7 @@ export function editorExtensions(
       { key: "Backspace", run: deleteMarkupBackward },
       { key: "Tab", run: (view) => inList(view.state) && indentMore(view) },
       { key: "Shift-Tab", run: (view) => inList(view.state) && indentLess(view) },
+      ...noteSearchKeymap,
       ...defaultKeymap,
       ...historyKeymap,
     ]),
@@ -76,8 +84,13 @@ export function editorExtensions(
         onFocus(false);
       },
       keydown: (event, view) => {
-        // Esc first closes an open completion list.
-        if (event.key !== "Escape" || completionStatus(view.state) === "active") return false;
+        // Esc first closes an open completion list, then the search panel.
+        if (
+          event.key !== "Escape" ||
+          completionStatus(view.state) === "active" ||
+          searchPanelOpen(view.state)
+        )
+          return false;
         event.preventDefault();
         event.stopPropagation();
         onLeave();

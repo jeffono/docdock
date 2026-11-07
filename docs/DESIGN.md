@@ -213,9 +213,9 @@ pinned and unpinned notes differ only in section and starting state.
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
 | Delete                    | Remove the selected missing pinned item                                                  |
 | Ctrl+Enter                | Create a note with the exact typed text                                                  |
-| Ctrl+D                    | Toggle pin on the selected card from search, the list or its editor                      |
+| Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |
 | Ctrl+E                    | Toggle editing on the selected card                                                      |
-| Ctrl+F                    | Focus the search bar and select its text                                                 |
+| Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first             |
 | Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
 | Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close         |
 
@@ -289,6 +289,16 @@ Windows editor shortcuts:
 | Tab / Shift+Tab                               | Indent / outdent list items                                                                |
 | Ctrl+;                                        | Add a frontmatter property: a new line in the block, created if needed, with keys offered  |
 | Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
+| Ctrl+F / Ctrl+H                               | Find / replace in the note, starting from the selection; Ctrl+F again goes to the bar      |
+| Enter / Shift+Enter, F3 / Shift+F3            | Next / previous match                                                                      |
+| Ctrl+D                                        | Select the next occurrence of the selection, adding a cursor                               |
+| Alt+click                                     | Add a cursor                                                                               |
+| Esc                                           | Close the find panel, then leave editing                                                   |
+
+Find and replace is one compact row stuck to the top of the editing card: a replace toggle, the
+field, a muted "3 of 12" count, match case (Aa) and regular expression (.*) toggles, previous, next
+and close. The replace row, aligned with the field, shows only after Ctrl+H or the toggle. Matches
+look like search highlights in the list, and the current one is outlined in the accent color.
 
 Frontmatter stays YAML text, with no property form. Inside the raw block, typing at the start of a
 line offers common keys not yet present (title, tags, aliases, date, author, description, status,

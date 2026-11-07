@@ -649,7 +649,7 @@ function slide(_node: HTMLElement, { from, to }: { from: DOMRect; to: DOMRect })
 
 let pinning = false;
 /** `refocus`: the toggle came from the editor, which can lose focus when its card changes section. */
-async function pinOrUnpin(card: Card, refocus = false) {
+async function pinOrUnpin(card: Card) {
   if (pinning) return;
   pinning = true;
   selection = card.hit.path;
@@ -658,10 +658,6 @@ async function pinOrUnpin(card: Card, refocus = false) {
     pinned = card.pinned
       ? await pinnedRemove(card.hit.path)
       : await pinnedAdd(card.hit.path, card.hit.title);
-    if (refocus) {
-      await tick();
-      editor?.focus();
-    }
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -1215,6 +1211,12 @@ function barKey(event: KeyboardEvent) {
   listKey(event, true);
 }
 
+/** The editor's find and replace fields, in its shadow root. */
+const inNoteSearch = (event: KeyboardEvent) =>
+  event
+    .composedPath()
+    .some((node) => node instanceof HTMLElement && node.classList.contains("note-search"));
+
 /** A text field or the editor keeps its keys; the editor sits in a shadow root. */
 function inField(event: KeyboardEvent): boolean {
   const target = event.composedPath()[0];
@@ -1270,17 +1272,13 @@ function shortcut(event: KeyboardEvent) {
       return;
     }
   }
-  const inEditor =
-    editing &&
-    event
-      .composedPath()
-      .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
-  if (!browser && ctrl && key === "d" && (!field || inEditor)) {
-    const card = cardFor(inEditor ? selected : active);
+  // In the editor, Ctrl+D selects the next occurrence instead.
+  if (!browser && ctrl && key === "d" && !field) {
+    const card = cardFor(active);
     if (!card) return;
     event.preventDefault();
     // Held down, the key repeats: one press is one toggle.
-    if (!event.repeat) void pinOrUnpin(card, inEditor);
+    if (!event.repeat) void pinOrUnpin(card);
     return;
   }
   if (!browser && ctrl && key === "e") {
@@ -1292,6 +1290,11 @@ function shortcut(event: KeyboardEvent) {
     return;
   }
   const plain = !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+  const inEditor =
+    editing &&
+    event
+      .composedPath()
+      .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
   if (!browser && plain && key === "f2" && (!field || inEditor)) {
     const path = inEditor ? selected : cardFor(active)?.hit.path;
     if (!path || cardFor(path)?.url) return;
@@ -1299,7 +1302,8 @@ function shortcut(event: KeyboardEvent) {
     void editTitle(path);
     return;
   }
-  if (ctrl && key === "f" && !field) {
+  // Ctrl+F in the editor finds in the note; from that search, it comes here.
+  if (ctrl && key === "f" && (!field || inNoteSearch(event))) {
     event.preventDefault();
     input?.focus();
     input?.select();

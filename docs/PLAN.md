@@ -5,7 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: M4.3 — Editor.
+- M4.3: find in the note, next occurrence and Alt+click cursors on `editor-search`, awaiting review
+  and manual check.
 
 ## Completed
 
@@ -27,7 +28,7 @@ detail each stage when it is next.
 
 ## M4.3 — Editor
 
-- [ ] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
+- [x] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
 - [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
   property" (Ctrl+;)
 - [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences

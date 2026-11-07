@@ -98,6 +98,11 @@ const panelShortcuts: [string, MessageKey][] = [
         {#each formattingShortcuts as shortcut}<div><dt>{shortcut.key?.replaceAll("-", "+").replace(/\b[a-z]\b/g, (key) => key.toUpperCase())}</dt><dd>{t(shortcut.description, { level: shortcut.level })}</dd></div>{/each}
         <div><dt>Enter / Backspace</dt><dd>{t("shortcut.continue")}</dd></div>
         <div><dt>Tab / Shift+Tab</dt><dd>{t("shortcut.indent")}</dd></div>
+        <div><dt>Ctrl+;</dt><dd>{t("shortcut.property")}</dd></div>
+        <div><dt>Ctrl+F / Ctrl+H</dt><dd>{t("shortcut.noteFind")}</dd></div>
+        <div><dt>F3 / Shift+F3</dt><dd>{t("shortcut.noteNext")}</dd></div>
+        <div><dt>Ctrl+D</dt><dd>{t("shortcut.occurrence")}</dd></div>
+        <div><dt>Alt+click</dt><dd>{t("shortcut.cursor")}</dd></div>
       </dl>
     {/if}
   </section>

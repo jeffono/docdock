@@ -344,7 +344,9 @@ one undoable text transaction and respect read-only state. Image widgets use the
 traversal and segment encoding rules as the `note-asset` protocol; they never insert HTML. A StateField supplies
 the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the
 framed raw block. `properties.ts` completes keys and the folder's tags inside that block
-(`@codemirror/autocomplete`) and adds a property line with Ctrl+;. Metadata is cached by immutable document identity. Raw text is tracked separately
+(`@codemirror/autocomplete`) and adds a property line with Ctrl+;. `note-search.ts` gives `@codemirror/search` its own
+panel DOM, styled in `editor.css` because the app's Svelte components cannot style the shadow root;
+the editor draws its selection so Ctrl+D and Alt+click can hold several cursors. Metadata is cached by immutable document identity. Raw text is tracked separately
 from CodeMirror offsets so untouched CRLF, LF and CR
 line endings, including mixed files, survive edits; new lines use the first existing separator (LF in
 an empty file). No Markdown serialization occurs.
