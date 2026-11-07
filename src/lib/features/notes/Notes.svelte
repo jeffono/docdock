@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
+import { flip } from "svelte/animate";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
@@ -40,6 +41,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
   barDefault,
+  downOpensHistory,
   historyEntries,
   LatestQuery,
   searchAddress,
@@ -297,7 +299,17 @@ const headings = $derived(
     groupingDate,
   ),
 );
-const listRows = $derived(rows(model, editing ? selected : "", headings));
+const previewModel = $derived.by(() => {
+  const source = dragged?.target;
+  if (!source || !dragOver || pinned.version !== dragged?.base) return model;
+  const entries = [...model.pinned];
+  const from = entries.findIndex((entry) => entryKey(entry) === source);
+  const to = entries.findIndex((entry) => entryKey(entry) === dragOver);
+  if (from < 0 || to < 0) return model;
+  entries.splice(to, 0, ...entries.splice(from, 1));
+  return { ...model, pinned: entries };
+});
+const listRows = $derived(rows(previewModel, editing ? selected : "", headings));
 const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
@@ -546,7 +558,38 @@ async function pinOrUnpin(card: Card, refocus = false) {
 }
 
 let reordering = false;
-let dragged: { target: string; base: string } | null = null;
+let dragged = $state<{ target: string; base: string } | null>(null);
+let dragOver = $state("");
+let dragImageCaptured = $state(false);
+let animationDuration = $state(0);
+let dropping = false;
+onMount(() => {
+  const media = matchMedia("(prefers-reduced-motion: reduce)");
+  const update = () => {
+    animationDuration = media.matches
+      ? 0
+      : Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue("--duration"),
+        );
+  };
+  update();
+  media.addEventListener("change", update);
+  return () => media.removeEventListener("change", update);
+});
+function dragEnd() {
+  if (dropping) return;
+  dragImageCaptured = false;
+  dragged = null;
+  dragOver = "";
+}
+async function dropPin(event: DragEvent) {
+  if (!dragged) return;
+  event.preventDefault();
+  dropping = true;
+  await reorder(dragged.target, dragOver || dragged.target, dragged.base);
+  dropping = false;
+  dragEnd();
+}
 async function reorder(target: string, to: string, base = pinned.version) {
   if (reordering || editing || target === to) return;
   reordering = true;
@@ -570,7 +613,17 @@ function pinDrag(target: string) {
         event.preventDefault();
         return;
       }
+      const rect = element.getBoundingClientRect();
+      event.dataTransfer?.setDragImage(
+        element,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+      );
       dragged = { target, base: pinned.version };
+      dragOver = target;
+      requestAnimationFrame(() => {
+        if (dragged) dragImageCaptured = true;
+      });
       event.dataTransfer?.setData("text/plain", target);
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
     };
@@ -578,27 +631,23 @@ function pinDrag(target: string) {
       if (dragged && !editing) {
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        // The moving placeholder keeps this target stable until another card is entered.
+        if (target !== dragged.target) {
+          const at = previewModel.pinned.findIndex((entry) => entryKey(entry) === target);
+          if (at >= 0) dragOver = entryKey(model.pinned[at]);
+        }
       }
     };
-    const drop = (event: DragEvent) => {
-      if (!dragged) return;
-      event.preventDefault();
-      void reorder(dragged.target, target, dragged.base);
-      dragged = null;
-    };
-    const end = () => {
-      dragged = null;
-    };
     handle.addEventListener("dragstart", start);
-    handle.addEventListener("dragend", end);
+    handle.addEventListener("dragend", dragEnd);
     element.addEventListener("dragover", over);
-    element.addEventListener("drop", drop);
+    element.addEventListener("drop", dropPin);
     return () => {
       handle.draggable = false;
       handle.removeEventListener("dragstart", start);
-      handle.removeEventListener("dragend", end);
+      handle.removeEventListener("dragend", dragEnd);
       element.removeEventListener("dragover", over);
-      element.removeEventListener("drop", drop);
+      element.removeEventListener("drop", dropPin);
     };
   };
 }
@@ -921,7 +970,7 @@ function barKey(event: KeyboardEvent) {
     !event.altKey &&
     !event.shiftKey &&
     !event.metaKey &&
-    !shownWebItems.length
+    downOpensHistory(browser, shownWebItems.length)
   ) {
     // Without history, ↓ keeps moving through the notes.
     const first = historyEntries(history)[0];
@@ -1099,7 +1148,7 @@ onMount(() => {
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
         <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
     </div>
   {/if}
@@ -1146,6 +1195,7 @@ onMount(() => {
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
+        <div class="list-entry" class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:flip={{ duration: animationDuration }}>
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "dateGroup" in row}
@@ -1197,17 +1247,18 @@ onMount(() => {
             editor={edited ? noteEditor : undefined}
           />
         {/if}
+        </div>
       {/each}
       {#each shownWebItems as entry (entry.key)}
         <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
       {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}
       <button class="suggestion" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
     {/each}
     <div class="empty">
       <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
@@ -1257,7 +1308,10 @@ onMount(() => {
     outline: none;
   }
 
-  .section-heading { display: flex; align-items: center; gap: var(--space-2); padding-right: var(--panel-inset-right); }
+  .section-heading { display: flex; align-items: baseline; gap: var(--space-2); padding-right: var(--panel-inset-right); }
+  .section-heading h2 { color: var(--color-fg); }
+  .drag-gap :global(.card), .drag-gap .missing { border-style: dashed; border-color: var(--color-muted); background: transparent; }
+  .drag-gap :global(.card > *), .drag-gap .missing > * { visibility: hidden; }
   h2 {
     margin: 0;
     padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);

@@ -77,7 +77,7 @@ function menuKey(event: KeyboardEvent) {
 
 <div class="note-order" class:preferences>
   <button bind:this={trigger} class="trigger" aria-label={`${t("order.label")}: ${t(`order.${$noteOrder}`)}`} aria-haspopup="menu" aria-expanded={open} aria-controls={id} aria-disabled={$noteOrderBusy} title={t("order.search")} onclick={() => open ? close() : show()} onkeydown={triggerKey}>
-    {t(`order.short.${$noteOrder}`)}
+    {t(`order.${$noteOrder}`)}
   </button>
   <div bind:this={menu} {id} class="menu" popover="auto" role="menu" tabindex="-1" aria-label={t("order.label")} onkeydown={menuKey} ontoggle={() => { open = menu.matches(":popover-open"); }}>
     <div role="group" aria-label={t("order.label")}>
@@ -97,7 +97,7 @@ function menuKey(event: KeyboardEvent) {
 </div>
 
 <style>
-.note-order { min-width: 0; }
+.note-order { min-width: 0; margin-left: auto; }
 .preferences { margin-bottom: var(--space-2); }
 button { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-muted); font: inherit; font-size: var(--font-size-sm); min-height: var(--size-control); padding: var(--space-1) var(--space-2); text-align: left; }
 button:hover, .menu button:focus-visible { background: var(--color-bg); color: var(--color-fg); }

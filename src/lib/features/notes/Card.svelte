@@ -94,6 +94,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   class:selected={selected && !editing}
   class:line={!open}
   class:row
+  class:page={!!card.hit.url}
   class:expanded={card.level === "expanded"}
   class:editing
   data-path={card.hit.path}
@@ -104,16 +105,18 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     </div>{/if}
     <button tabindex="-1" class="head" onclick={onheader}>
       <span class="title">{card.hit.title}</span>
+      <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
-      {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
       {#if tags.length > 0}
         <small class="tag">{tags[0]}{#if tags.length > 1}<span class="more"> +{tags.length - 1}</span>{/if}</small>
       {/if}
+      {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
+      </span>
     </button>
     {#if status}<small class="status" role="status">{status}</small>{/if}
     <div class="actions">
       {#if card.hit.url}
-        <IconButton tabindex={-1} quiet icon="arrowRight" label={t("web.openPage")} onclick={() => onpage(card.hit.url!)} />
+        <IconButton tabindex={-1} quiet icon="globe" label={t("web.openPage")} onclick={() => onpage(card.hit.url!)} />
       {/if}
       {#if card.level === "expanded"}
         <div class="pencil" class:active={editing}>
@@ -254,7 +257,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     text-align: left;
   }
 
-  .card.row:not(.selected) .head:hover {
+  .card.row:not(.selected):hover {
     background: var(--color-surface);
   }
 
@@ -267,6 +270,30 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     white-space: nowrap;
   }
 
+  .meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 50%;
+  }
+
+  /* Title clearance is stable; metadata ends at the row edge at rest. */
+  .meta .tag { flex-shrink: 1; }
+  .row { --row-actions: calc(var(--size-control) + var(--space-1)); }
+  .row.page { --row-actions: calc((var(--size-control) + var(--space-1)) * 2); }
+  .row .head { padding-right: 0; }
+  .row .title { margin-right: var(--row-actions); }
+  .row .meta { transition: transform var(--duration); }
+  .row .actions { position: absolute; right: var(--space-1); }
+  .row .actions :global(button) { transition: opacity var(--duration), color var(--duration); }
+  .row:is(:hover, .current, :focus-within) .meta { transform: translateX(calc(-1 * var(--row-actions))); }
+  .card:focus-within .actions :global(button) { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .row .meta, .row .actions :global(button) { transition: none; }
+  }
+
   .date,
   .tag,
   .status {
@@ -276,7 +303,8 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   }
 
   .tag {
-    max-width: 30%;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

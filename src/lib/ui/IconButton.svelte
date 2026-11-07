@@ -67,6 +67,10 @@ let {
     cursor: default;
   }
 
+  button.quiet:hover:not(:disabled) {
+    background: transparent;
+  }
+
   button.quiet {
     border: 0;
   }

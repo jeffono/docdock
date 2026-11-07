@@ -44,7 +44,7 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## States
 
-- **Hover:** lighter surface, without shifting anything.
+- **Hover:** lighter surface. Note metadata slides aside to reveal row actions.
 - **Focus:** 2 px accent outline, keyboard only.
 - **Selected or enabled:** `--color-selected` background with accent text.
 - **Empty:** one sentence explaining what to do and the action immediately below.
@@ -79,11 +79,13 @@ semantics. No colors were added. Raw frontmatter uses the existing surface, line
 One list fills the panel under the search bar at the top. Every note is the same card component;
 pinned and unpinned notes differ only in section and starting state.
 
-- **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
+- **Sections:** section titles use semibold primary text at the same size as the muted filter.
+  "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
-- **Order:** a muted, borderless text button beside "Notes" shows the current order briefly (for example,
-  "Modified ↓"). Its in-webview menu and the same control in Preferences > General share
+- **Order:** a muted, borderless text button at the right end of the section header shares the
+  title baseline. It shows Name, Date modified or Date created with ↓ for descending (newest first,
+  Z–A) and ↑ for ascending (oldest first, A–Z), matching the menu. Its in-webview menu and the same control in Preferences > General share
   one saved choice: name (display title), modified or created, ascending or descending. The default is
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
@@ -96,7 +98,10 @@ pinned and unpinned notes differ only in section and starting state.
   Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
   months of this year (month names in the user's locale), then earlier years. Boundaries use local
   calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
-- **Reorder pins:** drag a pinned header onto another pinned item to move it to that position, or use
+- **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
+  the whole card follows the pointer; a dashed gap marks its pending position while the other cards
+  move apart with a transform animation. Only dropping saves the order; Esc or dropping outside
+  restores it. Reduced motion disables the animation. Note bodies keep text selection. Or use
   Alt+Shift+↑ / Alt+Shift+↓ on the selected pinned item (including web and missing items). Selection
   follows the item. Reordering is unavailable while editing. A stale file produces a nearby error.
 - **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
@@ -104,7 +109,7 @@ pinned and unpinned notes differ only in section and starting state.
   the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
 - **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
   URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
-  annotations. A note with an http(s) `url:` has an "Open page" arrow action left of the pencil; it
+  annotations. A note with an http(s) `url:` has an "Open page" globe action left of the pencil; it
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
@@ -132,11 +137,14 @@ pinned and unpinned notes differ only in section and starting state.
 - **Chevron:** in the gutter, aligned with the title, right for a line and down for an open card. It
   shows on hover, on the selected item and on keyboard focus; its space is always reserved.
 - **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
-  expanded, with `--space-1` gaps and `--size-control` click targets. Both show only on hover, on the
-  selected item and on keyboard focus, with their space reserved. Icons use `--size-icon`, muted color,
+  expanded, with `--space-1` gaps and `--size-control` click targets. Actions show only on hover, on the
+  selected item and on keyboard focus. In Notes rows, tags and date end at the same right edge without
+  reserving action space. Metadata slides left and actions fade in over `--duration` using only
+  transform and opacity; title clearance prevents overlap and preserves ellipsis in both states.
+  Reduced motion disables these transitions. Open cards reserve action space. Icons use `--size-icon`, muted color,
   no border and no background; the bookmark is filled when pinned and outline otherwise. While
-  editing, the pencil stays visible in the accent color, still without border or background. Hover
-  keeps the lighter surface and foreground color. Tooltips and accessible labels include shortcuts:
+  editing, the pencil stays visible in the accent color, still without border or background. Icon hover changes only foreground contrast; the row hover surface covers exactly the same inset
+  and radius as its selected surface. Tooltips and accessible labels include shortcuts:
   "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)", "Open (→)" / "Close (←)" and "Remove from
   pinned (Delete)".
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same

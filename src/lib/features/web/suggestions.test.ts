@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
-import { barDefault, historyEntries, LatestQuery, webEntries, webQuery } from "./suggestions";
+import {
+  barDefault,
+  downOpensHistory,
+  historyEntries,
+  LatestQuery,
+  webEntries,
+  webQuery,
+} from "./suggestions";
 
 it.each(["todo.md", "file.txt", "1.5"])("Enter preserves the note match for %s", (query) => {
   const items = webEntries(query, false, [], []);
@@ -53,4 +60,14 @@ it("history opening lists at most five recent local addresses", () => {
   ];
   expect(historyEntries(history).map((item) => item.url)).toEqual(history.slice(0, 5));
   expect(historyEntries([])).toEqual([]);
+});
+
+it("Down in Notes keeps note navigation even when no web suggestions are shown", () => {
+  expect(downOpensHistory(false, 0)).toBe(false);
+});
+it("Down in Browser opens history when no suggestions are shown", () => {
+  expect(downOpensHistory(true, 0)).toBe(true);
+});
+it("Down in Browser navigates existing suggestions before history", () => {
+  expect(downOpensHistory(true, 2)).toBe(false);
 });
