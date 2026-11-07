@@ -106,6 +106,9 @@ const en = {
   "editor.saving": "Saving…",
   "editor.saved": "Saved",
   "editor.label": "Note text",
+  "editor.tagsInvalid":
+    "These tags cannot be read. Use a list such as [a, b], quoting tags with punctuation.",
+  "editor.tagsRepair": "These tags will be repaired when you leave the editor.",
   "search.find": "Find in note",
   "search.replace": "Replace",
   "search.toggleReplace": "Toggle replace (Ctrl+H)",
@@ -274,6 +277,9 @@ const ptBR: Record<MessageKey, string> = {
   "editor.saving": "Salvando…",
   "editor.saved": "Salvo",
   "editor.label": "Texto da nota",
+  "editor.tagsInvalid":
+    "Estas tags não podem ser lidas. Use uma lista como [a, b], com aspas nas tags com pontuação.",
+  "editor.tagsRepair": "Estas tags serão corrigidas ao sair do editor.",
   "search.find": "Buscar na nota",
   "search.replace": "Substituir",
   "search.toggleReplace": "Mostrar ou ocultar substituir (Ctrl+H)",

@@ -303,7 +303,11 @@ look like search highlights in the list, and the current one is outlined in the 
 Frontmatter stays YAML text, with no property form. Inside the raw block, typing at the start of a
 line offers common keys not yet present (title, tags, aliases, date, author, description, status,
 url), and typing a tag offers the folder's tags, in a quiet monospace list with the selected
-background. Esc first closes the list.
+background. Esc first closes the list. Unreadable tags have a muted wavy underline on their raw
+frontmatter line and an explanatory tooltip. Leaving editing repairs comma-separated plain words
+into a list and quotes plain `word: word` items inside a flow list, as one undoable edit saved by
+autosave. Typing never triggers repair. Ambiguous YAML (including a scalar `tags: Plano: Q3`,
+duplicate tag keys, incomplete lists, structured values and unreadable block items) stays untouched.
 
 Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every

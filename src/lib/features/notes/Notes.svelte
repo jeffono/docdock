@@ -74,7 +74,7 @@ import {
   rows,
   shallower,
 } from "./list";
-import { retitle } from "./markdown";
+import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
@@ -202,7 +202,7 @@ export function leaveEditor(): Promise<boolean> {
     // An untitled note takes its name from what it shows, while the editor still holds it.
     const named = editor && isUntitled(selected) ? noteName(editor.text()) : null;
     if (named) await rename(named.title, named.frontmatter ? "frontmatter" : "content");
-    const note = await editor?.finish();
+    const note = await editor?.finish(repairTags);
     if (!note) return false;
     contents[selected] = note;
     leftPath = selected;

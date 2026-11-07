@@ -222,3 +222,6 @@
 :host .cm-editor .cm-searchMatch-selected {
   outline: 1px solid var(--color-accent);
 }
+:host .cm-editor .cm-tag-problem {
+  text-decoration: underline wavy var(--color-muted);
+}
