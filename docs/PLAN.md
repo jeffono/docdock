@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: M4.4 — Move and delete.
+- M4.4 — Move and delete, on branch `move-delete`.
 
 ## Completed
 
@@ -42,6 +42,11 @@ Decided 2026-11-07:
   delete button on the card header.
 - A right-click menu on cards, opened inside the panel like the order menu (also Shift+F10 and the
   Menu key), holds Rename, Pin, Move and Delete, each showing its shortcut.
+- Moving opens an in-panel picker: a text field filtering the existing folders, the root included,
+  and "Create folder X" when the typed name does not exist.
+- Folders are deleted from a right-click menu on their group label (also Shift+F10 and the Menu key)
+  when grouping by folder: an empty folder goes at once, one with content asks first and goes to the
+  Recycle Bin. Folders left empty by moves or deletes are kept.
 
 - [ ] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
   panel is open; pinned entries follow, and an open editor stops saving instead of recreating it
