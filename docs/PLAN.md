@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.1 on `preferences`: list polish and pinned drag feedback implemented; visual approval and stage close next.
+- M4.2 next, on a new branch after `preferences` is merged.
 
 ## Completed
 
@@ -20,25 +20,8 @@ detail each stage when it is next.
 - M4 — Web pages: mobile browser tab with history and suggestions, page selection read from Rust,
   pages saved as notes, code colors and Edge features filtered; see "Untrusted content" in
   `docs/ARCHITECTURE.md`.
-
-## M4.1 — Preferences
-
-Decided 2026-11-06: a third panel view opened by a gear icon replacing the folder icon, sections
-General, Appearance, Browser and Shortcuts; settings stay in the existing atomic `settings.json`.
-
-- [x] (standard) Preferences view; move the folder choice and panel side there (the tray keeps the
-  side, in sync); returning to Notes after opening a page leaves the search field empty
-- [x] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
-- [x] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
-  reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
-- [x] (standard) Optional grouping by date when ordering by date
-- [x] (standard) List polish (decided 2026-11-07): order button right-aligned on the section title's
-  baseline; labels Name / Date modified / Date created with ↓ descending and ↑ ascending; section
-  titles stronger than the filter; hover background matches the focus box, buttons hover by contrast
-  only; row tags and date right-aligned, actions slide in on hover or focus; globe icon for opening a
-  page; ↓ in the Notes bar always selects the first note
-- [x] (standard) Pinned drag feedback: the card follows the pointer and the others move apart to show
-  where it drops
+- M4.1 — Preferences: gear view, saved panel width, note order and date grouping, pinned reorder by
+  drag or keyboard, and list polish; see "Preferences" and "Note list" in `docs/DESIGN.md`.
 
 ## M4.2 — Files
 
