@@ -128,11 +128,12 @@ fn item(body: &str) -> Option<Item> {
 }
 
 /// The first link of an item line, with the byte ranges in `body` of its text (inside the brackets)
-/// and its destination, so an edit can replace them and keep everything else on the line.
+/// and the path of its destination (without a `#fragment`), so an edit can replace them and keep
+/// everything else on the line.
 struct Link {
     item: Item,
     label: Range<usize>,
-    destination: Range<usize>,
+    path: Range<usize>,
 }
 
 fn link(body: &str) -> Option<Link> {
@@ -161,7 +162,7 @@ fn link(body: &str) -> Option<Link> {
                 kind,
             },
             label: base + open + 1..base + close,
-            destination: start..start + destination.len(),
+            path: start..start + destination.find('#').unwrap_or(destination.len()),
         });
     }
     None
@@ -393,9 +394,9 @@ pub fn rename(text: &str, from: &str, to: &str, title: (&str, &str)) -> String {
                 } else {
                     &body[link.label.clone()]
                 });
-                out.push_str(&body[link.label.end..link.destination.start]);
+                out.push_str(&body[link.label.end..link.path.start]);
                 out.push_str(&utf8_percent_encode(to, PATH).to_string());
-                out.push_str(&body[link.destination.end..]);
+                out.push_str(&body[link.path.end..]);
             }
             None => out.push_str(body),
         }
@@ -455,11 +456,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rename_points_items_at_the_new_path_and_keeps_the_rest_of_the_line() {
-        let text = "- [Old](old.md \"tip\") extra\r\n* [My words](OLD.md)\n- [B](b.md)\n```\n- [Old](old.md)\n```\n";
+    fn rename_points_items_at_the_new_path_and_keeps_fragments_and_the_rest_of_the_line() {
+        let text = "- [Old](old.md \"tip\") extra\r\n* [My words](OLD.md#part)\n- [B](b.md)\n```\n- [Old](old.md)\n```\n";
         assert_eq!(
             rename(text, "old.md", "dir/New [1].md", ("Old", "New [1]")),
-            "- [New \\[1\\]](dir/New%20%5B1%5D.md \"tip\") extra\r\n* [My words](dir/New%20%5B1%5D.md)\n- [B](b.md)\n```\n- [Old](old.md)\n```\n"
+            "- [New \\[1\\]](dir/New%20%5B1%5D.md \"tip\") extra\r\n* [My words](dir/New%20%5B1%5D.md#part)\n- [B](b.md)\n```\n- [Old](old.md)\n```\n"
         );
     }
     #[test]

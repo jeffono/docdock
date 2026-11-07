@@ -276,8 +276,9 @@ refuses a taken name, which answers `conflict`, and allows a case-only change of
 leaves the editor first, so no save under the old name brings it back, and picks the name as for a new
 note (`renamedPath`); on a conflict it reads again and tries the next free name. A note whose card shows
 a frontmatter title also gets `content`, that text with only the title line changed (`retitle`),
-written at the new name against `base`. Pinned items of the note then point at the new path, keeping
-the rest of their line; their link text follows only while it is still the old title. Links in other
+written at the new name against `base`. Pinned items of the note then point at the new path, keeping a
+`#fragment` and the rest of their line; their link text follows only while it is still the old title. If
+`_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the rename stands. Links in other
 notes are not rewritten. The watcher reports the move as a rename, as for an external one.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,

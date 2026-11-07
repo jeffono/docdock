@@ -54,6 +54,10 @@ pub enum Error {
     },
     /// `_pinned.md` kept changing outside the app while an edit was applied; nothing was written.
     PinnedChanged,
+    /// The note was renamed to `path`, but its pinned items still point at the old name.
+    PinnedNotRenamed {
+        path: String,
+    },
     InvalidUrl {
         detail: String,
     },

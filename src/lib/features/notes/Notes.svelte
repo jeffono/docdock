@@ -576,21 +576,27 @@ async function pinOrUnpin(card: Card, refocus = false) {
 /** Note whose card title is a rename field. */
 let renaming = $state("");
 /**
- * Renames the card's note to `title`, or starts the field with `null`. The editor is left first, so no
- * save under the old name follows the move, and is entered again on the new name. The file name comes
- * from the title; a frontmatter title, which the card shows, changes with it. A conflict (name taken
- * meanwhile, note changed) is retried on a fresh read with the next free name.
+ * Renames the card's note to `title`. `null` starts the field, or cancels it when it is already open.
+ * The editor is left first, so no save under the old name follows the move, and is entered again on
+ * the new name. The file name comes from the title; a frontmatter title, which the card shows, changes
+ * with it. A conflict (name taken meanwhile, note changed) is retried on a fresh read with the next
+ * free name. A rename whose pinned items could not follow still stands.
  */
 async function rename(card: Card, title: string | null) {
   const from = card.hit.path;
   if (title === null) {
-    if (!renaming && !card.url) renaming = from;
+    if (renaming === from) renaming = "";
+    else if (!renaming && !card.url) renaming = from;
     return;
   }
   renaming = "";
   const typed = title.replace(/\s+/g, " ").trim();
   if (!typed || typed === card.hit.title) return;
   const wasEditing = editing && selected === from;
+  const follow = async (to: string) => {
+    changed({ renames: from === to ? [] : [[from, to]] });
+    if (wasEditing) await edit(to);
+  };
   try {
     error = "";
     if (!(await leaveEditor())) return;
@@ -600,10 +606,13 @@ async function rename(card: Card, title: string | null) {
       const content = retitle(note.text, typed);
       const to = renamedPath(from, typed, taken);
       const shown = content === null ? to.slice(to.lastIndexOf("/") + 1, -3) : typed;
-      const result = await notesRename(from, to, content, note.version, [card.hit.title, shown]);
-      if (result.status === "saved") {
-        changed({ renames: from === to ? [] : [[from, to]] });
-        if (wasEditing) await edit(to);
+      try {
+        const result = await notesRename(from, to, content, note.version, [card.hit.title, shown]);
+        if (result.status === "saved") return await follow(to);
+      } catch (e) {
+        if ((e as { code?: string }).code !== "pinnedNotRenamed") throw e;
+        await follow(to);
+        error = errorText(e);
         return;
       }
       taken.push(to);

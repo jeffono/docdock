@@ -582,7 +582,7 @@ pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Resu
 /// `content`, when given, then replaces the note at its new name against `base` (a new frontmatter
 /// title); if an external write slipped in there, the note stays renamed with that write. Pinned items
 /// of `from` follow it, even if writing `content` failed; `title` is the old and new title for their
-/// link text.
+/// link text. If they cannot, the answer is `PinnedNotRenamed`: the note is renamed all the same.
 fn rename_note_in(
     root: &Path,
     from: &str,
@@ -629,7 +629,13 @@ fn rename_note_in(
             }),
         }
     };
-    edit_pinned(root, |text| pinned::rename(text, from, to, title))?;
+    // The move happened: a failure here must say so, since `from` no longer exists to retry.
+    edit_pinned(root, |text| pinned::rename(text, from, to, title)).map_err(|error| {
+        eprintln!("[rename] pinned items not renamed: {error:?}");
+        Error::PinnedNotRenamed {
+            path: to.to_owned(),
+        }
+    })?;
     match written? {
         // The rename stands even when the new title lost to an external write.
         Saved::Conflict => Ok(Saved::Saved {
@@ -1534,6 +1540,16 @@ mod tests {
             fs::read_to_string(root.join(PINNED)).unwrap(),
             "- [B](sub/B.md)\n- [C](c.md)\n"
         );
+    }
+    #[test]
+    fn renaming_reports_the_new_name_when_the_pinned_list_cannot_follow() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        // A folder under the pinned name cannot be read or written as the list.
+        fs::create_dir(t.0.join(PINNED)).unwrap();
+        let renamed = rename(&t.0, "a.md", "b.md", None);
+        assert!(matches!(renamed, Err(Error::PinnedNotRenamed { path }) if path == "b.md"));
+        assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "a");
     }
     #[test]
     fn renaming_only_the_case_keeps_the_same_file() {
