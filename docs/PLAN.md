@@ -32,8 +32,28 @@ General, Appearance, Browser and Shortcuts; settings stay in the existing atomic
 - [x] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
   reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
 - [x] (standard) Optional grouping by date when ordering by date
+- [ ] (standard) List polish (decided 2026-11-07): order button right-aligned on the section title's
+  baseline; labels Name / Date modified / Date created with ↓ descending and ↑ ascending; section
+  titles stronger than the filter; hover background matches the focus box, buttons hover by contrast
+  only; row tags and date right-aligned, actions slide in on hover or focus; globe icon for opening a
+  page; ↓ in the Notes bar always selects the first note
+- [ ] (standard) Pinned drag feedback: the card follows the pointer and the others move apart to show
+  where it drops
 
-## M4.2 — Editor
+## M4.2 — Files
+
+Decided 2026-11-07: renaming moves the file without overwriting and updates `_pinned.md`; links in
+other notes are not rewritten. A tree view is out of scope.
+
+- [ ] (advanced) Rename a note from its card title (click or F2)
+- [ ] (advanced) Automatic name for `Untitled N` notes when leaving them: frontmatter `title`, else the
+  top H1, else the first words (about 60 characters)
+- [ ] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder
+  as an alternative to grouping by date
+- [ ] (standard) Later: move to a folder through a picker that can create it; delete only empty folders
+  or to the Recycle Bin
+
+## M4.3 — Editor
 
 - [ ] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
 - [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips
