@@ -114,6 +114,8 @@ const en = {
   "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
   "delete.confirm": "Move to Recycle Bin",
   "delete.done": "“{title}” moved to the Recycle Bin.",
+  "delete.tooLarge":
+    "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
   "pinned.restore": "Restore pinned items",
   "editor.updated": "Updated from disk",
@@ -311,6 +313,8 @@ const ptBR: Record<MessageKey, string> = {
   "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
   "delete.confirm": "Mover para a Lixeira",
   "delete.done": "“{title}” foi para a Lixeira.",
+  "delete.tooLarge":
+    "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
   "pinned.restore": "Restaurar fixados",
   "editor.updated": "Atualizada do disco",

@@ -15,6 +15,9 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 - Light and dark themes follow Windows by default, with a System, Light or Dark choice in Preferences.
   Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
+- Amber (`--color-warning*`, chosen by the user) only tints notices that need attention without being
+  errors, such as Undo after a delete. A light scrim (`--color-scrim`) dims the panel only behind a
+  confirmation dialog.
 - Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
   keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
   functions, orange types, green tags and gray comments. Punctuation and other identifiers keep the
@@ -43,6 +46,7 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 | `TextField`     | Single-line input; Esc leaves the field                            |
 | `Menu`          | In-panel menu of items with optional check and shortcut            |
 | `ConfirmDialog` | In-panel question before a costly action, focus on Cancel          |
+| `Notice`        | Amber-tinted message with an icon and actions, for attention       |
 | `Icon`          | Lucide stroke, text color, width 2                                 |
 
 ## States
@@ -191,12 +195,16 @@ pinned and unpinned notes differ only in section and starting state.
   and missing items have none.
 - **Deleting:** Delete in the card menu, or Ctrl+Delete on the selected card from the list (not in
   the search bar or the editor, where it deletes the next word), asks in an in-panel dialog without
-  shadow or dimming: the note title as the question, one muted sentence, then the neutral Cancel,
-  which has the focus, and the primary "Move to Recycle Bin". Esc cancels and focus returns. An edited
-  note leaves editing first, which saves. Then a quiet notice under the search bar says the note went
-  to the Recycle Bin, with a neutral Undo button, until the panel closes or another note is deleted.
-  Undo brings the note and its pinned items back and selects it. The selection otherwise moves to the
-  next item. Where the folder has no Recycle Bin, nothing is deleted and an error says so.
+  shadow, over a light scrim: the note title as the question, one muted sentence, then the neutral
+  Cancel, which has the focus, and the primary "Move to Recycle Bin". It spans the panel width less
+  its margins and opens just below the card header, or above it near the bottom, always inside the
+  panel. Esc cancels and focus returns. An edited note leaves editing first, which saves. Then a
+  `Notice` under the search bar, on the amber tint with a trash icon, says the note went to the
+  Recycle Bin, with a neutral Undo button, until the panel closes or another note is deleted. Undo
+  brings the note and its pinned items back and selects it. The selection otherwise moves to the
+  next item. Where the folder has no Recycle Bin, nothing is deleted and an error says so. A note over
+  the 2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is
+  too large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
   another app, Esc from the empty search bar, or the shortcut from the search bar. A pinned panel only
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its

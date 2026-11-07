@@ -43,6 +43,7 @@ import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
 import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
+import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
   barDefault,
@@ -900,6 +901,8 @@ async function pinnedAction(action: () => Promise<Pinned>) {
 /** The last note moved to the Recycle Bin, offered for Undo until the panel closes. */
 let removed = $state<{ path: string; title: string } | null>(null);
 let deleting = false;
+/** Why the app would not delete a note, until dismissed, the next delete or the panel hides. */
+let warning = $state("");
 /** The note being moved to the Recycle Bin; it cannot open in the editor meanwhile. */
 let deletingPath = "";
 /** Counts panel hides: a delete that ends after one offers no Undo, which Rust no longer keeps. */
@@ -914,10 +917,13 @@ async function deleteNote(card: Card) {
   deleting = true;
   try {
     const title = card.hit.title;
+    warning = "";
+    const header = list?.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"] header`);
     const confirmed = await confirmDialog.ask(
       t("delete.title", { title }),
       t("delete.text"),
       t("delete.confirm"),
+      header?.getBoundingClientRect(),
     );
     if (!confirmed) return;
     error = "";
@@ -950,7 +956,9 @@ async function deleteNote(card: Card) {
     changed({ renames: [] });
     error = problem;
   } catch (e) {
-    error = errorText(e);
+    const failed = e as { code?: string; limitMb?: number };
+    if (failed.code === "tooLarge") warning = t("delete.tooLarge", { limitMb: failed.limitMb });
+    else error = errorText(e);
   } finally {
     deleting = false;
     deletingPath = "";
@@ -1408,7 +1416,9 @@ function shortcut(event: KeyboardEvent) {
     // Recovery actions (leftovers, a deleted pinned list) sit between the bar and the cards.
     const stops = [
       input,
-      ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
+      ...document.querySelectorAll<HTMLElement>(
+        ".notice button, .leftover button, .restore button",
+      ),
       ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>(".note-order > button")] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
@@ -1475,6 +1485,7 @@ onMount(() => {
     shortcutSheet.close();
     // The panel forgot the deleted note; it stays in the Recycle Bin.
     removed = null;
+    warning = "";
     panelSession++;
     void leaveEditor().then((left) => {
       if (left) expanded = "";
@@ -1571,10 +1582,17 @@ onMount(() => {
   {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if removed}
-      <div class="restore removed" role="status">
-        <p class="message">{t("delete.done", { title: removed.title })}</p>
-        <Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>
-      </div>
+      {@const note = removed}
+      <Notice icon="trash">
+        {t("delete.done", { title: note.title })}
+        {#snippet actions()}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/snippet}
+      </Notice>
+    {/if}
+    {#if warning}
+      <Notice icon="alert">
+        {warning}
+        {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={() => { warning = ""; }} />{/snippet}
+      </Notice>
     {/if}
     {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>

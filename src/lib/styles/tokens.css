@@ -12,6 +12,12 @@
   --color-accent-fg: light-dark(#ffffff, #10151d);
   --color-selected: light-dark(#e3edfd, #1f2d44);
   --color-danger: light-dark(#b3261e, #f2857d);
+  /* Notices that need attention but are not errors, such as Undo after a delete. */
+  --color-warning: light-dark(#9a6700, #d29922);
+  --color-warning-bg: light-dark(#fff8e5, #2a2416);
+  --color-warning-line: light-dark(#f0d48a, #5c4a1c);
+  /* Behind a dialog that asks before a costly action. */
+  --color-scrim: light-dark(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.45));
 
   /* GitHub Light Default and GitHub Dark Default syntax colors. */
   --color-code-comment: light-dark(#6e7781, #8b949e);
