@@ -8,6 +8,7 @@ import {
   type NotesChanges,
   type NotesFolder,
   notesChoose,
+  notesDelete,
   notesFolder,
   notesLeftovers,
   notesList,
@@ -16,6 +17,7 @@ import {
   notesRestore,
   notesSave,
   notesTexts,
+  notesUndoDelete,
   type OpenNote,
   onNotesChanged,
   onPanelHidden,
@@ -37,8 +39,10 @@ import {
   webSuggestions,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
+import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
 import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
+import Menu from "../../ui/Menu.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
   barDefault,
@@ -90,6 +94,7 @@ let {
 }: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
 
 let shortcutSheet: ShortcutSheet;
+let confirmDialog: ConfirmDialog;
 $effect(() => {
   if (inactive || browser) shortcutSheet?.close();
 });
@@ -395,8 +400,8 @@ const wanted = $derived([
 ]);
 const loading = new Set<string>();
 /**
- * Old names of renamed notes. The pinned list may still name one until it reloads, and reading it
- * would show a not-found error; once nothing wants it, it is forgotten.
+ * Old names of renamed notes, and deleted notes. The pinned list may still name one until it reloads,
+ * and reading it would show a not-found error; once nothing wants it, it is forgotten.
  */
 const renamedAway = new Set<string>();
 async function load(path: string) {
@@ -445,6 +450,7 @@ async function refresh(value: NotesFolder | null) {
   if (editing) return;
   folder = value;
   notes = [];
+  removed = null;
   selected = "";
   opened = null;
   leftovers = [];
@@ -890,6 +896,107 @@ async function pinnedAction(action: () => Promise<Pinned>) {
   }
 }
 
+/** The last note moved to the Recycle Bin, offered for Undo until the panel closes. */
+let removed = $state<{ path: string; title: string } | null>(null);
+let deleting = false;
+/**
+ * Moves a note to the Recycle Bin once confirmed. Its editor is left first, the guarded way, so its
+ * text is saved before the delete and nothing writes the note back afterwards; a conflict or error
+ * there stops the delete. The selection moves to the next item, else the previous.
+ */
+async function deleteNote(card: Card) {
+  if (deleting || card.url) return;
+  deleting = true;
+  try {
+    const title = card.hit.title;
+    const confirmed = await confirmDialog.ask(
+      t("delete.title", { title }),
+      t("delete.text"),
+      t("delete.confirm"),
+    );
+    if (!confirmed) return;
+    error = "";
+    let path = card.hit.path;
+    if (editing && path === selected) {
+      if (!(await leaveEditor())) return;
+      path = leftPath;
+    }
+    const at = keys.indexOf(path);
+    const next = keys[at + 1] ?? keys[at - 1] ?? "";
+    let problem = "";
+    try {
+      await notesDelete(path);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
+      problem = errorText(e);
+    }
+    removed = { path, title };
+    renamedAway.add(path);
+    delete contents[path];
+    if (expanded === path) expanded = "";
+    if (selection === path || active === path) selection = next;
+    changed({ renames: [] });
+    error = problem;
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    deleting = false;
+  }
+}
+/** Writes the deleted note back where it was, with its pinned items; it is a normal note again. */
+async function undoDelete() {
+  const note = removed;
+  if (!note) return;
+  error = "";
+  try {
+    await notesUndoDelete(note.path);
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    error = errorText(e);
+    if (code === "undoUnavailable") removed = null;
+    // Only the pinned items failed: the note is back. Otherwise, a taken name keeps Undo to retry.
+    if (code !== "pinnedNotRestored") return;
+  }
+  removed = null;
+  renamedAway.delete(note.path);
+  // Focus first: an empty selection on focus would pick the first item.
+  list?.focus({ preventScroll: true });
+  selection = note.path;
+  changed({ renames: [] });
+}
+
+let cardMenu: Menu;
+/** The card the right-click menu acts on. */
+let menuCard = $state<Card | null>(null);
+/** At `at`, from a right click, or under the card's header, from the keyboard. */
+async function openMenu(card: Card, at?: { x: number; y: number }) {
+  menuCard = card;
+  selection = card.hit.path;
+  await tick();
+  const header = list?.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"] header`);
+  const rect = header?.getBoundingClientRect();
+  cardMenu.show({
+    at: at ?? (rect ? { x: rect.left, y: rect.bottom } : undefined),
+    // The edited card keeps its own focus: the editor or its title field.
+    from: editing && card.hit.path === selected ? null : list,
+  });
+}
+/**
+ * A right click on a note card opens its menu. Text fields and the editor keep the native menu
+ * for copy and paste, as does reading text that is selected.
+ */
+function contextMenu(event: MouseEvent) {
+  const target = event.composedPath()[0];
+  if (!(target instanceof Element)) return;
+  const element = target.closest<HTMLElement>(".card[data-path]");
+  const card = element && cardFor(element.dataset.path ?? "");
+  if (!card || card.url || inField(event) || target.closest(".surface")) return;
+  const selected = getSelection();
+  if (selected && !selected.isCollapsed && element.contains(selected.anchorNode)) return;
+  event.preventDefault();
+  void openMenu(card, { x: event.clientX, y: event.clientY });
+}
+
 /** Removes a pinned item whose note is gone; the selection moves to the next item, else the previous. */
 async function removeMissing(target: string) {
   const at = keys.indexOf(target);
@@ -1171,11 +1278,29 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       return;
     }
     case "Delete": {
+      // Ctrl+Delete deletes the next word in the bar, as in any text field.
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && !inBar) {
+        const card = cardFor(active);
+        if (!card || card.url) return;
+        event.preventDefault();
+        if (!event.repeat) void deleteNote(card);
+        return;
+      }
       const action = enter(model, active);
       if (modified || event.altKey || action?.action !== "remove") return;
       if (inBar && !caretAtEnd(event)) return;
       event.preventDefault();
       void removeMissing(action.target);
+      return;
+    }
+    case "ContextMenu":
+    case "F10": {
+      const shiftOnly = event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+      if (inBar || (event.key === "F10" && !shiftOnly)) return;
+      const card = cardFor(active);
+      if (!card || card.url) return;
+      event.preventDefault();
+      void openMenu(card);
       return;
     }
   }
@@ -1224,7 +1349,7 @@ const inNoteSearch = (event: KeyboardEvent) =>
     .some((node) => node instanceof HTMLElement && node.classList.contains("note-search"));
 
 /** A text field or the editor keeps its keys; the editor sits in a shadow root. */
-function inField(event: KeyboardEvent): boolean {
+function inField(event: Event): boolean {
   const target = event.composedPath()[0];
   return (
     target instanceof HTMLElement &&
@@ -1233,7 +1358,14 @@ function inField(event: KeyboardEvent): boolean {
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (inactive || shortcutSheet?.isOpen() || event.defaultPrevented || event.isComposing) return;
+  if (
+    inactive ||
+    shortcutSheet?.isOpen() ||
+    confirmDialog?.isOpen() ||
+    event.defaultPrevented ||
+    event.isComposing
+  )
+    return;
   if (
     browser &&
     !tools?.contains(event.target as Node) &&
@@ -1328,6 +1460,8 @@ onMount(() => {
   // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
     shortcutSheet.close();
+    // The panel forgot the deleted note; it stays in the Recycle Bin.
+    removed = null;
     void leaveEditor().then((left) => {
       if (left) expanded = "";
     });
@@ -1362,9 +1496,20 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
+<ConfirmDialog bind:this={confirmDialog} />
+<Menu bind:this={cardMenu} label={t("menu.label")}>
+  {#if menuCard}
+    {@const card = menuCard}
+    <button role="menuitem" tabindex="-1" onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>
+    <button role="menuitem" tabindex="-1" onclick={() => pinOrUnpin(card)}>{t(card.pinned ? "menu.unpin" : "menu.pin")}<kbd>Ctrl+D</kbd></button>
+    <!-- Move, from the next task, goes here. -->
+    <hr />
+    <button role="menuitem" tabindex="-1" onclick={() => deleteNote(card)}>{t("menu.delete")}<kbd>Ctrl+Delete</kbd></button>
+  {/if}
+</Menu>
 
 {#snippet noteEditor()}
   {#if opened}
@@ -1411,6 +1556,12 @@ onMount(() => {
   <div class="content" hidden={browser}>
   {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if removed}
+      <div class="restore removed" role="status">
+        <p class="message">{t("delete.done", { title: removed.title })}</p>
+        <Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>
+      </div>
+    {/if}
     {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>
         <p class="message">{t("leftovers.notice")}</p>
@@ -1432,7 +1583,7 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">

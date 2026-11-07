@@ -36,12 +36,14 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 
 Use `src/lib/ui/` before creating anything. Create a component only if nothing existing works.
 
-| Component    | Use                                                                |
-| ------------ | ------------------------------------------------------------------ |
-| `Button`     | Primary action (at most one per area), or neutral secondary action |
-| `IconButton` | Secondary action, always labeled; toggles on and off               |
-| `TextField`  | Single-line input; Esc leaves the field                            |
-| `Icon`       | Lucide stroke, text color, width 2                                 |
+| Component       | Use                                                                |
+| --------------- | ------------------------------------------------------------------ |
+| `Button`        | Primary action (at most one per area), or neutral secondary action |
+| `IconButton`    | Secondary action, always labeled; toggles on and off               |
+| `TextField`     | Single-line input; Esc leaves the field                            |
+| `Menu`          | In-panel menu of items with optional check and shortcut            |
+| `ConfirmDialog` | In-panel question before a costly action, focus on Cancel          |
+| `Icon`          | Lucide stroke, text color, width 2                                 |
 
 ## States
 
@@ -181,13 +183,27 @@ pinned and unpinned notes differ only in section and starting state.
   pinned (Delete)".
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
   vertical and right inset and a quiet remove icon.
+- **Card menu:** a right click on a note card, Shift+F10 or the Menu key on the selected card opens
+  the same in-panel menu as the order menu: Rename (F2), Pin or Unpin (Ctrl+D), then after a separator
+  Delete (Ctrl+Delete), each with its shortcut in muted text at the right; Move joins before the
+  separator. A right click opens it at the pointer, kept inside the panel; the keyboard opens it under
+  the card header. Text fields, the editor and selected reading text keep the native menu. Web pins
+  and missing items have none.
+- **Deleting:** Delete in the card menu, or Ctrl+Delete on the selected card from the list (not in
+  the search bar or the editor, where it deletes the next word), asks in an in-panel dialog without
+  shadow or dimming: the note title as the question, one muted sentence, then the neutral Cancel,
+  which has the focus, and the primary "Move to Recycle Bin". Esc cancels and focus returns. An edited
+  note leaves editing first, which saves. Then a quiet notice under the search bar says the note went
+  to the Recycle Bin, with a neutral Undo button, until the panel closes or another note is deleted.
+  Undo brings the note and its pinned items back and selects it. The selection otherwise moves to the
+  next item. Where the folder has no Recycle Bin, nothing is deleted and an error says so.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
   another app, Esc from the empty search bar, or the shortcut from the search bar. A pinned panel only
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
-- **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → note order button → top bar buttons (including
+- **Tab stops:** search bar → recovery actions when shown (Undo after a delete, "Restore" on
+  leftovers, then "Restore pinned items") → list → note order button → top bar buttons (including
   Preferences), reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
@@ -213,6 +229,8 @@ pinned and unpinned notes differ only in section and starting state.
 | → / ←                     | Open / close one level: line, preview, expanded                                          |
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
 | Delete                    | Remove the selected missing pinned item                                                  |
+| Ctrl+Delete               | Move the selected note to the Recycle Bin, after confirming; outside text fields         |
+| Shift+F10 / Menu          | Open the selected note's menu                                                            |
 | Ctrl+Enter                | Create a note with the exact typed text                                                  |
 | Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |
 | Ctrl+/                    | Open / close the shortcut sheet                                                          |

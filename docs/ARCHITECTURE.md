@@ -21,8 +21,8 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
-                         renaming, reading and editing `_pinned.md`
-  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move, rename
+                         renaming, deleting with undo, reading and editing `_pinned.md`
+  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -284,6 +284,23 @@ at the new path, keeping a `#fragment` and the rest of their line; their link te
 it is still the old title. If `_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the
 rename stands. Links in other notes are not rewritten. The watcher reports the move as a rename, as for
 an external one.
+
+**Deleting.** `notes_delete(path)` moves a note to the Recycle Bin under the save lock, with its folders
+held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
+cancels the delete when `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`, so where the shell would
+delete for good (no Recycle Bin on the volume, as on a network share) the note stays and the answer is
+`notRecyclable`. Before the move the note's bytes are read through a handle that keeps writers out
+until the move, and kept in memory with the path until the panel hides (`forget_deleted`, from
+`dock.rs`). Meanwhile the path is reserved: saves and renames to it answer a conflict, so a late save
+of an editor cannot recreate the note and a new note takes the next name. Undo (`notes_undo_delete`)
+writes the copy back with the empty-base recreation, never over a file that took the name
+(`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy. Restoring from the Recycle
+Bin itself was not used: finding the item depends on the bin's internal layout. Pinned items are
+removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands); Undo puts back the
+exact previous `_pinned.md` if it did not change since, else pins the items again at the end
+(`pinned::repin`), and leaves a deleted `_pinned.md` to its own restore. The UI leaves the note's editor
+first, the guarded way, so its text is saved and nothing writes after the delete; a conflict there
+stops the delete.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores

@@ -2,6 +2,7 @@
 import { onMount } from "svelte";
 import { errorText, t } from "../../i18n";
 import { type Grouping, type NoteOrder, noteOrders } from "../../ipc";
+import Menu from "../../ui/Menu.svelte";
 import {
   grouping,
   loadNoteOrder,
@@ -17,28 +18,17 @@ const byName = $derived($noteOrder.startsWith("name"));
 let error = $state("");
 let open = $state(false);
 let trigger: HTMLButtonElement;
-let menu: HTMLDivElement;
+let menu: Menu;
 onMount(() => {
   void loadNoteOrder().catch((e) => {
     error = errorText(e);
   });
 });
-function close() {
-  menu.hidePopover();
-  trigger.focus();
-}
 function show(last = false) {
-  if ($noteOrderBusy) return;
-  menu.showPopover();
-  const items = menu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-  (last
-    ? items[items.length - 1]
-    : (menu.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? items[0])
-  )?.focus();
+  if (!$noteOrderBusy) menu.show({ last, from: trigger });
 }
 /** Each grouping item toggles itself; checking one clears the other. */
 async function change(order?: NoteOrder, group?: Grouping) {
-  close();
   error = "";
   try {
     if (order) await setNoteOrder(order);
@@ -53,34 +43,13 @@ function triggerKey(event: KeyboardEvent) {
   event.stopPropagation();
   show(event.key === "ArrowUp");
 }
-function menuKey(event: KeyboardEvent) {
-  event.stopPropagation();
-  const items = [...menu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
-  const at = items.indexOf(document.activeElement as HTMLButtonElement);
-  if (event.key === "Escape" || event.key === "Tab") {
-    event.preventDefault();
-    close();
-  } else if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    items[at]?.click();
-  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-    event.preventDefault();
-    const next =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? items.length - 1
-          : (at + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
-    items[next]?.focus();
-  }
-}
 </script>
 
 <div class="note-order" class:preferences>
-  <button bind:this={trigger} class="trigger" aria-label={`${t("order.label")}: ${t(`order.${$noteOrder}`)}`} aria-haspopup="menu" aria-expanded={open} aria-controls={id} aria-disabled={$noteOrderBusy} title={t("order.search")} onclick={() => open ? close() : show()} onkeydown={triggerKey}>
+  <button bind:this={trigger} class="trigger" aria-label={`${t("order.label")}: ${t(`order.${$noteOrder}`)}`} aria-haspopup="menu" aria-expanded={open} aria-controls={id} aria-disabled={$noteOrderBusy} title={t("order.search")} onclick={() => open ? menu.close() : show()} onkeydown={triggerKey}>
     {t(`order.${$noteOrder}`)}
   </button>
-  <div bind:this={menu} {id} class="menu" popover="auto" role="menu" tabindex="-1" aria-label={t("order.label")} onkeydown={menuKey} ontoggle={() => { open = menu.matches(":popover-open"); }}>
+  <Menu bind:this={menu} {id} class="order-menu" label={t("order.label")} ontoggle={(value) => { open = value; }}>
     <div role="group" aria-label={t("order.label")}>
       {#each noteOrders as order}
         <button role="menuitemradio" aria-checked={$noteOrder === order} tabindex="-1" onclick={() => change(order)}>
@@ -96,22 +65,15 @@ function menuKey(event: KeyboardEvent) {
     <button role="menuitemcheckbox" aria-checked={$grouping === "folder"} title={t("group.folderScope")} tabindex="-1" onclick={() => change(undefined, "folder")}>
       <span class="check" aria-hidden="true">{$grouping === "folder" ? "✓" : ""}</span>{t("group.folder")}
     </button>
-  </div>
+  </Menu>
   {#if error}<span class="error" role="alert">{error}</span>{/if}
 </div>
 
 <style>
 .note-order { min-width: 0; margin-left: auto; }
 .preferences { margin-bottom: var(--space-2); }
-button { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-muted); font: inherit; font-size: var(--font-size-sm); min-height: var(--size-control); padding: var(--space-1) var(--space-2); text-align: left; }
-button:hover, .menu button:focus-visible { background: var(--color-bg); color: var(--color-fg); }
-.trigger { anchor-name: --note-order; }
-.trigger:hover { background: var(--color-surface); }
-.menu { position: fixed; position-anchor: --note-order; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; inset: auto; margin: var(--space-1) 0; padding: var(--space-1); width: max-content; max-width: calc(100dvw - var(--space-4) * 2); max-height: calc(100dvh - var(--space-4) * 2); overflow: auto; box-sizing: border-box; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); }
-.menu button { display: flex; align-items: center; gap: var(--space-2); width: 100%; color: var(--color-fg); }
-.menu button:disabled { color: var(--color-muted); cursor: default; }
-.check { flex: none; width: var(--size-icon); }
-hr { border: 0; border-top: 1px solid var(--color-line); margin: var(--space-1) 0; }
-p { color: var(--color-muted); font-size: var(--font-size-sm); margin: var(--space-1) var(--space-2); max-width: calc(var(--size-control) * 8); }
+.trigger { anchor-name: --note-order; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-muted); font: inherit; font-size: var(--font-size-sm); min-height: var(--size-control); padding: var(--space-1) var(--space-2); text-align: left; }
+.trigger:hover { background: var(--color-surface); color: var(--color-fg); }
+.note-order :global(.order-menu) { position-anchor: --note-order; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
 .error { color: var(--color-danger); font-size: var(--font-size-sm); }
 </style>

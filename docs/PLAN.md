@@ -48,7 +48,7 @@ Decided 2026-11-07:
   when grouping by folder: an empty folder goes at once, one with content asks first and goes to the
   Recycle Bin. Folders left empty by moves or deletes are kept.
 
-- [ ] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
+- [x] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
   panel is open; pinned entries follow, and an open editor stops saving instead of recreating it
 - [ ] (advanced) Move a note to a folder through a picker that can create it, reusing rename's
   no-overwrite move and pin updates
