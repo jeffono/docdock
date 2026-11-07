@@ -206,7 +206,9 @@ export async function finish(change?: (text: string) => string): Promise<OpenNot
   try {
     await pasting;
     // Read after the await with editing locked: never replace text still being typed or pasted.
-    const next = change?.(raw);
+    // Only text edited here: a repair alone must not bring back a note deleted outside the app, or
+    // overwrite one changed outside it that the watcher has not reloaded yet.
+    const next = deleted || raw === note.text ? undefined : change?.(raw);
     if (view && next !== undefined && next !== raw) view.dispatch(diskReload(view.state, next));
     if ((await saving.flush()) !== "saved") return null;
     if (deleted) return { ...note, text: raw };

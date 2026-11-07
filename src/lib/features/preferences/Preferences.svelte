@@ -34,6 +34,11 @@ async function action(work: () => Promise<void>) {
     busy = false;
   }
 }
+/** A failed choice leaves the theme as it was; the clicked radio must not stay checked. */
+function resetTheme() {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="theme"]'))
+    input.checked = input.value === appearance.theme;
+}
 async function refreshFolder() {
   folder = await notesFolder();
 }
@@ -71,7 +76,7 @@ onMount(() => {
       <fieldset disabled={busy}>
         <legend>{t("preferences.theme")}</legend>
         {#each themes as value}
-          <label><input type="radio" name="theme" checked={appearance.theme === value} onchange={() => action(() => chooseTheme(value))} />{t(`preferences.${value}`)}</label>
+          <label><input type="radio" name="theme" {value} checked={appearance.theme === value} onchange={() => action(() => chooseTheme(value).catch((e) => { resetTheme(); throw e; }))} />{t(`preferences.${value}`)}</label>
         {/each}
       </fieldset>
       <div class="setting">

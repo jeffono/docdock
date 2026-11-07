@@ -102,3 +102,9 @@ test("repair is one undoable change with the original bytes recoverable", () => 
   ).toBe(true);
   expect(state.field(rawText)).toBe(original);
 });
+
+// Bug: an unpaired quote in a flow list dropped every tag of the note.
+test("a flow list with an apostrophe still reads its other tags", () => {
+  const lines = note("[don't, music]").split("\n");
+  expect(frontmatter((n) => lines[n - 1], lines.length)?.tags).toContain("music");
+});

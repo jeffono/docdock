@@ -89,8 +89,11 @@ pub fn theme(app: &AppHandle) -> Theme {
 }
 pub fn set_theme(app: &AppHandle, theme: Theme) -> Result<(), Error> {
     update(app, |settings| settings.theme = theme)?;
+    // Saved already: the page applies it either way, so a window that refuses only keeps its frame.
     for window in app.webview_windows().values() {
-        window.set_theme(theme.native())?;
+        if let Err(error) = window.set_theme(theme.native()) {
+            eprintln!("[theme] failed to set the window theme: {error:?}");
+        }
     }
     Ok(())
 }

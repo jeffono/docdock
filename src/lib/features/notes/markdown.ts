@@ -442,7 +442,8 @@ export function frontmatter(line: (n: number) => string, lines: number): Frontma
     else {
       inTags = !match[2];
       const list = match[2].match(/^\[(.*)\]$/);
-      tags = (list ? (tagItems(list[1]) ?? []) : [match[2]])
+      // An unpaired quote, as in `[don't, music]`, reads as before: split at every comma.
+      tags = (list ? (tagItems(list[1]) ?? list[1].split(",")) : [match[2]])
         .map(scalar)
         .filter((v): v is string => v !== null);
     }
