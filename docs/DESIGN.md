@@ -44,7 +44,7 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## States
 
-- **Hover:** lighter surface. Note metadata slides aside to reveal row actions.
+- **Hover:** lighter surface. Note metadata slides aside to reveal header actions.
 - **Focus:** 2 px accent outline, keyboard only.
 - **Selected or enabled:** `--color-selected` background with accent text.
 - **Empty:** one sentence explaining what to do and the action immediately below.
@@ -138,12 +138,13 @@ pinned and unpinned notes differ only in section and starting state.
   shows on hover, on the selected item and on keyboard focus; its space is always reserved.
 - **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
   expanded, with `--space-1` gaps and `--size-control` click targets. Actions show only on hover, on the
-  selected item and on keyboard focus. In Notes rows, tags and date end at the same right edge without
+  selected item and on keyboard focus. In every card, tags and date end at the same right edge without
   reserving action space. Metadata slides left and actions fade in over `--duration` using only
   transform and opacity; title clearance prevents overlap and preserves ellipsis in both states.
-  Reduced motion disables these transitions. Open cards reserve action space. Icons use `--size-icon`, muted color,
+  The slide distance includes every visible action, including the globe and expanded card's pencil.
+  Reduced motion disables these transitions. Icons use `--size-icon`, muted color,
   no border and no background; the bookmark is filled when pinned and outline otherwise. While
-  editing, the pencil stays visible in the accent color, still without border or background. Icon hover changes only foreground contrast; the row hover surface covers exactly the same inset
+  editing, all header actions stay visible and the pencil uses the accent color, still without border or background. Icon hover changes only foreground contrast; the row hover surface covers exactly the same inset
   and radius as its selected surface. Tooltips and accessible labels include shortcuts:
   "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)", "Open (→)" / "Close (←)" and "Remove from
   pinned (Delete)".

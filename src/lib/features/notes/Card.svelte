@@ -216,10 +216,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   .card:hover .gutter,
   .card.current .gutter,
   .gutter:focus-within,
-  .card:hover .actions :global(button),
-  .card.current .actions :global(button),
-  .actions :global(button:focus-visible),
-  .pencil.active :global(button) {
+  .card:is(:hover, .current, .selected, :focus-within, .editing) .actions :global(button) {
     opacity: 1;
   }
 
@@ -279,19 +276,24 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     max-width: 50%;
   }
 
-  /* Title clearance is stable; metadata ends at the row edge at rest. */
+  /* Stable title clearance lets metadata move without animating layout. */
   .meta .tag { flex-shrink: 1; }
-  .row { --row-actions: calc(var(--size-control) + var(--space-1)); }
-  .row.page { --row-actions: calc((var(--size-control) + var(--space-1)) * 2); }
-  .row .head { padding-right: 0; }
-  .row .title { margin-right: var(--row-actions); }
-  .row .meta { transition: transform var(--duration); }
-  .row .actions { position: absolute; right: var(--space-1); }
-  .row .actions :global(button) { transition: opacity var(--duration), color var(--duration); }
-  .row:is(:hover, .current, :focus-within) .meta { transform: translateX(calc(-1 * var(--row-actions))); }
-  .card:focus-within .actions :global(button) { opacity: 1; }
+  .card {
+    --page-actions: 0;
+    --edit-actions: 0;
+    --header-actions: calc((var(--size-control) + var(--space-1)) * (1 + var(--page-actions) + var(--edit-actions)));
+  }
+  .card.page { --page-actions: 1; }
+  .card.expanded { --edit-actions: 1; }
+  .head { padding-right: 0; }
+  .title { margin-right: var(--header-actions); }
+  .meta { transition: transform var(--duration); }
+  .actions { position: absolute; right: var(--space-1); }
+  .actions :global(button) { transition: opacity var(--duration), color var(--duration); }
+  .card:is(:hover, .current, .selected, :focus-within, .editing) .meta { transform: translateX(calc(-1 * var(--header-actions))); }
+  .status { margin-right: var(--header-actions); }
   @media (prefers-reduced-motion: reduce) {
-    .row .meta, .row .actions :global(button) { transition: none; }
+    .meta, .actions :global(button) { transition: none; }
   }
 
   .date,
