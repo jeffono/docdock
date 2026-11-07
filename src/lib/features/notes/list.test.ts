@@ -7,6 +7,7 @@ import {
   deeper,
   defaultKey,
   enter,
+  fileLabel,
   isMissing,
   isUntitled,
   move,
@@ -218,6 +219,14 @@ it("only names given to notes created without text count as untitled", () => {
     expect(isUntitled(path)).toBe(true);
   for (const path of ["untitled.md", "Untitled draft.md", "Untitled 2.txt", "Untitled/Ideas.md"])
     expect(isUntitled(path)).toBe(false);
+});
+
+// Bug: two notes with one frontmatter title look the same, or every title with a colon shows its file.
+it("shows a note's file name only where it differs from the title beyond what files cannot hold", () => {
+  expect(fileLabel("Projeto 2.md", "Projeto")).toBe("Projeto 2.md");
+  expect(fileLabel("a/projeto.md", "Projeto")).toBe("projeto.md");
+  expect(fileLabel("a/Plano Q3.md", "Plano: Q3")).toBeNull();
+  expect(fileLabel("CON_.md", "CON")).toBeNull();
 });
 
 describe("noteFileName", () => {

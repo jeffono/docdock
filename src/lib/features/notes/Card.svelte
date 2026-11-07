@@ -4,7 +4,7 @@ import { date, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import Highlight from "./Highlight.svelte";
-import { type Card, pageHost } from "./list";
+import { type Card, fileLabel, pageHost } from "./list";
 import { renderNote } from "./render";
 import "./content.css";
 
@@ -91,6 +91,7 @@ function bodyDoubleClick(event: MouseEvent) {
 }
 
 const tags = $derived(card.hit.tags);
+const file = $derived(card.url ? null : fileLabel(card.hit.path, card.hit.title));
 
 // While editing, the title is a field; leaving it renames. It follows the note while not focused.
 let title = $state("");
@@ -145,7 +146,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     {/if}
     <!-- Hidden rather than removed: pinned drag is attached to this button. -->
     <button tabindex="-1" class="head" hidden={editing} onclick={onheader}>
-      <span class="title">{card.hit.title}</span>
+      <span class="title">{card.hit.title}{#if file}<small class="file">{file}</small>{/if}</span>
       <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
       {#if tags.length > 0}
@@ -371,7 +372,13 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     .meta, .card.row .title, .actions :global(button) { transition: none; }
   }
 
+  .file {
+    margin-left: var(--space-2);
+    font-weight: normal;
+  }
+
   .date,
+  .file,
   .tag,
   .status {
     flex: none;

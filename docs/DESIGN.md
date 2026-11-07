@@ -134,6 +134,10 @@ pinned and unpinned notes differ only in section and starting state.
   closes, as a click does; a double click on the text of a card enters editing. A note still named
   `Untitled` or `Untitled N` is named when its editor is left, from what the card shows: the
   frontmatter title, else a first heading, else its first words (cut at a word near 60 characters).
+- **Names:** a card shows the frontmatter title, else the file name. When the file name differs from
+  the title beyond characters a file name cannot hold (a taken name got " 2", or the file was renamed
+  elsewhere), the file name follows the title in muted text, so the two notes stay apart and the rule
+  shows itself without any explanation.
 - **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
   the card header, Ctrl+E on the selected card or a double click on its text; entering from preview
   expands the card. One card edits at a time and shows its own save status, conflict and
