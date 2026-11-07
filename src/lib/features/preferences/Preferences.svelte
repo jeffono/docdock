@@ -8,6 +8,7 @@ import {
   panelResize,
   panelSetSide,
 } from "../../ipc";
+import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
 import { formattingShortcuts } from "../notes/formatting";
 import NoteOrder from "../notes/NoteOrder.svelte";
@@ -15,6 +16,7 @@ import NoteOrder from "../notes/NoteOrder.svelte";
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
 const sections = ["general", "appearance", "browser", "shortcuts"] as const;
+const themes = ["system", "light", "dark"] as const;
 /** The panel's own width is the setting's current value. */
 let width = $state(window.innerWidth);
 let section = $state<(typeof sections)[number]>("general");
@@ -82,6 +84,12 @@ const panelShortcuts: [string, MessageKey][] = [
         {/each}
       </fieldset>
     {:else if section === "appearance"}
+      <fieldset disabled={busy}>
+        <legend>{t("preferences.theme")}</legend>
+        {#each themes as value}
+          <label><input type="radio" name="theme" checked={appearance.theme === value} onchange={() => action(() => chooseTheme(value))} />{t(`preferences.${value}`)}</label>
+        {/each}
+      </fieldset>
       <div class="setting">
         <h3>{t("preferences.width")}</h3>
         <p>{t("preferences.widthValue", { width })}</p>

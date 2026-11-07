@@ -23,6 +23,7 @@ pub fn create(app: &App) -> tauri::Result<WebviewWindow> {
     let dev_url = config.build.dev_url.as_ref().filter(|_| tauri::is_dev());
     let ui = ui_url(dev_url);
     WebviewWindowBuilder::from_config(app.handle(), &config.app.windows[0])?
+        .theme(crate::notes::theme(app.handle()).native())
         .initialization_script(FREEZE_PROTOTYPE)
         .on_navigation(move |url| stays_in_ui(url, &ui))
         .on_new_window(|_, _| NewWindowResponse::Deny)

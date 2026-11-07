@@ -87,6 +87,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
         // guard is in place: iframes and external schemes bypass `on_navigation`.
         let blank = Url::parse("about:blank").expect("valid fixed URL");
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(blank))
+            .theme(crate::notes::theme(app).native())
             .owner(&main)?
             .visible(false)
             .focused(false)
