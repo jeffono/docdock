@@ -249,13 +249,16 @@ export function quoteYaml(text: string): string {
  * with the text's first line terminator.
  */
 export function retitle(text: string, title: string, create = false): string | null {
+  // A byte order mark stays first, before any new block.
+  if (text.startsWith("﻿")) {
+    const rest = retitle(text.slice(1), title, create);
+    return rest === null ? null : `﻿${rest}`;
+  }
   const lines = text.split(/(?<=\r\n|\n|\r(?!\n))/);
   const bare = (n: number) => lines[n - 1].replace(/\r?\n$|\r$/, "");
   const meta = frontmatter(bare, lines.length);
   if (!meta?.title && !create) return null;
-  const plain =
-    scalar(title) === title && !/^(?:true|false|yes|no|on|off|null|~|[-+]?[\d.].*)$/i.test(title);
-  const line = `title: ${plain ? title : quoteYaml(title)}`;
+  const line = `title: ${yamlValue(title)}`;
   if (!meta) {
     const newline = text.match(/\r\n|\n|\r/)?.[0] ?? "\n";
     return `---${newline}${line}${newline}---${newline}${text}`;
@@ -263,9 +266,25 @@ export function retitle(text: string, title: string, create = false): string | n
   let at = 0;
   for (let n = 2; n < meta.end; n++) if (/^title:/.test(bare(n))) at = n;
   // A new title goes first in the block, ending as the opening line does.
-  if (!at) lines.splice(1, 0, `${line}${lines[0].slice(3)}`);
-  else lines[at - 1] = `${line}${lines[at - 1].slice(bare(at).length)}`;
+  if (!at) {
+    lines.splice(1, 0, `${line}${lines[0].slice(3)}`);
+    return lines.join("");
+  }
+  // The whole old value goes, with its indented lines (a list or a block scalar), but not the blank
+  // lines after it.
+  let last = at;
+  for (let n = at + 1; n < meta.end && /^(?:[ \t]|$)/.test(bare(n)); n++)
+    if (bare(n).trim()) last = n;
+  const end = lines[last - 1].slice(bare(last).length);
+  lines.splice(at - 1, last - at + 1, `${line}${end}`);
   return lines.join("");
+}
+
+/** `text` as a YAML value: plain when it reads back the same and is not another type, else quoted. */
+export function yamlValue(text: string): string {
+  const plain =
+    scalar(text) === text && !/^(?:true|false|yes|no|on|off|null|~|[-+]?[\d.].*)$/i.test(text);
+  return plain ? text : quoteYaml(text);
 }
 
 /** Only absolute HTTP(S) metadata offers a page action. Rust validates again. */

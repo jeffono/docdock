@@ -163,11 +163,16 @@ let holding: Promise<void> | null = null;
  * Renames the note while it stays editable. `change` may rewrite the text first (a new frontmatter
  * title), saved as one undo step. With everything saved, later saves wait while `move` runs with the
  * version on disk, so none can bring the old name back; `move` calls `moved` on success. Typing goes
- * on meanwhile. Returns false, having done nothing, when the note cannot be saved first.
+ * on meanwhile. `move` may still `rewrite` the text, saved once the move ends, as any edit then.
+ * Returns false, having done nothing, when the note cannot be saved first.
  */
 export async function rename(
   change: (text: string) => string | null,
-  move: (version: string, changed: boolean) => Promise<void>,
+  move: (
+    version: string,
+    changed: boolean,
+    rewrite: (change: (text: string) => string | null) => boolean,
+  ) => Promise<void>,
 ): Promise<boolean> {
   if (resolving || pasting || deleted || holding) return false;
   const next = change(raw);
@@ -179,7 +184,12 @@ export async function rename(
   });
   try {
     const disk = await notesOpen(path);
-    await move(disk.version, next !== null);
+    await move(disk.version, next !== null, (later) => {
+      const text = later(raw);
+      if (!view || text === null || text === raw) return false;
+      view.dispatch(diskReload(view.state, text));
+      return true;
+    });
     return true;
   } finally {
     holding = null;

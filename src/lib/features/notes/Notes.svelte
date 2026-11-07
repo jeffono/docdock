@@ -697,13 +697,17 @@ function rename(
           const held = planned.slice(planned.lastIndexOf("/") + 1, -3) === typed;
           return retitle(text, typed, source === "field" && !held);
         },
-        async (version, retitled) => {
+        async (version, retitled, rewrite) => {
           const taken = notes.map((note) => note.path);
+          let titled = retitled;
           for (let attempt = 0; attempt < 50; attempt++) {
             const to = renamedPath(from, typed, taken);
             if (to === from) return;
-            const shown =
-              source === "frontmatter" || retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
+            const stem = to.slice(to.lastIndexOf("/") + 1, -3);
+            // A name found taken only now still keeps the typed title, saved after the move.
+            if (source === "field" && !titled && stem !== typed)
+              titled = rewrite((text) => retitle(text, typed, true));
+            const shown = source === "frontmatter" || titled ? typed : stem;
             try {
               await notesRename(from, to, version, [old, shown]);
               changed({ renames: [[from, to]] });

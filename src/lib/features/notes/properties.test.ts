@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { yamlValue } from "./markdown";
 import { propertyContext } from "./properties";
 
 const at = (text: string, line: number, column: number) => {
@@ -9,10 +10,34 @@ const at = (text: string, line: number, column: number) => {
 // Bug: completion would offer keys in the body, or keys the block already has.
 test("keys complete at the start of a frontmatter line only, without those already there", () => {
   const text = "---\ntitle: A\nst\n---\nst";
-  expect(at(text, 3, 2)).toEqual({ kind: "key", from: 0, used: new Set(["title"]) });
+  expect(at(text, 3, 2)).toEqual({
+    kind: "key",
+    from: 0,
+    to: 2,
+    colon: false,
+    used: new Set(["title"]),
+  });
   expect(at(text, 5, 2)).toBeNull();
   expect(at("st\n---", 1, 2)).toBeNull();
   expect(at(text, 2, 7)).toBeNull();
+});
+
+// Bug: completing a key before its colon gave `title: : A`.
+test("a key completed before its colon is replaced whole and keeps the colon", () => {
+  expect(at("---\ntitle: A\n---", 2, 2)).toMatchObject({
+    kind: "key",
+    from: 0,
+    to: 5,
+    colon: true,
+  });
+});
+
+// Bug: a tag such as "Plano: Q3" or "a,b" was inserted as YAML that reads as a map or two tags.
+test("tags are inserted as YAML values that read back the same", () => {
+  expect(yamlValue("ideia")).toBe("ideia");
+  expect(yamlValue("Plano: Q3")).toBe('"Plano: Q3"');
+  expect(yamlValue("a,b")).toBe('"a,b"');
+  expect(yamlValue('di"z')).toBe('"di\\"z"');
 });
 
 // Bug: a tag would replace the whole list, or complete under another key's list.

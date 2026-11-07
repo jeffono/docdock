@@ -51,6 +51,17 @@ test("retitle can create the title, in the block or in a new one, keeping line e
   );
 });
 
+// Bug: replacing only the `title:` line left a list or block scalar under the new value.
+test("retitle replaces a whole structured title and keeps a byte order mark first", () => {
+  expect(retitle("---\ntitle:\n  - Old\n  - Two\n\ntags: [a]\n---\n", "A", true)).toBe(
+    "---\ntitle: A\n\ntags: [a]\n---\n",
+  );
+  expect(retitle("---\r\ntitle: |\r\n  Old\r\n---\r\n", "A", true)).toBe(
+    "---\r\ntitle: A\r\n---\r\n",
+  );
+  expect(retitle("﻿Body", "A", true)).toBe("﻿---\ntitle: A\n---\nBody");
+});
+
 test("retitle leaves notes whose card shows the file name", () => {
   expect(retitle("# Heading\n", "New")).toBeNull();
   expect(retitle("---\ntitle: [list]\n---\n", "New")).toBeNull();
