@@ -5,8 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2: folder prefixes and grouping on `folder-groups`, awaiting review and manual check; this
-  closes M4.2. Folder moving remains deferred.
+- Next: M4.3 — Editor.
 
 ## Completed
 
@@ -23,21 +22,8 @@ detail each stage when it is next.
   `docs/ARCHITECTURE.md`.
 - M4.1 — Preferences: gear view, saved panel width, note order and date grouping, pinned reorder by
   drag or keyboard, and list polish; see "Preferences" and "Note list" in `docs/DESIGN.md`.
-
-## M4.2 — Files
-
-Decided 2026-11-07: renaming moves the file without overwriting and updates `_pinned.md`; links in
-other notes are not rewritten. A tree view is out of scope.
-
-- [x] (advanced) Rename a note from its card title (double click or F2)
-- [x] (advanced) Automatic name for `Untitled N` notes when leaving them: frontmatter `title`, else the
-  top H1, else the first words (about 60 characters)
-- [x] (standard) Frontmatter: the title field writes the title the file name cannot hold; key and
-  tag completion in the raw block; Ctrl+; adds a property
-- [x] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder
-  as an alternative to grouping by date
-- [ ] (standard) Later: move to a folder through a picker that can create it; delete only empty folders
-  or to the Recycle Bin
+- M4.2 — Files: renaming from the card title, automatic names, file names beside differing titles,
+  frontmatter completion and Ctrl+;, folder prefixes and grouping; see "Note list" in `docs/DESIGN.md`.
 
 ## M4.3 — Editor
 
@@ -64,6 +50,9 @@ In no defined order:
 
 - MathML equations with Temml; KaTeX depends on inline styling, blocked by CSP.
 - Mermaid diagrams: require a decision on CSP, which blocks the `<style>` it injects.
+- Move notes to a folder through a picker that can create it; delete only empty folders or to the
+  Recycle Bin. Renaming moves files without overwriting and links in other notes are not rewritten;
+  a tree view is out of scope.
 - Slash commands in the editor, including "Add property" for the frontmatter.
 - Post-its as floating desktop windows.
 - Screenshots.
