@@ -138,9 +138,10 @@ export function noteName(source: string): { title: string; frontmatter: boolean 
   if (typeof top !== "string" && top.tag === "h1") return { title: words(top), frontmatter: false };
   const text = Array.from(body.map(words).join(" ").replace(/\s+/g, " ").trim());
   if (text.length <= NAME_LENGTH) return { title: text.join(""), frontmatter: false };
-  const cut = text.slice(0, NAME_LENGTH + 1).join("");
+  // Cut in code points: a lone half of a surrogate pair is no valid file name.
+  const cut = text.slice(0, NAME_LENGTH + 1);
   const space = cut.lastIndexOf(" ");
-  return { title: space > 0 ? cut.slice(0, space) : cut.slice(0, NAME_LENGTH), frontmatter: false };
+  return { title: cut.slice(0, space > 0 ? space : NAME_LENGTH).join(""), frontmatter: false };
 }
 
 class Renderer {

@@ -189,6 +189,8 @@ let editing = $state(false);
 let saveStatus = $state<AutosaveState>("saved");
 let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
+/** The note the editor last left, under the name it left with: leaving may rename it. */
+let leftPath = "";
 export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
@@ -203,6 +205,7 @@ export function leaveEditor(): Promise<boolean> {
     const note = await editor?.finish();
     if (!note) return false;
     contents[selected] = note;
+    leftPath = selected;
     selected = "";
     opened = note;
     version = note.version;
@@ -531,12 +534,16 @@ async function savePage() {
 /** Moves a card to `level`; for a pinned card, line against open is also remembered. */
 async function setLevel(card: Card, level: Level) {
   if (card.url) return;
-  const path = card.hit.path;
+  let path = card.hit.path;
   try {
     error = "";
     // Closing the edited card or expanding another leaves editing first: it saves, or refuses on a
     // conflict or error and then nothing changes.
-    if (editing && (path !== selected || level !== "expanded") && !(await leaveEditor())) return;
+    if (editing && (path !== selected || level !== "expanded")) {
+      const edited = path === selected;
+      if (!(await leaveEditor())) return;
+      if (edited) path = leftPath;
+    }
     selection = path;
     if (level === "expanded") expanded = path;
     else if (expanded === path) expanded = "";
@@ -673,11 +680,7 @@ function rename(title: string, keepTitle = false): Promise<void> {
           for (let attempt = 0; attempt < 50; attempt++) {
             const to = renamedPath(from, typed, taken);
             if (to === from) return;
-            const shown = keepTitle
-              ? old
-              : retitled
-                ? typed
-                : to.slice(to.lastIndexOf("/") + 1, -3);
+            const shown = keepTitle || retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
             try {
               await notesRename(from, to, version, [old, shown]);
               changed({ renames: [[from, to]] });

@@ -159,5 +159,7 @@ test("an untitled note's name from its words is cut at a word near 60 characters
   const long = "word ".repeat(30);
   expect(noteName(long)?.title).toBe("word ".repeat(12).trim());
   expect(noteName("x".repeat(80))?.title).toBe("x".repeat(60));
+  // Bug: a cut through an emoji left half of it, which Rust rejects as a path.
+  expect(noteName(`${"a".repeat(59)}😀xx`)?.title).toBe(`${"a".repeat(59)}😀`);
   expect(noteName("---\ntags: [a]\n---\n\n![](a.png)\n")).toBeNull();
 });
