@@ -215,8 +215,8 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   }
   .card:hover .gutter,
   .card.current .gutter,
-  .gutter:focus-within,
-  .card:is(:hover, .current, .selected, :focus-within, .editing) .actions :global(button) {
+  .gutter:has(:focus-visible),
+  .card:is(:hover, .current, .selected, :has(:focus-visible), .editing) .actions :global(button) {
     opacity: 1;
   }
 
@@ -291,12 +291,12 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   /* Rows share section edges at rest; the existing box keeps its inset when active. */
   .card.row .title { transform: translateX(calc(-1 * (var(--space-3) + 1px))); transition: transform var(--duration) ease; }
   .card.row .meta { transform: translateX(calc(var(--space-1) + 1px)); }
-  .card.row:is(:hover, .current, .selected, :focus-within) .title { transform: none; }
-  .card.row:is(:hover, .current, .selected, :focus-within) { background: var(--color-surface); }
+  .card.row:is(:hover, .current, .selected, :has(:focus-visible)) .title { transform: none; }
+  .card.row:is(:hover, .current, .selected, :has(:focus-visible)) { background: var(--color-surface); }
   .card.row.selected { background: var(--color-selected); }
   .actions { position: absolute; right: var(--space-1); }
   .actions :global(button) { transition: opacity var(--duration), color var(--duration); }
-  .card:is(:hover, .current, .selected, :focus-within, .editing) .meta { transform: translateX(calc(-1 * var(--header-actions))); }
+  .card:is(:hover, .current, .selected, :has(:focus-visible), .editing) .meta { transform: translateX(calc(-1 * var(--header-actions))); }
   .status { margin-right: var(--header-actions); }
   @media (prefers-reduced-motion: reduce) {
     .meta, .card.row .title, .actions :global(button) { transition: none; }
