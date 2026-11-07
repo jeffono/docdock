@@ -377,6 +377,11 @@ const wanted = $derived([
   ...(expanded ? [expanded] : []),
 ]);
 const loading = new Set<string>();
+/**
+ * Old names of renamed notes. The pinned list may still name one until it reloads, and reading it
+ * would show a not-found error; once nothing wants it, it is forgotten.
+ */
+const renamedAway = new Set<string>();
 async function load(path: string) {
   const current = generation;
   loading.add(path);
@@ -390,7 +395,9 @@ async function load(path: string) {
   }
 }
 function loadWanted() {
-  for (const path of wanted) if (!(path in contents) && !loading.has(path)) void load(path);
+  for (const path of renamedAway) if (!wanted.includes(path)) renamedAway.delete(path);
+  for (const path of wanted)
+    if (!(path in contents) && !loading.has(path) && !renamedAway.has(path)) void load(path);
 }
 $effect(() => {
   void wanted;
@@ -911,6 +918,8 @@ let again = false;
 function changed(changes: NotesChanges) {
   for (const [from, to] of changes.renames) {
     if (opening === from) opening = null;
+    renamedAway.add(from);
+    renamedAway.delete(to);
     if (from in contents) {
       contents[to] = contents[from];
       delete contents[from];
