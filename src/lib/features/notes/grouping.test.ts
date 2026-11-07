@@ -115,6 +115,7 @@ test("folder groups keep the order inside each folder, root first, subfolders af
   ];
   const grouped = byFolder(
     paths.map((path) => hit(now, path)),
+    (one) => one.path,
     true,
     "",
   );
@@ -142,6 +143,6 @@ test("folder groups keep the order inside each folder, root first, subfolders af
 
 test("searches keep relevance instead of folder groups", () => {
   const hits = [hit(now, "b/x.md"), hit(now, "a/y.md")];
-  expect(byFolder(hits, true, "x")).toBe(hits);
+  expect(byFolder(hits, (one) => one.path, true, "x")).toBe(hits);
   expect(folderHeadings(hits, true, "x").size).toBe(0);
 });

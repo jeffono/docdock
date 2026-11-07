@@ -96,7 +96,8 @@ function bodyDoubleClick(event: MouseEvent) {
 
 const tags = $derived(card.hit.tags);
 const file = $derived(card.url ? null : fileLabel(card.hit.path, card.hit.title));
-const prefix = $derived(folder ? folderOf(card.hit.path) : "");
+// A pinned link's path is its address, not a file; saved pages are notes and keep their folder.
+const prefix = $derived(folder && /\.md$/i.test(card.hit.path) ? folderOf(card.hit.path) : "");
 
 // While editing, the title is a field; leaving it renames. It follows the note while not focused.
 let title = $state("");

@@ -305,21 +305,20 @@ const kept = $derived.by(() => {
     gone: !listed,
   };
 });
-const model = $derived(
-  buildList({
-    hits: byFolder(
-      orderHits(results.hits, notes, $noteOrder, query),
-      $grouping === "folder",
-      query,
-    ),
+const model = $derived.by(() => {
+  const built = buildList({
+    hits: orderHits(results.hits, notes, $noteOrder, query),
     exactTitle: results.exactTitle,
     query,
     pinned: pinned.items,
     expanded,
     kept,
     editing,
-  }),
-);
+  });
+  // After the kept card joins, so it lands in its own folder; arrows follow the same order.
+  const grouped = byFolder(built.notes, (card) => card.hit.path, $grouping === "folder", query);
+  return grouped === built.notes ? built : { ...built, notes: grouped };
+});
 let groupingDate = $state(new Date());
 const headings = $derived(
   $grouping === "folder"

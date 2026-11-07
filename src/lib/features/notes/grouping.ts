@@ -73,13 +73,18 @@ function folderCompare(a: string, b: string): number {
 }
 
 /**
- * Ordered hits with each folder's notes together, keeping their order: the root first, then folders by
+ * Ordered notes with each folder's together, keeping their order: the root first, then folders by
  * path, so a subfolder follows its parent. Searches keep relevance.
  */
-export function byFolder(hits: Hit[], enabled: boolean, query: string): Hit[] {
-  if (!enabled || query.trim()) return hits;
-  return hits
-    .map((hit, at) => ({ hit, at, folder: folderOf(hit.path) }))
+export function byFolder<T>(
+  items: T[],
+  path: (item: T) => string,
+  enabled: boolean,
+  query: string,
+): T[] {
+  if (!enabled || query.trim()) return items;
+  return items
+    .map((hit, at) => ({ hit, at, folder: folderOf(path(hit)) }))
     .sort((a, b) => {
       if (a.folder === b.folder) return a.at - b.at;
       if (!a.folder || !b.folder) return a.folder ? 1 : -1;
