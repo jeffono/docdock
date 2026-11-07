@@ -285,15 +285,21 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   }
   .card.page { --page-actions: 1; }
   .card.expanded { --edit-actions: 1; }
-  .head { padding-right: 0; }
+
   .title { margin-right: var(--header-actions); }
-  .meta { transition: transform var(--duration); }
+  .meta { transition: transform var(--duration) ease; }
+  /* Rows share section edges at rest; the existing box keeps its inset when active. */
+  .card.row .title { transform: translateX(calc(-1 * (var(--space-3) + 1px))); transition: transform var(--duration) ease; }
+  .card.row .meta { transform: translateX(calc(var(--space-1) + 1px)); }
+  .card.row:is(:hover, .current, .selected, :focus-within) .title { transform: none; }
+  .card.row:is(:hover, .current, .selected, :focus-within) { background: var(--color-surface); }
+  .card.row.selected { background: var(--color-selected); }
   .actions { position: absolute; right: var(--space-1); }
   .actions :global(button) { transition: opacity var(--duration), color var(--duration); }
   .card:is(:hover, .current, .selected, :focus-within, .editing) .meta { transform: translateX(calc(-1 * var(--header-actions))); }
   .status { margin-right: var(--header-actions); }
   @media (prefers-reduced-motion: reduce) {
-    .meta, .actions :global(button) { transition: none; }
+    .meta, .card.row .title, .actions :global(button) { transition: none; }
   }
 
   .date,

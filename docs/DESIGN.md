@@ -79,7 +79,7 @@ semantics. No colors were added. Raw frontmatter uses the existing surface, line
 One list fills the panel under the search bar at the top. Every note is the same card component;
 pinned and unpinned notes differ only in section and starting state.
 
-- **Sections:** section titles use semibold primary text at the same size as the muted filter.
+- **Sections:** section titles use small semibold primary text, CSS uppercase and slight letter spacing.
   "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
@@ -94,13 +94,17 @@ pinned and unpinned notes differ only in section and starting state.
   outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
   stays within the panel, flipping above its button near the bottom. No native popup takes focus.
 - **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
-  by modified or created date. Name order keeps the choice but disables the item with a visible hint. Quiet labels use the section-label style:
+  by modified or created date. Name order keeps the choice but disables the item with a visible hint.
+  Quiet, regular-weight labels keep sentence case below the stronger section titles:
   Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
   months of this year (month names in the user's locale), then earlier years. Boundaries use local
   calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
   the whole card follows the pointer; a dashed gap marks its pending position while the other cards
-  move apart with a transform animation. Only dropping saves the order; Esc or dropping outside
+  stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
+  transform animation over `--duration`. Slots use captured card heights and the current preview
+  order, independent of animated hit targets; gaps accept the shown drop position.
+  Only dropping saves the order; Esc or dropping outside
   restores it. Reduced motion disables the animation. Note bodies keep text selection. Or use
   Alt+Shift+↑ / Alt+Shift+↓ on the selected pinned item (including web and missing items). Selection
   follows the item. Reordering is unavailable while editing. A stale file produces a nearby error.
@@ -138,8 +142,11 @@ pinned and unpinned notes differ only in section and starting state.
   shows on hover, on the selected item and on keyboard focus; its space is always reserved.
 - **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
   expanded, with `--space-1` gaps and `--size-control` click targets. Actions show only on hover, on the
-  selected item and on keyboard focus. In every card, tags and date end at the same right edge without
-  reserving action space. Metadata slides left and actions fade in over `--duration` using only
+  selected item and on keyboard focus. At rest, pinned metadata has the same border inset as the title. Row titles align with section
+  titles and date-group labels; their metadata ends at the order button text edge. On hover, focus
+  or selection the existing inset row box appears, the title slides right and metadata slides left
+  into its inner padding. These transitions share the actions' duration and easing.
+  Metadata slides left and actions fade in over `--duration` using only
   transform and opacity; title clearance prevents overlap and preserves ellipsis in both states.
   The slide distance includes every visible action, including the globe and expanded card's pencil.
   Reduced motion disables these transitions. Icons use `--size-icon`, muted color,

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import { flip } from "svelte/animate";
+import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
@@ -51,6 +52,7 @@ import {
 } from "../web/suggestions";
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
+import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
 import { dateHeadings } from "./grouping";
 import {
@@ -563,6 +565,21 @@ let dragOver = $state("");
 let dragImageCaptured = $state(false);
 let animationDuration = $state(0);
 let dropping = false;
+let dragLayout: { keys: string[]; heights: number[]; top: number; scroll: number } | null = null;
+function overPin(event: DragEvent) {
+  if (!dragged || !dragLayout || editing || !list) return;
+  const { keys, heights, top, scroll } = dragLayout;
+  const y = event.clientY - top + list.scrollTop - scroll;
+  if (y < 0 || y > heights.reduce((sum, height) => sum + height, 0)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  if (event.type === "drop") {
+    void dropPin(event);
+    return;
+  }
+  const next = keys[dragSlot(heights, keys.indexOf(dragged.target), keys.indexOf(dragOver), y)];
+  if (next !== dragOver) dragOver = next;
+}
 onMount(() => {
   const media = matchMedia("(prefers-reduced-motion: reduce)");
   const update = () => {
@@ -579,6 +596,7 @@ onMount(() => {
 function dragEnd() {
   if (dropping) return;
   dragImageCaptured = false;
+  dragLayout = null;
   dragged = null;
   dragOver = "";
 }
@@ -609,7 +627,7 @@ function pinDrag(target: string) {
     const handle = element.querySelector<HTMLElement>(".head") ?? element;
     handle.draggable = !editing;
     const start = (event: DragEvent) => {
-      if (editing || reordering) {
+      if (editing || reordering || !list) {
         event.preventDefault();
         return;
       }
@@ -619,6 +637,13 @@ function pinDrag(target: string) {
         event.clientX - rect.left,
         event.clientY - rect.top,
       );
+      const slots = [...list.querySelectorAll<HTMLElement>(".list-entry[data-pin]")];
+      dragLayout = {
+        keys: slots.map((slot) => slot.dataset.pin ?? ""),
+        heights: slots.map((slot) => slot.getBoundingClientRect().height),
+        top: slots[0].getBoundingClientRect().top,
+        scroll: list.scrollTop,
+      };
       dragged = { target, base: pinned.version };
       dragOver = target;
       requestAnimationFrame(() => {
@@ -627,27 +652,12 @@ function pinDrag(target: string) {
       event.dataTransfer?.setData("text/plain", target);
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
     };
-    const over = (event: DragEvent) => {
-      if (dragged && !editing) {
-        event.preventDefault();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-        // The moving placeholder keeps this target stable until another card is entered.
-        if (target !== dragged.target) {
-          const at = previewModel.pinned.findIndex((entry) => entryKey(entry) === target);
-          if (at >= 0) dragOver = entryKey(model.pinned[at]);
-        }
-      }
-    };
     handle.addEventListener("dragstart", start);
     handle.addEventListener("dragend", dragEnd);
-    element.addEventListener("dragover", over);
-    element.addEventListener("drop", dropPin);
     return () => {
       handle.draggable = false;
       handle.removeEventListener("dragstart", start);
       handle.removeEventListener("dragend", dragEnd);
-      element.removeEventListener("dragover", over);
-      element.removeEventListener("drop", dropPin);
     };
   };
 }
@@ -1179,7 +1189,7 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">
@@ -1195,7 +1205,7 @@ onMount(() => {
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
-        <div class="list-entry" class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:flip={{ duration: animationDuration }}>
+        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:flip={{ duration: animationDuration, easing: cubicOut }}>
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "dateGroup" in row}
@@ -1309,7 +1319,8 @@ onMount(() => {
   }
 
   .section-heading { display: flex; align-items: baseline; gap: var(--space-2); padding-right: var(--panel-inset-right); }
-  .section-heading h2 { color: var(--color-fg); }
+  .list-entry { display: flow-root; }
+  .section-heading h2 { color: var(--color-fg); font-weight: 600; text-transform: uppercase; letter-spacing: calc(-3 * var(--tracking-tight)); }
   .drag-gap :global(.card), .drag-gap .missing { border-style: dashed; border-color: var(--color-muted); background: transparent; }
   .drag-gap :global(.card > *), .drag-gap .missing > * { visibility: hidden; }
   h2 {
@@ -1317,7 +1328,7 @@ onMount(() => {
     padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
     color: var(--color-muted);
     font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-weight: 400;
   }
 
   .create {
