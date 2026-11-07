@@ -5,9 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2: folder search and renaming done. Automatic names and file names beside titles on
-  `auto-names`, awaiting merge; frontmatter on `frontmatter` (branched from `auto-names`), awaiting
-  review and manual check; then folder prefixes and grouping. Folder moving remains deferred.
+- M4.2: folder search, renaming, automatic names and frontmatter done; next, folder prefixes and
+  grouping. Folder moving remains deferred.
 
 ## Completed
 
