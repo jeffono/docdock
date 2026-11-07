@@ -236,6 +236,17 @@ async function leaveByKeyboard() {
   if (focused && focused !== document.body) return;
   list?.focus();
 }
+/**
+ * A mouse click leaves focus on an untabbable button inside the list. The list keys then move the
+ * selection, but the button would keep focus and turn on its keyboard focus ring, so the list takes
+ * focus back. Handlers that moved focus elsewhere (the editor) are left alone.
+ */
+function returnFocus(event: MouseEvent) {
+  const focused = document.activeElement;
+  if (event.detail === 0 || !(focused instanceof HTMLButtonElement) || focused.tabIndex >= 0)
+    return;
+  if (list?.contains(focused)) list.focus({ preventScroll: true });
+}
 const saveText = $derived(
   saveStatus === "saved"
     ? t("editor.saved")
@@ -1189,7 +1200,7 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">
