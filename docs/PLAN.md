@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.3: find in the note, next occurrence and Alt+click cursors on `editor-search`, awaiting review
-  and manual check.
+- M4.3: all tasks on `editor-search` (find in the note, formatting bar, shortcut sheet, bracket
+  pairing, tag repair, theme), awaiting the closing review and manual check.
 
 ## Completed
 
@@ -31,7 +31,7 @@ detail each stage when it is next.
 - [x] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
 - [x] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
   property" (Ctrl+;)
-- [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
+- [x] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
 - [x] (standard) Close brackets and quotes as they are typed (`closeBrackets` from
   `@codemirror/autocomplete`)
 - [x] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
