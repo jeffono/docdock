@@ -272,6 +272,20 @@ export function noteFileName(text: string, taken: Iterable<string>): string {
 }
 
 /**
+ * The note's file name when it differs from the title shown beyond what a file name cannot hold (the
+ * frontmatter title of a note whose name was taken, or a file renamed elsewhere); else null.
+ */
+export function fileLabel(path: string, title: string): string | null {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  return noteFileName(title, []) === name ? null : name;
+}
+
+/** A note named as `noteFileName` names one created without text, which gets a name when left. */
+export function isUntitled(path: string): boolean {
+  return /^Untitled(?: \d+)?\.md$/.test(path.slice(path.lastIndexOf("/") + 1));
+}
+
+/**
  * The path a note gets when renamed to `title`: the same folder and a name free there, as
  * `noteFileName` picks it. `paths` are every note's path; the note's own name counts as free, so a
  * case-only change keeps it.

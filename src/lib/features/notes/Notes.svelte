@@ -64,6 +64,7 @@ import {
   enter,
   entryKey,
   isMissing,
+  isUntitled,
   type Level,
   move,
   navKeys,
@@ -78,6 +79,7 @@ import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { groupByDate, noteOrder } from "./order-store";
 import { pageNote } from "./page";
+import { noteName } from "./render";
 import { FolderIndex, isPinnedList, search } from "./search";
 
 let {
@@ -187,6 +189,8 @@ let editing = $state(false);
 let saveStatus = $state<AutosaveState>("saved");
 let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
+/** The note the editor last left, under the name it left with: leaving may rename it. */
+let leftPath = "";
 export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
@@ -195,9 +199,13 @@ export function leaveEditor(): Promise<boolean> {
     const field = document.activeElement;
     if (field instanceof HTMLInputElement && field.closest(".card.editing .rename")) field.blur();
     await renamingTask;
+    // An untitled note takes its name from what it shows, while the editor still holds it.
+    const named = editor && isUntitled(selected) ? noteName(editor.text()) : null;
+    if (named) await rename(named.title, named.frontmatter);
     const note = await editor?.finish();
     if (!note) return false;
     contents[selected] = note;
+    leftPath = selected;
     selected = "";
     opened = note;
     version = note.version;
@@ -369,6 +377,11 @@ const wanted = $derived([
   ...(expanded ? [expanded] : []),
 ]);
 const loading = new Set<string>();
+/**
+ * Old names of renamed notes. The pinned list may still name one until it reloads, and reading it
+ * would show a not-found error; once nothing wants it, it is forgotten.
+ */
+const renamedAway = new Set<string>();
 async function load(path: string) {
   const current = generation;
   loading.add(path);
@@ -382,7 +395,9 @@ async function load(path: string) {
   }
 }
 function loadWanted() {
-  for (const path of wanted) if (!(path in contents) && !loading.has(path)) void load(path);
+  for (const path of renamedAway) if (!wanted.includes(path)) renamedAway.delete(path);
+  for (const path of wanted)
+    if (!(path in contents) && !loading.has(path) && !renamedAway.has(path)) void load(path);
 }
 $effect(() => {
   void wanted;
@@ -526,12 +541,16 @@ async function savePage() {
 /** Moves a card to `level`; for a pinned card, line against open is also remembered. */
 async function setLevel(card: Card, level: Level) {
   if (card.url) return;
-  const path = card.hit.path;
+  let path = card.hit.path;
   try {
     error = "";
     // Closing the edited card or expanding another leaves editing first: it saves, or refuses on a
     // conflict or error and then nothing changes.
-    if (editing && (path !== selected || level !== "expanded") && !(await leaveEditor())) return;
+    if (editing && (path !== selected || level !== "expanded")) {
+      const edited = path === selected;
+      if (!(await leaveEditor())) return;
+      if (edited) path = leftPath;
+    }
     selection = path;
     if (level === "expanded") expanded = path;
     else if (expanded === path) expanded = "";
@@ -646,28 +665,29 @@ let renamingTask: Promise<void> | null = null;
  * folder; a frontmatter title, which the card shows, changes with it as an edit of the text. The
  * editor stays open: it saves first and holds later saves until the move, so none brings the old name
  * back. A taken name is retried with the next free one. A rename whose pinned items could not follow
- * still stands. A rename asked while another runs waits for it and starts from its result.
+ * still stands. A rename asked while another runs waits for it and starts from its result. With
+ * `keepTitle`, the frontmatter title stays as it is and the file follows it.
  */
-function rename(title: string): Promise<void> {
+function rename(title: string, keepTitle = false): Promise<void> {
   const typed = title.replace(/\s+/g, " ").trim();
   const previous = renamingTask;
   const task = (async () => {
     await previous;
     const card = editing ? cardFor(selected) : undefined;
     const current = editor;
-    if (!typed || !card || !current || typed === card.hit.title) return;
+    if (!typed || !card || !current || (!keepTitle && typed === card.hit.title)) return;
     const from = card.hit.path;
     const old = card.hit.title;
     try {
       error = "";
       await current.rename(
-        (text) => retitle(text, typed),
+        (text) => (keepTitle ? null : retitle(text, typed)),
         async (version, retitled) => {
           const taken = notes.map((note) => note.path);
           for (let attempt = 0; attempt < 50; attempt++) {
             const to = renamedPath(from, typed, taken);
             if (to === from) return;
-            const shown = retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
+            const shown = keepTitle || retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
             try {
               await notesRename(from, to, version, [old, shown]);
               changed({ renames: [[from, to]] });
@@ -898,6 +918,8 @@ let again = false;
 function changed(changes: NotesChanges) {
   for (const [from, to] of changes.renames) {
     if (opening === from) opening = null;
+    renamedAway.add(from);
+    renamedAway.delete(to);
     if (from in contents) {
       contents[to] = contents[from];
       delete contents[from];
@@ -1421,7 +1443,7 @@ onMount(() => {
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
-            onrename={rename}
+            onrename={(title) => rename(title)}
             ontitledone={() => editor?.focus()}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}

@@ -44,6 +44,10 @@ let disposed = false;
 let deleted = $state(false);
 let updated = $state(false);
 let replacing = false;
+/** The text being edited, saved or not. */
+export function text() {
+  return raw;
+}
 export function focus() {
   view?.focus();
 }

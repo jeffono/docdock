@@ -92,6 +92,58 @@ export function noteModel(source: string, note: string): Content[] {
   return out;
 }
 
+const blockTags = new Set<Tag>([
+  "blockquote",
+  "br",
+  "div",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "li",
+  "p",
+  "pre",
+  "td",
+  "th",
+]);
+/** The text a reader sees, with blocks kept apart by spaces. */
+function plain(content: Content): string {
+  if (typeof content === "string") return content;
+  const inner = (content.children ?? []).map(plain).join("");
+  return blockTags.has(content.tag) ? ` ${inner} ` : inner;
+}
+const words = (content: Content) => plain(content).replace(/\s+/g, " ").trim();
+/** Names are cut at a word near this length. */
+const NAME_LENGTH = 60;
+
+/**
+ * The name for a note still called `Untitled`, as a reader sees it: the frontmatter title (marked, as
+ * the file then follows a title that stays), else a top-level first heading, else the first words of the
+ * text. Null when the note shows no text.
+ */
+export function noteName(source: string): { title: string; frontmatter: boolean } | null {
+  const model = noteModel(source, "");
+  const meta = model[0];
+  const metaTitle =
+    typeof meta !== "string" && meta?.tag === "header"
+      ? meta.children?.find((child) => typeof child !== "string" && child.tag === "h1")
+      : undefined;
+  if (metaTitle && words(metaTitle)) return { title: words(metaTitle), frontmatter: true };
+  const body = model.filter((block) => typeof block === "string" || block.tag !== "header");
+  const top = body.find((block) => words(block));
+  if (!top) return null;
+  if (typeof top !== "string" && top.tag === "h1") return { title: words(top), frontmatter: false };
+  const text = Array.from(body.map(words).join(" ").replace(/\s+/g, " ").trim());
+  if (text.length <= NAME_LENGTH) return { title: text.join(""), frontmatter: false };
+  // Cut in code points: a lone half of a surrogate pair is no valid file name.
+  const cut = text.slice(0, NAME_LENGTH + 1);
+  const space = cut.lastIndexOf(" ");
+  return { title: cut.slice(0, space > 0 ? space : NAME_LENGTH).join(""), frontmatter: false };
+}
+
 class Renderer {
   constructor(
     readonly slice: (from: number, to: number) => string,
