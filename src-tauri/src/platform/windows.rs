@@ -8,13 +8,15 @@ use windows::Win32::Graphics::Gdi::{
     SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
-use windows::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetAsyncKeyState, VK_ESCAPE};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    EnableWindow, GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
-    GetForegroundWindow, GetShellWindow, GetWindowLongPtrW, HWND_TOPMOST, IsWindow, SW_HIDE,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
+    IsWindow, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows::core::BOOL;
 
@@ -69,6 +71,14 @@ pub fn cursor_pos() -> Option<Point> {
 /// press is not missed between reads and the "since last read" bit never goes stale.
 pub fn escape_pressed() -> bool {
     unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) as u16 & 0x8001 != 0 }
+}
+
+/// The primary mouse button is held. `GetAsyncKeyState` reads physical buttons, so swapped buttons
+/// make the right one primary.
+pub fn primary_button_down() -> bool {
+    let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
+    let button = if swapped { VK_RBUTTON } else { VK_LBUTTON };
+    unsafe { GetAsyncKeyState(i32::from(button.0)) < 0 }
 }
 
 unsafe extern "system" fn collect_monitor(
@@ -137,6 +147,8 @@ pub struct PanelWindow {
     height: i32,
     inset: i32,
     overlay_top: i32,
+    /// Horizontal distance from the panel's left edge: windows slide together at the panel's `x`.
+    offset: i32,
 }
 
 impl PanelWindow {
@@ -150,6 +162,7 @@ impl PanelWindow {
             height: 0,
             inset: 0,
             overlay_top: 0,
+            offset: 0,
         };
         window.set_enabled(false);
         unsafe {
@@ -178,7 +191,7 @@ impl PanelWindow {
             SetWindowPos(
                 self.hwnd(),
                 Some(HWND_TOPMOST),
-                x,
+                x + self.offset,
                 self.top,
                 self.width,
                 self.height,
@@ -208,6 +221,11 @@ impl PanelWindow {
         log_failure("SetWindowPos", result);
     }
 
+    /// Places this window `offset` pixels right of the panel's left edge from the next placement on.
+    pub fn set_offset(&mut self, offset: i32) {
+        self.offset = offset;
+    }
+
     /// Reveal the panel border and its floating dropdown without resizing the page viewport.
     /// Stored here so sliding and monitor clipping preserve both cutouts.
     pub fn overlay(&mut self, dpi: u32, height: u32, x: i32) {
@@ -231,7 +249,7 @@ impl PanelWindow {
 
     /// Clips anything beyond the monitor edges so it never appears on a neighboring monitor.
     fn clip(&self, x: i32) {
-        let rect = self.visible_rect(x);
+        let rect = self.visible_rect(x + self.offset);
         unsafe {
             let region = CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
             // The system takes ownership of the region only if the call succeeds.
@@ -267,7 +285,8 @@ pub fn slide_windows(windows: &[PanelWindow], x: i32) {
         let mut batch = BeginDeferWindowPos(windows.len() as i32)?;
         for window in windows {
             window.clip(x);
-            batch = DeferWindowPos(batch, window.hwnd(), None, x, window.top, 0, 0, flags)?;
+            let left = x + window.offset;
+            batch = DeferWindowPos(batch, window.hwnd(), None, left, window.top, 0, 0, flags)?;
         }
         EndDeferWindowPos(batch)
     };
@@ -321,6 +340,7 @@ mod tests {
             height: 712,
             inset: 3,
             overlay_top: 160,
+            offset: 0,
         };
         assert_eq!(
             page.visible_rect(900),

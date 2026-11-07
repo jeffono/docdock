@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- Nothing; M4.1 is next.
+- M4.2 next, on a new branch after `preferences` is merged.
 
 ## Completed
 
@@ -20,20 +20,23 @@ detail each stage when it is next.
 - M4 — Web pages: mobile browser tab with history and suggestions, page selection read from Rust,
   pages saved as notes, code colors and Edge features filtered; see "Untrusted content" in
   `docs/ARCHITECTURE.md`.
+- M4.1 — Preferences: gear view, saved panel width, note order and date grouping, pinned reorder by
+  drag or keyboard, and list polish; see "Preferences" and "Note list" in `docs/DESIGN.md`.
 
-## M4.1 — Preferences
+## M4.2 — Files
 
-Decided 2026-11-06: a third panel view opened by a gear icon replacing the folder icon, sections
-General, Appearance, Browser and Shortcuts; settings in a JSON file in `app_config_dir`, written
-atomically.
+Decided 2026-11-07: renaming moves the file without overwriting and updates `_pinned.md`; links in
+other notes are not rewritten. A tree view is out of scope.
 
-- [ ] (standard) Preferences view and settings file; move the folder choice and panel side there
-- [ ] (advanced) Resizable panel width (inner edge, min 320, max ~50% of the monitor), saved
-- [ ] (standard) Note order: name, modified or created, ascending or descending, saved; drag to
-  reorder pinned items (moves lines in `_pinned.md`); manual order only for pinned items
-- [ ] (standard) Optional grouping by date when ordering by date
+- [ ] (advanced) Rename a note from its card title (click or F2)
+- [ ] (advanced) Automatic name for `Untitled N` notes when leaving them: frontmatter `title`, else the
+  top H1, else the first words (about 60 characters)
+- [ ] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder
+  as an alternative to grouping by date
+- [ ] (standard) Later: move to a folder through a picker that can create it; delete only empty folders
+  or to the Recycle Bin
 
-## M4.2 — Editor
+## M4.3 — Editor
 
 - [ ] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
 - [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips

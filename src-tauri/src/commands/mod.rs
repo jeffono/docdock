@@ -39,6 +39,20 @@ pub fn panel_close(requests: State<'_, Sender<Request>>) {
     send(requests, Request::Close);
 }
 
+#[tauri::command]
+pub fn panel_set_side(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    side: crate::dock::Side,
+) -> Result<(), Error> {
+    crate::tray::select_side(&app, side, &requests)
+}
+
+#[tauri::command]
+pub fn panel_resize(requests: State<'_, Sender<Request>>, width: Option<u32>, done: bool) {
+    send(requests, Request::Resize { width, done });
+}
+
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.
 #[tauri::command]
 pub async fn web_open(
@@ -206,4 +220,30 @@ pub fn web_addresses(app: AppHandle) -> Vec<String> {
 #[tauri::command]
 pub fn web_overlay(requests: State<'_, Sender<Request>>, height: u32) {
     send(requests, Request::SetWebOverlay(height.min(16384)));
+}
+
+#[tauri::command]
+pub fn notes_order(app: AppHandle) -> Result<crate::notes::NoteOrder, Error> {
+    crate::notes::note_order(&app)
+}
+#[tauri::command]
+pub fn notes_set_order(app: AppHandle, order: crate::notes::NoteOrder) -> Result<(), Error> {
+    crate::notes::set_note_order(&app, order)
+}
+#[tauri::command]
+pub fn notes_group_by_date(app: AppHandle) -> Result<bool, Error> {
+    crate::notes::group_by_date(&app)
+}
+#[tauri::command]
+pub fn notes_set_group_by_date(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::notes::set_group_by_date(&app, enabled)
+}
+#[tauri::command]
+pub fn pinned_move(
+    app: AppHandle,
+    target: String,
+    to: String,
+    base: String,
+) -> Result<crate::notes::Pinned, Error> {
+    crate::notes::move_pinned(&app, &target, &to, &base)
 }

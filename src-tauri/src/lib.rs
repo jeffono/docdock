@@ -26,6 +26,8 @@ pub fn run() {
         commands::panel_activate,
         commands::panel_set_pinned,
         commands::panel_close,
+        commands::panel_set_side,
+        commands::panel_resize,
         commands::web_open,
         commands::web_set_visible,
         commands::web_history,
@@ -36,6 +38,11 @@ pub fn run() {
         commands::notes_folder,
         commands::notes_choose,
         commands::notes_list,
+        commands::notes_order,
+        commands::notes_set_order,
+        commands::notes_group_by_date,
+        commands::notes_set_group_by_date,
+        commands::pinned_move,
         commands::notes_open,
         commands::notes_texts,
         commands::notes_save,
@@ -80,6 +87,7 @@ pub fn run() {
                 window.hwnd()?.0 as isize,
                 receiver,
                 side,
+                notes::width(app.handle()),
             );
             Ok(())
         })

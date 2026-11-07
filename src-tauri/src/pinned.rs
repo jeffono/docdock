@@ -341,10 +341,95 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
+/// Moves `target` to the place of `to`, as the UI shows them: one entry per target, at its first
+/// occurrence. Duplicate lines of a target move with it, after it. Item bodies move between item
+/// slots; unknown lines and all line terminators stay in place, including an unterminated last line.
+pub fn move_item(text: &str, target: &str, to: &str) -> String {
+    let lines = lines(text);
+    let entries = items(&lines);
+    // The UI entry each line belongs to: the first line with the same target.
+    let entry: Vec<usize> = entries
+        .iter()
+        .map(|(_, item)| {
+            entries
+                .iter()
+                .position(|(_, first)| same(first, &item.target))
+                .unwrap_or(0)
+        })
+        .collect();
+    let mut shown: Vec<usize> = Vec::new();
+    for &first in &entry {
+        if !shown.contains(&first) {
+            shown.push(first);
+        }
+    }
+    let find = |target: &str| {
+        entries
+            .iter()
+            .position(|(_, item)| same(item, target))
+            .and_then(|first| shown.iter().position(|&e| e == entry[first]))
+    };
+    let (Some(from), Some(to)) = (find(target), find(to)) else {
+        return text.to_owned();
+    };
+    let moved = shown.remove(from);
+    shown.insert(to, moved);
+    let mut order: Vec<usize> = (0..entries.len()).collect();
+    order.sort_by_key(|&i| shown.iter().position(|&e| e == entry[i]));
+    let mut bodies: Vec<&str> = lines.iter().map(|line| line.body).collect();
+    for ((slot, _), source) in entries.iter().zip(order) {
+        bodies[*slot] = lines[entries[source].0].body;
+    }
+    lines
+        .iter()
+        .zip(bodies)
+        .flat_map(|(line, body)| [body, line.end])
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn move_preserves_unknown_lines_and_mixed_terminators() {
+        let text = "# Pins\r\n- [A](a.md)\n<!-- comment -->\r\n- [B](b.md)\rprose\n- [C](c.md)";
+        assert_eq!(
+            move_item(text, "a.md", "c.md"),
+            "# Pins\r\n- [B](b.md)\n<!-- comment -->\r\n- [C](c.md)\rprose\n- [A](a.md)"
+        );
+        assert_eq!(
+            move_item(&move_item(text, "a.md", "c.md"), "a.md", "b.md"),
+            text
+        );
+    }
+    #[test]
+    fn move_does_not_touch_hidden_links() {
+        let text = "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [A](a.md)\n- [B](b.md)\n";
+        assert_eq!(
+            move_item(text, "a.md", "b.md"),
+            "<!--\n- [A](a.md)\n-->\n~~~md\n- [A](a.md)\n~~~\n- [B](b.md)\n- [A](a.md)\n"
+        );
+    }
+    // Catches a moved pin staying in place because its duplicate line still came first.
+    #[test]
+    fn duplicate_lines_move_with_their_target() {
+        let text = "- [A](a.md)\n- [A copy](a.md)\n- [B](b.md)\n";
+        assert_eq!(
+            move_item(text, "a.md", "b.md"),
+            "- [B](b.md)\n- [A](a.md)\n- [A copy](a.md)\n"
+        );
+        assert_eq!(
+            move_item(text, "b.md", "a.md"),
+            "- [B](b.md)\n- [A](a.md)\n- [A copy](a.md)\n"
+        );
+    }
+    #[test]
+    fn move_missing_target_is_noop() {
+        let text = "- [A](a.md)\n";
+        assert_eq!(move_item(text, "missing.md", "a.md"), text);
+        assert_eq!(move_item(text, "a.md", "missing.md"), text);
+    }
     fn targets(text: &str) -> Vec<(String, Kind)> {
         parse(text)
             .into_iter()

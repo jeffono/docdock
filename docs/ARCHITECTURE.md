@@ -32,7 +32,15 @@ src-tauri/src/           Backend (Rust)
 
 Create folders when the first feature needs them.
 
-The tray chooses the screen side, exits the app and controls Windows startup; a second instance simply
+Preferences and the tray share the screen-side operation in `tray.rs`: save through the existing
+locked atomic settings update, update both tray check marks, and request the panel move. The
+`panel-focus` report synchronizes the Preferences radios, including changes from the tray. A failed
+save still moves for this session, with an error reported to the caller. No settings format changed.
+Preferences keeps Notes mounted but hidden and suspends its keyboard handling; the page window is
+hidden through the same operation used by the Notes tab. Formatting shortcut descriptions live with
+the editor bindings.
+
+The tray also exits the app and controls Windows startup; a second instance simply
 exits.
 
 ## Flow
@@ -68,9 +76,16 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
 animates. Thus opening, closing and animating do not compete. Coordinates are physical pixels, with
 per-monitor DPI awareness (PMv2).
 
-- **Side:** right by default, or left, chosen in the tray and saved in `settings.json`; a missing or
+- **Side:** right by default, or left, chosen in Preferences or the tray and saved in `settings.json`; a missing or
   unknown value means right. Everything below mirrors on the left. Switching moves the windows at once,
   without animation, keeping the panel open or closed.
+- **Width:** 460 logical pixels by default, dragged from the inner edge (or arrows on the focused
+  handle) and saved as `width` in `settings.json` when the drag ends; a missing or invalid value
+  means the default. `dock.rs` clamps it to at least 320 and at most half the monitor's work area,
+  so a width saved on a large monitor never covers most of a smaller one. While dragging, the panel
+  stays open as if a dialog held it. The page window starts 4 logical pixels in from the inner
+  edge, so with its 2-pixel region inset a 6-pixel strip of the UI, where the handle sits, runs the
+  full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
   from scrollbars and maximized window buttons. Points outside that monitor are ignored.
@@ -443,22 +458,48 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
 
+## Note order
+
+The UI's `order.ts` sorts only unfiltered hits before `buildList`: displayed title, modified or
+created time, ascending or descending, with path as a deterministic tie-breaker. The default preserves
+modified descending. Nonempty queries retain search relevance and pinned entries retain file order.
+`notes_list` includes filesystem creation time (Windows birth time), falling back to modified when
+unavailable; notes are never changed to store dates. The `note_order` field in the existing atomic
+settings file is updated under the settings mutex. Missing, malformed or unknown order values default without
+invalidating other settings. Both order controls use one shared store, updated after successful IPC.
+The optional `group_by_date` boolean defaults off and uses the same locked atomic update; malformed
+values default independently, preserving other settings. The existing order store loads and saves both
+choices, sharing a busy state between the list and Preferences. Pure `grouping.ts` derives date
+headers from already ordered unpinned cards only, using the selected date and local calendar days
+(rather than elapsed hours across DST). Recent ranges take priority over month/year labels. Month
+names use `Intl.DateTimeFormat` with the user's locale. A 30-second clock refreshes local-day boundaries,
+including after resume. `rows` inserts headers into the existing flat keyed block; card/editor keys
+and `navKeys` stay unchanged, so headers never become arrow targets. Search and name order suppress
+headers without changing the saved choice.
+The main window disables Tauri's native file-drop interception so HTML header dragging works on Windows.
+
 ## Pinned items
 
 Decision in [0005](decisions/0005-pinned-items.md). `pinned.rs` is pure: text in, text out. An item is a
 single-line list entry (`-`, `*`, `+`, `1.`) whose first link is a relative note path (`%20` decoded, a
 leading `./` and any `#fragment` dropped) or an http(s) URL; images, other schemes, anchors and lines
-that are not list items are ignored, as are lines inside fenced code blocks and HTML comments. Edits move whole lines and never rewrite the file: each line keeps
-its own terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
+that are not list items are ignored, as are lines inside fenced code blocks and HTML comments.
+Edits change item lines without reconstructing markdown: each line slot keeps
+its terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
 Pinning adds one `- [title](path)` line after the last item, or at the end of the file if there is
 none, with the file's first line terminator (LF in an empty file); an item already pinned (notes compare
-case-insensitively, URLs in their written, escaped form) changes nothing. Unpinning removes every line pointing to the target. Moving trades
-the item lines among themselves, so headings and prose between items stay where they are.
+case-insensitively, URLs in their written, escaped form) changes nothing. Unpinning removes every line
+pointing to the target. Moving rotates item bodies among item slots, so headings and prose between items and even an
+unterminated final line stay in place. Duplicate target lines are preserved; the first match moves.
 
 `notes.rs` reads and writes the file. An edit reads `_pinned.md` with its version, applies the line edit
-and saves through `save_note_in`, the same atomic path as notes. If the file changed in between, it is
+and saves through the same atomic replacement as notes. For pin/unpin, if the file changed in between, it is
 read again and the edit reapplied to the new text; after three losses it fails with `pinnedChanged` and
-writes nothing. A missing file is created. A note item whose path no longer resolves to a note inside the
+writes nothing. Pinning may create a missing file. Reordering instead requires the opaque version
+returned by `pinned_list`: a stale displayed version, a deleted file, or a save conflict fails with
+`pinnedChanged` without retrying the positional intent against changed content. Drag captures that
+version at drag start; keyboard movement uses the currently displayed version. A note item whose path
+no longer resolves to a note inside the
 folder is reported `missing`. Targets are the keys: `pinned_*` commands (`pinned_list`, `_add`, `_remove`,
 `_move`, `_set_collapsed`, `_restore`) all answer with the state after the change. Which items are
 collapsed to one line is a set of targets in `settings.json`, per computer, changed under the same lock as

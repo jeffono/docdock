@@ -22,6 +22,14 @@ export function panelClose(): Promise<void> {
   return invoke("panel_close");
 }
 
+export const panelSetSide = (side: PanelFocus["side"]) => invoke<void>("panel_set_side", { side });
+/** Logical width, `null` for the default; Rust clamps it to the monitor. `done` ends a drag and saves. */
+export const panelResize = (width: number | null, done: boolean) =>
+  invoke<void>("panel_resize", {
+    width: width === null ? null : Math.max(0, Math.round(width)),
+    done,
+  });
+
 /** Whether the panel window or its page is foreground; `side` is the screen edge it docks to. */
 export type PanelFocus = { focused: boolean; side: "left" | "right" };
 export const onPanelFocus = (handler: (focus: PanelFocus) => void): Promise<UnlistenFn> =>
@@ -54,7 +62,7 @@ export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode",
 
 export type NotesFolder = { path: string; available: boolean };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
-export type Note = { path: string; name: string; modified: number };
+export type Note = { path: string; name: string; modified: number; created: number };
 export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
 export const notesList = () => invoke<Note[]>("notes_list");
@@ -87,7 +95,7 @@ export type PinnedItem = {
   collapsed: boolean;
 };
 /** `restorable`: `_pinned.md` was deleted and `pinnedRestore` can bring it back. */
-export type Pinned = { items: PinnedItem[]; restorable: boolean };
+export type Pinned = { version: string; items: PinnedItem[]; restorable: boolean };
 /** Every pinned call resolves to the state after the change. Reread on `onNotesChanged`. */
 export const pinnedList = () => invoke<Pinned>("pinned_list");
 export const pinnedAdd = (target: string, title: string) =>
@@ -117,3 +125,20 @@ export const notesRestore = (path: string) => invoke<string>("notes_restore", { 
 export const webSuggestions = (query: string) => invoke<string[]>("web_suggestions", { query });
 export const webAddresses = () => invoke<string[]>("web_addresses");
 export const webOverlay = (height: number) => invoke<void>("web_overlay", { height });
+
+export const noteOrders = [
+  "modified-desc",
+  "modified-asc",
+  "name-asc",
+  "name-desc",
+  "created-desc",
+  "created-asc",
+] as const;
+export type NoteOrder = (typeof noteOrders)[number];
+export const notesOrder = () => invoke<NoteOrder>("notes_order");
+export const notesSetOrder = (order: NoteOrder) => invoke<void>("notes_set_order", { order });
+export const notesGroupByDate = () => invoke<boolean>("notes_group_by_date");
+export const notesSetGroupByDate = (enabled: boolean) =>
+  invoke<void>("notes_set_group_by_date", { enabled });
+export const pinnedMove = (target: string, to: string, base: string) =>
+  invoke<Pinned>("pinned_move", { target, to, base });

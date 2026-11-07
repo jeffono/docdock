@@ -1,5 +1,7 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
+import { flip } from "svelte/animate";
+import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
@@ -23,6 +25,7 @@ import {
   panelClose,
   pinnedAdd,
   pinnedList,
+  pinnedMove,
   pinnedRemove,
   pinnedRestore,
   pinnedSetCollapsed,
@@ -39,6 +42,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
   barDefault,
+  downOpensHistory,
   historyEntries,
   LatestQuery,
   searchAddress,
@@ -48,7 +52,9 @@ import {
 } from "../web/suggestions";
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
+import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
+import { dateHeadings } from "./grouping";
 import {
   arrowScroll,
   buildList,
@@ -65,10 +71,17 @@ import {
   rows,
   shallower,
 } from "./list";
+import NoteOrder from "./NoteOrder.svelte";
+import { orderHits } from "./order";
+import { groupByDate, noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { FolderIndex, isPinnedList, search } from "./search";
 
-let { browser = false, pageUrl = "" }: { browser?: boolean; pageUrl?: string } = $props();
+let {
+  browser = false,
+  pageUrl = "",
+  inactive = false,
+}: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -153,7 +166,7 @@ function webLabel(entry: WebEntry): string {
   return t(entry.kind === "open" ? "web.openAddress" : "web.search", { text: entry.text });
 }
 let leftovers = $state<Leftover[]>([]);
-let pinned = $state<Pinned>({ items: [], restorable: false });
+let pinned = $state<Pinned>({ version: "", items: [], restorable: false });
 /** Path of the one expanded card, or "". Not remembered when the panel closes. */
 let expanded = $state("");
 /** Chosen with the arrows or the mouse; "" means the default for the query. */
@@ -223,6 +236,17 @@ async function leaveByKeyboard() {
   if (focused && focused !== document.body) return;
   list?.focus();
 }
+/**
+ * A mouse click leaves focus on an untabbable button inside the list. The list keys then move the
+ * selection, but the button would keep focus and turn on its keyboard focus ring, so the list takes
+ * focus back. Handlers that moved focus elsewhere (the editor) are left alone.
+ */
+function returnFocus(event: MouseEvent) {
+  const focused = document.activeElement;
+  if (event.detail === 0 || !(focused instanceof HTMLButtonElement) || focused.tabIndex >= 0)
+    return;
+  if (list?.contains(focused)) list.focus({ preventScroll: true });
+}
 const saveText = $derived(
   saveStatus === "saved"
     ? t("editor.saved")
@@ -268,7 +292,7 @@ const kept = $derived.by(() => {
 });
 const model = $derived(
   buildList({
-    hits: results.hits,
+    hits: orderHits(results.hits, notes, $noteOrder, query),
     exactTitle: results.exactTitle,
     query,
     pinned: pinned.items,
@@ -277,7 +301,28 @@ const model = $derived(
     editing,
   }),
 );
-const listRows = $derived(rows(model, editing ? selected : ""));
+let groupingDate = $state(new Date());
+const headings = $derived(
+  dateHeadings(
+    model.notes.map((card) => card.hit),
+    notes,
+    $noteOrder,
+    $groupByDate,
+    query,
+    groupingDate,
+  ),
+);
+const previewModel = $derived.by(() => {
+  const source = dragged?.target;
+  if (!source || !dragOver || pinned.version !== dragged?.base) return model;
+  const entries = [...model.pinned];
+  const from = entries.findIndex((entry) => entryKey(entry) === source);
+  const to = entries.findIndex((entry) => entryKey(entry) === dragOver);
+  if (from < 0 || to < 0) return model;
+  entries.splice(to, 0, ...entries.splice(from, 1));
+  return { ...model, pinned: entries };
+});
+const listRows = $derived(rows(previewModel, editing ? selected : "", headings));
 const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
@@ -367,7 +412,7 @@ async function refresh(value: NotesFolder | null) {
   contents = {};
   expanded = "";
   selection = "";
-  pinned = { items: [], restorable: false };
+  pinned = { version: "", items: [], restorable: false };
   folderIndex.reset();
   indexVersion++;
   if (!value?.available) return;
@@ -410,6 +455,7 @@ export async function choose() {
     await refresh(await notesChoose());
   } catch (e) {
     error = errorText(e);
+    return error;
   } finally {
     choosing = false;
   }
@@ -524,6 +570,108 @@ async function pinOrUnpin(card: Card, refocus = false) {
   }
 }
 
+let reordering = false;
+let dragged = $state<{ target: string; base: string } | null>(null);
+let dragOver = $state("");
+let dragImageCaptured = $state(false);
+let animationDuration = $state(0);
+let dropping = false;
+let dragLayout: { keys: string[]; heights: number[]; top: number; scroll: number } | null = null;
+function overPin(event: DragEvent) {
+  if (!dragged || !dragLayout || editing || !list) return;
+  const { keys, heights, top, scroll } = dragLayout;
+  const y = event.clientY - top + list.scrollTop - scroll;
+  if (y < 0 || y > heights.reduce((sum, height) => sum + height, 0)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  if (event.type === "drop") {
+    void dropPin(event);
+    return;
+  }
+  const next = keys[dragSlot(heights, keys.indexOf(dragged.target), keys.indexOf(dragOver), y)];
+  if (next !== dragOver) dragOver = next;
+}
+onMount(() => {
+  const media = matchMedia("(prefers-reduced-motion: reduce)");
+  const update = () => {
+    animationDuration = media.matches
+      ? 0
+      : Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue("--duration"),
+        );
+  };
+  update();
+  media.addEventListener("change", update);
+  return () => media.removeEventListener("change", update);
+});
+function dragEnd() {
+  if (dropping) return;
+  dragImageCaptured = false;
+  dragLayout = null;
+  dragged = null;
+  dragOver = "";
+}
+async function dropPin(event: DragEvent) {
+  if (!dragged) return;
+  event.preventDefault();
+  dropping = true;
+  await reorder(dragged.target, dragOver || dragged.target, dragged.base);
+  dropping = false;
+  dragEnd();
+}
+async function reorder(target: string, to: string, base = pinned.version) {
+  if (reordering || editing || target === to) return;
+  reordering = true;
+  try {
+    error = "";
+    pinned = await pinnedMove(target, to, base);
+    selection = target;
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    reordering = false;
+  }
+}
+/** Only headers drag, preserving native note text selection. */
+function pinDrag(target: string) {
+  return (element: HTMLElement) => {
+    const handle = element.querySelector<HTMLElement>(".head") ?? element;
+    handle.draggable = !editing;
+    const start = (event: DragEvent) => {
+      if (editing || reordering || !list) {
+        event.preventDefault();
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      event.dataTransfer?.setDragImage(
+        element,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+      );
+      const slots = [...list.querySelectorAll<HTMLElement>(".list-entry[data-pin]")];
+      dragLayout = {
+        keys: slots.map((slot) => slot.dataset.pin ?? ""),
+        heights: slots.map((slot) => slot.getBoundingClientRect().height),
+        top: slots[0].getBoundingClientRect().top,
+        scroll: list.scrollTop,
+      };
+      dragged = { target, base: pinned.version };
+      dragOver = target;
+      requestAnimationFrame(() => {
+        if (dragged) dragImageCaptured = true;
+      });
+      event.dataTransfer?.setData("text/plain", target);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    };
+    handle.addEventListener("dragstart", start);
+    handle.addEventListener("dragend", dragEnd);
+    return () => {
+      handle.draggable = false;
+      handle.removeEventListener("dragstart", start);
+      handle.removeEventListener("dragend", dragEnd);
+    };
+  };
+}
 async function pinnedAction(action: () => Promise<Pinned>) {
   try {
     error = "";
@@ -627,6 +775,7 @@ function changed(changes: NotesChanges) {
 async function openPage(url: string) {
   if (!(await leaveEditor())) return false;
   await webOpen(url);
+  query = "";
   return true;
 }
 
@@ -746,6 +895,23 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       return;
     case "ArrowDown":
     case "ArrowUp":
+      if (
+        event.altKey &&
+        event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !browser &&
+        !editing
+      ) {
+        const entries = model.pinned.map(entryKey);
+        const at = entries.indexOf(active);
+        const to = entries[at + (event.key === "ArrowUp" ? -1 : 1)];
+        if (at >= 0) {
+          event.preventDefault();
+          if (to) void reorder(active, to);
+        }
+        return;
+      }
       if (modified) return;
       event.preventDefault();
       arrow(event);
@@ -825,7 +991,7 @@ function barKey(event: KeyboardEvent) {
     !event.altKey &&
     !event.shiftKey &&
     !event.metaKey &&
-    !shownWebItems.length
+    downOpensHistory(browser, shownWebItems.length)
   ) {
     // Without history, ↓ keeps moving through the notes.
     const first = historyEntries(history)[0];
@@ -850,7 +1016,7 @@ function inField(event: KeyboardEvent): boolean {
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (event.defaultPrevented || event.isComposing) return;
+  if (inactive || event.defaultPrevented || event.isComposing) return;
   if (
     browser &&
     !tools?.contains(event.target as Node) &&
@@ -870,7 +1036,7 @@ function shortcut(event: KeyboardEvent) {
   // Cycle the three areas without entering card controls or leaving the WebView.
   if (
     key === "tab" &&
-    !field &&
+    (!field || (event.target instanceof HTMLElement && event.target.closest(".note-order"))) &&
     !event.ctrlKey &&
     !event.altKey &&
     !event.metaKey &&
@@ -881,9 +1047,10 @@ function shortcut(event: KeyboardEvent) {
     const stops = [
       input,
       ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
-      ...(!browser ? [list] : []),
+      ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>(".note-order > button")] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
+      ...document.querySelectorAll<HTMLElement>("main > .resize"),
     ];
     const target = event.target as HTMLElement;
     const own = stops.indexOf(target);
@@ -926,6 +1093,10 @@ function shortcut(event: KeyboardEvent) {
 }
 
 onMount(() => {
+  // Refresh after midnight and after a suspended machine resumes, without remounting cards.
+  const clock = window.setInterval(() => {
+    groupingDate = new Date();
+  }, 30_000);
   const unlisten = onNotesChanged(changed);
   // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
@@ -939,6 +1110,7 @@ onMount(() => {
   // The shortcut goes to the search bar with its text selected, so typing replaces it; pressed with
   // the bar already focused, it closes the panel.
   const search = onPanelSearch((toggle) => {
+    if (inactive) return;
     const input = bar();
     if (toggle && (!input || document.activeElement === input)) {
       void closePanel();
@@ -953,6 +1125,7 @@ onMount(() => {
       error = errorText(e);
     });
   return () => {
+    window.clearInterval(clock);
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
@@ -981,7 +1154,7 @@ onMount(() => {
   {/if}
 {/snippet}
 
-<section aria-label={t("notes.label")}>
+<section hidden={inactive} aria-label={t("notes.label")}>
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       <TextField
         value={inputQuery}
@@ -996,7 +1169,7 @@ onMount(() => {
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
         <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
     </div>
   {/if}
@@ -1025,9 +1198,9 @@ onMount(() => {
     <!-- Plain structure: cards hold buttons, links and the editor, so they cannot be listbox options.
       The selected item carries aria-current and the live region announces it. -->
 
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex: the list is one Tab stop driven by the list keys. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">
@@ -1043,12 +1216,19 @@ onMount(() => {
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
+        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:flip={{ duration: animationDuration, easing: cubicOut }}>
         {#if "heading" in row}
-          <h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>
+          <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
+        {:else if "dateGroup" in row}
+          <h2>{row.dateGroup.kind === "calendarMonth"
+            ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(row.dateGroup.date)
+            : row.dateGroup.kind === "year" ? new Date(row.dateGroup.date).getFullYear()
+            : t(`group.${row.dateGroup.kind}`)}</h2>
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
           <div
+            {@attach pinDrag(entry.target)}
             class="missing"
             class:selected={current}
             role="group"
@@ -1073,6 +1253,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
+            drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
@@ -1087,17 +1268,18 @@ onMount(() => {
             editor={edited ? noteEditor : undefined}
           />
         {/if}
+        </div>
       {/each}
       {#each shownWebItems as entry (entry.key)}
         <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
       {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}
       <button class="suggestion" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "arrowRight" : "search"} /><span>{entry.text}</span></button>
+          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
     {/each}
     <div class="empty">
       <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
@@ -1128,6 +1310,7 @@ onMount(() => {
   .content[hidden] {
     display: none;
   }
+  section[hidden] { display: none; }
   section {
     position: relative;
     display: flex;
@@ -1146,12 +1329,17 @@ onMount(() => {
     outline: none;
   }
 
+  .section-heading { display: flex; align-items: baseline; gap: var(--space-2); padding-right: var(--panel-inset-right); }
+  .list-entry { display: flow-root; }
+  .section-heading h2 { color: var(--color-fg); font-weight: 600; text-transform: uppercase; letter-spacing: calc(-3 * var(--tracking-tight)); }
+  .drag-gap :global(.card), .drag-gap .missing { border-style: dashed; border-color: var(--color-muted); background: transparent; }
+  .drag-gap :global(.card > *), .drag-gap .missing > * { visibility: hidden; }
   h2 {
     margin: 0;
     padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
     color: var(--color-muted);
     font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-weight: 400;
   }
 
   .create {

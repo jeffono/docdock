@@ -35,16 +35,16 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 
 Use `src/lib/ui/` before creating anything. Create a component only if nothing existing works.
 
-| Component    | Use                                                  |
-| ------------ | ---------------------------------------------------- |
-| `Button`     | Primary action, at most one per area                 |
-| `IconButton` | Secondary action, always labeled; toggles on and off |
-| `TextField`  | Single-line input; Esc leaves the field              |
-| `Icon`       | Lucide stroke, text color, width 2                   |
+| Component    | Use                                                                |
+| ------------ | ------------------------------------------------------------------ |
+| `Button`     | Primary action (at most one per area), or neutral secondary action |
+| `IconButton` | Secondary action, always labeled; toggles on and off               |
+| `TextField`  | Single-line input; Esc leaves the field                            |
+| `Icon`       | Lucide stroke, text color, width 2                                 |
 
 ## States
 
-- **Hover:** lighter surface, without shifting anything.
+- **Hover:** lighter surface. Note metadata slides aside to reveal header actions.
 - **Focus:** 2 px accent outline, keyboard only.
 - **Selected or enabled:** `--color-selected` background with accent text.
 - **Empty:** one sentence explaining what to do and the action immediately below.
@@ -79,15 +79,41 @@ semantics. No colors were added. Raw frontmatter uses the existing surface, line
 One list fills the panel under the search bar at the top. Every note is the same card component;
 pinned and unpinned notes differ only in section and starting state.
 
-- **Sections:** "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
+- **Sections:** section titles use small semibold primary text, CSS uppercase and slight letter spacing.
+  "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
   both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
   search. A "Create “…”" item appears when no visible note title matches exactly.
+- **Order:** a muted, borderless text button at the right end of the section header shares the
+  title baseline. It shows Name, Date modified or Date created with ↓ for descending (newest first,
+  Z–A) and ↑ for ascending (oldest first, A–Z), matching the menu. Its in-webview menu and the same control in Preferences > General share
+  one saved choice: name (display title), modified or created, ascending or descending. The default is
+  modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
+  Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
+- **Order menu:** six single-choice items show a check on the current order; a separator precedes
+  the checkable "Group by date" item. Enter/Space and arrows open and navigate it; Esc, selection and
+  outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
+  stays within the panel, flipping above its button near the bottom. No native popup takes focus.
+- **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
+  by modified or created date. Name order keeps the choice but disables the item with a visible hint.
+  Quiet, regular-weight labels keep sentence case below the stronger section titles:
+  Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
+  months of this year (month names in the user's locale), then earlier years. Boundaries use local
+  calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
+- **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
+  the whole card follows the pointer; a dashed gap marks its pending position while the other cards
+  stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
+  transform animation over `--duration`. Slots use captured card heights and the current preview
+  order, independent of animated hit targets; gaps accept the shown drop position.
+  Only dropping saves the order; Esc or dropping outside
+  restores it. Reduced motion disables the animation. Note bodies keep text selection. Or use
+  Alt+Shift+↑ / Alt+Shift+↓ on the selected pinned item (including web and missing items). Selection
+  follows the item. Reordering is unavailable while editing. A stale file produces a nearby error.
 - **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
   title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
   the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
 - **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
   URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
-  annotations. A note with an http(s) `url:` has an "Open page" arrow action left of the pencil; it
+  annotations. A note with an http(s) `url:` has an "Open page" globe action left of the pencil; it
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
@@ -115,11 +141,18 @@ pinned and unpinned notes differ only in section and starting state.
 - **Chevron:** in the gutter, aligned with the title, right for a line and down for an open card. It
   shows on hover, on the selected item and on keyboard focus; its space is always reserved.
 - **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
-  expanded, with `--space-1` gaps and `--size-control` click targets. Both show only on hover, on the
-  selected item and on keyboard focus, with their space reserved. Icons use `--size-icon`, muted color,
+  expanded, with `--space-1` gaps and `--size-control` click targets. Actions show only on hover, on the
+  selected item and on keyboard focus. At rest, pinned metadata has the same border inset as the title. Row titles align with section
+  titles and date-group labels; their metadata ends at the order button text edge. On hover, focus
+  or selection the existing inset row box appears, the title slides right and metadata slides left
+  into its inner padding. These transitions share the actions' duration and easing.
+  Metadata slides left and actions fade in over `--duration` using only
+  transform and opacity; title clearance prevents overlap and preserves ellipsis in both states.
+  The slide distance includes every visible action, including the globe and expanded card's pencil.
+  Reduced motion disables these transitions. Icons use `--size-icon`, muted color,
   no border and no background; the bookmark is filled when pinned and outline otherwise. While
-  editing, the pencil stays visible in the accent color, still without border or background. Hover
-  keeps the lighter surface and foreground color. Tooltips and accessible labels include shortcuts:
+  editing, all header actions stay visible and the pencil uses the accent color, still without border or background. Icon hover changes only foreground contrast; the row hover surface covers exactly the same inset
+  and radius as its selected surface. Tooltips and accessible labels include shortcuts:
   "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)", "Open (→)" / "Close (←)" and "Remove from
   pinned (Delete)".
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
@@ -130,7 +163,8 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → top bar buttons (including the folder action), reversed with Shift+Tab. Card
+  pinned items") → list → note order button → top bar buttons (including
+  Preferences), reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
@@ -146,25 +180,40 @@ pinned and unpinned notes differ only in section and starting state.
   (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
   tag. → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
 
-| Shortcut       | Action                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| ↑ / ↓          | Select a card or row; on a long expanded card, first scroll about three lines to its end |
-| Alt+↑ / Alt+↓  | Select the previous / next item directly                                                 |
-| PgUp / PgDn    | Scroll the list by about one screen                                                      |
-| → / ←          | Open / close one level: line, preview, expanded                                          |
-| Enter          | Expand the selected item, run "Create", or remove a selected missing pinned item         |
-| Delete         | Remove the selected missing pinned item                                                  |
-| Ctrl+Enter     | Create a note with the exact typed text                                                  |
-| Ctrl+D         | Toggle pin on the selected card from search, the list or its editor                      |
-| Ctrl+E         | Toggle editing on the selected card                                                      |
-| Ctrl+F         | Focus the search bar and select its text                                                 |
-| Esc            | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
-| Ctrl+Alt+Space | Open and go to the search bar with its text selected; from the search bar, close         |
+| Shortcut                  | Action                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| ↑ / ↓                     | Select a card or row; on a long expanded card, first scroll about three lines to its end |
+| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                  |
+| Alt+↑ / Alt+↓             | Select the previous / next item directly                                                 |
+| PgUp / PgDn               | Scroll the list by about one screen                                                      |
+| → / ←                     | Open / close one level: line, preview, expanded                                          |
+| Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
+| Delete                    | Remove the selected missing pinned item                                                  |
+| Ctrl+Enter                | Create a note with the exact typed text                                                  |
+| Ctrl+D                    | Toggle pin on the selected card from search, the list or its editor                      |
+| Ctrl+E                    | Toggle editing on the selected card                                                      |
+| Ctrl+F                    | Focus the search bar and select its text                                                 |
+| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
+| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close         |
+
+## Preferences
+
+The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
+and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
+Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
+General contains the folder path, folder picker, note order, date grouping and panel side; side changes
+mirror the tray. Browser
+shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
+editor bindings. Appearance shows the panel width, how to resize it and a reset. Folder choice and
+width reset use neutral buttons. The active section has an accessible name without repeating the tab
+label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
+Notes query so returning to Notes starts with an empty search.
 
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the folder picker and panel pin. The panel is 460 logical pixels wide by default.
+controls, then the Preferences gear and panel pin. The panel is 460 logical pixels wide by default;
+a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts. There is no app name or page title. The same search

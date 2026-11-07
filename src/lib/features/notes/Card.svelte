@@ -9,6 +9,7 @@ import "./content.css";
 
 let {
   card,
+  drag,
   text,
   selected,
   onheader,
@@ -23,6 +24,7 @@ let {
   editor,
 }: {
   card: Card;
+  drag?: (element: HTMLElement) => () => void;
   /** Raw text of the note once read; the line state does not need it. */
   text: string | undefined;
   /** Chosen with the arrows or the mouse. */
@@ -82,6 +84,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 </script>
 
 <div
+  {@attach drag}
   class="card"
   role="group"
   aria-label={card.hit.title}
@@ -91,6 +94,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   class:selected={selected && !editing}
   class:line={!open}
   class:row
+  class:page={!!card.hit.url}
   class:expanded={card.level === "expanded"}
   class:editing
   data-path={card.hit.path}
@@ -101,16 +105,18 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     </div>{/if}
     <button tabindex="-1" class="head" onclick={onheader}>
       <span class="title">{card.hit.title}</span>
+      <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
-      {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
       {#if tags.length > 0}
         <small class="tag">{tags[0]}{#if tags.length > 1}<span class="more"> +{tags.length - 1}</span>{/if}</small>
       {/if}
+      {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
+      </span>
     </button>
     {#if status}<small class="status" role="status">{status}</small>{/if}
     <div class="actions">
       {#if card.hit.url}
-        <IconButton tabindex={-1} quiet icon="arrowRight" label={t("web.openPage")} onclick={() => onpage(card.hit.url!)} />
+        <IconButton tabindex={-1} quiet icon="globe" label={t("web.openPage")} onclick={() => onpage(card.hit.url!)} />
       {/if}
       {#if card.level === "expanded"}
         <div class="pencil" class:active={editing}>
@@ -209,11 +215,8 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   }
   .card:hover .gutter,
   .card.current .gutter,
-  .gutter:focus-within,
-  .card:hover .actions :global(button),
-  .card.current .actions :global(button),
-  .actions :global(button:focus-visible),
-  .pencil.active :global(button) {
+  .gutter:has(:focus-visible),
+  .card:is(:hover, .current, .selected, :has(:focus-visible), .editing) .actions :global(button) {
     opacity: 1;
   }
 
@@ -251,7 +254,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     text-align: left;
   }
 
-  .card.row:not(.selected) .head:hover {
+  .card.row:not(.selected):hover {
     background: var(--color-surface);
   }
 
@@ -264,6 +267,41 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     white-space: nowrap;
   }
 
+  .meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 50%;
+  }
+
+  /* Stable title clearance lets metadata move without animating layout. */
+  .meta .tag { flex-shrink: 1; }
+  .card {
+    --page-actions: 0;
+    --edit-actions: 0;
+    --header-actions: calc((var(--size-control) + var(--space-1)) * (1 + var(--page-actions) + var(--edit-actions)));
+  }
+  .card.page { --page-actions: 1; }
+  .card.expanded { --edit-actions: 1; }
+
+  .title { margin-right: var(--header-actions); }
+  .meta { transition: transform var(--duration) ease; }
+  /* Rows share section edges at rest; the existing box keeps its inset when active. */
+  .card.row .title { transform: translateX(calc(-1 * (var(--space-3) + 1px))); transition: transform var(--duration) ease; }
+  .card.row .meta { transform: translateX(calc(var(--space-1) + 1px)); }
+  .card.row:is(:hover, .current, .selected, :has(:focus-visible)) .title { transform: none; }
+  .card.row:is(:hover, .current, .selected, :has(:focus-visible)) { background: var(--color-surface); }
+  .card.row.selected { background: var(--color-selected); }
+  .actions { position: absolute; right: var(--space-1); }
+  .actions :global(button) { transition: opacity var(--duration), color var(--duration); }
+  .card:is(:hover, .current, .selected, :has(:focus-visible), .editing) .meta { transform: translateX(calc(-1 * var(--header-actions))); }
+  .status { margin-right: var(--header-actions); }
+  @media (prefers-reduced-motion: reduce) {
+    .meta, .card.row .title, .actions :global(button) { transition: none; }
+  }
+
   .date,
   .tag,
   .status {
@@ -273,7 +311,8 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   }
 
   .tag {
-    max-width: 30%;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

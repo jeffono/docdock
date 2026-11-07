@@ -4,12 +4,14 @@ use std::sync::mpsc::Sender;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Wry};
+use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::dock::{Request, Side};
 use crate::i18n::Locale;
 use crate::notes;
+
+struct SideItems([(Side, CheckMenuItem<Wry>); 2]);
 
 pub fn setup(
     app: &mut tauri::App,
@@ -47,6 +49,7 @@ pub fn setup(
         side_item("side-right", right, Side::Right)?,
         side_item("side-left", left, Side::Left)?,
     ];
+    app.manage(SideItems(sides.clone()));
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
     let menu = Menu::with_items(
@@ -62,8 +65,16 @@ pub fn setup(
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "quit" => app.exit(0),
-            "side-right" => select_side(app, Side::Right, &sides, &requests),
-            "side-left" => select_side(app, Side::Left, &sides, &requests),
+            "side-right" | "side-left" => {
+                let side = if event.id().as_ref() == "side-right" {
+                    Side::Right
+                } else {
+                    Side::Left
+                };
+                if let Err(error) = select_side(app, side, &requests) {
+                    eprintln!("[tray] failed to save side: {error:?}");
+                }
+            }
             "autostart" => {
                 let manager = app.autolaunch();
                 let result = manager.is_enabled().and_then(|enabled| {
@@ -94,21 +105,19 @@ pub fn setup(
 }
 
 /// Saves the side and moves the panel right away. A failed save still moves it for this session.
-fn select_side(
+pub fn select_side(
     app: &AppHandle,
     side: Side,
-    items: &[(Side, CheckMenuItem<Wry>)],
     requests: &Sender<Request>,
-) {
-    if let Err(error) = notes::set_side(app, side) {
-        eprintln!("[tray] failed to save side: {error:?}");
-    }
+) -> Result<(), crate::error::Error> {
+    let saved = notes::set_side(app, side);
     // Clicking toggles the item; the chosen side must stay checked and the other unchecked.
-    for (value, item) in items {
+    for (value, item) in &app.state::<SideItems>().0 {
         if let Err(error) = item.set_checked(*value == side) {
             eprintln!("[tray] failed to update check mark: {error}");
         }
     }
     // This only fails if the panel thread has stopped.
     let _ = requests.send(Request::SetSide(side));
+    saved
 }

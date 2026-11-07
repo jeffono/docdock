@@ -1,15 +1,18 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import Notes from "./lib/features/notes/Notes.svelte";
+import Preferences from "./lib/features/preferences/Preferences.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
   onPanelFocus,
+  onPanelSearch,
   onToggleMode,
   onWebState,
   onWebVisible,
   type PageState,
   type PanelFocus,
   panelActivate,
+  panelResize,
   panelSetPinned,
   webHistory,
   webSetVisible,
@@ -20,6 +23,8 @@ import IconButton from "./lib/ui/IconButton.svelte";
 let notes: Notes;
 let pinned = $state(false);
 let web = $state(false);
+let preferences = $state(false);
+let previousWeb = false;
 let page = $state<PageState | null>(null);
 let error = $state("");
 async function action(work: Promise<void>) {
@@ -42,9 +47,29 @@ onMount(() => {
   });
   const visible = onWebVisible((value) => {
     web = value;
+    if (value) preferences = false;
   });
   const toggle = onToggleMode(() => void action(switchMode(!web)));
+  const search = onPanelSearch(() => {
+    if (preferences)
+      void action(
+        switchMode(false)
+          .then(() => tick())
+          .then(() => notes.focusSearch()),
+      );
+  });
   const shortcut = (event: KeyboardEvent) => {
+    if (
+      preferences &&
+      event.key === "Escape" &&
+      !event.isComposing &&
+      !(event.target instanceof Element && event.target.closest("[popover]:popover-open"))
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void action(switchMode(previousWeb));
+      return;
+    }
     if (
       event.isComposing ||
       !event.ctrlKey ||
@@ -61,7 +86,7 @@ onMount(() => {
   window.addEventListener("keydown", shortcut, true);
   return () => {
     window.removeEventListener("keydown", shortcut, true);
-    for (const listener of [stop, state, visible, toggle])
+    for (const listener of [stop, state, visible, toggle, search])
       void listener.then((unlisten) => unlisten());
   };
 });
@@ -70,7 +95,58 @@ async function switchMode(value: boolean) {
   if (!(await notes.leaveEditor())) return;
   await webSetVisible(value);
   web = value;
+  preferences = false;
   if (value) notes.focusSearch();
+}
+async function togglePreferences() {
+  if (preferences) return switchMode(previousWeb);
+  if (!(await notes.leaveEditor())) return;
+  previousWeb = web;
+  await webSetVisible(false);
+  web = false;
+  preferences = true;
+}
+/** Dragging the inner edge: the window moves under the pointer, so only screen positions count. */
+let drag: { x: number; width: number } | null = null;
+let frame = 0;
+let pendingWidth = 0;
+function dragWidth(event: PointerEvent) {
+  if (!drag) return 0;
+  const moved = event.screenX - drag.x;
+  return drag.width + (focus.side === "right" ? -moved : moved);
+}
+function resizeStart(event: PointerEvent) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  drag = { x: event.screenX, width: window.innerWidth };
+  pendingWidth = 0;
+}
+function resizeMove(event: PointerEvent) {
+  if (!drag) return;
+  pendingWidth = dragWidth(event);
+  // One resize per frame: each one moves two native windows.
+  frame ||= requestAnimationFrame(() => {
+    frame = 0;
+    if (drag) void action(panelResize(pendingWidth, false));
+  });
+}
+/** Idempotent: pointerup, a lost capture or a lost focus may each end the same drag. */
+function resizeEnd(event?: PointerEvent) {
+  if (!drag) return;
+  const width = event?.type === "pointerup" ? dragWidth(event) : pendingWidth || drag.width;
+  drag = null;
+  cancelAnimationFrame(frame);
+  frame = 0;
+  void action(panelResize(width, true));
+}
+function resizeKey(event: KeyboardEvent) {
+  const step = event.shiftKey ? 50 : 10;
+  const wider = focus.side === "right" ? "ArrowLeft" : "ArrowRight";
+  const narrower = focus.side === "right" ? "ArrowRight" : "ArrowLeft";
+  if (event.key !== wider && event.key !== narrower) return;
+  event.preventDefault();
+  void action(panelResize(window.innerWidth + (event.key === wider ? step : -step), true));
 }
 function togglePin() {
   pinned = !pinned;
@@ -78,12 +154,28 @@ function togglePin() {
 }
 </script>
 
-<svelte:window onpointerdown={panelActivate} />
+<svelte:window onpointerdown={panelActivate} onblur={() => resizeEnd()} />
 
 <main class:focused={focus.focused} class:left={focus.side === "left"}>
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="resize"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label={t("app.resize")}
+    title={t("app.resize")}
+    tabindex="0"
+    onpointerdown={resizeStart}
+    onpointermove={resizeMove}
+    onpointerup={resizeEnd}
+    onpointercancel={() => resizeEnd()}
+    onlostpointercapture={() => resizeEnd()}
+    ondblclick={() => action(panelResize(null, true))}
+    onkeydown={resizeKey}
+  ></div>
   <header>
     <nav aria-label={t("app.mode")}>
-      <button class:active={!web} aria-pressed={!web} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
+      <button class:active={!web && !preferences} aria-pressed={!web && !preferences} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
       <button class:active={web} aria-pressed={web} title={t("web.browserShortcut")} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
     </nav>
     {#if web}
@@ -91,11 +183,12 @@ function togglePin() {
       <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
     {/if}
     <span class="spacer"></span>
-    <IconButton quiet icon="folder" label={t("notes.choose")} onclick={() => notes.choose()} />
+    <IconButton quiet icon="settings" label={t("preferences.title")} pressed={preferences} onclick={() => action(togglePreferences())} />
     <IconButton quiet icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
-  <Notes bind:this={notes} browser={web} pageUrl={page?.url ?? ""} />
+  {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
+  <Notes bind:this={notes} browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>
@@ -126,6 +219,28 @@ function togglePin() {
   main.focused.left::before {
     right: 0;
     left: auto;
+  }
+
+  /* Over the inner edge, where the page window leaves a strip of the UI uncovered. */
+  .resize {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 6px;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+
+  main.left .resize {
+    right: 0;
+    left: auto;
+  }
+
+  .resize:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
   }
 
   header {
