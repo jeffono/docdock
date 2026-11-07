@@ -11,6 +11,7 @@ import {
   isMissing,
   isUntitled,
   move,
+  movedPath,
   navKeys,
   noteFileName,
   renamedPath,
@@ -299,5 +300,17 @@ describe("revealScroll", () => {
   it("leaves a shown card and brings one above the view to the top", () => {
     expect(revealScroll({ top: 100, bottom: 400 }, view)).toBe(0);
     expect(revealScroll({ top: -50, bottom: 300 }, view)).toBe(-50);
+  });
+});
+
+describe("movedPath", () => {
+  const paths = ["Note.md", "sub/note.md", "sub/Note 2.md", "sub/deep/x.md"];
+  it("keeps the name and numbers it when taken in the target folder only", () => {
+    expect(movedPath("Note.md", "sub", paths)).toBe("sub/Note 3.md");
+    expect(movedPath("sub/deep/x.md", "sub", paths)).toBe("sub/x.md");
+    expect(movedPath("sub/note.md", "", paths)).toBe("note 2.md");
+  });
+  it("never takes the pinned list at the root", () => {
+    expect(movedPath("sub/_pinned.md", "", [])).toBe("_pinned 2.md");
   });
 });

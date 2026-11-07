@@ -188,11 +188,19 @@ pinned and unpinned notes differ only in section and starting state.
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
   vertical and right inset and a quiet remove icon.
 - **Card menu:** a right click on a note card, Shift+F10 or the Menu key on the selected card opens
-  the same in-panel menu as the order menu: Rename (F2), Pin or Unpin (Ctrl+D), then after a separator
-  Delete (Ctrl+Delete), each with its shortcut in muted text at the right; Move joins before the
-  separator. A right click opens it at the pointer, kept inside the panel; the keyboard opens it under
+  the same in-panel menu as the order menu: Rename (F2), Pin or Unpin (Ctrl+D), Move (Ctrl+M), then
+  after a separator Delete (Ctrl+Delete), each with its shortcut in muted text at the right. A right click opens it at the pointer, kept inside the panel; the keyboard opens it under
   the card header. Text fields, the editor and selected reading text keep the native menu. Web pins
   and missing items have none.
+- **Moving:** Move in the card menu, or Ctrl+M on the selected card from the search bar or the list
+  (not the editor), opens a picker placed and dimmed as the delete dialog: the question "Move “title”",
+  a field with the focus, and a list of fixed height below it. The list holds "Root folder" and every
+  folder, filtered as the field is typed (ignoring case), with a check on the note's own folder; when
+  no folder has the typed name, "Create folder “name”" with a plus icon ends the list. `/` nests a new
+  folder. ↑ / ↓ move the selected-surface highlight, the pointer follows it, and Enter or a click
+  takes it; Esc or a click on the scrim cancels, and focus returns to the list. Taking the note's own
+  folder does nothing. The note keeps its file name, or " 2" and so on where it is taken, and stays
+  selected; an edited note stays in its editor. Folders a move leaves empty stay.
 - **Deleting:** Delete in the card menu, or Ctrl+Delete on the selected card from the list (not in
   the search bar or the editor, where it deletes the next word), asks in an in-panel dialog without
   shadow, over a light scrim: the note title as the question, one muted sentence, then the neutral
@@ -238,6 +246,7 @@ pinned and unpinned notes differ only in section and starting state.
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
 | Delete                    | Remove the selected missing pinned item                                                  |
 | Ctrl+Delete               | Move the selected note to the Recycle Bin, after confirming; outside text fields         |
+| Ctrl+M                    | Move the selected note to a folder; from the search bar or the list                      |
 | Shift+F10 / Menu          | Open the selected note's menu                                                            |
 | Ctrl+Enter                | Create a note with the exact typed text                                                  |
 | Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |

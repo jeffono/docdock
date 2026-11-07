@@ -13,6 +13,7 @@ export const panelShortcuts: [string, MessageKey][] = [
   ["Enter", "shortcut.enter"],
   ["Delete", "shortcut.delete"],
   ["Ctrl+Delete", "shortcut.deleteNote"],
+  ["Ctrl+M", "shortcut.move"],
   ["Shift+F10", "shortcut.menu"],
   ["Ctrl+Enter", "shortcut.create"],
   ["Ctrl+D", "shortcut.pin"],

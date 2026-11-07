@@ -56,7 +56,9 @@ pub enum Error {
     PinnedChanged,
     /// The new name is taken, or the note changed since it was read; nothing moved.
     RenameConflict,
-    /// The note was renamed to `path`, but its pinned items still point at the old name.
+    /// A folder name Windows would not keep as typed, a hidden one, or one that leaves the folder.
+    InvalidFolderName,
+    /// The note was renamed or moved to `path`, but its pinned items still point at the old path.
     PinnedNotRenamed {
         path: String,
     },

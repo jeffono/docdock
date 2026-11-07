@@ -21,7 +21,7 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
-                         renaming, deleting with undo, reading and editing `_pinned.md`
+                         renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
@@ -284,6 +284,20 @@ at the new path, keeping a `#fragment` and the rest of their line; their link te
 it is still the old title. If `_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the
 rename stands. Links in other notes are not rewritten. The watcher reports the move as a rename, as for
 an external one.
+
+**Moving.** `notes_move(from, to, base)` shares rename's move (`relocate`): same lock, version check,
+`move_new` without replacing, `renameConflict` on a taken or reserved name, collapsed state and pinned
+items following, `pinnedNotRenamed` when the list cannot. It differs in that the target folder must be
+another existing one, not hidden, canonically inside the notes folder and held with its ancestry, so a
+link is refused; and the pinned link text never changes. `notes_folders` lists the folders listing visits
+(hidden ones and links skipped). `notes_create_folder` creates a `/`-nested folder level by level, each
+parent held, keeping one that exists; a name Windows would not keep as typed (trailing dot or space,
+`<>:"/\|?*`, control characters, device names such as `CON` or `com1.txt`), a hidden one or the root
+`_pinned.md` answers `invalidFolderName`. The UI (`MovePicker`) creates the folder first, then moves to
+the note's own name there or the next free one (`movedPath`), retried on a conflict as a rename. An
+edited note moves through `Editor.rename`, so the editor follows it and no save reaches the old path;
+otherwise the note cannot open in the editor while it moves. Relative image links in the note are not
+rewritten.
 
 **Deleting.** `notes_delete(path)` moves a note to the Recycle Bin under the save lock, with its folders
 held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink

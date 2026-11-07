@@ -8,10 +8,13 @@ import {
   type NotesChanges,
   type NotesFolder,
   notesChoose,
+  notesCreateFolder,
   notesDelete,
   notesFolder,
+  notesFolders,
   notesLeftovers,
   notesList,
+  notesMove,
   notesOpen,
   notesRename,
   notesRestore,
@@ -68,10 +71,12 @@ import {
   defaultKey,
   enter,
   entryKey,
+  folderOf,
   isMissing,
   isUntitled,
   type Level,
   move,
+  movedPath,
   navKeys,
   noteFileName,
   renamedPath,
@@ -79,6 +84,7 @@ import {
   rows,
   shallower,
 } from "./list";
+import MovePicker from "./MovePicker.svelte";
 import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
@@ -96,6 +102,7 @@ let {
 
 let shortcutSheet: ShortcutSheet;
 let confirmDialog: ConfirmDialog;
+let movePicker: MovePicker;
 $effect(() => {
   if (inactive || browser) shortcutSheet?.close();
 });
@@ -232,7 +239,7 @@ export function leaveEditor(): Promise<boolean> {
 let opening: string | null = null;
 async function edit(path: string) {
   // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
-  if (editing || choosing || path === deletingPath) return;
+  if (editing || choosing || path === deletingPath || path === movingPath) return;
   const current = generation;
   opening = path;
   try {
@@ -986,6 +993,70 @@ async function undoDelete() {
   changed({ renames: [] });
 }
 
+let moving = false;
+/** The note being moved, when not in the editor; it cannot open there meanwhile. */
+let movingPath = "";
+/**
+ * Moves a note to the folder picked, creating the folder first when asked. The note keeps its file
+ * name, or takes the next free one there, as a rename does. An edited note stays in its editor, which
+ * follows it as for a rename: its text is saved first and later saves wait for the move, so none
+ * recreates the old path.
+ */
+async function moveNote(card: Card) {
+  if (moving || card.url) return;
+  moving = true;
+  const from = card.hit.path;
+  try {
+    const header = list?.querySelector(`.card[data-path="${CSS.escape(from)}"] header`);
+    const choice = await movePicker.ask(
+      card.hit.title,
+      await notesFolders(),
+      folderOf(from),
+      header?.getBoundingClientRect(),
+    );
+    // A picker opened from the editor's card menu has no focus to give back.
+    if (document.activeElement === document.body) list?.focus({ preventScroll: true });
+    if (!choice || !notes.some((note) => note.path === from)) return;
+    error = "";
+    if (choice.create) await notesCreateFolder(choice.folder);
+    const go = async (version: string) => {
+      const taken = notes.map((note) => note.path);
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const to = movedPath(from, choice.folder, taken);
+        try {
+          await notesMove(from, to, version);
+          changed({ renames: [[from, to]] });
+          return;
+        } catch (e) {
+          const code = (e as { code?: string }).code;
+          if (code === "pinnedNotRenamed") {
+            changed({ renames: [[from, to]] });
+            error = errorText(e);
+            return;
+          }
+          if (code !== "renameConflict") throw e;
+        }
+        taken.push(to);
+      }
+      throw { code: "saveFailed", detail: from };
+    };
+    await renamingTask;
+    if (editing && selected === from && editor) {
+      await editor.rename(() => null, go);
+      return;
+    }
+    movingPath = from;
+    // An editor open that started before is dropped when it answers.
+    if (opening === from) opening = null;
+    await go((await notesOpen(from)).version);
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    moving = false;
+    movingPath = "";
+  }
+}
+
 let cardMenu: Menu;
 /** The card the right-click menu acts on. */
 let menuCard = $state<Card | null>(null);
@@ -1383,6 +1454,7 @@ function shortcut(event: KeyboardEvent) {
     inactive ||
     shortcutSheet?.isOpen() ||
     confirmDialog?.isOpen() ||
+    movePicker?.isOpen() ||
     event.defaultPrevented ||
     event.isComposing
   )
@@ -1440,6 +1512,14 @@ function shortcut(event: KeyboardEvent) {
     event.preventDefault();
     // Held down, the key repeats: one press is one toggle.
     if (!event.repeat) void pinOrUnpin(card);
+    return;
+  }
+  // In the editor, Ctrl+M stays CodeMirror's.
+  if (!browser && ctrl && key === "m" && !field) {
+    const card = cardFor(active);
+    if (!card || card.url) return;
+    event.preventDefault();
+    if (!event.repeat) void moveNote(card);
     return;
   }
   if (!browser && ctrl && key === "e") {
@@ -1521,16 +1601,17 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen() && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <ConfirmDialog bind:this={confirmDialog} />
+<MovePicker bind:this={movePicker} />
 <Menu bind:this={cardMenu} label={t("menu.label")}>
   {#if menuCard}
     {@const card = menuCard}
     <button role="menuitem" tabindex="-1" onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>
     <button role="menuitem" tabindex="-1" onclick={() => pinOrUnpin(card)}>{t(card.pinned ? "menu.unpin" : "menu.pin")}<kbd>Ctrl+D</kbd></button>
-    <!-- Move, from the next task, goes here. -->
+    <button role="menuitem" tabindex="-1" onclick={() => moveNote(card)}>{t("menu.move")}<kbd>Ctrl+M</kbd></button>
     <hr />
     <button role="menuitem" tabindex="-1" onclick={() => deleteNote(card)}>{t("menu.delete")}<kbd>Ctrl+Delete</kbd></button>
   {/if}

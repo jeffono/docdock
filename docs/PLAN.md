@@ -50,7 +50,7 @@ Decided 2026-11-07:
 
 - [x] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
   panel is open; pinned entries follow, and an open editor stops saving instead of recreating it
-- [ ] (advanced) Move a note to a folder through a picker that can create it, reusing rename's
+- [x] (advanced) Move a note to a folder through a picker that can create it, reusing rename's
   no-overwrite move and pin updates
 - [ ] (standard) Delete empty folders, or folders to the Recycle Bin after confirmation
 

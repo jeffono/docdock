@@ -140,6 +140,19 @@ pub fn notes_rename(
 ) -> Result<(), Error> {
     crate::notes::rename_note(&app, &from, &to, &base, (&title.0, &title.1))
 }
+/// Moves a note to `to`, in another folder, as `notes_rename` does.
+#[tauri::command(async)]
+pub fn notes_move(app: AppHandle, from: String, to: String, base: String) -> Result<(), Error> {
+    crate::notes::move_note(&app, &from, &to, &base)
+}
+#[tauri::command(async)]
+pub fn notes_folders(app: AppHandle) -> Result<Vec<String>, Error> {
+    crate::notes::folders(&app)
+}
+#[tauri::command(async)]
+pub fn notes_create_folder(app: AppHandle, path: String) -> Result<(), Error> {
+    crate::notes::create_folder(&app, &path)
+}
 /// Moves a note to the Recycle Bin; answers whether `notes_undo_delete` can bring it back, which it
 /// can while the panel stays open.
 #[tauri::command(async)]

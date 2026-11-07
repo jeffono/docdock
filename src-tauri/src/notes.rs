@@ -641,11 +641,38 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
 }
-/// Renames the note `from` to `to`, in the same folder, never over another file: a taken name answers
-/// `Conflict`, as does a note that no longer holds `base`. A case-only change renames the same file.
-/// Pinned items of `from` follow it; `title` is the old and new title for their link text. If they
-/// cannot, the answer is `PinnedNotRenamed`: the note is renamed all the same.
+/// Renames the note `from` to `to`, in the same folder. See `relocate`.
 fn rename_note_in(
+    root: &Path,
+    from: &str,
+    to: &str,
+    base: &str,
+    title: (&str, &str),
+) -> Result<(), Error> {
+    if Path::new(from).parent() != Path::new(to).parent() {
+        return Err(Error::InvalidPath);
+    }
+    relocate(root, from, to, base, title)
+}
+/// Moves the note `from` to `to`, in another folder that exists and is not hidden, keeping the link
+/// text of its pinned items. See `relocate`.
+fn move_note_in(root: &Path, from: &str, to: &str, base: &str) -> Result<(), Error> {
+    let folder = Path::new(to).parent().unwrap_or(Path::new(""));
+    let hidden = folder
+        .components()
+        .any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+    let current = Path::new(from).parent().unwrap_or(Path::new(""));
+    if hidden || same_name(folder, current) {
+        return Err(Error::InvalidPath);
+    }
+    // An empty new title never replaces a link text.
+    relocate(root, from, to, base, ("", ""))
+}
+/// Moves the note `from` to `to`, never over another file: a taken name answers `RenameConflict`, as
+/// do a note that no longer holds `base` and a path a deleted note reserves. A case-only change renames
+/// the same file. Pinned items of `from` follow it; `title` is the old and new title for their link
+/// text. If they cannot, the answer is `PinnedNotRenamed`: the note is moved all the same.
+fn relocate(
     root: &Path,
     from: &str,
     to: &str,
@@ -654,7 +681,7 @@ fn rename_note_in(
 ) -> Result<(), Error> {
     let (source, target) = (checked(from, markdown)?, checked(to, markdown)?);
     let pinned = |path: &Path| path.as_os_str().eq_ignore_ascii_case(PINNED);
-    if source.parent() != target.parent() || pinned(source) || pinned(target) {
+    if pinned(source) || pinned(target) {
         return Err(Error::InvalidPath);
     }
     {
@@ -663,12 +690,13 @@ fn rename_note_in(
             return Err(Error::RenameConflict);
         }
         let source = resolve(root, from, markdown)?;
-        let parent = source.parent().ok_or(Error::InvalidPath)?;
-        let _held = hold_ancestry(parent)?;
+        let _held = hold_ancestry(source.parent().ok_or(Error::InvalidPath)?)?;
         if version(&read_bytes(&source)?) != base {
             return Err(Error::RenameConflict);
         }
-        let target = parent.join(target.file_name().ok_or(Error::InvalidPath)?);
+        let folder = resolve_folder(root, target.parent().ok_or(Error::InvalidPath)?)?;
+        let _held_target = hold_ancestry(&folder)?;
+        let target = folder.join(target.file_name().ok_or(Error::InvalidPath)?);
         // Without replacing, `MoveFileExW` refuses a taken name and allows a case-only change.
         if target != source
             && let Err(error) = platform::move_new(&source, &target)
@@ -682,11 +710,20 @@ fn rename_note_in(
     }
     // The move happened: a failure here must say so, since `from` no longer exists to retry.
     edit_pinned(root, |text| pinned::rename(text, from, to, title)).map_err(|error| {
-        eprintln!("[rename] pinned items not renamed: {error:?}");
+        eprintln!("[move] pinned items not moved: {error:?}");
         Error::PinnedNotRenamed {
             path: to.to_owned(),
         }
     })
+}
+/// An existing folder below `root`, or `root` itself for an empty path, canonical.
+fn resolve_folder(root: &Path, relative: &Path) -> Result<PathBuf, Error> {
+    let root = root.canonicalize()?;
+    let folder = root.join(relative).canonicalize()?;
+    if !folder.starts_with(&root) || !folder.is_dir() {
+        return Err(Error::OutsideFolder);
+    }
+    Ok(folder)
 }
 /// Windows compares names ignoring case.
 fn same_name(a: &Path, b: &Path) -> bool {
@@ -700,7 +737,17 @@ pub fn rename_note(
     title: (&str, &str),
 ) -> Result<(), Error> {
     let renamed = rename_note_in(&root(app)?, from, to, base, title);
-    if matches!(renamed, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
+    follow(app, from, to, &renamed);
+    renamed
+}
+pub fn move_note(app: &AppHandle, from: &str, to: &str, base: &str) -> Result<(), Error> {
+    let moved = move_note_in(&root(app)?, from, to, base);
+    follow(app, from, to, &moved);
+    moved
+}
+/// Settings that name a moved note follow it.
+fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
+    if matches!(result, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
         // Best effort: the note has moved, and an error here would hide that from the editor, whose
         // next save would bring the old name back. A lost collapsed state only shows the card open.
         let _ = update(app, |settings| {
@@ -713,7 +760,78 @@ pub fn rename_note(
             }
         });
     }
-    renamed
+}
+/// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders and
+/// links are left out.
+fn folders_in(root: &Path) -> Result<Vec<String>, Error> {
+    fn visit(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result<(), Error> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
+            {
+                found.push(relative(root, &entry.path()));
+                visit(root, &entry.path(), found)?;
+            }
+        }
+        Ok(())
+    }
+    let mut found = Vec::new();
+    visit(root, root, &mut found)?;
+    found.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+    Ok(found)
+}
+pub fn folders(app: &AppHandle) -> Result<Vec<String>, Error> {
+    folders_in(&root(app)?)
+}
+/// A folder name Windows keeps as typed and listing shows: not hidden, no leading or trailing space,
+/// no trailing dot (Windows drops it), no character a name cannot hold and no device name, even with
+/// an extension.
+fn folder_name_allowed(name: &str) -> bool {
+    let device = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_lowercase();
+    let numbered = (device.starts_with("com") || device.starts_with("lpt"))
+        && device.chars().count() == 4
+        && device
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii_digit() || "¹²³".contains(c));
+    !name.is_empty()
+        && name.chars().count() <= 100
+        && !name.starts_with(['.', ' '])
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c < ' ' || r#"<>:"/\|?*"#.contains(c))
+        && !["con", "prn", "aux", "nul"].contains(&device.as_str())
+        && !numbered
+}
+/// Creates the folder `relative` below `root`, with `/` between nested names, and any missing folder
+/// above it; one that exists is kept. Each level must be a real folder inside `root`, never a link.
+fn create_folder_in(root: &Path, relative: &str) -> Result<(), Error> {
+    let names: Vec<&str> = relative.split('/').collect();
+    // A folder in the place of the pinned list would hide it.
+    if !names.iter().all(|name| folder_name_allowed(name)) || names[0].eq_ignore_ascii_case(PINNED)
+    {
+        return Err(Error::InvalidFolderName);
+    }
+    let mut dir = root.canonicalize()?;
+    for name in names {
+        // Holding rejects a link at any level, such as one that took a name meanwhile.
+        let _held = hold_ancestry(&dir).map_err(|_| Error::OutsideFolder)?;
+        dir.push(name);
+        match fs::create_dir(&dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    hold_ancestry(&dir).map_err(|_| Error::OutsideFolder)?;
+    Ok(())
+}
+pub fn create_folder(app: &AppHandle, path: &str) -> Result<(), Error> {
+    create_folder_in(&root(app)?, path)
 }
 /// A note moved to the Recycle Bin from the app, kept in memory until the panel closes so Undo can
 /// write it back without depending on the Recycle Bin's layout. Its path stays reserved meanwhile:
@@ -1907,6 +2025,114 @@ mod tests {
             assert_eq!(rename(&t.0, "a.md", to), Err(Error::InvalidPath), "{to}");
         }
         assert!(exists(&t.0.join("a.md")));
+    }
+    fn moving(root: &Path, from: &str, to: &str) -> Result<(), Error> {
+        let base = version(&fs::read(root.join(from)).unwrap());
+        move_note_in(root, from, to, &base)
+    }
+    #[test]
+    fn moving_never_takes_a_name_in_the_target_folder() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join("sub/A.md"), "b").unwrap();
+        assert_eq!(moving(&t.0, "a.md", "sub/a.md"), Err(Error::RenameConflict));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "a");
+        assert_eq!(fs::read_to_string(t.0.join("sub/A.md")).unwrap(), "b");
+    }
+    #[test]
+    fn moving_takes_the_pinned_items_along_and_keeps_their_text() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("a.md"), "body").unwrap();
+        fs::write(root.join(PINNED), "- [My a](a.md)\n- [C](c.md)\n").unwrap();
+        assert_eq!(moving(&root, "a.md", "sub/a.md"), Ok(()));
+        assert!(!exists(&root.join("a.md")));
+        assert_eq!(fs::read_to_string(root.join("sub/a.md")).unwrap(), "body");
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "- [My a](sub/a.md)\n- [C](c.md)\n"
+        );
+    }
+    #[test]
+    fn moving_only_reaches_visible_folders_that_exist_inside_the_notes_folder() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        let outside = t.0.join("outside");
+        for dir in [&root, &outside, &root.join(".hidden")] {
+            fs::create_dir(dir).unwrap();
+        }
+        assert!(mklink(&["/J"], &root.join("link"), &outside));
+        fs::write(root.join("a.md"), "a").unwrap();
+        for to in [
+            "../a.md",
+            ".hidden/a.md",
+            "missing/a.md",
+            "link/a.md",
+            "A.md",
+            PINNED,
+        ] {
+            assert!(moving(&root, "a.md", to).is_err(), "{to}");
+        }
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "a");
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+    }
+    #[test]
+    fn folder_names_stay_inside_and_are_kept_as_typed() {
+        let t = Temp::new();
+        for name in [
+            "",
+            "..",
+            "../x",
+            "a/../b",
+            "C:/x",
+            "/x",
+            "a//b",
+            "a\\b",
+            ".git",
+            "a.",
+            "a ",
+            " a",
+            "a:b",
+            "CON",
+            "nul.txt",
+            "COM1",
+            "lpt9.x",
+            "_pinned.md",
+            "x\u{1}",
+        ] {
+            assert_eq!(
+                create_folder_in(&t.0, name),
+                Err(Error::InvalidFolderName),
+                "{name:?}"
+            );
+        }
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 0);
+        assert_eq!(create_folder_in(&t.0, "Projects/2026 Q1"), Ok(()));
+        assert_eq!(create_folder_in(&t.0, "Projects"), Ok(()));
+        assert!(t.0.join("Projects/2026 Q1").is_dir());
+    }
+    #[test]
+    fn creating_a_folder_never_goes_through_a_link() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        let outside = t.0.join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        assert!(mklink(&["/J"], &root.join("link"), &outside));
+        assert!(create_folder_in(&root, "link/x").is_err());
+        assert!(!outside.join("x").exists());
+    }
+    #[test]
+    fn folders_are_the_ones_listing_visits() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        for dir in ["notes/b", "notes/a/c", "notes/.h/x", "outside/d"] {
+            fs::create_dir_all(t.0.join(dir)).unwrap();
+        }
+        assert!(mklink(&["/J"], &root.join("link"), &t.0.join("outside")));
+        assert_eq!(folders_in(&root).unwrap(), ["a", "a/c", "b"]);
     }
     #[test]
     fn pinning_creates_a_missing_file() {

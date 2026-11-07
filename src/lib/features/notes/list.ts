@@ -301,6 +301,30 @@ export function renamedPath(from: string, title: string, paths: Iterable<string>
   return folder + noteFileName(title, taken);
 }
 
+/** The folder of a note path, without the trailing `/`; "" for the root. */
+export function folderOf(path: string): string {
+  return path.slice(0, Math.max(0, path.lastIndexOf("/")));
+}
+
+/**
+ * The path a note gets when moved to `folder` ("" for the root): its own file name, numbered " 2" and
+ * so on when taken there (ignoring case, as Windows does), as a rename numbers it. At the root,
+ * `_pinned.md` is never taken.
+ */
+export function movedPath(from: string, folder: string, paths: Iterable<string>): string {
+  const name = from.slice(from.lastIndexOf("/") + 1);
+  const prefix = folder ? `${folder}/` : "";
+  const taken = new Set(folder ? [] : [`${NEVER}.md`]);
+  for (const path of paths)
+    if (folderOf(path).toLowerCase() === folder.toLowerCase())
+      taken.add(path.slice(prefix.length).toLowerCase());
+  const stem = name.slice(0, -3);
+  const extension = name.slice(-3);
+  let moved = name;
+  for (let n = 2; taken.has(moved.toLowerCase()); n++) moved = `${stem} ${n}${extension}`;
+  return prefix + moved;
+}
+
 export function pageHost(url: string): string {
   try {
     return new URL(url).host;

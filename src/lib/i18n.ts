@@ -55,6 +55,7 @@ const en = {
   "shortcut.enter": "Open selected item or create note",
   "shortcut.delete": "Remove missing pinned item",
   "shortcut.deleteNote": "Move selected note to the Recycle Bin, outside text fields",
+  "shortcut.move": "Move selected note to a folder, outside the editor",
   "shortcut.menu": "Open the selected note's menu",
   "shortcut.create": "Create note from typed text",
   "shortcut.pin": "Pin / unpin selected note, outside the editor",
@@ -108,7 +109,14 @@ const en = {
   "menu.rename": "Rename",
   "menu.pin": "Pin",
   "menu.unpin": "Unpin",
+  "menu.move": "Move",
   "menu.delete": "Delete",
+  "move.title": "Move “{title}”",
+  "move.field": "Folder",
+  "move.placeholder": "Filter or name a new folder",
+  "move.folders": "Folders",
+  "move.root": "Root folder",
+  "move.create": "Create folder “{folder}”",
   "dialog.cancel": "Cancel",
   "delete.title": "Delete “{title}”?",
   "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
@@ -165,6 +173,8 @@ const en = {
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is not available.",
   "error.invalidPath": "Invalid file path.",
+  "error.invalidFolderName":
+    'Choose another folder name: it cannot start with a dot, end with a dot or space, contain < > : " \\ | ? * or be a name Windows reserves, such as CON.',
   "error.outsideFolder": "The file is outside the chosen folder.",
   "error.tooLarge": "The note has {sizeMb} MB; the limit is {limitMb} MB.",
   "error.notUtf8": "The note is not UTF-8 text.",
@@ -184,7 +194,7 @@ const en = {
   "error.pinnedChanged":
     "The pinned list changed outside the app while it was being updated; try again.",
   "error.pinnedNotRenamed":
-    "The note was renamed to {path}, but the pinned list could not follow it; pin it again.",
+    "The note is now at {path}, but the pinned list could not follow it; pin it again.",
   "error.notRecyclable": "This folder has no Recycle Bin for the note, so nothing was deleted.",
   "error.deleteFailed": "Could not delete the note: {detail}",
   "error.pinnedNotRemoved":
@@ -254,6 +264,7 @@ const ptBR: Record<MessageKey, string> = {
   "shortcut.enter": "Abrir item selecionado ou criar nota",
   "shortcut.delete": "Remover item fixado ausente",
   "shortcut.deleteNote": "Mover a nota selecionada para a Lixeira, fora de campos de texto",
+  "shortcut.move": "Mover a nota selecionada para uma pasta, fora do editor",
   "shortcut.menu": "Abrir o menu da nota selecionada",
   "shortcut.create": "Criar nota com o texto digitado",
   "shortcut.pin": "Fixar / desafixar nota selecionada, fora do editor",
@@ -307,7 +318,14 @@ const ptBR: Record<MessageKey, string> = {
   "menu.rename": "Renomear",
   "menu.pin": "Fixar",
   "menu.unpin": "Desafixar",
+  "menu.move": "Mover",
   "menu.delete": "Excluir",
+  "move.title": "Mover “{title}”",
+  "move.field": "Pasta",
+  "move.placeholder": "Filtre ou dê nome a uma nova pasta",
+  "move.folders": "Pastas",
+  "move.root": "Pasta raiz",
+  "move.create": "Criar pasta “{folder}”",
   "dialog.cancel": "Cancelar",
   "delete.title": "Excluir “{title}”?",
   "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
@@ -364,6 +382,8 @@ const ptBR: Record<MessageKey, string> = {
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas não está disponível.",
   "error.invalidPath": "Caminho de arquivo inválido.",
+  "error.invalidFolderName":
+    'Escolha outro nome de pasta: ele não pode começar com ponto, terminar com ponto ou espaço, conter < > : " \\ | ? * nem ser um nome reservado do Windows, como CON.',
   "error.outsideFolder": "O arquivo está fora da pasta escolhida.",
   "error.tooLarge": "A nota tem {sizeMb} MB; o limite é {limitMb} MB.",
   "error.notUtf8": "A nota não é texto UTF-8.",
@@ -382,7 +402,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.pinnedChanged":
     "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
   "error.pinnedNotRenamed":
-    "A nota foi renomeada para {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
+    "A nota agora está em {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.notRecyclable": "Esta pasta não tem Lixeira para a nota; nada foi excluído.",
   "error.deleteFailed": "Não foi possível excluir a nota: {detail}",
   "error.pinnedNotRemoved":

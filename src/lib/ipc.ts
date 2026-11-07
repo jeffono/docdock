@@ -90,6 +90,16 @@ export const notesSave = (path: string, content: string, base: string) =>
 export const notesRename = (from: string, to: string, base: string, title: [string, string]) =>
   invoke<void>("notes_rename", { from, to, base, title });
 /**
+ * Moves a note to `to` in another existing folder, as `notesRename` does, keeping the link text of its
+ * pinned items. Hidden folders and the note's own folder are refused.
+ */
+export const notesMove = (from: string, to: string, base: string) =>
+  invoke<void>("notes_move", { from, to, base });
+/** Every folder listing visits, as `/` paths; the root is not included. */
+export const notesFolders = () => invoke<string[]>("notes_folders");
+/** Creates a folder, nested with `/`, keeping one that exists; `invalidFolderName` otherwise. */
+export const notesCreateFolder = (path: string) => invoke<void>("notes_create_folder", { path });
+/**
  * Moves a note to the Recycle Bin and removes its pinned items. Resolves to whether, until the panel
  * closes, `notesUndoDelete` can bring both back; meanwhile saves or renames to its path answer a
  * conflict. `notRecyclable`: the note stays where it is. `pinnedNotRemoved` (with `undo`): the note

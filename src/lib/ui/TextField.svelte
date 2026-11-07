@@ -1,7 +1,11 @@
 <script lang="ts">
 import type { HTMLInputAttributes } from "svelte/elements";
 
-let { value = $bindable(""), ...rest }: HTMLInputAttributes = $props();
+let {
+  value = $bindable(""),
+  ref = $bindable(),
+  ...rest
+}: HTMLInputAttributes & { ref?: HTMLInputElement } = $props();
 
 function leave(event: KeyboardEvent) {
   if (event.key === "Escape") {
@@ -10,7 +14,7 @@ function leave(event: KeyboardEvent) {
 }
 </script>
 
-<input bind:value onkeydown={leave} {...rest} />
+<input bind:this={ref} bind:value onkeydown={leave} {...rest} />
 
 <style>
   input {

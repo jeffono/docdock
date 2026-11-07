@@ -1,6 +1,7 @@
 <script lang="ts">
 import { t } from "../i18n";
 import Button from "./Button.svelte";
+import { placeNear } from "./place";
 
 /**
  * Asks before an action, inside the panel, over a dimmed backdrop. Focus starts on Cancel, so Enter
@@ -25,24 +26,12 @@ export function ask(title: string, text: string, action: string, near?: DOMRect)
   question = { title, text, action };
   previous = document.activeElement;
   dialog.showModal();
-  place(near);
+  placeNear(dialog, near);
   // Cancel comes first.
   dialog.querySelector("button")?.focus();
   return new Promise((resolve) => {
     answer = resolve;
   });
-}
-
-function place(near?: DOMRect) {
-  const height = dialog.getBoundingClientRect().height;
-  const gap = Number.parseFloat(getComputedStyle(dialog).marginTop) || 0;
-  const top = !near
-    ? (innerHeight - height) / 2
-    : near.bottom + gap + height <= innerHeight - gap
-      ? near.bottom
-      : near.top - height - 2 * gap;
-  // The top margin keeps the gap from what it is about.
-  dialog.style.top = `${Math.max(0, Math.min(top, innerHeight - height - 2 * gap))}px`;
 }
 
 function done(confirmed: boolean) {
