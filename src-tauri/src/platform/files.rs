@@ -82,16 +82,6 @@ pub fn open_exclusive(path: &Path) -> io::Result<Option<File>> {
     }
 }
 
-/// Opens `path` for reading while letting it be renamed or deleted, and keeps writers out until the
-/// handle is dropped.
-pub fn open_unwritable(path: &Path) -> io::Result<File> {
-    use windows::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ};
-    OpenOptions::new()
-        .read(true)
-        .share_mode((FILE_SHARE_READ | FILE_SHARE_DELETE).0)
-        .open(path)
-}
-
 /// Deletes a file from `open_exclusive` when it is closed.
 pub fn delete_on_close(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO { DeleteFile: true };

@@ -140,9 +140,10 @@ pub fn notes_rename(
 ) -> Result<(), Error> {
     crate::notes::rename_note(&app, &from, &to, &base, (&title.0, &title.1))
 }
-/// Moves a note to the Recycle Bin; `notes_undo_delete` brings it back while the panel stays open.
+/// Moves a note to the Recycle Bin; answers whether `notes_undo_delete` can bring it back, which it
+/// can while the panel stays open.
 #[tauri::command(async)]
-pub fn notes_delete(app: AppHandle, path: String) -> Result<(), Error> {
+pub fn notes_delete(app: AppHandle, path: String) -> Result<bool, Error> {
     crate::notes::delete_note(&app, &path)
 }
 #[tauri::command(async)]

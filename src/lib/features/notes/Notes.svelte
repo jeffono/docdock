@@ -230,7 +230,8 @@ export function leaveEditor(): Promise<boolean> {
 /** Note whose editor read is in flight; a rename of it cancels the open. */
 let opening: string | null = null;
 async function edit(path: string) {
-  if (editing || choosing) return;
+  // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
+  if (editing || choosing || path === deletingPath) return;
   const current = generation;
   opening = path;
   try {
@@ -899,6 +900,10 @@ async function pinnedAction(action: () => Promise<Pinned>) {
 /** The last note moved to the Recycle Bin, offered for Undo until the panel closes. */
 let removed = $state<{ path: string; title: string } | null>(null);
 let deleting = false;
+/** The note being moved to the Recycle Bin; it cannot open in the editor meanwhile. */
+let deletingPath = "";
+/** Counts panel hides: a delete that ends after one offers no Undo, which Rust no longer keeps. */
+let panelSession = 0;
 /**
  * Moves a note to the Recycle Bin once confirmed. Its editor is left first, the guarded way, so its
  * text is saved before the delete and nothing writes the note back afterwards; a conflict or error
@@ -921,16 +926,23 @@ async function deleteNote(card: Card) {
       if (!(await leaveEditor())) return;
       path = leftPath;
     }
+    deletingPath = path;
+    // An editor open that started before is dropped when it answers.
+    if (opening === path) opening = null;
+    const session = panelSession;
     const at = keys.indexOf(path);
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
     let problem = "";
+    let undo: boolean;
     try {
-      await notesDelete(path);
+      undo = await notesDelete(path);
     } catch (e) {
-      if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
+      const failed = e as { code?: string; undo?: boolean };
+      if (failed.code !== "pinnedNotRemoved") throw e;
       problem = errorText(e);
+      undo = failed.undo === true;
     }
-    removed = { path, title };
+    removed = undo && session === panelSession ? { path, title } : null;
     renamedAway.add(path);
     delete contents[path];
     if (expanded === path) expanded = "";
@@ -941,6 +953,7 @@ async function deleteNote(card: Card) {
     error = errorText(e);
   } finally {
     deleting = false;
+    deletingPath = "";
   }
 }
 /** Writes the deleted note back where it was, with its pinned items; it is a normal note again. */
@@ -1462,6 +1475,7 @@ onMount(() => {
     shortcutSheet.close();
     // The panel forgot the deleted note; it stays in the Recycle Bin.
     removed = null;
+    panelSession++;
     void leaveEditor().then((left) => {
       if (left) expanded = "";
     });

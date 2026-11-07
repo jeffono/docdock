@@ -726,52 +726,70 @@ struct Deleted {
     /// `_pinned.md` before and after the note's items were removed.
     pinned: Option<(String, String)>,
 }
-/// Locked after `SAVING` when both are needed.
-static DELETED: Mutex<Vec<Deleted>> = Mutex::new(Vec::new());
-fn deleted() -> std::sync::MutexGuard<'static, Vec<Deleted>> {
+/// The notes deleted since the panel last hid. `session` counts the hides, so a delete that finishes
+/// after one keeps nothing for Undo. Locked after `SAVING` when both are needed.
+struct Trash {
+    session: u64,
+    notes: Vec<Deleted>,
+}
+static DELETED: Mutex<Trash> = Mutex::new(Trash {
+    session: 0,
+    notes: Vec::new(),
+});
+fn deleted() -> std::sync::MutexGuard<'static, Trash> {
     DELETED.lock().unwrap_or_else(|e| e.into_inner())
 }
 fn reserved(root: &Path, relative: &str) -> bool {
     deleted()
+        .notes
         .iter()
         .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
 }
-/// Moves the note to the Recycle Bin through `recycle`, keeping its bytes for `undo_delete_in`. Writers
-/// are kept out from the read to the move, so the copy is what the Recycle Bin holds. A note the
-/// Recycle Bin cannot take stays. Its pinned items are removed after; if they cannot be, the answer is
-/// `PinnedNotRemoved`: the note is in the Recycle Bin all the same.
+/// Moves the note to the Recycle Bin through `recycle`, which answers where the file landed there.
+/// Undo keeps the bytes read from that file, so they are what the Recycle Bin holds even if another
+/// app swapped the note's path meanwhile. A note the Recycle Bin cannot take stays. Answers whether
+/// Undo is possible: not when the panel hid during the delete, or the Recycle Bin copy cannot be read.
+/// Its pinned items are removed after; if they cannot be, the answer is `PinnedNotRemoved`: the note
+/// is in the Recycle Bin all the same.
 fn delete_note_in(
     root: &Path,
     relative: &str,
-    recycle: impl Fn(&Path) -> io::Result<()>,
-) -> Result<(), Error> {
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) -> Result<bool, Error> {
     if checked(relative, markdown)?
         .as_os_str()
         .eq_ignore_ascii_case(PINNED)
     {
         return Err(Error::InvalidPath);
     }
-    {
+    let session = deleted().session;
+    let undo = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let target = resolve(root, relative, markdown)?;
         let _held = hold_ancestry(target.parent().ok_or(Error::InvalidPath)?)?;
-        let mut file = platform::open_unwritable(&target)?;
-        too_large(file.metadata()?.len())?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        recycle(&target).map_err(|error| match error.kind() {
+        // A note too large to keep for Undo is not deleted from the app.
+        too_large(fs::metadata(&target)?.len())?;
+        let recycled = recycle(&target).map_err(|error| match error.kind() {
             io::ErrorKind::Unsupported => Error::NotRecyclable,
             _ => Error::DeleteFailed {
                 detail: error.to_string(),
             },
         })?;
-        deleted().push(Deleted {
-            root: root.to_owned(),
-            path: relative.to_owned(),
-            bytes,
-            pinned: None,
-        });
-    }
+        let bytes = recycled.and_then(|bin| read_bytes(&bin).ok());
+        let mut trash = deleted();
+        match bytes {
+            Some(bytes) if trash.session == session => {
+                trash.notes.push(Deleted {
+                    root: root.to_owned(),
+                    path: relative.to_owned(),
+                    bytes,
+                    pinned: None,
+                });
+                true
+            }
+            _ => false,
+        }
+    };
     let change = std::cell::RefCell::new(None);
     edit_pinned(root, |text| {
         let edited = pinned::unpin(text, relative);
@@ -780,15 +798,16 @@ fn delete_note_in(
     })
     .map_err(|error| {
         eprintln!("[delete] pinned items not removed: {error:?}");
-        Error::PinnedNotRemoved
+        Error::PinnedNotRemoved { undo }
     })?;
     if let Some(entry) = deleted()
+        .notes
         .iter_mut()
         .find(|d| d.root == root && d.path == relative)
     {
         entry.pinned = change.into_inner();
     }
-    Ok(())
+    Ok(undo)
 }
 /// Writes a deleted note back at its path, never over a file that took the name since
 /// (`RestoreTaken`, and Undo stays possible). Its pinned items return too, in place if `_pinned.md`
@@ -796,7 +815,8 @@ fn delete_note_in(
 fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
     let pinned = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-        let mut deleted = deleted();
+        let mut trash = deleted();
+        let deleted = &mut trash.notes;
         let at = deleted
             .iter()
             .position(|d| d.root == root && d.path == relative)
@@ -821,7 +841,7 @@ fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
     }
     Ok(())
 }
-pub fn delete_note(app: &AppHandle, path: &str) -> Result<(), Error> {
+pub fn delete_note(app: &AppHandle, path: &str) -> Result<bool, Error> {
     delete_note_in(&root(app)?, path, platform::recycle)
 }
 pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
@@ -829,7 +849,9 @@ pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
 }
 /// The panel closed: deleted notes stay in the Recycle Bin and their names are free again.
 pub fn forget_deleted() {
-    deleted().clear();
+    let mut trash = deleted();
+    trash.session += 1;
+    trash.notes.clear();
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1745,20 +1767,62 @@ mod tests {
         assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "a");
     }
     /// Moves a deleted note into `bin`, as the Recycle Bin would.
-    fn delete(root: &Path, bin: &Path, path: &str) -> Result<(), Error> {
-        fs::create_dir_all(bin).unwrap();
-        delete_note_in(root, path, |file| {
-            fs::rename(file, bin.join(file.file_name().unwrap()))
-        })
+    /// Moves `file` into `bin`, as the Recycle Bin would, and answers where it landed.
+    fn to_bin(file: &Path, bin: &Path) -> io::Result<Option<PathBuf>> {
+        fs::create_dir_all(bin)?;
+        let landed = bin.join(file.file_name().unwrap());
+        fs::rename(file, &landed)?;
+        Ok(Some(landed))
+    }
+    fn delete(root: &Path, bin: &Path, path: &str) -> Result<bool, Error> {
+        delete_note_in(root, path, |file| to_bin(file, bin))
+    }
+    /// Delete tests share the deleted notes, which hiding the panel clears for every folder.
+    fn deleting() -> std::sync::MutexGuard<'static, ()> {
+        static SERIAL: Mutex<()> = Mutex::new(());
+        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    #[test]
+    fn undo_restores_what_the_recycle_bin_got_even_if_the_path_was_swapped() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "original").unwrap();
+        let deleted = delete_note_in(&t.0, "a.md", |file| {
+            // Another app moves the note away and puts a different file at its path.
+            fs::rename(file, t.0.join("moved.md"))?;
+            fs::write(file, "replacement")?;
+            to_bin(file, &t.0.join("bin"))
+        });
+        assert_eq!(deleted, Ok(true));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "replacement");
+        assert_eq!(
+            fs::read_to_string(t.0.join("moved.md")).unwrap(),
+            "original"
+        );
+    }
+    #[test]
+    fn a_delete_finishing_after_the_panel_hid_keeps_nothing_for_undo() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        let deleted = delete_note_in(&t.0, "a.md", |file| {
+            forget_deleted();
+            to_bin(file, &t.0.join("bin"))
+        });
+        assert_eq!(deleted, Ok(false));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Err(Error::UndoUnavailable));
+        assert!(!reserved(&t.0, "a.md"));
     }
     #[test]
     fn undoing_a_delete_brings_back_the_note_and_its_pinned_items() {
+        let _serial = deleting();
         let t = Temp::new();
         let (root, _) = pinned_setup(&t);
         fs::write(root.join("a.md"), "body\r\n").unwrap();
         let list = "# Mine\r\n- [A](a.md)\r\n- [C](c.md)\r\n";
         fs::write(root.join(PINNED), list).unwrap();
-        assert_eq!(delete(&root, &t.0.join("bin"), "a.md"), Ok(()));
+        assert_eq!(delete(&root, &t.0.join("bin"), "a.md"), Ok(true));
         assert!(!exists(&root.join("a.md")));
         assert_eq!(
             fs::read_to_string(root.join(PINNED)).unwrap(),
@@ -1770,9 +1834,10 @@ mod tests {
     }
     #[test]
     fn undoing_a_delete_never_overwrites_a_note_that_took_the_name() {
+        let _serial = deleting();
         let t = Temp::new();
         fs::write(t.0.join("a.md"), "deleted").unwrap();
-        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(()));
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
         fs::write(t.0.join("a.md"), "new").unwrap();
         assert_eq!(
             undo_delete_in(&t.0, "a.md"),
@@ -1788,9 +1853,10 @@ mod tests {
     }
     #[test]
     fn an_editor_saving_a_deleted_note_does_not_recreate_it() {
+        let _serial = deleting();
         let t = Temp::new();
         fs::write(t.0.join("a.md"), "a").unwrap();
-        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(()));
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
         for base in [version(b"a"), String::new()] {
             assert_eq!(
                 save_note_in(&t.0, "A.md", "late edit", &base),
@@ -1801,15 +1867,17 @@ mod tests {
     }
     #[test]
     fn renaming_cannot_take_the_name_of_a_deleted_note() {
+        let _serial = deleting();
         let t = Temp::new();
         fs::write(t.0.join("a.md"), "a").unwrap();
         fs::write(t.0.join("b.md"), "b").unwrap();
-        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(()));
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
         assert_eq!(rename(&t.0, "b.md", "a.md"), Err(Error::RenameConflict));
         assert!(exists(&t.0.join("b.md")));
     }
     #[test]
     fn a_note_the_recycle_bin_refuses_stays_with_its_pinned_items() {
+        let _serial = deleting();
         let t = Temp::new();
         fs::write(t.0.join("a.md"), "a").unwrap();
         fs::write(t.0.join(PINNED), "- [A](a.md)\n").unwrap();

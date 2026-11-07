@@ -65,8 +65,11 @@ pub enum Error {
     DeleteFailed {
         detail: String,
     },
-    /// The note is in the Recycle Bin, but its pinned items still point at it.
-    PinnedNotRemoved,
+    /// The note is in the Recycle Bin, but its pinned items still point at it. `undo`: Undo can bring
+    /// it back.
+    PinnedNotRemoved {
+        undo: bool,
+    },
     /// The panel closed since the delete, or it was already undone.
     UndoUnavailable,
     /// A file took the deleted note's name; the note stays in the Recycle Bin.

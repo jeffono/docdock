@@ -289,9 +289,11 @@ an external one.
 held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
 cancels the delete when `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`, so where the shell would
 delete for good (no Recycle Bin on the volume, as on a network share) the note stays and the answer is
-`notRecyclable`. Before the move the note's bytes are read through a handle that keeps writers out
-until the move, and kept in memory with the path until the panel hides (`forget_deleted`, from
-`dock.rs`). Meanwhile the path is reserved: saves and renames to it answer a conflict, so a late save
+`notRecyclable`. The sink also reports where the file landed in the Recycle Bin; its bytes are read
+from there, so Undo keeps exactly what was recycled even if another app swapped the path, and kept in
+memory with the path until the panel hides (`forget_deleted`, from `dock.rs`). Hides count as
+sessions: a delete that ends after one keeps nothing and answers that Undo is not possible, and the UI
+drops the notice the same way. Meanwhile the path is reserved: saves and renames to it answer a conflict, so a late save
 of an editor cannot recreate the note and a new note takes the next name. Undo (`notes_undo_delete`)
 writes the copy back with the empty-base recreation, never over a file that took the name
 (`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy. Restoring from the Recycle
@@ -300,7 +302,8 @@ removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands)
 exact previous `_pinned.md` if it did not change since, else pins the items again at the end
 (`pinned::repin`), and leaves a deleted `_pinned.md` to its own restore. The UI leaves the note's editor
 first, the guarded way, so its text is saved and nothing writes after the delete; a conflict there
-stops the delete.
+stops the delete. While the delete runs, the note cannot open in the editor and an open already in
+flight is dropped.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
