@@ -173,6 +173,7 @@ const en = {
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is not available.",
   "error.invalidPath": "Invalid file path.",
+  "error.folderNameTaken": "A file named “{name}” is already there; choose another folder name.",
   "error.invalidFolderName":
     'Choose another folder name: it cannot start with a dot, end with a dot or space, contain < > : " \\ | ? * or be a name Windows reserves, such as CON.',
   "error.outsideFolder": "The file is outside the chosen folder.",
@@ -382,6 +383,8 @@ const ptBR: Record<MessageKey, string> = {
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas não está disponível.",
   "error.invalidPath": "Caminho de arquivo inválido.",
+  "error.folderNameTaken":
+    "Já existe um arquivo chamado “{name}” ali; escolha outro nome de pasta.",
   "error.invalidFolderName":
     'Escolha outro nome de pasta: ele não pode começar com ponto, terminar com ponto ou espaço, conter < > : " \\ | ? * nem ser um nome reservado do Windows, como CON.',
   "error.outsideFolder": "O arquivo está fora da pasta escolhida.",

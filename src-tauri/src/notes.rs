@@ -694,8 +694,7 @@ fn relocate(
         if version(&read_bytes(&source)?) != base {
             return Err(Error::RenameConflict);
         }
-        let folder = resolve_folder(root, target.parent().ok_or(Error::InvalidPath)?)?;
-        let _held_target = hold_ancestry(&folder)?;
+        let (folder, _held_target) = hold_folder(root, target.parent().ok_or(Error::InvalidPath)?)?;
         let target = folder.join(target.file_name().ok_or(Error::InvalidPath)?);
         // Without replacing, `MoveFileExW` refuses a taken name and allows a case-only change.
         if target != source
@@ -716,14 +715,14 @@ fn relocate(
         }
     })
 }
-/// An existing folder below `root`, or `root` itself for an empty path, canonical.
-fn resolve_folder(root: &Path, relative: &Path) -> Result<PathBuf, Error> {
-    let root = root.canonicalize()?;
-    let folder = root.join(relative).canonicalize()?;
-    if !folder.starts_with(&root) || !folder.is_dir() {
-        return Err(Error::OutsideFolder);
-    }
-    Ok(folder)
+/// An existing folder below `root`, or `root` itself for an empty path, held with its ancestry while
+/// the handles live. The path as named is held, not its canonical form: a link at any level, even one
+/// pointing inside `root`, is refused, so the folder written to is the one named, and the reservations
+/// and pinned items checked against that name apply to it.
+fn hold_folder(root: &Path, relative: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
+    let folder = root.canonicalize()?.join(relative);
+    let held = hold_ancestry(&folder).map_err(|_| Error::OutsideFolder)?;
+    Ok((folder, held))
 }
 /// Windows compares names ignoring case.
 fn same_name(a: &Path, b: &Path) -> bool {
@@ -823,7 +822,13 @@ fn create_folder_in(root: &Path, relative: &str) -> Result<(), Error> {
         dir.push(name);
         match fs::create_dir(&dir) {
             Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if fs::symlink_metadata(&dir).is_ok_and(|m| m.is_file()) {
+                    return Err(Error::FolderNameTaken {
+                        name: name.to_owned(),
+                    });
+                }
+            }
             Err(error) => return Err(error.into()),
         }
     }
@@ -2077,6 +2082,41 @@ mod tests {
         }
         assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "a");
         assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+    }
+    #[test]
+    fn moving_refuses_a_link_to_a_folder_inside_the_notes_folder() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("sub/a.md"), "a").unwrap();
+        assert!(mklink(&["/J"], &t.0.join("dest"), &t.0));
+        assert!(moving(&t.0, "sub/a.md", "dest/a.md").is_err());
+        assert_eq!(fs::read_to_string(t.0.join("sub/a.md")).unwrap(), "a");
+        assert!(!exists(&t.0.join("a.md")));
+    }
+    #[test]
+    fn moving_through_a_link_cannot_take_the_name_of_a_deleted_note() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("a.md"), "deleted").unwrap();
+        fs::write(t.0.join("sub/a.md"), "a").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        assert!(mklink(&["/J"], &t.0.join("dest"), &t.0));
+        assert!(moving(&t.0, "sub/a.md", "dest/a.md").is_err());
+        assert!(!exists(&t.0.join("a.md")));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "deleted");
+    }
+    #[test]
+    fn a_file_with_the_folder_name_is_reported_as_such() {
+        let t = Temp::new();
+        fs::write(t.0.join("Work"), "").unwrap();
+        assert_eq!(
+            create_folder_in(&t.0, "Work/Clients"),
+            Err(Error::FolderNameTaken {
+                name: "Work".into()
+            })
+        );
     }
     #[test]
     fn folder_names_stay_inside_and_are_kept_as_typed() {

@@ -1013,9 +1013,8 @@ async function moveNote(card: Card) {
       await notesFolders(),
       folderOf(from),
       header?.getBoundingClientRect(),
+      list,
     );
-    // A picker opened from the editor's card menu has no focus to give back.
-    if (document.activeElement === document.body) list?.focus({ preventScroll: true });
     if (!choice || !notes.some((note) => note.path === from)) return;
     error = "";
     if (choice.create) await notesCreateFolder(choice.folder);

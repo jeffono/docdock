@@ -288,12 +288,13 @@ an external one.
 **Moving.** `notes_move(from, to, base)` shares rename's move (`relocate`): same lock, version check,
 `move_new` without replacing, `renameConflict` on a taken or reserved name, collapsed state and pinned
 items following, `pinnedNotRenamed` when the list cannot. It differs in that the target folder must be
-another existing one, not hidden, canonically inside the notes folder and held with its ancestry, so a
-link is refused; and the pinned link text never changes. `notes_folders` lists the folders listing visits
+another existing one, not hidden, held with its ancestry as named rather than canonicalized, so a link
+at any level is refused, even one pointing inside the notes folder, and the name checked against
+reservations and pinned items is the one written; and the pinned link text never changes. `notes_folders` lists the folders listing visits
 (hidden ones and links skipped). `notes_create_folder` creates a `/`-nested folder level by level, each
 parent held, keeping one that exists; a name Windows would not keep as typed (trailing dot or space,
 `<>:"/\|?*`, control characters, device names such as `CON` or `com1.txt`), a hidden one or the root
-`_pinned.md` answers `invalidFolderName`. The UI (`MovePicker`) creates the folder first, then moves to
+`_pinned.md` answers `invalidFolderName`, and a file in the way of a level `folderNameTaken`. The UI (`MovePicker`) creates the folder first, then moves to
 the note's own name there or the next free one (`movedPath`), retried on a conflict as a rename. An
 edited note moves through `Editor.rename`, so the editor follows it and no save reaches the old path;
 otherwise the note cannot open in the editor while it moves. Relative image links in the note are not

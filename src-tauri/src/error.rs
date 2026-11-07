@@ -58,6 +58,10 @@ pub enum Error {
     RenameConflict,
     /// A folder name Windows would not keep as typed, a hidden one, or one that leaves the folder.
     InvalidFolderName,
+    /// A file, not a folder, already has the name `name`.
+    FolderNameTaken {
+        name: String,
+    },
     /// The note was renamed or moved to `path`, but its pinned items still point at the old path.
     PinnedNotRenamed {
         path: String,

@@ -11,8 +11,8 @@ type MoveChoice = { folder: string; create: boolean };
 /**
  * Picks the folder a note moves to, inside the panel over the scrim, as the confirmation dialog does.
  * The field filters the folders, the root first, and offers to create the typed one when no folder has
- * that name. ↑ / ↓ choose, Enter takes the choice, Esc or a click outside cancels; focus returns where
- * it was. The note's own folder is checked, and taking it answers nothing.
+ * that name. ↑ / ↓ choose, Enter takes the choice, Esc or a click outside cancels; focus then goes to
+ * `returnTo`, whatever had it before. The note's own folder is checked, and taking it answers nothing.
  */
 const id = $props.id();
 let dialog: HTMLDialogElement;
@@ -24,7 +24,7 @@ let current = $state("");
 let query = $state("");
 let active = $state(0);
 let answer: ((choice: MoveChoice | null) => void) | null = null;
-let previous: Element | null = null;
+let returnTo: HTMLElement | undefined;
 
 /** The typed folder as a path: `\` as `/`, and spaces and empty names around separators dropped. */
 const typed = $derived(
@@ -52,13 +52,14 @@ export function isOpen() {
 
 /**
  * `all`: every folder but the root; `from`: the note's folder. `near`: the card header, as for the
- * confirmation dialog.
+ * confirmation dialog. `back`: what takes the focus when the picker closes, such as the list.
  */
 export function ask(
   noteTitle: string,
   all: string[],
   from: string,
   near?: DOMRect,
+  back?: HTMLElement,
 ): Promise<MoveChoice | null> {
   answer?.(null);
   title = noteTitle;
@@ -66,7 +67,7 @@ export function ask(
   current = from;
   query = "";
   active = 0;
-  previous = document.activeElement;
+  returnTo = back;
   flushSync();
   dialog.showModal();
   placeNear(dialog, near);
@@ -79,9 +80,8 @@ export function ask(
 function done(choice: MoveChoice | null) {
   if (!dialog.open) return;
   dialog.close();
-  if (previous instanceof HTMLElement && previous.isConnected)
-    previous.focus({ preventScroll: true });
-  previous = null;
+  returnTo?.focus({ preventScroll: true });
+  returnTo = undefined;
   // The note's own folder: nothing to do.
   const same = choice && !choice.create && choice.folder.toLowerCase() === current.toLowerCase();
   answer?.(same ? null : choice);
