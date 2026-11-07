@@ -33,6 +33,16 @@ detail each stage when it is next.
 Renaming already moves files without overwriting and updates `_pinned.md`; links in other notes are
 not rewritten. A tree view is out of scope.
 
+Decided 2026-11-07:
+- Deleting asks first, in an in-panel dialog with focus on Cancel and "Move to Recycle Bin", then
+  offers Undo in a notice. If restoring from the Recycle Bin is unreliable, Undo may keep a temporary
+  copy until the panel closes.
+- Ctrl+Delete deletes the selected card from the list or search results. In the editor and the search
+  bar it keeps deleting the next word, and Delete alone still only removes missing pinned items. No
+  delete button on the card header.
+- A right-click menu on cards, opened inside the panel like the order menu (also Shift+F10 and the
+  Menu key), holds Rename, Pin, Move and Delete, each showing its shortcut.
+
 - [ ] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
   panel is open; pinned entries follow, and an open editor stops saving instead of recreating it
 - [ ] (advanced) Move a note to a folder through a picker that can create it, reusing rename's
