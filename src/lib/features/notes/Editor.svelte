@@ -47,6 +47,8 @@ let disposed = false;
 let deleted = $state(false);
 let updated = $state(false);
 let replacing = false;
+/** Text changed in this editor, rather than only reloaded from disk. */
+let typed = false;
 /** The text being edited, saved or not. */
 export function text() {
   return raw;
@@ -139,6 +141,7 @@ const extensions = () => [
     const next = update.state.field(rawText);
     if (next === raw || replacing) return;
     raw = next;
+    typed = true;
     updated = false;
     revision++;
     saving.edit(raw);
@@ -197,7 +200,7 @@ export async function rename(
   }
 }
 
-export async function finish(): Promise<OpenNote | null> {
+export async function finish(change?: (text: string) => string): Promise<OpenNote | null> {
   if (resolving) return null;
   resolving = true;
   view?.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
@@ -205,6 +208,12 @@ export async function finish(): Promise<OpenNote | null> {
   view?.contentDOM.blur();
   try {
     await pasting;
+    // Read after the await with editing locked: never replace text still being typed or pasted.
+    // Only text edited here: a repair alone must not bring back a note deleted outside the app, or
+    // overwrite one changed outside it that the watcher has not reloaded yet.
+    // `note` follows the editor's own saves, so it cannot tell whether anything was typed.
+    const next = deleted || !typed ? undefined : change?.(raw);
+    if (view && next !== undefined && next !== raw) view.dispatch(diskReload(view.state, next));
     if ((await saving.flush()) !== "saved") return null;
     if (deleted) return { ...note, text: raw };
     return await notesOpen(path);

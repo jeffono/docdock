@@ -12,7 +12,8 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 ## Color
 
 - Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
-- Light and dark themes follow Windows. Every new color starts in both themes, in `light-dark`.
+- Light and dark themes follow Windows by default, with a System, Light or Dark choice in Preferences.
+  Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
 - Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
   keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
@@ -213,9 +214,10 @@ pinned and unpinned notes differ only in section and starting state.
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
 | Delete                    | Remove the selected missing pinned item                                                  |
 | Ctrl+Enter                | Create a note with the exact typed text                                                  |
-| Ctrl+D                    | Toggle pin on the selected card from search, the list or its editor                      |
+| Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |
+| Ctrl+/                    | Open / close the shortcut sheet                                                          |
 | Ctrl+E                    | Toggle editing on the selected card                                                      |
-| Ctrl+F                    | Focus the search bar and select its text                                                 |
+| Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first             |
 | Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
 | Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close         |
 
@@ -226,9 +228,14 @@ and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
 General contains the folder path, folder picker, note order, date grouping and panel side; side changes
 mirror the tray. Browser
-shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
-editor bindings. Appearance shows the panel width, how to resize it and a reset. Folder choice and
-width reset use neutral buttons. The active section has an accessible name without repeating the tab
+shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
+keys, deriving formatting keys from the editor bindings. From anywhere in Notes (including search and editing), Ctrl+/ opens
+a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
+or dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
+previous focus, including the editor cursor. No native popup takes panel focus. Appearance offers
+System (default), Light and Dark theme radio buttons, applied immediately and remembered on this
+computer; it also shows the panel width, how to resize it and a reset. Folder choice and width reset
+use neutral buttons. The active section has an accessible name without repeating the tab
 label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
 Notes query so returning to Notes starts with an empty search.
 
@@ -264,7 +271,7 @@ local. Web actions use neutral icon rows; all untrusted suggestions appear as te
 ## Note editor
 
 The editor lives in the card being edited, in place of its content; there is no separate note view and
-no floating chrome. The card keeps its header and its button order: the pencil, left of pin, stays
+no separate editor toolbar. The card keeps its header and its button order: the pencil, left of pin, stays
 visible in the accent color while editing (see Header actions), and the small Saving… / Saved status sits in the
 header, left of the actions. The status is absent on conflict or error, whose notices sit at the top
 of the card body, above the text. The editing card has an accent border, and its text keeps the reading body's padding, so
@@ -287,15 +294,43 @@ Windows editor shortcuts:
 | Ctrl+Shift+.                                  | Toggle blockquote                                                                          |
 | Enter / Backspace                             | Continue / remove Markdown list or quote markup                                            |
 | Tab / Shift+Tab                               | Indent / outdent list items                                                                |
+| Ctrl+/                                        | Open / close the shortcut sheet                                                            |
 | Ctrl+;                                        | Add a frontmatter property: a new line in the block, created if needed, with keys offered  |
 | Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
+| Ctrl+F / Ctrl+H                               | Find / replace in the note, starting from the selection; Ctrl+F again goes to the bar      |
+| Enter / Shift+Enter, F3 / Shift+F3            | Next / previous match                                                                      |
+| Ctrl+D                                        | Select the next occurrence of the selection, adding a cursor                               |
+| Alt+click                                     | Add a cursor                                                                               |
+| Esc                                           | Close the find panel, then leave editing                                                   |
+
+Find and replace is one compact row stuck to the top of the editing card: a replace toggle, the
+field, a muted "3 of 12" count, match case (Aa) and regular expression (.*) toggles, previous, next
+and close. The replace row, aligned with the field, shows only after Ctrl+H or the toggle. Matches
+look like search highlights in the list, and the current one is outlined in the accent color.
 
 Frontmatter stays YAML text, with no property form. Inside the raw block, typing at the start of a
 line offers common keys not yet present (title, tags, aliases, date, author, description, status,
 url), and typing a tag offers the folder's tags, in a quiet monospace list with the selected
-background. Esc first closes the list.
+background. Esc first closes the list. Unreadable tags have a muted wavy underline on their raw
+frontmatter line and an explanatory tooltip. Leaving editing repairs comma-separated plain words
+into a list and quotes plain `word: word` items inside a flow list, as one undoable edit saved by
+autosave. Typing never triggers repair. Ambiguous YAML (including a scalar `tags: Plano: Q3`,
+duplicate tag keys, incomplete lists, structured values and unreadable block items) stays untouched.
 
 Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
 formatting command is one undo step. Shared checkbox styling and code-block framing keep the same
 appearance in reading and editing.
+
+Typing `(`, `[`, `{`, single or double quotes inserts the closing character; typing that closer
+steps over it. Quotes after word characters stay literal, as in `don't`. Backspace removes an empty
+pair before trying list/quote markup removal. Backticks remain literal for Markdown code fences;
+the inline-code shortcut still wraps a selection or inserts a pair.
+
+A compact formatting bar floats above a single non-empty selection, appearing after mouse release
+and hiding during selection dragging, on blur, or while the editor is read-only (including image
+paste). Its icon buttons toggle bold, italic, strike, inline code, heading level 1, bullet list,
+task list and quote, insert a link, or add a frontmatter property. Labels and shortcuts in tooltips
+come from the command bindings, in the interface language. The bar uses the surface, line and control
+tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
+sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.

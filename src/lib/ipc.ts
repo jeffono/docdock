@@ -9,6 +9,10 @@ export function appVersion(): Promise<string> {
 export type Locale = "en" | "pt-BR";
 export const appLocale = () => invoke<Locale>("app_locale");
 
+export type Theme = "system" | "light" | "dark";
+export const appTheme = () => invoke<Theme>("app_theme");
+export const appSetTheme = (theme: Theme) => invoke<void>("app_set_theme", { theme });
+
 export function panelActivate(): Promise<void> {
   return invoke("panel_activate");
 }

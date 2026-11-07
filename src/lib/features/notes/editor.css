@@ -1,4 +1,5 @@
 :host {
+  color-scheme: inherit;
   display: block;
   color: var(--color-fg);
   font: inherit;
@@ -22,8 +23,16 @@
 :host .cm-editor .cm-cursor {
   border-left-color: var(--color-fg);
 }
-:host .cm-selectionBackground,
-:host .cm-editor .cm-content ::selection {
+/* The native selection paints over the opaque code, frontmatter and inline-code backgrounds, which
+   hide the drawn layer below the text; drawSelection would otherwise make it transparent. */
+:host .cm-editor .cm-line ::selection,
+:host .cm-editor .cm-line::selection {
+  /* biome-ignore lint/complexity/noImportantStyles: CodeMirror hides it with !important. */
+  background-color: var(--color-selected) !important;
+}
+/* Drawn selection, for several cursors; specific enough to win over CodeMirror's focused default. */
+:host .cm-editor .cm-selectionLayer .cm-selectionBackground,
+:host .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
   background: var(--color-selected);
 }
 :host .cm-editor .fence {
@@ -110,4 +119,161 @@
 :host .cm-completionMatchedText {
   text-decoration: none;
   font-weight: 600;
+}
+
+/* Find and replace in the note: sticks to the top of the list while the card scrolls. */
+:host .cm-editor .cm-panels {
+  background: var(--color-surface);
+  color: var(--color-fg);
+  z-index: 1;
+}
+
+:host .cm-editor .cm-panels-top {
+  border-bottom: 1px solid var(--color-line);
+}
+
+:host .note-search {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+:host .note-search .row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+:host .note-search .row[hidden] {
+  display: none;
+}
+
+/* The replace field lines up with the find field, past the toggle. */
+:host .note-search .replace {
+  padding-left: calc(var(--size-control) + var(--space-1));
+}
+
+:host .note-search input {
+  flex: 1;
+  box-sizing: border-box;
+  min-width: 0;
+  height: var(--size-control);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+}
+
+:host .note-search input::placeholder {
+  color: var(--color-muted);
+}
+
+:host .note-search input:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+:host .note-search .count {
+  flex: none;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+:host .note-search button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  min-width: var(--size-control);
+  height: var(--size-control);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+}
+
+:host .note-search button:hover {
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
+:host .note-search .option {
+  font-family: var(--font-mono);
+}
+
+:host .note-search button[aria-pressed="true"] {
+  background: var(--color-selected);
+  color: var(--color-accent);
+}
+
+:host .note-search svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Matches look like search highlights in the list; the current one is outlined. */
+:host .cm-editor .cm-searchMatch {
+  background: var(--color-selected);
+  color: var(--color-accent);
+}
+
+:host .cm-editor .cm-searchMatch-selected {
+  outline: 1px solid var(--color-accent);
+}
+
+/* Selection actions live inside CodeMirror's shadow root, above the selected text. */
+:host .cm-tooltip.formatting-bar {
+  display: flex;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: calc(100vw - var(--space-4));
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  font: inherit;
+  box-shadow: none;
+}
+
+:host .formatting-bar button {
+  display: grid;
+  place-items: center;
+  width: var(--size-control);
+  height: var(--size-control);
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+:host .formatting-bar button:hover {
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
+:host .formatting-bar svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:host .cm-editor .cm-tag-problem {
+  text-decoration: underline wavy var(--color-muted);
 }

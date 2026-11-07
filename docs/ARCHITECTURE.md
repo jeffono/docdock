@@ -344,7 +344,13 @@ one undoable text transaction and respect read-only state. Image widgets use the
 traversal and segment encoding rules as the `note-asset` protocol; they never insert HTML. A StateField supplies
 the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the
 framed raw block. `properties.ts` completes keys and the folder's tags inside that block
-(`@codemirror/autocomplete`) and adds a property line with Ctrl+;. Metadata is cached by immutable document identity. Raw text is tracked separately
+(`@codemirror/autocomplete`) and adds a property line with Ctrl+;. Pure tag repair and diagnostic
+rules live in `markdown.ts`; `tag-diagnostics.ts` marks unreadable lines only in closed frontmatter.
+On leave, `Editor.finish` locks editing, waits for pending image pastes, applies the certain repairs
+through `diskReload` as one undo step, then flushes autosave with its usual conflict protection.
+`note-search.ts` gives `@codemirror/search` its own
+panel DOM, styled in `editor.css` because the app's Svelte components cannot style the shadow root;
+the editor draws its selection so Ctrl+D and Alt+click can hold several cursors. Metadata is cached by immutable document identity. Raw text is tracked separately
 from CodeMirror offsets so untouched CRLF, LF and CR
 line endings, including mixed files, survive edits; new lines use the first existing separator (LF in
 an empty file). No Markdown serialization occurs.
@@ -473,6 +479,16 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   external-open command. Anchors keep scrolling within the note. Main navigation rules stay strict.
 - **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
   list being the only scroller. Previews cap at about eight lines and fade only when clipped.
+
+## Theme
+
+The `theme` setting uses the same locked atomic settings update: `system` (default), `light` or `dark`;
+missing or invalid values fall back independently. Before mounting, the UI reads it through IPC and
+sets the root `color-scheme`. Tokens and the editor's shadow root inherit that scheme, including
+shared `content.css` styles. Both native window builders receive the theme and existing windows
+update on a change; Tauri forwards Windows theme changes to WebView2, including page/iframe
+`prefers-color-scheme`. Sites can still choose their own colors. The native blank/loading background
+is WebView2's default and is not overridden by the app's CSS tokens.
 
 ## Note order
 

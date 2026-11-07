@@ -1,6 +1,39 @@
+import { history, undo } from "@codemirror/commands";
+import { EditorState, Transaction, type TransactionSpec } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import { expect, test } from "vitest";
 import { yamlValue } from "./markdown";
-import { propertyContext } from "./properties";
+import { addProperty, propertyContext } from "./properties";
+
+// Adding a property must not absorb typing before or after it into the same undo step.
+test.each(["body", "---\ntitle: A\n---\nbody"])(
+  "adding a property has its own undo step in %s",
+  (text) => {
+    let state = EditorState.create({ doc: text, extensions: history() });
+    const view = {
+      get state() {
+        return state;
+      },
+      dispatch(spec: TransactionSpec | Transaction) {
+        state = spec instanceof Transaction ? spec.state : state.update(spec).state;
+      },
+    } as EditorView;
+    view.dispatch({ changes: { from: text.length, insert: "!" }, userEvent: "input.type" });
+    const before = state.doc.toString();
+    addProperty(view);
+    const added = state.doc.toString();
+    view.dispatch({
+      changes: { from: state.selection.main.head, insert: "status" },
+      userEvent: "input.type",
+    });
+    expect(undo(view)).toBe(true);
+    expect(state.doc.toString()).toBe(added);
+    expect(undo(view)).toBe(true);
+    expect(state.doc.toString()).toBe(before);
+    expect(undo(view)).toBe(true);
+    expect(state.doc.toString()).toBe(text);
+  },
+);
 
 const at = (text: string, line: number, column: number) => {
   const lines = text.split("\n");

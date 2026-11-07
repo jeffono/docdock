@@ -38,6 +38,8 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
+    #[serde(default, deserialize_with = "theme_or_default")]
+    theme: Theme,
     #[serde(default)]
     search_engine: crate::web::SearchEngine,
     #[serde(default, deserialize_with = "order_or_default")]
@@ -61,6 +63,39 @@ struct Settings {
     /// Pinned targets shown as one line on this computer; the rest start as previews.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     collapsed: BTreeSet<String>,
+}
+#[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+impl Theme {
+    pub fn native(self) -> Option<tauri::Theme> {
+        match self {
+            Self::System => None,
+            Self::Light => Some(tauri::Theme::Light),
+            Self::Dark => Some(tauri::Theme::Dark),
+        }
+    }
+}
+fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
+    Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+pub fn theme(app: &AppHandle) -> Theme {
+    config(app).map(|p| load(&p).theme).unwrap_or_default()
+}
+pub fn set_theme(app: &AppHandle, theme: Theme) -> Result<(), Error> {
+    update(app, |settings| settings.theme = theme)?;
+    // Saved already: the page applies it either way, so a window that refuses only keeps its frame.
+    for window in app.webview_windows().values() {
+        if let Err(error) = window.set_theme(theme.native()) {
+            eprintln!("[theme] failed to set the window theme: {error:?}");
+        }
+    }
+    Ok(())
 }
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1475,6 +1510,18 @@ mod tests {
                 serde_json::from_str(&format!(r#"{{"folder":"notes","note_order":{value}}}"#))
                     .unwrap();
             assert_eq!(settings.note_order, NoteOrder::ModifiedDesc);
+            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        }
+    }
+    #[test]
+    fn invalid_theme_does_not_discard_other_settings() {
+        for value in ["null", "42", "{}", "[]", "true", "\"future-theme\""] {
+            let settings: Settings = serde_json::from_str(&format!(
+                r#"{{"folder":"notes","note_order":"created-asc","theme":{value}}}"#
+            ))
+            .unwrap();
+            assert_eq!(settings.theme, Theme::System);
+            assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
             assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         }
     }

@@ -19,6 +19,15 @@ pub fn app_locale(locale: State<'_, Locale>) -> Locale {
     *locale
 }
 
+#[tauri::command]
+pub fn app_theme(app: AppHandle) -> crate::notes::Theme {
+    crate::notes::theme(&app)
+}
+#[tauri::command]
+pub fn app_set_theme(app: AppHandle, theme: crate::notes::Theme) -> Result<(), Error> {
+    crate::notes::set_theme(&app, theme)
+}
+
 fn send(requests: State<'_, Sender<Request>>, request: Request) {
     // This only fails if the panel thread has stopped, in which case the UI cannot help.
     let _ = requests.send(request);

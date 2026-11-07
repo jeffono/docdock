@@ -74,12 +74,13 @@ import {
   rows,
   shallower,
 } from "./list";
-import { retitle } from "./markdown";
+import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { noteName } from "./render";
+import ShortcutSheet from "./ShortcutSheet.svelte";
 import { FolderIndex, isPinnedList, search } from "./search";
 
 let {
@@ -87,6 +88,11 @@ let {
   pageUrl = "",
   inactive = false,
 }: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
+
+let shortcutSheet: ShortcutSheet;
+$effect(() => {
+  if (inactive || browser) shortcutSheet?.close();
+});
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -202,7 +208,7 @@ export function leaveEditor(): Promise<boolean> {
     // An untitled note takes its name from what it shows, while the editor still holds it.
     const named = editor && isUntitled(selected) ? noteName(editor.text()) : null;
     if (named) await rename(named.title, named.frontmatter ? "frontmatter" : "content");
-    const note = await editor?.finish();
+    const note = await editor?.finish(repairTags);
     if (!note) return false;
     contents[selected] = note;
     leftPath = selected;
@@ -649,7 +655,7 @@ function slide(_node: HTMLElement, { from, to }: { from: DOMRect; to: DOMRect })
 
 let pinning = false;
 /** `refocus`: the toggle came from the editor, which can lose focus when its card changes section. */
-async function pinOrUnpin(card: Card, refocus = false) {
+async function pinOrUnpin(card: Card) {
   if (pinning) return;
   pinning = true;
   selection = card.hit.path;
@@ -658,10 +664,6 @@ async function pinOrUnpin(card: Card, refocus = false) {
     pinned = card.pinned
       ? await pinnedRemove(card.hit.path)
       : await pinnedAdd(card.hit.path, card.hit.title);
-    if (refocus) {
-      await tick();
-      editor?.focus();
-    }
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -1215,6 +1217,12 @@ function barKey(event: KeyboardEvent) {
   listKey(event, true);
 }
 
+/** The editor's find and replace fields, in its shadow root. */
+const inNoteSearch = (event: KeyboardEvent) =>
+  event
+    .composedPath()
+    .some((node) => node instanceof HTMLElement && node.classList.contains("note-search"));
+
 /** A text field or the editor keeps its keys; the editor sits in a shadow root. */
 function inField(event: KeyboardEvent): boolean {
   const target = event.composedPath()[0];
@@ -1225,7 +1233,7 @@ function inField(event: KeyboardEvent): boolean {
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (inactive || event.defaultPrevented || event.isComposing) return;
+  if (inactive || shortcutSheet?.isOpen() || event.defaultPrevented || event.isComposing) return;
   if (
     browser &&
     !tools?.contains(event.target as Node) &&
@@ -1270,17 +1278,13 @@ function shortcut(event: KeyboardEvent) {
       return;
     }
   }
-  const inEditor =
-    editing &&
-    event
-      .composedPath()
-      .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
-  if (!browser && ctrl && key === "d" && (!field || inEditor)) {
-    const card = cardFor(inEditor ? selected : active);
+  // In the editor, Ctrl+D selects the next occurrence instead.
+  if (!browser && ctrl && key === "d" && !field) {
+    const card = cardFor(active);
     if (!card) return;
     event.preventDefault();
     // Held down, the key repeats: one press is one toggle.
-    if (!event.repeat) void pinOrUnpin(card, inEditor);
+    if (!event.repeat) void pinOrUnpin(card);
     return;
   }
   if (!browser && ctrl && key === "e") {
@@ -1292,6 +1296,11 @@ function shortcut(event: KeyboardEvent) {
     return;
   }
   const plain = !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+  const inEditor =
+    editing &&
+    event
+      .composedPath()
+      .some((node) => node instanceof HTMLElement && node.classList.contains("cm-content"));
   if (!browser && plain && key === "f2" && (!field || inEditor)) {
     const path = inEditor ? selected : cardFor(active)?.hit.path;
     if (!path || cardFor(path)?.url) return;
@@ -1299,7 +1308,8 @@ function shortcut(event: KeyboardEvent) {
     void editTitle(path);
     return;
   }
-  if (ctrl && key === "f" && !field) {
+  // Ctrl+F in the editor finds in the note; from that search, it comes here.
+  if (ctrl && key === "f" && (!field || inNoteSearch(event))) {
     event.preventDefault();
     input?.focus();
     input?.select();
@@ -1317,6 +1327,7 @@ onMount(() => {
   const unlisten = onNotesChanged(changed);
   // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
+    shortcutSheet.close();
     void leaveEditor().then((left) => {
       if (left) expanded = "";
     });
@@ -1328,6 +1339,7 @@ onMount(() => {
   // the bar already focused, it closes the panel.
   const search = onPanelSearch((toggle) => {
     if (inactive) return;
+    shortcutSheet.close();
     const input = bar();
     if (toggle && (!input || document.activeElement === input)) {
       void closePanel();
@@ -1350,7 +1362,9 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+
+<ShortcutSheet bind:this={shortcutSheet} />
 
 {#snippet noteEditor()}
   {#if opened}

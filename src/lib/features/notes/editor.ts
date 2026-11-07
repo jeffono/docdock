@@ -1,4 +1,9 @@
-import { autocompletion, completionStatus } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionStatus,
+} from "@codemirror/autocomplete";
 import {
   defaultKeymap,
   history,
@@ -12,13 +17,17 @@ import {
   markdown,
 } from "@codemirror/lang-markdown";
 import { syntaxHighlighting } from "@codemirror/language";
+import { searchPanelOpen } from "@codemirror/search";
 import { type ChangeSet, EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { drawSelection, EditorView, keymap } from "@codemirror/view";
 import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
+import { formattingBar } from "./formatting-bar";
 import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
-import { addProperty, propertyCompletion } from "./properties";
+import { noteSearch, noteSearchKeymap } from "./note-search";
+import { addPropertyShortcut, propertyCompletion } from "./properties";
+import { tagDiagnostics } from "./tag-diagnostics";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -45,9 +54,17 @@ export function editorExtensions(
 ) {
   return [
     autocompletion({ override: [propertyCompletion(tags)], icons: false }),
+    // Default pairs omit Markdown backticks; quotes after word characters stay literal.
+    closeBrackets(),
     markdown({ extensions: markdownExtensions, addKeymap: false, codeLanguages: codeLanguage }),
     syntaxHighlighting(codeHighlighter),
     history(),
+    noteSearch(),
+    formattingBar(),
+    // Several cursors: Alt+click adds one, Ctrl+D the next occurrence.
+    EditorState.allowMultipleSelections.of(true),
+    EditorView.clickAddsSelectionRange.of((event) => event.altKey),
+    drawSelection(),
     keymap.of([
       ...formattingKeymap,
       {
@@ -57,17 +74,21 @@ export function editorExtensions(
           return true;
         },
       },
-      { key: "Mod-;", run: addProperty },
+      addPropertyShortcut,
       { key: "Enter", run: insertNewlineContinueMarkup },
+      // Empty pairs first; otherwise let Markdown remove list/quote markup.
+      ...closeBracketsKeymap,
       { key: "Backspace", run: deleteMarkupBackward },
       { key: "Tab", run: (view) => inList(view.state) && indentMore(view) },
       { key: "Shift-Tab", run: (view) => inList(view.state) && indentLess(view) },
+      ...noteSearchKeymap,
       ...defaultKeymap,
       ...historyKeymap,
     ]),
     EditorView.lineWrapping,
     EditorView.contentAttributes.of({ "aria-label": label, class: "note-content" }),
     liveFormatting(),
+    tagDiagnostics,
     EditorView.domEventHandlers({
       focus: () => {
         onFocus(true);
@@ -76,8 +97,13 @@ export function editorExtensions(
         onFocus(false);
       },
       keydown: (event, view) => {
-        // Esc first closes an open completion list.
-        if (event.key !== "Escape" || completionStatus(view.state) === "active") return false;
+        // Esc first closes an open completion list, then the search panel.
+        if (
+          event.key !== "Escape" ||
+          completionStatus(view.state) === "active" ||
+          searchPanelOpen(view.state)
+        )
+          return false;
         event.preventDefault();
         event.stopPropagation();
         onLeave();
