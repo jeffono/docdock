@@ -22,10 +22,11 @@ import { type ChangeSet, EditorState } from "@codemirror/state";
 import { drawSelection, EditorView, keymap } from "@codemirror/view";
 import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
+import { formattingBar } from "./formatting-bar";
 import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
 import { noteSearch, noteSearchKeymap } from "./note-search";
-import { addProperty, propertyCompletion } from "./properties";
+import { addPropertyShortcut, propertyCompletion } from "./properties";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -58,6 +59,7 @@ export function editorExtensions(
     syntaxHighlighting(codeHighlighter),
     history(),
     noteSearch(),
+    formattingBar(),
     // Several cursors: Alt+click adds one, Ctrl+D the next occurrence.
     EditorState.allowMultipleSelections.of(true),
     EditorView.clickAddsSelectionRange.of((event) => event.altKey),
@@ -71,7 +73,7 @@ export function editorExtensions(
           return true;
         },
       },
-      { key: "Mod-;", run: addProperty },
+      addPropertyShortcut,
       { key: "Enter", run: insertNewlineContinueMarkup },
       // Empty pairs first; otherwise let Markdown remove list/quote markup.
       ...closeBracketsKeymap,

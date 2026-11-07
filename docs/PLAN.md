@@ -29,7 +29,7 @@ detail each stage when it is next.
 ## M4.3 — Editor
 
 - [x] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
-- [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
+- [x] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
   property" (Ctrl+;)
 - [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
 - [x] (standard) Close brackets and quotes as they are typed (`closeBrackets` from

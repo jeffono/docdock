@@ -5,6 +5,7 @@ import {
   type CompletionResult,
   startCompletion,
 } from "@codemirror/autocomplete";
+import { isolateHistory } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
 import { frontmatter, yamlValue } from "./markdown";
 
@@ -108,12 +109,26 @@ export function addProperty(view: EditorView): boolean {
   const meta = frontmatter((n) => doc.line(n).text, doc.lines);
   if (meta) {
     const at = doc.line(meta.end - 1).to;
-    view.dispatch({ changes: { from: at, insert: "\n" }, selection: { anchor: at + 1 } });
+    view.dispatch({
+      changes: { from: at, insert: "\n" },
+      selection: { anchor: at + 1 },
+      annotations: isolateHistory.of("full"),
+    });
   } else {
     const from = doc.sliceString(0, 1) === "﻿" ? 1 : 0;
-    view.dispatch({ changes: { from, insert: "---\n\n---\n" }, selection: { anchor: from + 4 } });
+    view.dispatch({
+      changes: { from, insert: "---\n\n---\n" },
+      selection: { anchor: from + 4 },
+      annotations: isolateHistory.of("full"),
+    });
   }
   view.dispatch({ scrollIntoView: true });
   startCompletion(view);
   return true;
 }
+
+export const addPropertyShortcut = {
+  key: "Mod-;",
+  description: "shortcut.property" as const,
+  run: addProperty,
+};

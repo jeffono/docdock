@@ -268,7 +268,7 @@ local. Web actions use neutral icon rows; all untrusted suggestions appear as te
 ## Note editor
 
 The editor lives in the card being edited, in place of its content; there is no separate note view and
-no floating chrome. The card keeps its header and its button order: the pencil, left of pin, stays
+no separate editor toolbar. The card keeps its header and its button order: the pencil, left of pin, stays
 visible in the accent color while editing (see Header actions), and the small Saving… / Saved status sits in the
 header, left of the actions. The status is absent on conflict or error, whose notices sit at the top
 of the card body, above the text. The editing card has an accent border, and its text keeps the reading body's padding, so
@@ -319,3 +319,11 @@ Typing `(`, `[`, `{`, single or double quotes inserts the closing character; typ
 steps over it. Quotes after word characters stay literal, as in `don't`. Backspace removes an empty
 pair before trying list/quote markup removal. Backticks remain literal for Markdown code fences;
 the inline-code shortcut still wraps a selection or inserts a pair.
+
+A compact formatting bar floats above a single non-empty selection, appearing after mouse release
+and hiding during selection dragging, on blur, or while the editor is read-only (including image
+paste). Its icon buttons toggle bold, italic, strike, inline code, heading level 1, bullet list,
+task list and quote, insert a link, or add a frontmatter property. Labels and shortcuts in tooltips
+come from the command bindings, in the interface language. The bar uses the surface, line and control
+tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
+sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.
