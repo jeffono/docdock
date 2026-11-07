@@ -90,7 +90,7 @@ pinned and unpinned notes differ only in section and starting state.
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
 - **Order menu:** six single-choice items show a check on the current order; a separator precedes
-  the checkable "Group by date" item. Enter/Space and arrows open and navigate it; Esc, selection and
+  the checkable "Group by date" and "Group by folder" items; checking one clears the other. Enter/Space and arrows open and navigate it; Esc, selection and
   outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
   stays within the panel, flipping above its button near the bottom. No native popup takes focus.
 - **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
@@ -99,6 +99,10 @@ pinned and unpinned notes differ only in section and starting state.
   Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
   months of this year (month names in the user's locale), then earlier years. Boundaries use local
   calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
+- **Folder groups:** the other optional item, also off by default, groups unfiltered Notes in any
+  order. Root notes come first, right under the section title and without a label; then each folder,
+  labelled with its path, by path segment, so a subfolder follows its parent. Each group keeps the
+  chosen order.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
   the whole card follows the pointer; a dashed gap marks its pending position while the other cards
   stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
@@ -139,7 +143,8 @@ pinned and unpinned notes differ only in section and starting state.
 - **Names:** a card shows the frontmatter title, else the file name. When the file name differs from
   the title beyond characters a file name cannot hold (a taken name got " 2", or the file was renamed
   elsewhere), the file name follows the title in muted text, so the two notes stay apart and the rule
-  shows itself without any explanation.
+  shows itself without any explanation. A note in a subfolder shows its folder path before the title,
+  muted and in regular weight, except inside a folder group that already names it.
 - **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
   the card header, Ctrl+E on the selected card or a double click on its text; entering from preview
   expands the card. One card edits at a time and shows its own save status, conflict and

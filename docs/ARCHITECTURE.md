@@ -483,9 +483,11 @@ modified descending. Nonempty queries retain search relevance and pinned entries
 unavailable; notes are never changed to store dates. The `note_order` field in the existing atomic
 settings file is updated under the settings mutex. Missing, malformed or unknown order values default without
 invalidating other settings. Both order controls use one shared store, updated after successful IPC.
-The optional `group_by_date` boolean defaults off and uses the same locked atomic update; malformed
-values default independently, preserving other settings. The existing order store loads and saves both
-choices, sharing a busy state between the list and Preferences. Pure `grouping.ts` derives date
+The optional `group_by_date` and `group_by_folder` booleans default off and use the same locked atomic
+update; folder wins, and IPC exposes them as one `grouping` choice (none, date or folder), so settings
+written before folder grouping stay valid. Malformed values default independently, preserving other
+settings. The existing order store loads and saves both
+choices, sharing a busy state between the list and Preferences. Pure `grouping.ts` moves each folder's notes together for folder groups, and derives folder or date
 headers from already ordered unpinned cards only, using the selected date and local calendar days
 (rather than elapsed hours across DST). Recent ranges take priority over month/year labels. Month
 names use `Intl.DateTimeFormat` with the user's locale. A 30-second clock refreshes local-day boundaries,

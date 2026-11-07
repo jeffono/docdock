@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Note, NoteOrder } from "../../ipc";
-import { dateHeadings } from "./grouping";
+import { byFolder, dateHeadings, folderHeadings } from "./grouping";
 import { buildList, navKeys, rows } from "./list";
 import { orderHits } from "./order";
 import type { Hit } from "./search";
@@ -92,10 +92,57 @@ test("date labels leave pinned rows and edited card keys intact and out of keybo
     "heading:pinned",
     "note:pin",
     "heading:notes",
-    "date:year:2025:old",
+    "group:year:2025:old",
     "note:old",
-    "date:today:today",
+    "group:today:today",
     "editing",
   ]);
   expect(navKeys(model)).toEqual(["pin", "old", "today"]);
+});
+
+// Bug: a folder split in two groups, the order within a folder lost, or a subfolder before its parent.
+test("folder groups keep the order inside each folder, root first, subfolders after their parent", () => {
+  const paths = [
+    "b/x.md",
+    "a-x/t.md",
+    "a/b/y.md",
+    "z.md",
+    "a/c.md",
+    "B/w.md",
+    "y.md",
+    "a10/v.md",
+    "a2/u.md",
+  ];
+  const grouped = byFolder(
+    paths.map((path) => hit(now, path)),
+    (one) => one.path,
+    true,
+    "",
+  );
+  expect(grouped.map((one) => one.path)).toEqual([
+    "z.md",
+    "y.md",
+    "a/c.md",
+    "a/b/y.md",
+    "a-x/t.md",
+    "a2/u.md",
+    "a10/v.md",
+    "B/w.md",
+    "b/x.md",
+  ]);
+  expect([...folderHeadings(grouped, true, "").values()].map((group) => group.folder)).toEqual([
+    "a",
+    "a/b",
+    "a-x",
+    "a2",
+    "a10",
+    "B",
+    "b",
+  ]);
+});
+
+test("searches keep relevance instead of folder groups", () => {
+  const hits = [hit(now, "b/x.md"), hit(now, "a/y.md")];
+  expect(byFolder(hits, (one) => one.path, true, "x")).toBe(hits);
+  expect(folderHeadings(hits, true, "x").size).toBe(0);
 });
