@@ -8,6 +8,7 @@
 
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 use serde::Serialize;
+use std::ops::Range;
 
 #[derive(Serialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
@@ -123,7 +124,22 @@ fn closes(body: &str, mark: u8, len: usize) -> bool {
 }
 
 fn item(body: &str) -> Option<Item> {
+    link(body).map(|link| link.item)
+}
+
+/// The first link of an item line, with the byte ranges in `body` of its text (inside the brackets)
+/// and the path of its destination (without a `#fragment`), so an edit can replace them and keep
+/// everything else on the line.
+struct Link {
+    item: Item,
+    label: Range<usize>,
+    path: Range<usize>,
+}
+
+fn link(body: &str) -> Option<Link> {
     let rest = after_marker(body)?;
+    // `after_marker` returns a suffix of `body`.
+    let base = body.len() - rest.len();
     let mut from = 0;
     while let Some(open) = rest[from..].find('[').map(|i| i + from) {
         from = open + 1;
@@ -138,10 +154,15 @@ fn item(body: &str) -> Option<Item> {
             continue;
         };
         let (kind, target) = classify(destination)?;
-        return Some(Item {
-            target,
-            title: unescape(&rest[open + 1..close]),
-            kind,
+        let start = destination.as_ptr() as usize - body.as_ptr() as usize;
+        return Some(Link {
+            item: Item {
+                target,
+                title: unescape(&rest[open + 1..close]),
+                kind,
+            },
+            label: base + open + 1..base + close,
+            path: start..start + destination.find('#').unwrap_or(destination.len()),
         });
     }
     None
@@ -275,18 +296,27 @@ const PATH: &AsciiSet = &CONTROLS
 /// A URL is already encoded; only what would end the link needs escaping.
 const URL: &AsciiSet = &CONTROLS.add(b' ').add(b'(').add(b')').add(b'<').add(b'>');
 
-fn link_line(kind: Kind, target: &str, title: &str) -> String {
-    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
-    let title = if title.is_empty() { target } else { &title };
+/// Link text on one line, with the characters that would end or nest the brackets escaped.
+fn label(title: &str) -> String {
     let mut escaped = String::new();
-    for c in title.chars() {
+    for c in words(title).chars() {
         if matches!(c, '[' | ']' | '\\') {
             escaped.push('\\');
         }
         escaped.push(c);
     }
+    escaped
+}
+/// Runs of whitespace as one space, without leading or trailing whitespace.
+fn words(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn link_line(kind: Kind, target: &str, title: &str) -> String {
+    let title = label(title);
+    let title = if title.is_empty() { target } else { &title };
     let set = if kind == Kind::Url { URL } else { PATH };
-    format!("- [{escaped}]({})", utf8_percent_encode(target, set))
+    format!("- [{title}]({})", utf8_percent_encode(target, set))
 }
 
 /// Pins `target` with one new line after the last item, or at the end of the file if there is none. The
@@ -341,6 +371,40 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
+/// Points every item of the note `from` at `to`, for a renamed note. Only the destination changes, and
+/// the link text too when it is still `title.0`, the note's old title: it becomes `title.1`. A link
+/// text the user wrote stays. The marker, an optional link title and anything after the link stay.
+pub fn rename(text: &str, from: &str, to: &str, title: (&str, &str)) -> String {
+    let lines = lines(text);
+    let renamed: Vec<(usize, Link)> = items(&lines)
+        .into_iter()
+        .filter(|(_, item)| item.kind == Kind::Note && same(item, from))
+        .filter_map(|(i, _)| link(lines[i].body).map(|link| (i, link)))
+        .collect();
+    let new_label = label(title.1);
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in lines.iter().enumerate() {
+        let body = line.body;
+        match renamed.iter().find(|(at, _)| *at == i) {
+            Some((_, link)) => {
+                let retitle = words(&link.item.title) == words(title.0) && !new_label.is_empty();
+                out.push_str(&body[..link.label.start]);
+                out.push_str(if retitle {
+                    &new_label
+                } else {
+                    &body[link.label.clone()]
+                });
+                out.push_str(&body[link.label.end..link.path.start]);
+                out.push_str(&utf8_percent_encode(to, PATH).to_string());
+                out.push_str(&body[link.path.end..]);
+            }
+            None => out.push_str(body),
+        }
+        out.push_str(line.end);
+    }
+    out
+}
+
 /// Moves `target` to the place of `to`, as the UI shows them: one entry per target, at its first
 /// occurrence. Duplicate lines of a target move with it, after it. Item bodies move between item
 /// slots; unknown lines and all line terminators stay in place, including an unterminated last line.
@@ -391,6 +455,26 @@ pub fn move_item(text: &str, target: &str, to: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rename_points_items_at_the_new_path_and_keeps_fragments_and_the_rest_of_the_line() {
+        let text = "- [Old](old.md \"tip\") extra\r\n* [My words](OLD.md#part)\n- [B](b.md)\n```\n- [Old](old.md)\n```\n";
+        assert_eq!(
+            rename(text, "old.md", "dir/New [1].md", ("Old", "New [1]")),
+            "- [New \\[1\\]](dir/New%20%5B1%5D.md \"tip\") extra\r\n* [My words](dir/New%20%5B1%5D.md#part)\n- [B](b.md)\n```\n- [Old](old.md)\n```\n"
+        );
+    }
+    #[test]
+    fn rename_reads_back_as_the_new_target() {
+        let renamed = rename("- [A](<a b.md>)\n", "a b.md", "c (d).md", ("A", "C"));
+        assert_eq!(
+            parse(&renamed),
+            [Item {
+                target: "c (d).md".into(),
+                title: "C".into(),
+                kind: Kind::Note
+            }]
+        );
+    }
     #[test]
     fn move_preserves_unknown_lines_and_mixed_terminators() {
         let text = "# Pins\r\n- [A](a.md)\n<!-- comment -->\r\n- [B](b.md)\rprose\n- [C](c.md)";

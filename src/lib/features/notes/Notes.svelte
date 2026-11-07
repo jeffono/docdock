@@ -1,6 +1,5 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
-import { flip } from "svelte/animate";
 import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
@@ -13,6 +12,7 @@ import {
   notesLeftovers,
   notesList,
   notesOpen,
+  notesRename,
   notesRestore,
   notesSave,
   notesTexts,
@@ -68,9 +68,12 @@ import {
   move,
   navKeys,
   noteFileName,
+  renamedPath,
+  revealScroll,
   rows,
   shallower,
 } from "./list";
+import { retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { groupByDate, noteOrder } from "./order-store";
@@ -188,6 +191,10 @@ export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
   leaving = (async () => {
+    // A title being typed is renamed first, while the editor still holds the note.
+    const field = document.activeElement;
+    if (field instanceof HTMLInputElement && field.closest(".card.editing .rename")) field.blur();
+    await renamingTask;
     const note = await editor?.finish();
     if (!note) return false;
     contents[selected] = note;
@@ -528,6 +535,7 @@ async function setLevel(card: Card, level: Level) {
     selection = path;
     if (level === "expanded") expanded = path;
     else if (expanded === path) expanded = "";
+    if (level !== "line") reveal(path);
     if (!card.pinned) return;
     const item = pinned.items.find((i) => i.target === path);
     const collapsed = level === "line";
@@ -546,6 +554,67 @@ function toggle(card: Card) {
   }
   const level = card.level === "line" ? deeper(card) : "line";
   if (level) void setLevel(card, level);
+}
+
+/** Opened cards scroll into view, quickly, while their content renders and grows. */
+let stopReveal: (() => void) | null = null;
+function reveal(path: string) {
+  stopReveal?.();
+  const view = list;
+  const card = view?.querySelector<HTMLElement>(`.card[data-path="${CSS.escape(path)}"]`);
+  if (!view || !card) return;
+  const scroll = () => {
+    // Positions without the move animation, which shifts the entry while it plays.
+    const entry = card.closest(".list-entry");
+    const shift = entry ? new DOMMatrix(getComputedStyle(entry).transform).m42 : 0;
+    const rect = card.getBoundingClientRect();
+    const delta = revealScroll(
+      { top: rect.top - shift, bottom: rect.bottom - shift },
+      view.getBoundingClientRect(),
+    );
+    if (delta) scrollListTo(view, view.scrollTop + delta);
+  };
+  const observer = new ResizeObserver(scroll);
+  observer.observe(card);
+  const timer = window.setTimeout(stop, 600);
+  function stop() {
+    observer.disconnect();
+    window.clearTimeout(timer);
+    stopReveal = null;
+  }
+  stopReveal = stop;
+}
+let scrollFrame = 0;
+function scrollListTo(view: HTMLElement, top: number) {
+  cancelAnimationFrame(scrollFrame);
+  const start = view.scrollTop;
+  const duration = 2 * animationDuration;
+  if (!duration) {
+    view.scrollTop = top;
+    return;
+  }
+  const begin = performance.now();
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - begin) / duration);
+    view.scrollTop = start + (top - start) * cubicOut(progress);
+    if (progress < 1) scrollFrame = requestAnimationFrame(step);
+  };
+  scrollFrame = requestAnimationFrame(step);
+}
+
+/**
+ * Moves list entries to their new place by translation only. Svelte's `flip` also scales an entry
+ * whose size changed, so an opening card grew from its middle; it grows from its top edge instead.
+ */
+function slide(_node: HTMLElement, { from, to }: { from: DOMRect; to: DOMRect }) {
+  const dx = from.left - to.left;
+  const dy = from.top - to.top;
+  if (!dx && !dy) return { duration: 0 };
+  return {
+    duration: animationDuration,
+    easing: cubicOut,
+    css: (_t: number, u: number) => `transform: translate(${u * dx}px, ${u * dy}px)`,
+  };
 }
 
 let pinning = false;
@@ -570,6 +639,76 @@ async function pinOrUnpin(card: Card, refocus = false) {
   }
 }
 
+/** The renames the title field started, in order; leaving the editor waits for them. */
+let renamingTask: Promise<void> | null = null;
+/**
+ * The title field of the edited card was left with `title`. The file name comes from it, in the same
+ * folder; a frontmatter title, which the card shows, changes with it as an edit of the text. The
+ * editor stays open: it saves first and holds later saves until the move, so none brings the old name
+ * back. A taken name is retried with the next free one. A rename whose pinned items could not follow
+ * still stands. A rename asked while another runs waits for it and starts from its result.
+ */
+function rename(title: string): Promise<void> {
+  const typed = title.replace(/\s+/g, " ").trim();
+  const previous = renamingTask;
+  const task = (async () => {
+    await previous;
+    const card = editing ? cardFor(selected) : undefined;
+    const current = editor;
+    if (!typed || !card || !current || typed === card.hit.title) return;
+    const from = card.hit.path;
+    const old = card.hit.title;
+    try {
+      error = "";
+      await current.rename(
+        (text) => retitle(text, typed),
+        async (version, retitled) => {
+          const taken = notes.map((note) => note.path);
+          for (let attempt = 0; attempt < 50; attempt++) {
+            const to = renamedPath(from, typed, taken);
+            if (to === from) return;
+            const shown = retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
+            try {
+              await notesRename(from, to, version, [old, shown]);
+              changed({ renames: [[from, to]] });
+              return;
+            } catch (e) {
+              const code = (e as { code?: string }).code;
+              if (code === "pinnedNotRenamed") {
+                changed({ renames: [[from, to]] });
+                error = errorText(e);
+                return;
+              }
+              if (code !== "renameConflict") throw e;
+            }
+            taken.push(to);
+          }
+          throw { code: "saveFailed", detail: typed };
+        },
+      );
+    } catch (e) {
+      error = errorText(e);
+    }
+  })();
+  renamingTask = task;
+  void task.finally(() => {
+    if (renamingTask === task) renamingTask = null;
+  });
+  return task;
+}
+
+/** F2: the title field of the note's editor, opening it if needed, with the title selected. */
+async function editTitle(path: string) {
+  if (!(editing && selected === path)) {
+    if (!(await leaveEditor())) return;
+    await edit(path);
+  }
+  await tick();
+  const input = list?.querySelector<HTMLInputElement>(".card.editing .rename input");
+  input?.focus();
+  input?.select();
+}
+
 let reordering = false;
 let dragged = $state<{ target: string; base: string } | null>(null);
 let dragOver = $state("");
@@ -577,6 +716,23 @@ let dragImageCaptured = $state(false);
 let animationDuration = $state(0);
 let dropping = false;
 let dragLayout: { keys: string[]; heights: number[]; top: number; scroll: number } | null = null;
+// Moving a row in the DOM drops the focus inside it, as when a renamed note takes its new place in
+// the order: the edited card's focus, in its title field or editor, comes back after the move.
+let movedFocus: HTMLElement | null = null;
+$effect.pre(() => {
+  void listRows;
+  const focused = document.activeElement;
+  movedFocus = focused instanceof HTMLElement && focused.closest(".card.editing") ? focused : null;
+});
+$effect(() => {
+  void listRows;
+  const focused = movedFocus;
+  movedFocus = null;
+  if (!focused?.isConnected || document.activeElement !== document.body) return;
+  // The editor lives in a shadow root, whose host is what the document reports as focused.
+  if (focused.classList.contains("surface")) editor?.focus();
+  else focused.focus({ preventScroll: true });
+});
 function overPin(event: DragEvent) {
   if (!dragged || !dragLayout || editing || !list) return;
   const { keys, heights, top, scroll } = dragLayout;
@@ -1082,6 +1238,14 @@ function shortcut(event: KeyboardEvent) {
     else void edit(path);
     return;
   }
+  const plain = !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+  if (!browser && plain && key === "f2" && (!field || inEditor)) {
+    const path = inEditor ? selected : cardFor(active)?.hit.path;
+    if (!path || cardFor(path)?.url) return;
+    event.preventDefault();
+    void editTitle(path);
+    return;
+  }
   if (ctrl && key === "f" && !field) {
     event.preventDefault();
     input?.focus();
@@ -1216,7 +1380,7 @@ onMount(() => {
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
-        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:flip={{ duration: animationDuration, easing: cubicOut }}>
+        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:slide>
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "dateGroup" in row}
@@ -1257,6 +1421,8 @@ onMount(() => {
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
+            onrename={rename}
+            ontitledone={() => editor?.focus()}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}
             onpin={() => pinOrUnpin(card)}

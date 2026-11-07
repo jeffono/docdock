@@ -21,8 +21,8 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
-                         reading and editing `_pinned.md`
-  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move
+                         renaming, reading and editing `_pinned.md`
+  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move, rename
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -269,6 +269,19 @@ the file counts as saved without writing. Text
 goes to disk exactly as received, without touching line endings. Saves are serialized in Rust, and the
 check is confirmed against the version actually replaced, so an external write that slips in is never
 overwritten.
+
+**Renaming.** `notes_rename(from, to, base, title)` moves a note to another name in the same folder
+under the save lock, with its folders held, only if it still has version `base`; `move_new` refuses a
+taken name, which fails with `renameConflict`, and allows a case-only change of the same file. Renaming
+happens only from the editor's title field, which stays open: `Editor.rename` first applies a new
+frontmatter title as an edit of the text (`retitle`, one undo step), saves everything, then holds later
+saves while the move runs, so none goes to the old name; once `moved` gives the editor the new path,
+they continue there. Leaving the editor waits for a rename in progress. The UI picks the name as for a
+new note (`renamedPath`) and tries the next free one on a conflict. Pinned items of the note then point
+at the new path, keeping a `#fragment` and the rest of their line; their link text follows only while
+it is still the old title. If `_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the
+rename stands. Links in other notes are not rewritten. The watcher reports the move as a rename, as for
+an external one.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores

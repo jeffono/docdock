@@ -27,6 +27,15 @@ const paths = (index: SearchIndex, query: string) =>
   search(index, query).hits.map((hit) => hit.path);
 
 describe("matching", () => {
+  test("combines folder matches with title and body without treating the folder as an exact title", async () => {
+    const index = await indexOf([
+      { path: "Projetos/Ação/plan.md", text: "budget" },
+      { path: "plan.md", text: "budget" },
+    ]);
+    expect(paths(index, "projetos acao plan budget")).toEqual(["Projetos/Ação/plan.md"]);
+    expect(search(index, "projetos").exactTitle).toBe(false);
+  });
+
   test("hides the root pinned file from the list, matches and exact-title detection", async () => {
     const index = await indexOf([
       { path: "_PINNED.MD", text: "private list" },

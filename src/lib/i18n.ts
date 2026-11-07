@@ -88,6 +88,7 @@ const en = {
   "card.close": "Close note",
   "card.missing": "Note not found",
   "card.remove": "Remove from pinned (Delete)",
+  "card.rename": "Rename note (F2)",
   "pinned.deleted": "The pinned list was deleted.",
   "pinned.restore": "Restore pinned items",
   "editor.updated": "Updated from disk",
@@ -140,6 +141,8 @@ const en = {
     "The note changed outside the app while saving; a copy of your text was kept at {path}.",
   "error.pinnedChanged":
     "The pinned list changed outside the app while it was being updated; try again.",
+  "error.pinnedNotRenamed":
+    "The note was renamed to {path}, but the pinned list could not follow it; pin it again.",
   "error.invalidUrl": "Invalid address: {detail}",
   "error.urlNotAllowed": "Address not allowed: {url}",
   "error.linkNotAllowed": "Only web and email links open outside the app.",
@@ -233,6 +236,7 @@ const ptBR: Record<MessageKey, string> = {
   "card.close": "Fechar nota",
   "card.missing": "Nota não encontrada",
   "card.remove": "Remover dos fixados (Delete)",
+  "card.rename": "Renomear nota (F2)",
   "pinned.deleted": "A lista de fixados foi apagada.",
   "pinned.restore": "Restaurar fixados",
   "editor.updated": "Atualizada do disco",
@@ -284,6 +288,8 @@ const ptBR: Record<MessageKey, string> = {
     "A nota mudou fora do app durante o salvamento; uma cópia do seu texto ficou em {path}.",
   "error.pinnedChanged":
     "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
+  "error.pinnedNotRenamed":
+    "A nota foi renomeada para {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
   "error.linkNotAllowed": "Só links da web e de e-mail abrem fora do app.",

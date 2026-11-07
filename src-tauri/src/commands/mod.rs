@@ -120,6 +120,17 @@ pub fn notes_save(
 ) -> Result<crate::notes::Saved, Error> {
     crate::notes::save_note(&app, &path, &content, &base)
 }
+/// `title` is the note's old and new title, for the link text of its pinned items.
+#[tauri::command(async)]
+pub fn notes_rename(
+    app: AppHandle,
+    from: String,
+    to: String,
+    base: String,
+    title: (String, String),
+) -> Result<(), Error> {
+    crate::notes::rename_note(&app, &from, &to, &base, (&title.0, &title.1))
+}
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]
 pub fn notes_paste_image(

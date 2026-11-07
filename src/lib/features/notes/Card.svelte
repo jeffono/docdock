@@ -2,6 +2,7 @@
 import type { Snippet } from "svelte";
 import { date, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
+import TextField from "../../ui/TextField.svelte";
 import Highlight from "./Highlight.svelte";
 import { type Card, pageHost } from "./list";
 import { renderNote } from "./render";
@@ -13,6 +14,8 @@ let {
   text,
   selected,
   onheader,
+  onrename,
+  ontitledone,
   onexpand,
   onpreview,
   onpin,
@@ -31,6 +34,10 @@ let {
   selected: boolean;
   /** Header click: open a line, close anything else. */
   onheader: () => void;
+  /** The title field, while editing, was left with this title. */
+  onrename: (title: string) => Promise<void>;
+  /** Enter, ↓ or Esc in the title field: go on to the text. */
+  ontitledone: () => void;
   onexpand: () => void;
   onpreview: () => void;
   onpin: () => void;
@@ -78,8 +85,29 @@ function bodyClick(event: MouseEvent) {
   if (onlink(event)) return;
   if (card.level === "preview") onexpand();
 }
+/** A double click on the text edits it; its first click already expanded a preview. */
+function bodyDoubleClick(event: MouseEvent) {
+  if (!editing && !card.url && !(event.target as Element).closest("a")) onedit();
+}
 
 const tags = $derived(card.hit.tags);
+
+// While editing, the title is a field; leaving it renames. It follows the note while not focused.
+let title = $state("");
+let typing = false;
+$effect(() => {
+  const next = card.hit.title;
+  if (!typing) title = next;
+});
+function fieldKey(event: KeyboardEvent) {
+  if (event.isComposing) return;
+  if (event.key === "Escape") title = card.hit.title;
+  if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    ontitledone();
+  }
+}
 const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 </script>
 
@@ -103,7 +131,20 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     {#if !card.url}<div class="gutter">
       <IconButton tabindex={-1} quiet icon={open ? "chevronDown" : "chevronRight"} label={toggleLabel} onclick={onheader} />
     </div>{/if}
-    <button tabindex="-1" class="head" onclick={onheader}>
+    {#if editing}
+      <span class="rename">
+        <TextField
+          bind:value={title}
+          aria-label={t("card.rename")}
+          spellcheck={false}
+          onkeydown={fieldKey}
+          onfocus={() => { typing = true; }}
+          onblur={async () => { typing = false; await onrename(title); if (!typing) title = card.hit.title; }}
+        />
+      </span>
+    {/if}
+    <!-- Hidden rather than removed: pinned drag is attached to this button. -->
+    <button tabindex="-1" class="head" hidden={editing} onclick={onheader}>
       <span class="title">{card.hit.title}</span>
       <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
@@ -141,6 +182,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         class:preview={card.level === "preview"}
         class:clipped={card.level === "preview" && clipped}
         onclick={bodyClick}
+        ondblclick={bodyDoubleClick}
         role="presentation"
         {@attach (element) => {
           let current = true;
@@ -256,6 +298,33 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 
   .card.row:not(.selected):hover {
     background: var(--color-surface);
+  }
+
+  .rename {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* The card already has the accent border: the focused field shows only through the accent line
+     under the header. */
+  .card.editing > header:has(.rename :global(input:focus)) {
+    border-bottom-color: var(--color-accent);
+  }
+
+  .rename {
+    margin-right: var(--header-actions);
+  }
+
+  .rename :global(input) {
+    border: 0;
+    outline: none;
+    background: transparent;
+    font-weight: 600;
+  }
+
+  .head[hidden] {
+    display: none;
   }
 
   .title {
