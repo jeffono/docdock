@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2 on `files`: folder search implemented; next implement safe renaming and pinned-path updates,
-  automatic names, folder prefixes and grouping. Folder moving remains deferred.
+- M4.2 on `files`: folder search and renaming done, renaming awaiting the cross-provider review and
+  manual check; next automatic names, folder prefixes and grouping. Folder moving remains deferred.
 
 ## Completed
 
@@ -29,7 +29,7 @@ detail each stage when it is next.
 Decided 2026-11-07: renaming moves the file without overwriting and updates `_pinned.md`; links in
 other notes are not rewritten. A tree view is out of scope.
 
-- [ ] (advanced) Rename a note from its card title (click or F2)
+- [x] (advanced) Rename a note from its card title (double click or F2)
 - [ ] (advanced) Automatic name for `Untitled N` notes when leaving them: frontmatter `title`, else the
   top H1, else the first words (about 60 characters)
 - [ ] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder

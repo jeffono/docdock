@@ -13,6 +13,7 @@ import {
   notesLeftovers,
   notesList,
   notesOpen,
+  notesRename,
   notesRestore,
   notesSave,
   notesTexts,
@@ -68,9 +69,11 @@ import {
   move,
   navKeys,
   noteFileName,
+  renamedPath,
   rows,
   shallower,
 } from "./list";
+import { retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { groupByDate, noteOrder } from "./order-store";
@@ -567,6 +570,47 @@ async function pinOrUnpin(card: Card, refocus = false) {
     error = errorText(e);
   } finally {
     pinning = false;
+  }
+}
+
+/** Note whose card title is a rename field. */
+let renaming = $state("");
+/**
+ * Renames the card's note to `title`, or starts the field with `null`. The editor is left first, so no
+ * save under the old name follows the move, and is entered again on the new name. The file name comes
+ * from the title; a frontmatter title, which the card shows, changes with it. A conflict (name taken
+ * meanwhile, note changed) is retried on a fresh read with the next free name.
+ */
+async function rename(card: Card, title: string | null) {
+  const from = card.hit.path;
+  if (title === null) {
+    if (!renaming && !card.url) renaming = from;
+    return;
+  }
+  renaming = "";
+  const typed = title.replace(/\s+/g, " ").trim();
+  if (!typed || typed === card.hit.title) return;
+  const wasEditing = editing && selected === from;
+  try {
+    error = "";
+    if (!(await leaveEditor())) return;
+    const taken = notes.map((note) => note.path);
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const note = await notesOpen(from);
+      const content = retitle(note.text, typed);
+      const to = renamedPath(from, typed, taken);
+      const shown = content === null ? to.slice(to.lastIndexOf("/") + 1, -3) : typed;
+      const result = await notesRename(from, to, content, note.version, [card.hit.title, shown]);
+      if (result.status === "saved") {
+        changed({ renames: from === to ? [] : [[from, to]] });
+        if (wasEditing) await edit(to);
+        return;
+      }
+      taken.push(to);
+    }
+    error = errorText({ code: "saveFailed", detail: typed });
+  } catch (e) {
+    error = errorText(e);
   }
 }
 
@@ -1082,6 +1126,14 @@ function shortcut(event: KeyboardEvent) {
     else void edit(path);
     return;
   }
+  const plain = !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
+  if (!browser && plain && key === "f2" && (!field || inEditor)) {
+    const card = cardFor(inEditor ? selected : active);
+    if (!card || card.url) return;
+    event.preventDefault();
+    void rename(card, null);
+    return;
+  }
   if (ctrl && key === "f" && !field) {
     event.preventDefault();
     input?.focus();
@@ -1257,6 +1309,8 @@ onMount(() => {
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
+            onrename={(title) => rename(card, title)}
+            renaming={renaming === card.hit.path}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}
             onpin={() => pinOrUnpin(card)}

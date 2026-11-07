@@ -2,6 +2,7 @@
 import type { Snippet } from "svelte";
 import { date, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
+import TextField from "../../ui/TextField.svelte";
 import Highlight from "./Highlight.svelte";
 import { type Card, pageHost } from "./list";
 import { renderNote } from "./render";
@@ -13,6 +14,7 @@ let {
   text,
   selected,
   onheader,
+  onrename,
   onexpand,
   onpreview,
   onpin,
@@ -20,6 +22,7 @@ let {
   onlink,
   onpage,
   editing = false,
+  renaming = false,
   status = "",
   editor,
 }: {
@@ -31,6 +34,9 @@ let {
   selected: boolean;
   /** Header click: open a line, close anything else. */
   onheader: () => void;
+  /** Double click on the title starts renaming (`null`); the field then ends it with the new title, or
+   * `null` to cancel. */
+  onrename: (title: string | null) => void;
   onexpand: () => void;
   onpreview: () => void;
   onpin: () => void;
@@ -40,6 +46,8 @@ let {
   onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
+  /** The title is a field for a new name. */
+  renaming?: boolean;
   /** Saving… or Saved while editing; empty when a notice explains a problem instead. */
   status?: string;
   /** The editor, drawn in place of the content while editing. */
@@ -80,6 +88,29 @@ function bodyClick(event: MouseEvent) {
 }
 
 const tags = $derived(card.hit.tags);
+
+// Enter or leaving the field renames, Esc cancels; whichever comes first ends it once.
+let title = $state("");
+let ended = false;
+function startField(input: HTMLInputElement) {
+  title = card.hit.title;
+  ended = false;
+  input.focus();
+  input.select();
+}
+function endField(next: string | null) {
+  if (ended) return;
+  ended = true;
+  onrename(next);
+}
+function fieldKey(event: KeyboardEvent) {
+  if (event.isComposing) return;
+  if (event.key === "Enter" || event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    endField(event.key === "Enter" ? title : null);
+  }
+}
 const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 </script>
 
@@ -103,7 +134,27 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     {#if !card.url}<div class="gutter">
       <IconButton tabindex={-1} quiet icon={open ? "chevronDown" : "chevronRight"} label={toggleLabel} onclick={onheader} />
     </div>{/if}
-    <button tabindex="-1" class="head" onclick={onheader}>
+    {#if renaming}
+      <span class="rename">
+        <TextField
+          bind:value={title}
+          aria-label={t("card.rename")}
+          spellcheck={false}
+          onkeydown={fieldKey}
+          onblur={() => endField(title)}
+          {@attach startField}
+        />
+      </span>
+    {/if}
+    <!-- Hidden rather than removed: pinned drag is attached to this button. The second click of a
+         double click only starts renaming: the first already toggled. -->
+    <button
+      tabindex="-1"
+      class="head"
+      hidden={renaming}
+      onclick={(event) => { if (event.detail < 2) onheader(); }}
+      ondblclick={() => { if (!card.url) onrename(null); }}
+    >
       <span class="title">{card.hit.title}</span>
       <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
@@ -256,6 +307,20 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 
   .card.row:not(.selected):hover {
     background: var(--color-surface);
+  }
+
+  .rename {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rename :global(input) {
+    font-weight: 600;
+  }
+
+  .head[hidden] {
+    display: none;
   }
 
   .title {

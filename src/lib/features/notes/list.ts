@@ -260,6 +260,22 @@ export function noteFileName(text: string, taken: Iterable<string>): string {
   return name;
 }
 
+/**
+ * The path a note gets when renamed to `title`: the same folder and a name free there, as
+ * `noteFileName` picks it. `paths` are every note's path; the note's own name counts as free, so a
+ * case-only change keeps it.
+ */
+export function renamedPath(from: string, title: string, paths: Iterable<string>): string {
+  const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
+  const folder = folderOf(from);
+  const taken: string[] = [];
+  for (const path of paths) {
+    const sibling = folderOf(path).toLowerCase() === folder.toLowerCase();
+    if (sibling && path.toLowerCase() !== from.toLowerCase()) taken.push(path.slice(folder.length));
+  }
+  return folder + noteFileName(title, taken);
+}
+
 export function pageHost(url: string): string {
   try {
     return new URL(url).host;

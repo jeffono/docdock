@@ -123,6 +123,11 @@ pinned and unpinned notes differ only in section and starting state.
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
   returns to a row when closed; there is no separate note view.
+- **Renaming:** F2 on the selected card, or in its editor, or a double click on its title, turns the
+  title into a field with the text selected, in place of the title and metadata. Enter or leaving the
+  field renames; Esc cancels; an empty or unchanged title does nothing. The file name follows the title
+  in the same folder, with " 2" and so on when taken; a frontmatter title changes with it. Renaming
+  from the editor leaves it and enters it again on the new name.
 - **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
   the card header or Ctrl+E on the selected card; entering from preview expands the card. One card edits at a time and shows its own save status, conflict and
   errors. If the search would hide it, it stays at the top until editing ends. Closing the card,

@@ -78,6 +78,18 @@ export type NoteText = { path: string; text: string; modified: number };
 export const notesTexts = (paths: string[]) => invoke<NoteText[]>("notes_texts", { paths });
 export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });
+/**
+ * Renames a note within its folder, never over another file: `conflict` when the name is taken or the
+ * note no longer holds `base`. `content` replaces the note afterwards (its new frontmatter title).
+ * Pinned items follow; `title` is the old and new title, for their link text.
+ */
+export const notesRename = (
+  from: string,
+  to: string,
+  content: string | null,
+  base: string,
+  title: [string, string],
+) => invoke<SaveResult>("notes_rename", { from, to, content, base, title });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },

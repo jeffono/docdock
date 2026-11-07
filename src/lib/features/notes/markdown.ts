@@ -241,6 +241,25 @@ export function quoteYaml(text: string): string {
   );
 }
 
+/**
+ * `text` with its frontmatter title set to `title`, or null when the frontmatter has no title this
+ * reader understands, so the card shows the file name instead. Only that line changes, with its own
+ * terminator. The value stays unquoted when it reads back the same and is not another YAML type.
+ */
+export function retitle(text: string, title: string): string | null {
+  const lines = text.split(/(?<=\r\n|\n|\r(?!\n))/);
+  const bare = (n: number) => lines[n - 1].replace(/\r?\n$|\r$/, "");
+  const meta = frontmatter(bare, lines.length);
+  if (!meta?.title) return null;
+  let at = 0;
+  for (let n = 2; n < meta.end; n++) if (/^title:/.test(bare(n))) at = n;
+  const plain =
+    scalar(title) === title && !/^(?:true|false|yes|no|on|off|null|~|[-+]?[\d.].*)$/i.test(title);
+  const end = lines[at - 1].slice(bare(at).length);
+  lines[at - 1] = `title: ${plain ? title : quoteYaml(title)}${end}`;
+  return lines.join("");
+}
+
 /** Only absolute HTTP(S) metadata offers a page action. Rust validates again. */
 export function pageUrl(value: string | null): string | null {
   if (!value || !/^https?:\/\//i.test(value)) return null;

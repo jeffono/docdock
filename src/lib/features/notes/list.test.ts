@@ -11,6 +11,7 @@ import {
   move,
   navKeys,
   noteFileName,
+  renamedPath,
   rows,
   shallower,
 } from "./list";
@@ -256,5 +257,16 @@ it("activates a pinned page as a page rather than a note read", () => {
   expect(enter(buildList({ ...base, pinned: [item(url, { kind: "url" })] }), url)).toEqual({
     action: "openPage",
     url,
+  });
+});
+
+describe("renamedPath", () => {
+  const paths = ["sub/Note.md", "sub/taken.md", "taken 2.md", "other/x.md"];
+  it("stays in the note's folder and skips names taken there only", () => {
+    expect(renamedPath("sub/Note.md", "Taken", paths)).toBe("sub/Taken 2.md");
+    expect(renamedPath("sub/Note.md", "x", paths)).toBe("sub/x.md");
+  });
+  it("lets a case-only change keep the note's own name", () => {
+    expect(renamedPath("sub/Note.md", "note", paths)).toBe("sub/note.md");
   });
 });

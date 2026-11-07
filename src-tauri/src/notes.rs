@@ -341,9 +341,8 @@ pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
     crate::watch::ensure(app, &root);
     list(&root)
 }
-/// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
-/// the folder can change the requested extension to a different real extension.
-fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, Error> {
+/// A path the UI sent, before it touches the disk: relative, with `/`, only plain names and `allowed`.
+fn checked(relative: &str, allowed: fn(&Path) -> bool) -> Result<&Path, Error> {
     let path = Path::new(relative);
     if relative.contains(':')
         || relative.contains('\\')
@@ -354,6 +353,12 @@ fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<Pa
     {
         return Err(Error::InvalidPath);
     }
+    Ok(path)
+}
+/// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
+/// the folder can change the requested extension to a different real extension.
+fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, Error> {
+    let path = checked(relative, allowed)?;
     let root = root.canonicalize()?;
     let target = root.join(path).canonicalize()?;
     if !target.starts_with(&root) || !target.is_file() || !allowed(&target) {
@@ -441,24 +446,11 @@ fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Resul
 }
 /// Empty base expects absence; recreation never replaces a file that took the name.
 fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Error> {
-    let path = Path::new(relative);
-    if relative.contains(':')
-        || relative.contains('\\')
-        || path
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
-        || !markdown(path)
-    {
-        return Err(Error::InvalidPath);
-    }
+    let path = checked(relative, markdown)?;
     let root = root.canonicalize()?;
     let target = root.join(path);
     let parent = target.parent().ok_or(Error::InvalidPath)?;
-    let mut held = Vec::new();
-    // Reject links and prevent directory swaps during the write.
-    for dir in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
-        held.push(platform::hold_directory(dir)?);
-    }
+    let _held = hold_ancestry(parent)?;
     if !parent.canonicalize()?.starts_with(&root) {
         return Err(Error::OutsideFolder);
     }
@@ -475,6 +467,15 @@ fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Er
     };
     let _ = fs::remove_file(&temp);
     result
+}
+/// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
+fn hold_ancestry(dir: &Path) -> io::Result<Vec<fs::File>> {
+    dir.ancestors()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(platform::hold_directory)
+        .collect()
 }
 /// Replaces `target` with `content` through `ReplaceFileW`, which moves the replaced file to a backup:
 /// those are exactly the bytes that were overwritten, even if another app wrote after the check above.
@@ -575,6 +576,93 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 }
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
+}
+/// Renames the note `from` to `to`, in the same folder, never over another file: a taken name answers
+/// `Conflict`, as does a note that no longer holds `base`. A case-only change renames the same file.
+/// `content`, when given, then replaces the note at its new name against `base` (a new frontmatter
+/// title); if an external write slipped in there, the note stays renamed with that write. Pinned items
+/// of `from` follow it, even if writing `content` failed; `title` is the old and new title for their
+/// link text.
+fn rename_note_in(
+    root: &Path,
+    from: &str,
+    to: &str,
+    content: Option<&str>,
+    base: &str,
+    title: (&str, &str),
+) -> Result<Saved, Error> {
+    let (source, target) = (checked(from, markdown)?, checked(to, markdown)?);
+    let pinned = |path: &Path| path.as_os_str().eq_ignore_ascii_case(PINNED);
+    if source.parent() != target.parent() || pinned(source) || pinned(target) {
+        return Err(Error::InvalidPath);
+    }
+    if let Some(content) = content {
+        too_large(content.len() as u64)?;
+    }
+    let written = {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let source = resolve(root, from, markdown)?;
+        let parent = source.parent().ok_or(Error::InvalidPath)?;
+        let _held = hold_ancestry(parent)?;
+        let current = read_bytes(&source)?;
+        if version(&current) != base {
+            return Ok(Saved::Conflict);
+        }
+        let target = parent.join(target.file_name().ok_or(Error::InvalidPath)?);
+        if target != source {
+            // Without replacing, `MoveFileExW` refuses a taken name and allows a case-only change.
+            if let Err(error) = platform::move_new(&source, &target) {
+                let taken = exists(&target) && !same_name(&source, &target);
+                return if taken {
+                    Ok(Saved::Conflict)
+                } else {
+                    Err(error.into())
+                };
+            }
+        }
+        match content {
+            Some(content) if content.as_bytes() != current => {
+                replace_note(&target, content.as_bytes(), base)
+            }
+            _ => Ok(Saved::Saved {
+                version: version(&current),
+            }),
+        }
+    };
+    edit_pinned(root, |text| pinned::rename(text, from, to, title))?;
+    match written? {
+        // The rename stands even when the new title lost to an external write.
+        Saved::Conflict => Ok(Saved::Saved {
+            version: version(&read_bytes(&resolve(root, to, markdown)?)?),
+        }),
+        saved => Ok(saved),
+    }
+}
+/// Windows compares names ignoring case.
+fn same_name(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+}
+pub fn rename_note(
+    app: &AppHandle,
+    from: &str,
+    to: &str,
+    content: Option<&str>,
+    base: &str,
+    title: (&str, &str),
+) -> Result<Saved, Error> {
+    let saved = rename_note_in(&root(app)?, from, to, content, base, title)?;
+    if let Saved::Saved { .. } = saved {
+        update(app, |settings| {
+            let before = settings.collapsed.len();
+            settings
+                .collapsed
+                .retain(|target| target.to_lowercase() != from.to_lowercase());
+            if settings.collapsed.len() != before {
+                settings.collapsed.insert(to.to_owned());
+            }
+        })?;
+    }
+    Ok(saved)
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1402,6 +1490,72 @@ mod tests {
     }
     fn no_collapsed() -> BTreeSet<String> {
         BTreeSet::new()
+    }
+    fn rename(root: &Path, from: &str, to: &str, content: Option<&str>) -> Result<Saved, Error> {
+        let base = version(&fs::read(root.join(from)).unwrap());
+        rename_note_in(root, from, to, content, &base, ("A", "B"))
+    }
+    #[test]
+    fn renaming_never_takes_an_existing_name() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join("b.md"), "b").unwrap();
+        assert!(matches!(
+            rename(&t.0, "a.md", "B.md", None),
+            Ok(Saved::Conflict)
+        ));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "a");
+        assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "b");
+    }
+    #[test]
+    fn renaming_a_note_changed_since_it_was_read_does_nothing() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        let base = version(b"a");
+        fs::write(t.0.join("a.md"), "external").unwrap();
+        let renamed = rename_note_in(&t.0, "a.md", "b.md", Some("ours"), &base, ("A", "B"));
+        assert!(matches!(renamed, Ok(Saved::Conflict)));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "external");
+        assert!(!exists(&t.0.join("b.md")));
+    }
+    #[test]
+    fn renaming_moves_the_note_with_its_new_title_and_its_pinned_items() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("sub/a.md"), "---\ntitle: A\n---\nbody").unwrap();
+        fs::write(root.join(PINNED), "- [A](sub/a.md)\n- [C](c.md)\n").unwrap();
+        let content = "---\ntitle: B\n---\nbody";
+        let renamed = rename(&root, "sub/a.md", "sub/B.md", Some(content));
+        assert!(matches!(renamed, Ok(Saved::Saved { .. })));
+        assert!(!exists(&root.join("sub/a.md")));
+        assert_eq!(fs::read_to_string(root.join("sub/B.md")).unwrap(), content);
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "- [B](sub/B.md)\n- [C](c.md)\n"
+        );
+    }
+    #[test]
+    fn renaming_only_the_case_keeps_the_same_file() {
+        let t = Temp::new();
+        fs::write(t.0.join("note.md"), "text").unwrap();
+        assert!(matches!(
+            rename(&t.0, "note.md", "Note.md", None),
+            Ok(Saved::Saved { .. })
+        ));
+        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        assert_eq!(paths, ["Note.md"]);
+    }
+    #[test]
+    fn renaming_stays_in_the_note_folder_and_away_from_the_pinned_list() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        for to in ["sub/a.md", "../a.md", "_PINNED.md", "a.txt"] {
+            let refused = rename(&t.0, "a.md", to, None);
+            assert!(matches!(refused, Err(Error::InvalidPath)), "{to}");
+        }
+        assert!(exists(&t.0.join("a.md")));
     }
     #[test]
     fn pinning_creates_a_missing_file() {

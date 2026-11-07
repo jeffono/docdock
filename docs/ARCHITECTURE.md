@@ -21,8 +21,8 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
-                         reading and editing `_pinned.md`
-  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move
+                         renaming, reading and editing `_pinned.md`
+  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move, rename
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -269,6 +269,16 @@ the file counts as saved without writing. Text
 goes to disk exactly as received, without touching line endings. Saves are serialized in Rust, and the
 check is confirmed against the version actually replaced, so an external write that slips in is never
 overwritten.
+
+**Renaming.** `notes_rename(from, to, content, base, title)` moves a note to another name in the same
+folder under the save lock, with its folders held, only if it still has version `base`; `move_new`
+refuses a taken name, which answers `conflict`, and allows a case-only change of the same file. The UI
+leaves the editor first, so no save under the old name brings it back, and picks the name as for a new
+note (`renamedPath`); on a conflict it reads again and tries the next free name. A note whose card shows
+a frontmatter title also gets `content`, that text with only the title line changed (`retitle`),
+written at the new name against `base`. Pinned items of the note then point at the new path, keeping
+the rest of their line; their link text follows only while it is still the old title. Links in other
+notes are not rewritten. The watcher reports the move as a rename, as for an external one.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
