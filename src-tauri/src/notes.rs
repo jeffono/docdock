@@ -632,16 +632,21 @@ pub fn rename_note(
     base: &str,
     title: (&str, &str),
 ) -> Result<(), Error> {
-    rename_note_in(&root(app)?, from, to, base, title)?;
-    update(app, |settings| {
-        let before = settings.collapsed.len();
-        settings
-            .collapsed
-            .retain(|target| target.to_lowercase() != from.to_lowercase());
-        if settings.collapsed.len() != before {
-            settings.collapsed.insert(to.to_owned());
-        }
-    })
+    let renamed = rename_note_in(&root(app)?, from, to, base, title);
+    if matches!(renamed, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
+        // Best effort: the note has moved, and an error here would hide that from the editor, whose
+        // next save would bring the old name back. A lost collapsed state only shows the card open.
+        let _ = update(app, |settings| {
+            let before = settings.collapsed.len();
+            settings
+                .collapsed
+                .retain(|target| target.to_lowercase() != from.to_lowercase());
+            if settings.collapsed.len() != before {
+                settings.collapsed.insert(to.to_owned());
+            }
+        });
+    }
+    renamed
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";

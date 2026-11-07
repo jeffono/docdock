@@ -639,22 +639,25 @@ async function pinOrUnpin(card: Card, refocus = false) {
   }
 }
 
-/** The rename the title field started, which leaving the editor waits for. */
+/** The renames the title field started, in order; leaving the editor waits for them. */
 let renamingTask: Promise<void> | null = null;
 /**
  * The title field of the edited card was left with `title`. The file name comes from it, in the same
  * folder; a frontmatter title, which the card shows, changes with it as an edit of the text. The
  * editor stays open: it saves first and holds later saves until the move, so none brings the old name
  * back. A taken name is retried with the next free one. A rename whose pinned items could not follow
- * still stands.
+ * still stands. A rename asked while another runs waits for it and starts from its result.
  */
-function rename(card: Card, title: string) {
-  const from = card.hit.path;
+function rename(title: string): Promise<void> {
   const typed = title.replace(/\s+/g, " ").trim();
-  const current = editor;
-  if (!typed || typed === card.hit.title || !current || !editing || selected !== from) return;
-  const old = card.hit.title;
-  renamingTask = (async () => {
+  const previous = renamingTask;
+  const task = (async () => {
+    await previous;
+    const card = editing ? cardFor(selected) : undefined;
+    const current = editor;
+    if (!typed || !card || !current || typed === card.hit.title) return;
+    const from = card.hit.path;
+    const old = card.hit.title;
     try {
       error = "";
       await current.rename(
@@ -686,9 +689,12 @@ function rename(card: Card, title: string) {
     } catch (e) {
       error = errorText(e);
     }
-  })().finally(() => {
-    renamingTask = null;
+  })();
+  renamingTask = task;
+  void task.finally(() => {
+    if (renamingTask === task) renamingTask = null;
   });
+  return task;
 }
 
 /** F2: the title field of the note's editor, opening it if needed, with the title selected. */
@@ -1415,7 +1421,7 @@ onMount(() => {
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
-            onrename={(title) => rename(card, title)}
+            onrename={rename}
             ontitledone={() => editor?.focus()}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}

@@ -35,7 +35,7 @@ let {
   /** Header click: open a line, close anything else. */
   onheader: () => void;
   /** The title field, while editing, was left with this title. */
-  onrename: (title: string) => void;
+  onrename: (title: string) => Promise<void>;
   /** Enter, ↓ or Esc in the title field: go on to the text. */
   ontitledone: () => void;
   onexpand: () => void;
@@ -139,7 +139,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
           spellcheck={false}
           onkeydown={fieldKey}
           onfocus={() => { typing = true; }}
-          onblur={() => { typing = false; onrename(title); }}
+          onblur={async () => { typing = false; await onrename(title); if (!typing) title = card.hit.title; }}
         />
       </span>
     {/if}
