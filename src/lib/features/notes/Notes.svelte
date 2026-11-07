@@ -80,6 +80,7 @@ import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { noteName } from "./render";
+import ShortcutSheet from "./ShortcutSheet.svelte";
 import { FolderIndex, isPinnedList, search } from "./search";
 
 let {
@@ -87,6 +88,11 @@ let {
   pageUrl = "",
   inactive = false,
 }: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
+
+let shortcutSheet: ShortcutSheet;
+$effect(() => {
+  if (inactive || browser) shortcutSheet?.close();
+});
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
@@ -1227,7 +1233,7 @@ function inField(event: KeyboardEvent): boolean {
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (inactive || event.defaultPrevented || event.isComposing) return;
+  if (inactive || shortcutSheet?.isOpen() || event.defaultPrevented || event.isComposing) return;
   if (
     browser &&
     !tools?.contains(event.target as Node) &&
@@ -1321,6 +1327,7 @@ onMount(() => {
   const unlisten = onNotesChanged(changed);
   // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
+    shortcutSheet.close();
     void leaveEditor().then((left) => {
       if (left) expanded = "";
     });
@@ -1332,6 +1339,7 @@ onMount(() => {
   // the bar already focused, it closes the panel.
   const search = onPanelSearch((toggle) => {
     if (inactive) return;
+    shortcutSheet.close();
     const input = bar();
     if (toggle && (!input || document.activeElement === input)) {
       void closePanel();
@@ -1354,7 +1362,9 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+
+<ShortcutSheet bind:this={shortcutSheet} />
 
 {#snippet noteEditor()}
   {#if opened}

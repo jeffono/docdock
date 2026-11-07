@@ -9,8 +9,8 @@ import {
   panelSetSide,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
-import { formattingShortcuts } from "../notes/formatting";
 import NoteOrder from "../notes/NoteOrder.svelte";
+import ShortcutList from "../notes/ShortcutList.svelte";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
@@ -38,22 +38,6 @@ async function refreshFolder() {
 onMount(() => {
   void action(refreshFolder);
 });
-const panelShortcuts: [string, MessageKey][] = [
-  ["Ctrl+Alt+Space", "shortcut.global"],
-  ["Ctrl+Tab", "shortcut.mode"],
-  ["↑ / ↓", "shortcut.arrows"],
-  ["Alt+↑ / Alt+↓", "shortcut.direct"],
-  ["Alt+Shift+↑ / Alt+Shift+↓", "shortcut.reorder"],
-  ["PgUp / PgDn", "shortcut.page"],
-  ["→ / ←", "shortcut.level"],
-  ["Enter", "shortcut.enter"],
-  ["Delete", "shortcut.delete"],
-  ["Ctrl+Enter", "shortcut.create"],
-  ["Ctrl+D", "shortcut.pin"],
-  ["Ctrl+E", "shortcut.edit"],
-  ["Ctrl+F", "shortcut.find"],
-  ["Esc", "shortcut.escape"],
-];
 </script>
 
 <svelte:window bind:innerWidth={width} />
@@ -91,19 +75,7 @@ const panelShortcuts: [string, MessageKey][] = [
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
     {:else}
-      <h3>{t("preferences.panelKeys")}</h3>
-      <dl>{#each panelShortcuts as [key, description]}<div><dt>{key}</dt><dd>{t(description)}</dd></div>{/each}</dl>
-      <h3>{t("preferences.editorKeys")}</h3>
-      <dl>
-        {#each formattingShortcuts as shortcut}<div><dt>{shortcut.key?.replaceAll("-", "+").replace(/\b[a-z]\b/g, (key) => key.toUpperCase())}</dt><dd>{t(shortcut.description, { level: shortcut.level })}</dd></div>{/each}
-        <div><dt>Enter / Backspace</dt><dd>{t("shortcut.continue")}</dd></div>
-        <div><dt>Tab / Shift+Tab</dt><dd>{t("shortcut.indent")}</dd></div>
-        <div><dt>Ctrl+;</dt><dd>{t("shortcut.property")}</dd></div>
-        <div><dt>Ctrl+F / Ctrl+H</dt><dd>{t("shortcut.noteFind")}</dd></div>
-        <div><dt>F3 / Shift+F3</dt><dd>{t("shortcut.noteNext")}</dd></div>
-        <div><dt>Ctrl+D</dt><dd>{t("shortcut.occurrence")}</dd></div>
-        <div><dt>Alt+click</dt><dd>{t("shortcut.cursor")}</dd></div>
-      </dl>
+      <ShortcutList />
     {/if}
   </section>
 </section>
@@ -124,8 +96,4 @@ p[role="alert"] { color: var(--color-danger); }
 fieldset { border: 0; padding: 0; margin: var(--space-4) 0; }
 label { display: inline-flex; align-items: center; gap: var(--space-1); margin-right: var(--space-4); }
 input { accent-color: var(--color-accent); }
-dl { margin: 0 0 var(--space-4); font-size: var(--font-size-sm); }
-dl div { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-line); }
-dt { overflow-wrap: anywhere; }
-dd { margin: 0; color: var(--color-muted); }
 </style>
