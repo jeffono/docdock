@@ -19,10 +19,21 @@ use windows::core::{ComObject, HRESULT, HSTRING, PCWSTR, Ref, Result, implement}
 /// where the shell would delete it for good instead: a volume without a Recycle Bin, a file larger
 /// than its limit or a bin set to delete at once. The shell asks nothing and shows no progress.
 pub fn recycle(path: &Path) -> io::Result<()> {
-    let path = HSTRING::from(path);
+    let path = HSTRING::from(shell_path(path));
     // A thread of its own: COM needs an apartment, and the caller's thread may belong to a pool.
     std::thread::scope(|scope| scope.spawn(|| in_apartment(|| recycle_in(&path))).join())
         .unwrap_or_else(|_| Err(io::Error::other("recycling panicked")))
+}
+
+/// The shell parses ordinary paths only: a canonical path's `\\?\` prefix is removed, and
+/// `\\?\UNC\server\share` becomes `\\server\share`.
+fn shell_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    if let Some(share) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{share}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(&path).to_owned()
+    }
 }
 
 fn in_apartment(work: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
@@ -171,5 +182,20 @@ impl IFileOperationProgressSink_Impl for Sink_Impl {
     }
     fn ResumeTimer(&self) -> Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn shell_paths_drop_the_verbatim_prefix() {
+        let cases = [
+            (r"\\?\D:\notes\a.md", r"D:\notes\a.md"),
+            (r"\\?\UNC\server\share\a.md", r"\\server\share\a.md"),
+            (r"D:\notes\a.md", r"D:\notes\a.md"),
+        ];
+        for (path, shell) in cases {
+            assert_eq!(super::shell_path(std::path::Path::new(path)), shell);
+        }
     }
 }
