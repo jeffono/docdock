@@ -264,7 +264,7 @@ local. Web actions use neutral icon rows; all untrusted suggestions appear as te
 ## Note editor
 
 The editor lives in the card being edited, in place of its content; there is no separate note view and
-no floating chrome. The card keeps its header and its button order: the pencil, left of pin, stays
+no separate editor toolbar. The card keeps its header and its button order: the pencil, left of pin, stays
 visible in the accent color while editing (see Header actions), and the small Saving… / Saved status sits in the
 header, left of the actions. The status is absent on conflict or error, whose notices sit at the top
 of the card body, above the text. The editing card has an accent border, and its text keeps the reading body's padding, so
@@ -309,3 +309,11 @@ Inline formatting wraps the selection, unwraps matching markers inside or includ
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
 formatting command is one undo step. Shared checkbox styling and code-block framing keep the same
 appearance in reading and editing.
+
+A compact formatting bar floats above a single non-empty selection, appearing after mouse release
+and hiding during selection dragging, on blur, or while the editor is read-only (including image
+paste). Its icon buttons toggle bold, italic, strike, inline code, heading level 1, bullet list,
+task list and quote, insert a link, or add a frontmatter property. Labels and shortcuts in tooltips
+come from the command bindings, in the interface language. The bar uses the surface, line and control
+tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
+sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.
