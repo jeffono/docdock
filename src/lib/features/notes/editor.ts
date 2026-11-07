@@ -1,4 +1,9 @@
-import { autocompletion, completionStatus } from "@codemirror/autocomplete";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionStatus,
+} from "@codemirror/autocomplete";
 import {
   defaultKeymap,
   history,
@@ -47,6 +52,8 @@ export function editorExtensions(
 ) {
   return [
     autocompletion({ override: [propertyCompletion(tags)], icons: false }),
+    // Default pairs omit Markdown backticks; quotes after word characters stay literal.
+    closeBrackets(),
     markdown({ extensions: markdownExtensions, addKeymap: false, codeLanguages: codeLanguage }),
     syntaxHighlighting(codeHighlighter),
     history(),
@@ -66,6 +73,8 @@ export function editorExtensions(
       },
       { key: "Mod-;", run: addProperty },
       { key: "Enter", run: insertNewlineContinueMarkup },
+      // Empty pairs first; otherwise let Markdown remove list/quote markup.
+      ...closeBracketsKeymap,
       { key: "Backspace", run: deleteMarkupBackward },
       { key: "Tab", run: (view) => inList(view.state) && indentMore(view) },
       { key: "Shift-Tab", run: (view) => inList(view.state) && indentLess(view) },

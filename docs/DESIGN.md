@@ -309,3 +309,8 @@ Inline formatting wraps the selection, unwraps matching markers inside or includ
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
 formatting command is one undo step. Shared checkbox styling and code-block framing keep the same
 appearance in reading and editing.
+
+Typing `(`, `[`, `{`, single or double quotes inserts the closing character; typing that closer
+steps over it. Quotes after word characters stay literal, as in `don't`. Backspace removes an empty
+pair before trying list/quote markup removal. Backticks remain literal for Markdown code fences;
+the inline-code shortcut still wraps a selection or inserts a pair.
