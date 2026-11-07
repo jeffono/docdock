@@ -214,6 +214,7 @@ pinned and unpinned notes differ only in section and starting state.
 | Delete                    | Remove the selected missing pinned item                                                  |
 | Ctrl+Enter                | Create a note with the exact typed text                                                  |
 | Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |
+| Ctrl+/                    | Open / close the shortcut sheet                                                          |
 | Ctrl+E                    | Toggle editing on the selected card                                                      |
 | Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first             |
 | Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
@@ -226,9 +227,12 @@ and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
 General contains the folder path, folder picker, note order, date grouping and panel side; side changes
 mirror the tray. Browser
-shows DuckDuckGo as read-only. Shortcuts lists panel/list keys and derives formatting keys from the
-editor bindings. Appearance shows the panel width, how to resize it and a reset. Folder choice and
-width reset use neutral buttons. The active section has an accessible name without repeating the tab
+shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
+keys, deriving formatting keys from the editor bindings. From anywhere in Notes (including search and editing), Ctrl+/ opens
+a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
+or dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
+previous focus, including the editor cursor. No native popup takes panel focus. Appearance shows
+the panel width, how to resize it and a reset. Folder choice and width reset use neutral buttons. The active section has an accessible name without repeating the tab
 label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
 Notes query so returning to Notes starts with an empty search.
 
@@ -287,6 +291,7 @@ Windows editor shortcuts:
 | Ctrl+Shift+.                                  | Toggle blockquote                                                                          |
 | Enter / Backspace                             | Continue / remove Markdown list or quote markup                                            |
 | Tab / Shift+Tab                               | Indent / outdent list items                                                                |
+| Ctrl+/                                        | Open / close the shortcut sheet                                                            |
 | Ctrl+;                                        | Add a frontmatter property: a new line in the block, created if needed, with keys offered  |
 | Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
 | Ctrl+F / Ctrl+H                               | Find / replace in the note, starting from the selection; Ctrl+F again goes to the bar      |

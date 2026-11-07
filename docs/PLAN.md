@@ -31,7 +31,7 @@ detail each stage when it is next.
 - [x] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
 - [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
   property" (Ctrl+;)
-- [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
+- [x] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
 - [ ] (standard) Close brackets and quotes as they are typed (`closeBrackets` from
   `@codemirror/autocomplete`)
 - [ ] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
