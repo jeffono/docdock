@@ -125,15 +125,16 @@ pinned and unpinned notes differ only in section and starting state.
   returns to a row when closed; there is no separate note view. Opening grows the card from its top
   edge while the entries below slide (translation only, never scaling). An opened card whose end falls
   below the list scrolls into view in twice `--duration`, never pushing its top out.
-- **Renaming:** F2 on the selected card, or in its editor, or a double click on its title, turns the
-  title into a borderless field with the text selected, in place of the title and metadata; the line
-  under the header turns accent instead of a nested focus ring. The first click of a double click
-  toggles at once and is undone by the second, so the card ends as it was. Enter or leaving the
-  field renames; Esc cancels; an empty or unchanged title does nothing. The file name follows the title
-  in the same folder, with " 2" and so on when taken; a frontmatter title changes with it. Renaming
-  from the editor leaves it and enters it again on the new name.
+- **Renaming:** while editing, the card title is a borderless field in place of the title and
+  metadata; when it has focus, the line under the header turns accent instead of a nested focus ring.
+  F2 on the selected card, or in its editor, enters editing with the title selected. Enter, ↓ or Esc
+  (which first restores the title) go on to the text; leaving the field renames, and an empty or
+  unchanged title does nothing. The file name follows the title in the same folder, with " 2" and so
+  on when taken; a frontmatter title changes with it. A double click on the title only opens and
+  closes, as a click does; a double click on the text of a card enters editing.
 - **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
-  the card header or Ctrl+E on the selected card; entering from preview expands the card. One card edits at a time and shows its own save status, conflict and
+  the card header, Ctrl+E on the selected card or a double click on its text; entering from preview
+  expands the card. One card edits at a time and shows its own save status, conflict and
   errors. If the search would hide it, it stays at the top until editing ends. Closing the card,
   expanding another, typing in the search or the panel closing first leave editing, which saves; on a
   conflict or error nothing else happens until it is resolved. The Note editor rules below apply

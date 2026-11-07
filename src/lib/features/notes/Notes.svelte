@@ -191,6 +191,10 @@ export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
   leaving = (async () => {
+    // A title being typed is renamed first, while the editor still holds the note.
+    const field = document.activeElement;
+    if (field instanceof HTMLInputElement && field.closest(".card.editing .rename")) field.blur();
+    await renamingTask;
     const note = await editor?.finish();
     if (!note) return false;
     contents[selected] = note;
@@ -549,38 +553,7 @@ function toggle(card: Card) {
     return;
   }
   const level = card.level === "line" ? deeper(card) : "line";
-  if (!level) return;
-  lastToggle = {
-    path: card.hit.path,
-    level: card.level,
-    editing: editing && selected === card.hit.path,
-    at: performance.now(),
-    done: setLevel(card, level),
-  };
-}
-
-/**
- * The last header toggle. Its first click opens or closes at once, for responsiveness; a double click
- * that follows puts the card back as it was and only starts renaming.
- */
-let lastToggle: {
-  path: string;
-  level: Level;
-  editing: boolean;
-  at: number;
-  done: Promise<void>;
-} | null = null;
-async function renameByDoubleClick(path: string) {
-  const undo = lastToggle;
-  lastToggle = null;
-  if (undo?.path === path && performance.now() - undo.at < 1000) {
-    await undo.done;
-    const card = cardFor(path);
-    if (card && card.level !== undo.level) await setLevel(card, undo.level);
-    if (undo.editing) resumeEditing = path;
-  }
-  const card = cardFor(path);
-  if (card) void rename(card, null);
+  if (level) void setLevel(card, level);
 }
 
 /** Opened cards scroll into view, quickly, while their content renders and grows. */
@@ -666,59 +639,68 @@ async function pinOrUnpin(card: Card, refocus = false) {
   }
 }
 
-/** Note whose card title is a rename field. */
-let renaming = $state("");
-/** Note whose editor a double click closed on its way to renaming; renaming enters it again. */
-let resumeEditing = "";
+/** The rename the title field started, which leaving the editor waits for. */
+let renamingTask: Promise<void> | null = null;
 /**
- * Renames the card's note to `title`. `null` starts the field, or cancels it when it is already open.
- * The editor is left first, so no save under the old name follows the move, and is entered again on
- * the new name. The file name comes from the title; a frontmatter title, which the card shows, changes
- * with it. A conflict (name taken meanwhile, note changed) is retried on a fresh read with the next
- * free name. A rename whose pinned items could not follow still stands.
+ * The title field of the edited card was left with `title`. The file name comes from it, in the same
+ * folder; a frontmatter title, which the card shows, changes with it as an edit of the text. The
+ * editor stays open: it saves first and holds later saves until the move, so none brings the old name
+ * back. A taken name is retried with the next free one. A rename whose pinned items could not follow
+ * still stands.
  */
-async function rename(card: Card, title: string | null) {
+function rename(card: Card, title: string) {
   const from = card.hit.path;
-  if (title === null && renaming !== from) {
-    if (!renaming && !card.url) renaming = from;
-    return;
-  }
-  renaming = "";
-  const wasEditing = (editing && selected === from) || resumeEditing === from;
-  resumeEditing = "";
-  const typed = title?.replace(/\s+/g, " ").trim();
-  if (!typed || typed === card.hit.title) {
-    if (wasEditing && !editing) await edit(from);
-    return;
-  }
-  const follow = async (to: string) => {
-    changed({ renames: from === to ? [] : [[from, to]] });
-    if (wasEditing) await edit(to);
-  };
-  try {
-    error = "";
-    if (!(await leaveEditor())) return;
-    const taken = notes.map((note) => note.path);
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const note = await notesOpen(from);
-      const content = retitle(note.text, typed);
-      const to = renamedPath(from, typed, taken);
-      const shown = content === null ? to.slice(to.lastIndexOf("/") + 1, -3) : typed;
-      try {
-        const result = await notesRename(from, to, content, note.version, [card.hit.title, shown]);
-        if (result.status === "saved") return await follow(to);
-      } catch (e) {
-        if ((e as { code?: string }).code !== "pinnedNotRenamed") throw e;
-        await follow(to);
-        error = errorText(e);
-        return;
-      }
-      taken.push(to);
+  const typed = title.replace(/\s+/g, " ").trim();
+  const current = editor;
+  if (!typed || typed === card.hit.title || !current || !editing || selected !== from) return;
+  const old = card.hit.title;
+  renamingTask = (async () => {
+    try {
+      error = "";
+      await current.rename(
+        (text) => retitle(text, typed),
+        async (version, retitled) => {
+          const taken = notes.map((note) => note.path);
+          for (let attempt = 0; attempt < 50; attempt++) {
+            const to = renamedPath(from, typed, taken);
+            if (to === from) return;
+            const shown = retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
+            try {
+              await notesRename(from, to, version, [old, shown]);
+              changed({ renames: [[from, to]] });
+              return;
+            } catch (e) {
+              const code = (e as { code?: string }).code;
+              if (code === "pinnedNotRenamed") {
+                changed({ renames: [[from, to]] });
+                error = errorText(e);
+                return;
+              }
+              if (code !== "renameConflict") throw e;
+            }
+            taken.push(to);
+          }
+          throw { code: "saveFailed", detail: typed };
+        },
+      );
+    } catch (e) {
+      error = errorText(e);
     }
-    error = errorText({ code: "saveFailed", detail: typed });
-  } catch (e) {
-    error = errorText(e);
+  })().finally(() => {
+    renamingTask = null;
+  });
+}
+
+/** F2: the title field of the note's editor, opening it if needed, with the title selected. */
+async function editTitle(path: string) {
+  if (!(editing && selected === path)) {
+    if (!(await leaveEditor())) return;
+    await edit(path);
   }
+  await tick();
+  const input = list?.querySelector<HTMLInputElement>(".card.editing .rename input");
+  input?.focus();
+  input?.select();
 }
 
 let reordering = false;
@@ -1235,10 +1217,10 @@ function shortcut(event: KeyboardEvent) {
   }
   const plain = !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
   if (!browser && plain && key === "f2" && (!field || inEditor)) {
-    const card = cardFor(inEditor ? selected : active);
-    if (!card || card.url) return;
+    const path = inEditor ? selected : cardFor(active)?.hit.path;
+    if (!path || cardFor(path)?.url) return;
     event.preventDefault();
-    void rename(card, null);
+    void editTitle(path);
     return;
   }
   if (ctrl && key === "f" && !field) {
@@ -1417,8 +1399,7 @@ onMount(() => {
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
             onrename={(title) => rename(card, title)}
-            onrenamestart={() => renameByDoubleClick(card.hit.path)}
-            renaming={renaming === card.hit.path}
+            ontitledone={() => editor?.focus()}
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}
             onpin={() => pinOrUnpin(card)}

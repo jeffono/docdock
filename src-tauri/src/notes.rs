@@ -579,70 +579,47 @@ pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Resu
 }
 /// Renames the note `from` to `to`, in the same folder, never over another file: a taken name answers
 /// `Conflict`, as does a note that no longer holds `base`. A case-only change renames the same file.
-/// `content`, when given, then replaces the note at its new name against `base` (a new frontmatter
-/// title); if an external write slipped in there, the note stays renamed with that write. Pinned items
-/// of `from` follow it, even if writing `content` failed; `title` is the old and new title for their
-/// link text. If they cannot, the answer is `PinnedNotRenamed`: the note is renamed all the same.
+/// Pinned items of `from` follow it; `title` is the old and new title for their link text. If they
+/// cannot, the answer is `PinnedNotRenamed`: the note is renamed all the same.
 fn rename_note_in(
     root: &Path,
     from: &str,
     to: &str,
-    content: Option<&str>,
     base: &str,
     title: (&str, &str),
-) -> Result<Saved, Error> {
+) -> Result<(), Error> {
     let (source, target) = (checked(from, markdown)?, checked(to, markdown)?);
     let pinned = |path: &Path| path.as_os_str().eq_ignore_ascii_case(PINNED);
     if source.parent() != target.parent() || pinned(source) || pinned(target) {
         return Err(Error::InvalidPath);
     }
-    if let Some(content) = content {
-        too_large(content.len() as u64)?;
-    }
-    let written = {
+    {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let source = resolve(root, from, markdown)?;
         let parent = source.parent().ok_or(Error::InvalidPath)?;
         let _held = hold_ancestry(parent)?;
-        let current = read_bytes(&source)?;
-        if version(&current) != base {
-            return Ok(Saved::Conflict);
+        if version(&read_bytes(&source)?) != base {
+            return Err(Error::RenameConflict);
         }
         let target = parent.join(target.file_name().ok_or(Error::InvalidPath)?);
-        if target != source {
-            // Without replacing, `MoveFileExW` refuses a taken name and allows a case-only change.
-            if let Err(error) = platform::move_new(&source, &target) {
-                let taken = exists(&target) && !same_name(&source, &target);
-                return if taken {
-                    Ok(Saved::Conflict)
-                } else {
-                    Err(error.into())
-                };
-            }
+        // Without replacing, `MoveFileExW` refuses a taken name and allows a case-only change.
+        if target != source
+            && let Err(error) = platform::move_new(&source, &target)
+        {
+            return Err(if exists(&target) && !same_name(&source, &target) {
+                Error::RenameConflict
+            } else {
+                error.into()
+            });
         }
-        match content {
-            Some(content) if content.as_bytes() != current => {
-                replace_note(&target, content.as_bytes(), base)
-            }
-            _ => Ok(Saved::Saved {
-                version: version(&current),
-            }),
-        }
-    };
+    }
     // The move happened: a failure here must say so, since `from` no longer exists to retry.
     edit_pinned(root, |text| pinned::rename(text, from, to, title)).map_err(|error| {
         eprintln!("[rename] pinned items not renamed: {error:?}");
         Error::PinnedNotRenamed {
             path: to.to_owned(),
         }
-    })?;
-    match written? {
-        // The rename stands even when the new title lost to an external write.
-        Saved::Conflict => Ok(Saved::Saved {
-            version: version(&read_bytes(&resolve(root, to, markdown)?)?),
-        }),
-        saved => Ok(saved),
-    }
+    })
 }
 /// Windows compares names ignoring case.
 fn same_name(a: &Path, b: &Path) -> bool {
@@ -652,23 +629,19 @@ pub fn rename_note(
     app: &AppHandle,
     from: &str,
     to: &str,
-    content: Option<&str>,
     base: &str,
     title: (&str, &str),
-) -> Result<Saved, Error> {
-    let saved = rename_note_in(&root(app)?, from, to, content, base, title)?;
-    if let Saved::Saved { .. } = saved {
-        update(app, |settings| {
-            let before = settings.collapsed.len();
-            settings
-                .collapsed
-                .retain(|target| target.to_lowercase() != from.to_lowercase());
-            if settings.collapsed.len() != before {
-                settings.collapsed.insert(to.to_owned());
-            }
-        })?;
-    }
-    Ok(saved)
+) -> Result<(), Error> {
+    rename_note_in(&root(app)?, from, to, base, title)?;
+    update(app, |settings| {
+        let before = settings.collapsed.len();
+        settings
+            .collapsed
+            .retain(|target| target.to_lowercase() != from.to_lowercase());
+        if settings.collapsed.len() != before {
+            settings.collapsed.insert(to.to_owned());
+        }
+    })
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1497,19 +1470,16 @@ mod tests {
     fn no_collapsed() -> BTreeSet<String> {
         BTreeSet::new()
     }
-    fn rename(root: &Path, from: &str, to: &str, content: Option<&str>) -> Result<Saved, Error> {
+    fn rename(root: &Path, from: &str, to: &str) -> Result<(), Error> {
         let base = version(&fs::read(root.join(from)).unwrap());
-        rename_note_in(root, from, to, content, &base, ("A", "B"))
+        rename_note_in(root, from, to, &base, ("A", "B"))
     }
     #[test]
     fn renaming_never_takes_an_existing_name() {
         let t = Temp::new();
         fs::write(t.0.join("a.md"), "a").unwrap();
         fs::write(t.0.join("b.md"), "b").unwrap();
-        assert!(matches!(
-            rename(&t.0, "a.md", "B.md", None),
-            Ok(Saved::Conflict)
-        ));
+        assert_eq!(rename(&t.0, "a.md", "B.md"), Err(Error::RenameConflict));
         assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "a");
         assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "b");
     }
@@ -1519,26 +1489,32 @@ mod tests {
         fs::write(t.0.join("a.md"), "a").unwrap();
         let base = version(b"a");
         fs::write(t.0.join("a.md"), "external").unwrap();
-        let renamed = rename_note_in(&t.0, "a.md", "b.md", Some("ours"), &base, ("A", "B"));
-        assert!(matches!(renamed, Ok(Saved::Conflict)));
+        let renamed = rename_note_in(&t.0, "a.md", "b.md", &base, ("A", "B"));
+        assert_eq!(renamed, Err(Error::RenameConflict));
         assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "external");
         assert!(!exists(&t.0.join("b.md")));
     }
     #[test]
-    fn renaming_moves_the_note_with_its_new_title_and_its_pinned_items() {
+    fn renaming_moves_the_note_and_its_pinned_items() {
         let t = Temp::new();
         let (root, _) = pinned_setup(&t);
         fs::create_dir(root.join("sub")).unwrap();
-        fs::write(root.join("sub/a.md"), "---\ntitle: A\n---\nbody").unwrap();
-        fs::write(root.join(PINNED), "- [A](sub/a.md)\n- [C](c.md)\n").unwrap();
-        let content = "---\ntitle: B\n---\nbody";
-        let renamed = rename(&root, "sub/a.md", "sub/B.md", Some(content));
-        assert!(matches!(renamed, Ok(Saved::Saved { .. })));
+        fs::write(root.join("sub/a.md"), "body").unwrap();
+        fs::write(
+            root.join(PINNED),
+            "- [A](sub/a.md)
+- [C](c.md)
+",
+        )
+        .unwrap();
+        assert_eq!(rename(&root, "sub/a.md", "sub/B.md"), Ok(()));
         assert!(!exists(&root.join("sub/a.md")));
-        assert_eq!(fs::read_to_string(root.join("sub/B.md")).unwrap(), content);
+        assert_eq!(fs::read_to_string(root.join("sub/B.md")).unwrap(), "body");
         assert_eq!(
             fs::read_to_string(root.join(PINNED)).unwrap(),
-            "- [B](sub/B.md)\n- [C](c.md)\n"
+            "- [B](sub/B.md)
+- [C](c.md)
+"
         );
     }
     #[test]
@@ -1547,18 +1523,20 @@ mod tests {
         fs::write(t.0.join("a.md"), "a").unwrap();
         // A folder under the pinned name cannot be read or written as the list.
         fs::create_dir(t.0.join(PINNED)).unwrap();
-        let renamed = rename(&t.0, "a.md", "b.md", None);
-        assert!(matches!(renamed, Err(Error::PinnedNotRenamed { path }) if path == "b.md"));
+        let renamed = rename(&t.0, "a.md", "b.md");
+        assert_eq!(
+            renamed,
+            Err(Error::PinnedNotRenamed {
+                path: "b.md".into()
+            })
+        );
         assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "a");
     }
     #[test]
     fn renaming_only_the_case_keeps_the_same_file() {
         let t = Temp::new();
         fs::write(t.0.join("note.md"), "text").unwrap();
-        assert!(matches!(
-            rename(&t.0, "note.md", "Note.md", None),
-            Ok(Saved::Saved { .. })
-        ));
+        assert_eq!(rename(&t.0, "note.md", "Note.md"), Ok(()));
         let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
         assert_eq!(paths, ["Note.md"]);
     }
@@ -1568,8 +1546,7 @@ mod tests {
         fs::create_dir(t.0.join("sub")).unwrap();
         fs::write(t.0.join("a.md"), "a").unwrap();
         for to in ["sub/a.md", "../a.md", "_PINNED.md", "a.txt"] {
-            let refused = rename(&t.0, "a.md", to, None);
-            assert!(matches!(refused, Err(Error::InvalidPath)), "{to}");
+            assert_eq!(rename(&t.0, "a.md", to), Err(Error::InvalidPath), "{to}");
         }
         assert!(exists(&t.0.join("a.md")));
     }

@@ -110,6 +110,8 @@ function autosave(version: string) {
   return createAutosave({
     version,
     save: async (text, base) => {
+      // A rename in progress holds saves, which then go to the new name.
+      while (holding) await holding;
       const result = await notesSave(path, text, deleted ? "" : base);
       if (result.status === "saved") deleted = false;
       return result;
@@ -145,6 +147,35 @@ const extensions = () => [
     t("editor.label"),
   ),
 ];
+
+let holding: Promise<void> | null = null;
+/**
+ * Renames the note while it stays editable. `change` may rewrite the text first (a new frontmatter
+ * title), saved as one undo step. With everything saved, later saves wait while `move` runs with the
+ * version on disk, so none can bring the old name back; `move` calls `moved` on success. Typing goes
+ * on meanwhile. Returns false, having done nothing, when the note cannot be saved first.
+ */
+export async function rename(
+  change: (text: string) => string | null,
+  move: (version: string, changed: boolean) => Promise<void>,
+): Promise<boolean> {
+  if (resolving || pasting || deleted || holding) return false;
+  const next = change(raw);
+  if (view && next !== null && next !== raw) view.dispatch(diskReload(view.state, next));
+  if ((await saving.flush()) !== "saved" || holding) return false;
+  let release = () => {};
+  holding = new Promise((resolve) => {
+    release = resolve;
+  });
+  try {
+    const disk = await notesOpen(path);
+    await move(disk.version, next !== null);
+    return true;
+  } finally {
+    holding = null;
+    release();
+  }
+}
 
 export async function finish(): Promise<OpenNote | null> {
   if (resolving) return null;

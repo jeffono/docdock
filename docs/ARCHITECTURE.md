@@ -270,16 +270,18 @@ goes to disk exactly as received, without touching line endings. Saves are seria
 check is confirmed against the version actually replaced, so an external write that slips in is never
 overwritten.
 
-**Renaming.** `notes_rename(from, to, content, base, title)` moves a note to another name in the same
-folder under the save lock, with its folders held, only if it still has version `base`; `move_new`
-refuses a taken name, which answers `conflict`, and allows a case-only change of the same file. The UI
-leaves the editor first, so no save under the old name brings it back, and picks the name as for a new
-note (`renamedPath`); on a conflict it reads again and tries the next free name. A note whose card shows
-a frontmatter title also gets `content`, that text with only the title line changed (`retitle`),
-written at the new name against `base`. Pinned items of the note then point at the new path, keeping a
-`#fragment` and the rest of their line; their link text follows only while it is still the old title. If
-`_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the rename stands. Links in other
-notes are not rewritten. The watcher reports the move as a rename, as for an external one.
+**Renaming.** `notes_rename(from, to, base, title)` moves a note to another name in the same folder
+under the save lock, with its folders held, only if it still has version `base`; `move_new` refuses a
+taken name, which fails with `renameConflict`, and allows a case-only change of the same file. Renaming
+happens only from the editor's title field, which stays open: `Editor.rename` first applies a new
+frontmatter title as an edit of the text (`retitle`, one undo step), saves everything, then holds later
+saves while the move runs, so none goes to the old name; once `moved` gives the editor the new path,
+they continue there. Leaving the editor waits for a rename in progress. The UI picks the name as for a
+new note (`renamedPath`) and tries the next free one on a conflict. Pinned items of the note then point
+at the new path, keeping a `#fragment` and the rest of their line; their link text follows only while
+it is still the old title. If `_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the
+rename stands. Links in other notes are not rewritten. The watcher reports the move as a rename, as for
+an external one.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
