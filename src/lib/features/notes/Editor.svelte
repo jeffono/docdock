@@ -142,7 +142,9 @@ const extensions = () => [
   ...editorExtensions(
     onleave,
     (focused) => {
-      if (!focused) void saving.flush();
+      // Deferred: moving the card in the DOM blurs the editor during a Svelte update, where changing
+      // state throws and would leave the save half started.
+      if (!focused) queueMicrotask(() => void saving.flush());
     },
     t("editor.label"),
   ),

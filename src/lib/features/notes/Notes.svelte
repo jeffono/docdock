@@ -710,6 +710,23 @@ let dragImageCaptured = $state(false);
 let animationDuration = $state(0);
 let dropping = false;
 let dragLayout: { keys: string[]; heights: number[]; top: number; scroll: number } | null = null;
+// Moving a row in the DOM drops the focus inside it, as when a renamed note takes its new place in
+// the order: the edited card's focus, in its title field or editor, comes back after the move.
+let movedFocus: HTMLElement | null = null;
+$effect.pre(() => {
+  void listRows;
+  const focused = document.activeElement;
+  movedFocus = focused instanceof HTMLElement && focused.closest(".card.editing") ? focused : null;
+});
+$effect(() => {
+  void listRows;
+  const focused = movedFocus;
+  movedFocus = null;
+  if (!focused?.isConnected || document.activeElement !== document.body) return;
+  // The editor lives in a shadow root, whose host is what the document reports as focused.
+  if (focused.classList.contains("surface")) editor?.focus();
+  else focused.focus({ preventScroll: true });
+});
 function overPin(event: DragEvent) {
   if (!dragged || !dragLayout || editing || !list) return;
   const { keys, heights, top, scroll } = dragLayout;
