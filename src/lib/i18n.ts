@@ -6,6 +6,9 @@ const en = {
   "group.hint": "Available when ordering by modified or created date. Your choice is kept.",
   "group.scope":
     "Group unfiltered Notes by the selected date. Pinned items and search results stay unchanged.",
+  "group.folder": "Group by folder",
+  "group.folderScope":
+    "Group unfiltered Notes by folder, keeping the order within each. Pinned items and search results stay unchanged.",
   "group.today": "Today",
   "group.yesterday": "Yesterday",
   "group.week": "Previous 7 days",
@@ -155,6 +158,9 @@ const ptBR: Record<MessageKey, string> = {
   "group.hint": "Disponível ao ordenar por modificação ou criação. Sua escolha é mantida.",
   "group.scope":
     "Agrupar Notas sem filtro pela data escolhida. Fixados e resultados da busca não mudam.",
+  "group.folder": "Agrupar por pasta",
+  "group.folderScope":
+    "Agrupar Notas sem filtro por pasta, mantendo a ordem dentro de cada uma. Fixados e resultados da busca não mudam.",
   "group.today": "Hoje",
   "group.yesterday": "Ontem",
   "group.week": "7 dias anteriores",

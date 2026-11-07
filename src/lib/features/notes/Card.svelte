@@ -3,6 +3,7 @@ import type { Snippet } from "svelte";
 import { date, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import { folderOf } from "./grouping";
 import Highlight from "./Highlight.svelte";
 import { type Card, fileLabel, pageHost } from "./list";
 import { renderNote } from "./render";
@@ -25,6 +26,7 @@ let {
   editing = false,
   status = "",
   editor,
+  folder = false,
 }: {
   card: Card;
   drag?: (element: HTMLElement) => () => void;
@@ -51,6 +53,8 @@ let {
   status?: string;
   /** The editor, drawn in place of the content while editing. */
   editor?: Snippet;
+  /** Shows the note's folder before its title, unless a folder group already names it. */
+  folder?: boolean;
 } = $props();
 
 const open = $derived(card.level !== "line");
@@ -92,6 +96,7 @@ function bodyDoubleClick(event: MouseEvent) {
 
 const tags = $derived(card.hit.tags);
 const file = $derived(card.url ? null : fileLabel(card.hit.path, card.hit.title));
+const prefix = $derived(folder ? folderOf(card.hit.path) : "");
 
 // While editing, the title is a field; leaving it renames. It follows the note while not focused.
 let title = $state("");
@@ -146,7 +151,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
     {/if}
     <!-- Hidden rather than removed: pinned drag is attached to this button. -->
     <button tabindex="-1" class="head" hidden={editing} onclick={onheader}>
-      <span class="title">{card.hit.title}{#if file}<small class="file">{file}</small>{/if}</span>
+      <span class="title">{#if prefix}<small class="folder">{prefix}/</small>{/if}{card.hit.title}{#if file}<small class="file">{file}</small>{/if}</span>
       <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}
       {#if tags.length > 0}
@@ -374,10 +379,15 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 
   .file {
     margin-left: var(--space-2);
+  }
+
+  .folder,
+  .file {
     font-weight: normal;
   }
 
   .date,
+  .folder,
   .file,
   .tag,
   .status {

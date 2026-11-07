@@ -44,6 +44,9 @@ struct Settings {
     note_order: NoteOrder,
     #[serde(default, deserialize_with = "bool_or_default")]
     group_by_date: bool,
+    /// Wins over `group_by_date`; two flags keep settings written before folder grouping valid.
+    #[serde(default, deserialize_with = "bool_or_default")]
+    group_by_folder: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
     #[serde(default, deserialize_with = "side_or_default")]
@@ -82,11 +85,32 @@ pub fn set_note_order(app: &AppHandle, order: NoteOrder) -> Result<(), Error> {
 fn bool_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
     Ok(bool::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
-pub fn group_by_date(app: &AppHandle) -> Result<bool, Error> {
-    Ok(load(&config(app)?).group_by_date)
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Grouping {
+    None,
+    Date,
+    Folder,
 }
-pub fn set_group_by_date(app: &AppHandle, enabled: bool) -> Result<(), Error> {
-    update(app, |settings| settings.group_by_date = enabled)
+impl Settings {
+    fn grouping(&self) -> Grouping {
+        if self.group_by_folder {
+            Grouping::Folder
+        } else if self.group_by_date {
+            Grouping::Date
+        } else {
+            Grouping::None
+        }
+    }
+}
+pub fn grouping(app: &AppHandle) -> Result<Grouping, Error> {
+    Ok(load(&config(app)?).grouping())
+}
+pub fn set_grouping(app: &AppHandle, grouping: Grouping) -> Result<(), Error> {
+    update(app, |settings| {
+        settings.group_by_date = grouping == Grouping::Date;
+        settings.group_by_folder = grouping == Grouping::Folder;
+    })
 }
 /// An unknown side must not make the folder unreadable.
 fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
@@ -1461,10 +1485,19 @@ mod tests {
                 r#"{{"folder":"notes","note_order":"created-asc","group_by_date":{value}}}"#
             ))
             .unwrap();
-            assert!(!settings.group_by_date);
+            assert_eq!(settings.grouping(), Grouping::None);
             assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
             assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         }
+    }
+    #[test]
+    fn folder_grouping_wins_and_older_settings_keep_date_grouping() {
+        let read = |json: &str| serde_json::from_str::<Settings>(json).unwrap().grouping();
+        assert_eq!(read(r#"{"group_by_date":true}"#), Grouping::Date);
+        assert_eq!(
+            read(r#"{"group_by_date":true,"group_by_folder":true}"#),
+            Grouping::Folder
+        );
     }
     /// A notes folder and a separate place for the copy of `_pinned.md`.
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {

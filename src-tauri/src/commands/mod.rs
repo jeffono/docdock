@@ -242,12 +242,12 @@ pub fn notes_set_order(app: AppHandle, order: crate::notes::NoteOrder) -> Result
     crate::notes::set_note_order(&app, order)
 }
 #[tauri::command]
-pub fn notes_group_by_date(app: AppHandle) -> Result<bool, Error> {
-    crate::notes::group_by_date(&app)
+pub fn notes_grouping(app: AppHandle) -> Result<crate::notes::Grouping, Error> {
+    crate::notes::grouping(&app)
 }
 #[tauri::command]
-pub fn notes_set_group_by_date(app: AppHandle, enabled: bool) -> Result<(), Error> {
-    crate::notes::set_group_by_date(&app, enabled)
+pub fn notes_set_grouping(app: AppHandle, grouping: crate::notes::Grouping) -> Result<(), Error> {
+    crate::notes::set_grouping(&app, grouping)
 }
 #[tauri::command]
 pub fn pinned_move(

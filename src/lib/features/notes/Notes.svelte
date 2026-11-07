@@ -54,7 +54,7 @@ import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
-import { dateHeadings } from "./grouping";
+import { byFolder, dateHeadings, folderHeadings } from "./grouping";
 import {
   arrowScroll,
   buildList,
@@ -77,7 +77,7 @@ import {
 import { retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
-import { groupByDate, noteOrder } from "./order-store";
+import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { noteName } from "./render";
 import { FolderIndex, isPinnedList, search } from "./search";
@@ -307,7 +307,11 @@ const kept = $derived.by(() => {
 });
 const model = $derived(
   buildList({
-    hits: orderHits(results.hits, notes, $noteOrder, query),
+    hits: byFolder(
+      orderHits(results.hits, notes, $noteOrder, query),
+      $grouping === "folder",
+      query,
+    ),
     exactTitle: results.exactTitle,
     query,
     pinned: pinned.items,
@@ -318,15 +322,23 @@ const model = $derived(
 );
 let groupingDate = $state(new Date());
 const headings = $derived(
-  dateHeadings(
-    model.notes.map((card) => card.hit),
-    notes,
-    $noteOrder,
-    $groupByDate,
-    query,
-    groupingDate,
-  ),
+  $grouping === "folder"
+    ? folderHeadings(
+        model.notes.map((card) => card.hit),
+        true,
+        query,
+      )
+    : dateHeadings(
+        model.notes.map((card) => card.hit),
+        notes,
+        $noteOrder,
+        $grouping === "date",
+        query,
+        groupingDate,
+      ),
 );
+/** Folder groups already name the folder; elsewhere each card shows it before its title. */
+const showFolder = $derived($grouping !== "folder" || query.trim() !== "");
 const previewModel = $derived.by(() => {
   const source = dragged?.target;
   if (!source || !dragOver || pinned.version !== dragged?.base) return model;
@@ -1426,11 +1438,13 @@ onMount(() => {
         <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:slide>
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
-        {:else if "dateGroup" in row}
-          <h2>{row.dateGroup.kind === "calendarMonth"
-            ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(row.dateGroup.date)
-            : row.dateGroup.kind === "year" ? new Date(row.dateGroup.date).getFullYear()
-            : t(`group.${row.dateGroup.kind}`)}</h2>
+        {:else if "group" in row}
+          {@const group = row.group}
+          <h2>{"folder" in group ? group.folder
+            : group.kind === "calendarMonth"
+            ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(group.date)
+            : group.kind === "year" ? new Date(group.date).getFullYear()
+            : t(`group.${group.kind}`)}</h2>
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
@@ -1460,6 +1474,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
+            folder={showFolder || card.pinned}
             drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}

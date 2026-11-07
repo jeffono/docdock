@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2: folder search, renaming, automatic names and frontmatter done; next, folder prefixes and
-  grouping. Folder moving remains deferred.
+- M4.2: folder prefixes and grouping on `folder-groups`, awaiting review and manual check; this
+  closes M4.2. Folder moving remains deferred.
 
 ## Completed
 
@@ -34,7 +34,7 @@ other notes are not rewritten. A tree view is out of scope.
   top H1, else the first words (about 60 characters)
 - [x] (standard) Frontmatter: the title field writes the title the file name cannot hold; key and
   tag completion in the raw block; Ctrl+; adds a property
-- [ ] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder
+- [x] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder
   as an alternative to grouping by date
 - [ ] (standard) Later: move to a folder through a picker that can create it; delete only empty folders
   or to the Recycle Bin

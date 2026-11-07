@@ -1,13 +1,13 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { errorText, t } from "../../i18n";
-import { type NoteOrder, noteOrders } from "../../ipc";
+import { type Grouping, type NoteOrder, noteOrders } from "../../ipc";
 import {
-  groupByDate,
+  grouping,
   loadNoteOrder,
   noteOrder,
   noteOrderBusy,
-  setGroupByDate,
+  setGrouping,
   setNoteOrder,
 } from "./order-store";
 
@@ -36,12 +36,13 @@ function show(last = false) {
     : (menu.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? items[0])
   )?.focus();
 }
-async function change(order?: NoteOrder) {
+/** Each grouping item toggles itself; checking one clears the other. */
+async function change(order?: NoteOrder, group?: Grouping) {
   close();
   error = "";
   try {
     if (order) await setNoteOrder(order);
-    else await setGroupByDate(!$groupByDate);
+    else if (group) await setGrouping($grouping === group ? "none" : group);
   } catch (e) {
     error = errorText(e);
   }
@@ -88,10 +89,13 @@ function menuKey(event: KeyboardEvent) {
       {/each}
     </div>
     <hr />
-    <button role="menuitemcheckbox" aria-checked={$groupByDate} disabled={byName} aria-describedby={byName ? `${id}-hint` : undefined} title={t(byName ? "group.hint" : "group.scope")} tabindex="-1" onclick={() => change()}>
-      <span class="check" aria-hidden="true">{$groupByDate ? "✓" : ""}</span>{t("group.label")}
+    <button role="menuitemcheckbox" aria-checked={$grouping === "date"} disabled={byName} aria-describedby={byName ? `${id}-hint` : undefined} title={t(byName ? "group.hint" : "group.scope")} tabindex="-1" onclick={() => change(undefined, "date")}>
+      <span class="check" aria-hidden="true">{$grouping === "date" ? "✓" : ""}</span>{t("group.label")}
     </button>
     {#if byName}<p id={`${id}-hint`}>{t("group.hint")}</p>{/if}
+    <button role="menuitemcheckbox" aria-checked={$grouping === "folder"} title={t("group.folderScope")} tabindex="-1" onclick={() => change(undefined, "folder")}>
+      <span class="check" aria-hidden="true">{$grouping === "folder" ? "✓" : ""}</span>{t("group.folder")}
+    </button>
   </div>
   {#if error}<span class="error" role="alert">{error}</span>{/if}
 </div>

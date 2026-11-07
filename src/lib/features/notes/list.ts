@@ -1,7 +1,7 @@
 // The note list as a pure model: which cards and rows exist, in which order, and what each keyboard
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
-import type { DateGroup } from "./grouping";
+import type { DateGroup, FolderGroup } from "./grouping";
 import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
@@ -116,7 +116,7 @@ export function buildList(input: {
 
 export type Row =
   | { key: string; heading: "pinned" | "notes" }
-  | { key: string; dateGroup: DateGroup }
+  | { key: string; group: DateGroup | FolderGroup }
   | { key: string; entry: Card | Missing };
 
 /**
@@ -127,7 +127,7 @@ export type Row =
 export function rows(
   model: ListModel,
   editing: string,
-  headings: ReadonlyMap<string, DateGroup> = new Map(),
+  headings: ReadonlyMap<string, DateGroup | FolderGroup> = new Map(),
 ): Row[] {
   const key = (entry: Card | Missing) =>
     isMissing(entry)
@@ -140,9 +140,9 @@ export function rows(
     ...model.pinned.map((entry) => ({ key: key(entry), entry })),
     ...(model.notes.length ? [{ key: "heading:notes", heading: "notes" as const }] : []),
     ...model.notes.flatMap((entry): Row[] => {
-      const dateGroup = headings.get(entry.hit.path);
+      const group = headings.get(entry.hit.path);
       return [
-        ...(dateGroup ? [{ key: `date:${dateGroup.key}:${entry.hit.path}`, dateGroup }] : []),
+        ...(group ? [{ key: `group:${group.key}:${entry.hit.path}`, group }] : []),
         { key: key(entry), entry },
       ];
     }),
