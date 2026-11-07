@@ -34,7 +34,7 @@ detail each stage when it is next.
 - [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
 - [x] (standard) Close brackets and quotes as they are typed (`closeBrackets` from
   `@codemirror/autocomplete`)
-- [ ] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
+- [x] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
   them where the intent is unambiguous, such as on leaving the note, else mark the line quietly; never
   rewrite text the user is still typing
 - [x] (basic) Theme in Preferences > Appearance: system (default), light or dark

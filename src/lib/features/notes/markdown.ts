@@ -287,6 +287,119 @@ export function yamlValue(text: string): string {
   return plain ? text : quoteYaml(text);
 }
 
+/** Split a flat flow list without splitting commas inside quoted scalars. */
+function tagItems(text: string): string[] | null {
+  const items: string[] = [];
+  let start = 0;
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === "\\" && quote === '"') i++;
+      else if (c === quote) {
+        if (quote === "'" && text[i + 1] === "'") i++;
+        else quote = "";
+      }
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === ",") {
+      items.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  if (quote) return null;
+  items.push(text.slice(start));
+  return items;
+}
+
+/** Undefined means valid; null means ambiguous. Only plain word lists and flow colon items repair. */
+function tagRepair(value: string): string | null | undefined {
+  if (!value || scalar(value) !== null) return undefined;
+  const words = /^[\p{L}\p{N}_-]+(?:[ \t]+[\p{L}\p{N}_-]+)*$/u;
+  if (!value.startsWith("[")) {
+    const items = value.split(",").map((item) => item.trim());
+    return items.length > 1 && items.every((item) => words.test(item))
+      ? `[${items.map(yamlValue).join(", ")}]`
+      : null;
+  }
+  if (!value.endsWith("]")) return null;
+  const inner = value.slice(1, -1);
+  if (!inner.trim()) return undefined;
+  const items = tagItems(inner);
+  if (!items) return null;
+  let changed = false;
+  const repaired: string[] = [];
+  for (const [index, item] of items.entries()) {
+    // YAML permits a trailing comma in a flow list.
+    if (!item.trim() && index === items.length - 1 && index > 0) {
+      repaired.push(item);
+      continue;
+    }
+    if (scalar(item) !== null) repaired.push(item);
+    else {
+      const bare = item.trim();
+      const parts = bare.split(": ");
+      if (parts.length !== 2 || !parts.every((part) => words.test(part))) return null;
+      repaired.push(item.replace(bare, quoteYaml(bare)));
+      changed = true;
+    }
+  }
+  return changed ? `[${repaired.join(",")}]` : undefined;
+}
+
+export type TagProblem = { line: number; replacement: string | null };
+
+/** Problems only in a closed leading block. Duplicate keys and unsupported structures stay raw. */
+export function tagProblems(line: (n: number) => string, lines: number): TagProblem[] {
+  const bare = (n: number) => (n === 1 ? line(n).replace(/^\uFEFF/, "") : line(n));
+  const meta = frontmatter(bare, lines);
+  if (!meta) return [];
+  const keys: number[] = [];
+  for (let n = 2; n < meta.end; n++) if (/^tags?:/.test(bare(n))) keys.push(n);
+  if (keys.length > 1) return keys.map((line) => ({ line, replacement: null }));
+  const problems: TagProblem[] = [];
+  let inTags = false;
+  for (let n = 2; n < meta.end; n++) {
+    const text = bare(n);
+    const key = text.match(/^(tags?:[ \t]*)(.*?)([ \t]*)$/);
+    if (key) {
+      inTags = !key[2];
+      if (key[2]) {
+        let continuation = n + 1;
+        while (continuation < meta.end && /^\s*(?:#.*)?$/.test(bare(continuation))) continuation++;
+        if (continuation < meta.end && /^\s/.test(bare(continuation))) {
+          problems.push({ line: n, replacement: null });
+          continue;
+        }
+      }
+      const repaired = tagRepair(key[2]);
+      if (repaired !== undefined)
+        problems.push({
+          line: n,
+          replacement: repaired === null ? null : key[1] + repaired + key[3],
+        });
+    } else if (text.trim() && !/^\s*#/.test(text)) {
+      if (!/^\s/.test(text)) inTags = false;
+      else if (inTags) {
+        const item = text.match(/^\s+- (.*)$/);
+        if (!item || scalar(item[1]) === null) problems.push({ line: n, replacement: null });
+      }
+    }
+  }
+  return problems;
+}
+
+/** Repair only certain tag intent, preserving every other byte, including BOM and mixed endings. */
+export function repairTags(text: string): string {
+  const lines = text.split(/(?<=\r\n|\n|\r(?!\n))/);
+  const bare = (n: number) => lines[n - 1].replace(/\r?\n$|\r$/, "");
+  for (const problem of tagProblems(bare, lines.length)) {
+    if (problem.replacement === null) continue;
+    const ending = lines[problem.line - 1].slice(bare(problem.line).length);
+    lines[problem.line - 1] = problem.replacement + ending;
+  }
+  return lines.join("");
+}
+
 /** Only absolute HTTP(S) metadata offers a page action. Rust validates again. */
 export function pageUrl(value: string | null): string | null {
   if (!value || !/^https?:\/\//i.test(value)) return null;
@@ -329,7 +442,7 @@ export function frontmatter(line: (n: number) => string, lines: number): Frontma
     else {
       inTags = !match[2];
       const list = match[2].match(/^\[(.*)\]$/);
-      tags = (list ? (list[1].match(/(?:"[^"]*"|'[^']*'|[^,])+/g) ?? []) : [match[2]])
+      tags = (list ? (tagItems(list[1]) ?? []) : [match[2]])
         .map(scalar)
         .filter((v): v is string => v !== null);
     }

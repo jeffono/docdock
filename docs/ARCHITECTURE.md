@@ -344,7 +344,11 @@ one undoable text transaction and respect read-only state. Image widgets use the
 traversal and segment encoding rules as the `note-asset` protocol; they never insert HTML. A StateField supplies
 the block frontmatter replacement (title and tags); clicking or keyboard-activating it reveals the
 framed raw block. `properties.ts` completes keys and the folder's tags inside that block
-(`@codemirror/autocomplete`) and adds a property line with Ctrl+;. `note-search.ts` gives `@codemirror/search` its own
+(`@codemirror/autocomplete`) and adds a property line with Ctrl+;. Pure tag repair and diagnostic
+rules live in `markdown.ts`; `tag-diagnostics.ts` marks unreadable lines only in closed frontmatter.
+On leave, `Editor.finish` locks editing, waits for pending image pastes, applies the certain repairs
+through `diskReload` as one undo step, then flushes autosave with its usual conflict protection.
+`note-search.ts` gives `@codemirror/search` its own
 panel DOM, styled in `editor.css` because the app's Svelte components cannot style the shadow root;
 the editor draws its selection so Ctrl+D and Alt+click can hold several cursors. Metadata is cached by immutable document identity. Raw text is tracked separately
 from CodeMirror offsets so untouched CRLF, LF and CR

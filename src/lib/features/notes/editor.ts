@@ -27,6 +27,7 @@ import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
 import { noteSearch, noteSearchKeymap } from "./note-search";
 import { addPropertyShortcut, propertyCompletion } from "./properties";
+import { tagDiagnostics } from "./tag-diagnostics";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -87,6 +88,7 @@ export function editorExtensions(
     EditorView.lineWrapping,
     EditorView.contentAttributes.of({ "aria-label": label, class: "note-content" }),
     liveFormatting(),
+    tagDiagnostics,
     EditorView.domEventHandlers({
       focus: () => {
         onFocus(true);

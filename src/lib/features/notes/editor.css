@@ -266,3 +266,7 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+:host .cm-editor .cm-tag-problem {
+  text-decoration: underline wavy var(--color-muted);
+}
