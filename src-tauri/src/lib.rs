@@ -49,6 +49,8 @@ pub fn run() {
         commands::notes_texts,
         commands::notes_save,
         commands::notes_rename,
+        commands::notes_delete,
+        commands::notes_undo_delete,
         commands::notes_paste_image,
         commands::notes_leftovers,
         commands::notes_restore,

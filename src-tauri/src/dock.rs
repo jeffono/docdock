@@ -510,7 +510,9 @@ impl Dock {
             slide.report(label);
             self.slide = None;
             if x == self.parked_x {
-                // The UI folds its expanded card back to a preview while nobody sees it.
+                // The UI folds its expanded card back to a preview while nobody sees it, and a
+                // deleted note can no longer be undone.
+                crate::notes::forget_deleted();
                 let _ = self.app.emit_to("main", "panel-hidden", ());
             }
         }

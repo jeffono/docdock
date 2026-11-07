@@ -371,6 +371,21 @@ pub fn unpin(text: &str, target: &str) -> String {
         .collect()
 }
 
+/// Undoes an `unpin` of the note `target` that turned `before` into `after`. A text unchanged since
+/// returns to `before` exactly, positions included; otherwise each removed item is pinned again at
+/// the end.
+pub fn repin(text: &str, before: &str, after: &str, target: &str) -> String {
+    if text == after {
+        return before.to_owned();
+    }
+    parse(before)
+        .into_iter()
+        .filter(|item| item.kind == Kind::Note && same(item, target))
+        .fold(text.to_owned(), |text, item| {
+            pin(&text, Kind::Note, &item.target, &item.title)
+        })
+}
+
 /// Points every item of the note `from` at `to`, for a renamed note. Only the destination changes, and
 /// the link text too when it is still `title.0`, the note's old title: it becomes `title.1`. A link
 /// text the user wrote stays. The marker, an optional link title and anything after the link stay.
@@ -667,6 +682,22 @@ mod tests {
         assert_eq!(parse(&text)[0].title, "[draft] a b");
     }
 
+    #[test]
+    fn repin_restores_the_exact_text_when_nothing_changed_since() {
+        let before = "# Mine\r\n- [A](a.md)\r\n- [B](b.md)\r\n";
+        let after = unpin(before, "a.md");
+        assert_eq!(repin(&after, before, &after, "a.md"), before);
+    }
+    #[test]
+    fn repin_appends_the_item_when_the_list_changed_since() {
+        let before = "- [A](a.md)\n- [B](b.md)\n";
+        let after = unpin(before, "a.md");
+        let changed = format!("{after}- [C](c.md)\n");
+        assert_eq!(
+            repin(&changed, before, &after, "a.md"),
+            "- [B](b.md)\n- [C](c.md)\n- [A](a.md)\n"
+        );
+    }
     #[test]
     fn unpin_removes_only_the_matching_line() {
         let text = "# Pinned\r\n- [A](a.md)\n- [B](b.md)\r\nnote [B](b.md)\r\n- [C](c.md)";

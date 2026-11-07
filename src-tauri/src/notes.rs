@@ -482,15 +482,20 @@ static SAVING: Mutex<()> = Mutex::new(());
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
     too_large(content.len() as u64)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    if reserved(root, relative) {
+        return Ok(Saved::Conflict);
+    }
     let target = match resolve(root, relative, markdown) {
         Ok(target) if !base.is_empty() => target,
         Ok(_) => return Ok(Saved::Conflict),
-        Err(_) if !exists(&root.join(relative)) => return recreate_note(root, relative, content),
+        Err(_) if !exists(&root.join(relative)) => {
+            return recreate_note(root, relative, content.as_bytes());
+        }
         Err(error) => return Err(error),
     };
     let current = match read_bytes(&target) {
         Ok(current) => current,
-        Err(_) if !exists(&target) => return recreate_note(root, relative, content),
+        Err(_) if !exists(&target) => return recreate_note(root, relative, content.as_bytes()),
         Err(error) => return Err(error),
     };
     if current == content.as_bytes() {
@@ -504,7 +509,7 @@ fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Resul
     replace_note(&target, content.as_bytes(), base)
 }
 /// Empty base expects absence; recreation never replaces a file that took the name.
-fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Error> {
+fn recreate_note(root: &Path, relative: &str, content: &[u8]) -> Result<Saved, Error> {
     let path = checked(relative, markdown)?;
     let root = root.canonicalize()?;
     let target = root.join(path);
@@ -516,10 +521,10 @@ fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Er
     if exists(&target) {
         return Ok(Saved::Conflict);
     }
-    let temp = write_temp(&target, content.as_bytes())?;
+    let temp = write_temp(&target, content)?;
     let result = match platform::move_new(&temp, &target) {
         Ok(()) => Ok(Saved::Saved {
-            version: version(content.as_bytes()),
+            version: version(content),
         }),
         Err(_) if exists(&target) => Ok(Saved::Conflict),
         Err(error) => Err(error.into()),
@@ -654,6 +659,9 @@ fn rename_note_in(
     }
     {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        if reserved(root, to) {
+            return Err(Error::RenameConflict);
+        }
         let source = resolve(root, from, markdown)?;
         let parent = source.parent().ok_or(Error::InvalidPath)?;
         let _held = hold_ancestry(parent)?;
@@ -706,6 +714,122 @@ pub fn rename_note(
         });
     }
     renamed
+}
+/// A note moved to the Recycle Bin from the app, kept in memory until the panel closes so Undo can
+/// write it back without depending on the Recycle Bin's layout. Its path stays reserved meanwhile:
+/// saves and renames to it answer a conflict, so an editor still open on it cannot recreate it and no
+/// new note takes the name Undo needs.
+struct Deleted {
+    root: PathBuf,
+    path: String,
+    bytes: Vec<u8>,
+    /// `_pinned.md` before and after the note's items were removed.
+    pinned: Option<(String, String)>,
+}
+/// Locked after `SAVING` when both are needed.
+static DELETED: Mutex<Vec<Deleted>> = Mutex::new(Vec::new());
+fn deleted() -> std::sync::MutexGuard<'static, Vec<Deleted>> {
+    DELETED.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn reserved(root: &Path, relative: &str) -> bool {
+    deleted()
+        .iter()
+        .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
+}
+/// Moves the note to the Recycle Bin through `recycle`, keeping its bytes for `undo_delete_in`. Writers
+/// are kept out from the read to the move, so the copy is what the Recycle Bin holds. A note the
+/// Recycle Bin cannot take stays. Its pinned items are removed after; if they cannot be, the answer is
+/// `PinnedNotRemoved`: the note is in the Recycle Bin all the same.
+fn delete_note_in(
+    root: &Path,
+    relative: &str,
+    recycle: impl Fn(&Path) -> io::Result<()>,
+) -> Result<(), Error> {
+    if checked(relative, markdown)?
+        .as_os_str()
+        .eq_ignore_ascii_case(PINNED)
+    {
+        return Err(Error::InvalidPath);
+    }
+    {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let target = resolve(root, relative, markdown)?;
+        let _held = hold_ancestry(target.parent().ok_or(Error::InvalidPath)?)?;
+        let mut file = platform::open_unwritable(&target)?;
+        too_large(file.metadata()?.len())?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        recycle(&target).map_err(|error| match error.kind() {
+            io::ErrorKind::Unsupported => Error::NotRecyclable,
+            _ => Error::DeleteFailed {
+                detail: error.to_string(),
+            },
+        })?;
+        deleted().push(Deleted {
+            root: root.to_owned(),
+            path: relative.to_owned(),
+            bytes,
+            pinned: None,
+        });
+    }
+    let change = std::cell::RefCell::new(None);
+    edit_pinned(root, |text| {
+        let edited = pinned::unpin(text, relative);
+        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
+        edited
+    })
+    .map_err(|error| {
+        eprintln!("[delete] pinned items not removed: {error:?}");
+        Error::PinnedNotRemoved
+    })?;
+    if let Some(entry) = deleted()
+        .iter_mut()
+        .find(|d| d.root == root && d.path == relative)
+    {
+        entry.pinned = change.into_inner();
+    }
+    Ok(())
+}
+/// Writes a deleted note back at its path, never over a file that took the name since
+/// (`RestoreTaken`, and Undo stays possible). Its pinned items return too, in place if `_pinned.md`
+/// did not change since.
+fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
+    let pinned = {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut deleted = deleted();
+        let at = deleted
+            .iter()
+            .position(|d| d.root == root && d.path == relative)
+            .ok_or(Error::UndoUnavailable)?;
+        if let Saved::Conflict = recreate_note(root, relative, &deleted[at].bytes)? {
+            return Err(Error::RestoreTaken {
+                path: relative.to_owned(),
+            });
+        }
+        deleted.remove(at).pinned
+    };
+    // A deleted list is left for its own restore, rather than created with only these items.
+    if let Some((before, after)) = pinned
+        && exists(&root.join(PINNED))
+    {
+        edit_pinned(root, |text| pinned::repin(text, &before, &after, relative)).map_err(
+            |error| {
+                eprintln!("[undo] pinned items not restored: {error:?}");
+                Error::PinnedNotRestored
+            },
+        )?;
+    }
+    Ok(())
+}
+pub fn delete_note(app: &AppHandle, path: &str) -> Result<(), Error> {
+    delete_note_in(&root(app)?, path, platform::recycle)
+}
+pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
+    undo_delete_in(&root(app)?, path)
+}
+/// The panel closed: deleted notes stay in the Recycle Bin and their names are free again.
+pub fn forget_deleted() {
+    deleted().clear();
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1379,7 +1503,10 @@ mod tests {
         ));
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
         fs::write(&path, "external").unwrap();
-        assert_eq!(recreate_note(&t.0, "a.md", text), Ok(Saved::Conflict));
+        assert_eq!(
+            recreate_note(&t.0, "a.md", text.as_bytes()),
+            Ok(Saved::Conflict)
+        );
         assert_eq!(save_note_in(&t.0, "a.md", text, ""), Ok(Saved::Conflict));
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");
     }
@@ -1616,6 +1743,84 @@ mod tests {
             })
         );
         assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "a");
+    }
+    /// Moves a deleted note into `bin`, as the Recycle Bin would.
+    fn delete(root: &Path, bin: &Path, path: &str) -> Result<(), Error> {
+        fs::create_dir_all(bin).unwrap();
+        delete_note_in(root, path, |file| {
+            fs::rename(file, bin.join(file.file_name().unwrap()))
+        })
+    }
+    #[test]
+    fn undoing_a_delete_brings_back_the_note_and_its_pinned_items() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::write(root.join("a.md"), "body\r\n").unwrap();
+        let list = "# Mine\r\n- [A](a.md)\r\n- [C](c.md)\r\n";
+        fs::write(root.join(PINNED), list).unwrap();
+        assert_eq!(delete(&root, &t.0.join("bin"), "a.md"), Ok(()));
+        assert!(!exists(&root.join("a.md")));
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "# Mine\r\n- [C](c.md)\r\n"
+        );
+        assert_eq!(undo_delete_in(&root, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "body\r\n");
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), list);
+    }
+    #[test]
+    fn undoing_a_delete_never_overwrites_a_note_that_took_the_name() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "deleted").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(()));
+        fs::write(t.0.join("a.md"), "new").unwrap();
+        assert_eq!(
+            undo_delete_in(&t.0, "a.md"),
+            Err(Error::RestoreTaken {
+                path: "a.md".into()
+            })
+        );
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "new");
+        // Once the name is free again, Undo still has the note.
+        fs::remove_file(t.0.join("a.md")).unwrap();
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "deleted");
+    }
+    #[test]
+    fn an_editor_saving_a_deleted_note_does_not_recreate_it() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(()));
+        for base in [version(b"a"), String::new()] {
+            assert_eq!(
+                save_note_in(&t.0, "A.md", "late edit", &base),
+                Ok(Saved::Conflict)
+            );
+        }
+        assert!(!exists(&t.0.join("a.md")));
+    }
+    #[test]
+    fn renaming_cannot_take_the_name_of_a_deleted_note() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join("b.md"), "b").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(()));
+        assert_eq!(rename(&t.0, "b.md", "a.md"), Err(Error::RenameConflict));
+        assert!(exists(&t.0.join("b.md")));
+    }
+    #[test]
+    fn a_note_the_recycle_bin_refuses_stays_with_its_pinned_items() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join(PINNED), "- [A](a.md)\n").unwrap();
+        let refused = delete_note_in(&t.0, "a.md", |_| Err(io::ErrorKind::Unsupported.into()));
+        assert_eq!(refused, Err(Error::NotRecyclable));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "a");
+        assert_eq!(
+            fs::read_to_string(t.0.join(PINNED)).unwrap(),
+            "- [A](a.md)\n"
+        );
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Err(Error::UndoUnavailable));
     }
     #[test]
     fn renaming_only_the_case_keeps_the_same_file() {
