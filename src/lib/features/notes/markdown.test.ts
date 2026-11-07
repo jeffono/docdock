@@ -37,6 +37,31 @@ test("retitle quotes a title that would read back differently or as another type
   expect(retitle(text, "2024")).toBe('---\ntitle: "2024"\n---\n');
 });
 
+// Bug: a title the file name cannot hold ("Plano: Q3", or a taken name) would be lost.
+test("retitle can create the title, in the block or in a new one, keeping line endings", () => {
+  expect(retitle("Body\r\n", "Plano: Q3", true)).toBe(
+    '---\r\ntitle: "Plano: Q3"\r\n---\r\nBody\r\n',
+  );
+  expect(retitle("", "A", true)).toBe("---\ntitle: A\n---\n");
+  expect(retitle("---\r\ntags: [a]\r\n---\r\n", "A", true)).toBe(
+    "---\r\ntitle: A\r\ntags: [a]\r\n---\r\n",
+  );
+  expect(retitle("---\ntitle: Plano: Q3\n---\n", "Plano: Q3", true)).toBe(
+    '---\ntitle: "Plano: Q3"\n---\n',
+  );
+});
+
+// Bug: replacing only the `title:` line left a list or block scalar under the new value.
+test("retitle replaces a whole structured title and keeps a byte order mark first", () => {
+  expect(retitle("---\ntitle:\n  - Old\n  - Two\n\ntags: [a]\n---\n", "A", true)).toBe(
+    "---\ntitle: A\n\ntags: [a]\n---\n",
+  );
+  expect(retitle("---\r\ntitle: |\r\n  Old\r\n---\r\n", "A", true)).toBe(
+    "---\r\ntitle: A\r\n---\r\n",
+  );
+  expect(retitle("﻿Body", "A", true)).toBe("﻿---\ntitle: A\n---\nBody");
+});
+
 test("retitle leaves notes whose card shows the file name", () => {
   expect(retitle("# Heading\n", "New")).toBeNull();
   expect(retitle("---\ntitle: [list]\n---\n", "New")).toBeNull();

@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2 on `auto-names`: folder search and renaming done; automatic names for `Untitled N` notes
-  awaiting review and manual check, then folder prefixes and grouping. Folder moving remains deferred.
+- M4.2: folder search, renaming, automatic names and frontmatter done; next, folder prefixes and
+  grouping. Folder moving remains deferred.
 
 ## Completed
 
@@ -32,6 +32,8 @@ other notes are not rewritten. A tree view is out of scope.
 - [x] (advanced) Rename a note from its card title (double click or F2)
 - [x] (advanced) Automatic name for `Untitled N` notes when leaving them: frontmatter `title`, else the
   top H1, else the first words (about 60 characters)
+- [x] (standard) Frontmatter: the title field writes the title the file name cannot hold; key and
+  tag completion in the raw block; Ctrl+; adds a property
 - [ ] (standard) Show each note's folder as a quiet prefix and match it in search; grouping by folder
   as an alternative to grouping by date
 - [ ] (standard) Later: move to a folder through a picker that can create it; delete only empty folders
@@ -40,8 +42,15 @@ other notes are not rewritten. A tree view is out of scope.
 ## M4.3 — Editor
 
 - [ ] (standard) `@codemirror/search`: Ctrl+F in the note, Ctrl+D next occurrence, Alt+click cursors
-- [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips
+- [ ] (standard) Floating formatting bar on selection, with shortcuts in tooltips; include "Add
+  property" (Ctrl+;)
 - [ ] (standard) Shortcut sheet on Ctrl+/, also listed in Preferences
+- [ ] (standard) Close brackets and quotes as they are typed (`closeBrackets` from
+  `@codemirror/autocomplete`)
+- [ ] (standard) Tags that do not read as tags fail silently (`tags: a, b`, `tags: [Plano: Q3]`): fix
+  them where the intent is unambiguous, such as on leaving the note, else mark the line quietly; never
+  rewrite text the user is still typing
+- [ ] (basic) Theme in Preferences > Appearance: system (default), light or dark
 
 ## M5 — Distribute
 
@@ -55,6 +64,7 @@ In no defined order:
 
 - MathML equations with Temml; KaTeX depends on inline styling, blocked by CSP.
 - Mermaid diagrams: require a decision on CSP, which blocks the `<style>` it injects.
+- Slash commands in the editor, including "Add property" for the frontmatter.
 - Post-its as floating desktop windows.
 - Screenshots.
 - Dictation with local models, downloaded separately from the installer.

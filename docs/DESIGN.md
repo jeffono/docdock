@@ -130,7 +130,9 @@ pinned and unpinned notes differ only in section and starting state.
   F2 on the selected card, or in its editor, enters editing with the title selected. Enter, ↓ or Esc
   (which first restores the title) go on to the text; leaving the field renames, and an empty or
   unchanged title does nothing. The file name follows the title in the same folder, with " 2" and so
-  on when taken; a frontmatter title changes with it. A double click on the title only opens and
+  on when taken; a frontmatter title changes with it. When the file name cannot hold the typed title
+  (characters such as ":", or a taken name), the field also writes it as the frontmatter title,
+  creating the block if needed, so the card keeps showing what was typed. A double click on the title only opens and
   closes, as a click does; a double click on the text of a card enters editing. A note still named
   `Untitled` or `Untitled N` is named when its editor is left, from what the card shows: the
   frontmatter title, else a first heading, else its first words (cut at a word near 60 characters).
@@ -280,7 +282,13 @@ Windows editor shortcuts:
 | Ctrl+Shift+.                                  | Toggle blockquote                                                                          |
 | Enter / Backspace                             | Continue / remove Markdown list or quote markup                                            |
 | Tab / Shift+Tab                               | Indent / outdent list items                                                                |
+| Ctrl+;                                        | Add a frontmatter property: a new line in the block, created if needed, with keys offered  |
 | Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
+
+Frontmatter stays YAML text, with no property form. Inside the raw block, typing at the start of a
+line offers common keys not yet present (title, tags, aliases, date, author, description, status,
+url), and typing a tag offers the folder's tags, in a quiet monospace list with the selected
+background. Esc first closes the list.
 
 Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every

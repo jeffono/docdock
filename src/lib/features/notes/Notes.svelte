@@ -201,7 +201,7 @@ export function leaveEditor(): Promise<boolean> {
     await renamingTask;
     // An untitled note takes its name from what it shows, while the editor still holds it.
     const named = editor && isUntitled(selected) ? noteName(editor.text()) : null;
-    if (named) await rename(named.title, named.frontmatter);
+    if (named) await rename(named.title, named.frontmatter ? "frontmatter" : "content");
     const note = await editor?.finish();
     if (!note) return false;
     contents[selected] = note;
@@ -665,29 +665,49 @@ let renamingTask: Promise<void> | null = null;
  * folder; a frontmatter title, which the card shows, changes with it as an edit of the text. The
  * editor stays open: it saves first and holds later saves until the move, so none brings the old name
  * back. A taken name is retried with the next free one. A rename whose pinned items could not follow
- * still stands. A rename asked while another runs waits for it and starts from its result. With
- * `keepTitle`, the frontmatter title stays as it is and the file follows it.
+ * still stands. A rename asked while another runs waits for it and starts from its result.
+ * `source` says where the title comes from: the title field writes a frontmatter title when the file
+ * name cannot hold it (characters, or a taken name); one read from the frontmatter stays as it is;
+ * one read from the text changes nothing but the file name.
  */
-function rename(title: string, keepTitle = false): Promise<void> {
+function rename(
+  title: string,
+  source: "field" | "frontmatter" | "content" = "field",
+): Promise<void> {
   const typed = title.replace(/\s+/g, " ").trim();
   const previous = renamingTask;
   const task = (async () => {
     await previous;
     const card = editing ? cardFor(selected) : undefined;
     const current = editor;
-    if (!typed || !card || !current || (!keepTitle && typed === card.hit.title)) return;
+    if (!typed || !card || !current) return;
+    if (source === "field" && typed === card.hit.title) return;
     const from = card.hit.path;
     const old = card.hit.title;
     try {
       error = "";
       await current.rename(
-        (text) => (keepTitle ? null : retitle(text, typed)),
-        async (version, retitled) => {
+        (text) => {
+          if (source === "frontmatter") return null;
+          const planned = renamedPath(
+            from,
+            typed,
+            notes.map((note) => note.path),
+          );
+          const held = planned.slice(planned.lastIndexOf("/") + 1, -3) === typed;
+          return retitle(text, typed, source === "field" && !held);
+        },
+        async (version, retitled, rewrite) => {
           const taken = notes.map((note) => note.path);
+          let titled = retitled;
           for (let attempt = 0; attempt < 50; attempt++) {
             const to = renamedPath(from, typed, taken);
             if (to === from) return;
-            const shown = keepTitle || retitled ? typed : to.slice(to.lastIndexOf("/") + 1, -3);
+            const stem = to.slice(to.lastIndexOf("/") + 1, -3);
+            // A name found taken only now still keeps the typed title, saved after the move.
+            if (source === "field" && !titled && stem !== typed)
+              titled = rewrite((text) => retitle(text, typed, true));
+            const shown = source === "frontmatter" || titled ? typed : stem;
             try {
               await notesRename(from, to, version, [old, shown]);
               changed({ renames: [[from, to]] });
@@ -1331,6 +1351,7 @@ onMount(() => {
         saveStatus = state;
       }}
       onleave={() => void leaveByKeyboard()}
+      tags={() => [...folderIndex.index.values()].flatMap((entry) => entry.tags)}
       ondiscard={() => {
         void load(selected);
         selected = "";
