@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.2 on `files`: folder search and renaming done, renaming awaiting the cross-provider review and
-  manual check; next automatic names, folder prefixes and grouping. Folder moving remains deferred.
+- M4.2 on `auto-names`: folder search and renaming done; automatic names for `Untitled N` notes
+  underway, then folder prefixes and grouping. Folder moving remains deferred.
 
 ## Completed
 
