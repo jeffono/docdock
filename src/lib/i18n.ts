@@ -2,6 +2,7 @@
 import type { Locale } from "./ipc";
 
 const en = {
+  "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
   "group.label": "Group by date",
   "group.hint": "Available when ordering by modified or created date. Your choice is kept.",
   "group.scope":
@@ -225,6 +226,7 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
+  "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
   "group.label": "Agrupar por data",
   "group.hint": "Disponível ao ordenar por modificação ou criação. Sua escolha é mantida.",
   "group.scope":

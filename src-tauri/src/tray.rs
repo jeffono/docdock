@@ -55,9 +55,17 @@ pub fn setup(
     app.manage(SideItems(sides.clone()));
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
+    let update = crate::updates::menu_item(app, locale)?;
     let menu = Menu::with_items(
         app,
-        &[&sides[0].1, &sides[1].1, &separator, &autostart, &quit],
+        &[
+            &sides[0].1,
+            &sides[1].1,
+            &separator,
+            &autostart,
+            &update,
+            &quit,
+        ],
     )?;
     TrayIconBuilder::new()
         .icon(
@@ -68,6 +76,7 @@ pub fn setup(
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "quit" => app.exit(0),
+            "update" => crate::updates::request_exit(app, true),
             "side-right" | "side-left" => {
                 let side = if event.id().as_ref() == "side-right" {
                     Side::Right

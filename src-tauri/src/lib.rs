@@ -11,6 +11,7 @@ mod pinned;
 mod platform;
 mod shortcut;
 mod tray;
+mod updates;
 mod watch;
 mod web;
 
@@ -22,6 +23,7 @@ use tauri::Manager;
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::app_version,
+        updates::exit_ready,
         commands::app_locale,
         commands::app_theme,
         commands::app_set_theme,
@@ -69,6 +71,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // By default a script intercepting `target=_blank` is injected into every window. In the
         // page window, which has no capability, it would cancel the link and fail.
         .plugin(
@@ -86,6 +89,7 @@ pub fn run() {
             let (requests, receiver) = mpsc::channel();
             tray::setup(app, locale, side, requests.clone())?;
             app.manage(locale);
+            updates::start(app.handle());
             shortcut::setup(app, requests.clone());
             app.manage(requests);
             dock::start(
@@ -96,6 +100,15 @@ pub fn run() {
                 notes::width(app.handle()),
             );
             Ok(())
+        })
+        // Alt+F4 on the panel would destroy the only UI that can flush saves.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                api.prevent_close();
+                updates::request_exit(window.app_handle(), false);
+            }
         })
         // App commands need no capability from a local origin. Without this barrier, the page
         // window could reach all of them if it loaded an app origin.
@@ -109,6 +122,14 @@ pub fn run() {
                 true
             }
         })
-        .run(tauri::generate_context!())
-        .expect("failed to start application");
+        .build(tauri::generate_context!())
+        .expect("failed to start application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event
+                && !updates::exit_allowed(app)
+            {
+                api.prevent_exit();
+                updates::request_exit(app, false);
+            }
+        });
 }
