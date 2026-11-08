@@ -112,8 +112,9 @@ pinned and unpinned notes differ only in section and starting state.
   chosen order. Labels appear only for folders containing notes directly or below (including pinned
   notes), or completely empty folders. Folders containing only images or other files have no label
   and cannot be deleted from the app. Tab enters the list once; arrows select folder labels as well
-  as cards, with the selected surface and a spoken path. Selectable labels gain a small triangle
-  and an inset of `--space-4` on hover, focus or selection, with higher text contrast and transitions
+  as cards, with a spoken path. Selectable labels gain a discreet triangle
+  and an inset of `--space-3` on hover, focus or selection, with no background, higher text contrast
+  (accent when selected) and transitions
   over `--duration` (ease-out for the inset and triangle). Reduced motion removes transitions.
   Date labels and the unlabelled root keep their existing appearance. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
   item without a shortcut. Empty folders are removed immediately. Any entry (including hidden files
@@ -238,9 +239,10 @@ pinned and unpinned notes differ only in section and starting state.
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
   labeled region of plain groups, not a listbox, since cards hold buttons, links and the editor; the
   selected item has `aria-current` and a polite live region announces it.
-- **Section jumps:** Ctrl+↑ / Ctrl+↓ select the first item of the previous / next visible section:
-  Pinned, Notes and each folder or date group inside Notes. A selectable folder label is its group's
-  first item. Notes and its first group share a destination when there is no root item before it.
+- **Section jumps:** Ctrl+↑ / Ctrl+↓ select the first note of the previous / next visible section:
+  Pinned, Notes and each folder or date group inside Notes. Folder labels are never destinations, and
+  folders without notes are skipped; from a selected label, Ctrl+↓ goes to its first note. Notes and
+  its first group share a destination when there is no root item before it.
   Jumps stay at the first / last section at the ends; with no selection they select the first section.
   Search and the editor keep their native Ctrl+arrow behavior.
 - **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below

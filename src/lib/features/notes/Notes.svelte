@@ -1957,22 +1957,22 @@ onMount(() => {
     font: inherit;
     text-align: inherit;
     cursor: default;
-    transition: color var(--duration), background var(--duration);
+    transition: color var(--duration);
   }
   .folder-label::before {
     content: "\25b6";
     width: 0;
     opacity: 0;
     overflow: hidden;
-    font-size: var(--font-size-sm);
+    font-size: calc(var(--font-size-sm) * 0.65);
     transition: width var(--duration) ease-out, opacity var(--duration) ease-out;
   }
   .folder-label:hover,
-  .folder-label:focus-visible { background: var(--color-surface); color: var(--color-fg); }
-  .folder-label.selected { background: var(--color-selected); color: var(--color-accent); }
+  .folder-label:focus-visible { color: var(--color-fg); }
+  .folder-label.selected { color: var(--color-accent); }
   .folder-label:hover::before,
   .folder-label:focus-visible::before,
-  .folder-label.selected::before { width: var(--space-4); opacity: 1; }
+  .folder-label.selected::before { width: var(--space-3); opacity: 1; }
   @media (prefers-reduced-motion: reduce) {
     .folder-label, .folder-label::before { transition: none; }
   }

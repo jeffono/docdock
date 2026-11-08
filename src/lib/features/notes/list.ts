@@ -207,29 +207,29 @@ export function move(keys: string[], current: string, delta: -1 | 1): string {
   return keys[Math.min(keys.length - 1, Math.max(0, at + delta))];
 }
 
-/** Jump between visible section starts; Notes and its first group can share a destination. */
+/**
+ * Jump to the first note or web pin of the previous / next visible section. Folder labels are not
+ * destinations; from a label, its own section counts as the next one.
+ */
 export function jumpSection(visibleRows: Row[], current: string, delta: -1 | 1): string {
-  const keys: string[] = [];
-  const starts: number[] = [];
-  let boundary = false;
+  const starts: string[] = [];
+  // Index of the current section; a half step means a label right before section `starts.length`.
+  let section: number | null = null;
+  let boundary = true;
   for (const row of visibleRows) {
     if ("heading" in row || "group" in row) boundary = true;
-    const key =
-      "entry" in row
-        ? entryKey(row.entry)
-        : "group" in row && "folder" in row.group
-          ? row.group.key
-          : null;
-    if (key === null) continue;
-    if (boundary) starts.push(keys.length);
+    if ("group" in row && "folder" in row.group && row.group.key === current) {
+      section = starts.length - 0.5;
+    }
+    if (!("entry" in row)) continue;
+    const key = entryKey(row.entry);
+    if (boundary) starts.push(key);
     boundary = false;
-    keys.push(key);
+    if (key === current) section = starts.length - 1;
   }
-  const at = keys.indexOf(current);
-  if (at < 0) return keys[starts[0]] ?? "";
-  const section = starts.filter((start) => start <= at).length - 1;
-  const to = Math.max(0, Math.min(starts.length - 1, section + delta));
-  return keys[starts[to]] ?? "";
+  if (section === null) return starts[0] ?? "";
+  const to = delta > 0 ? Math.floor(section) + 1 : Math.ceil(section) - 1;
+  return starts[Math.max(0, Math.min(starts.length - 1, to))] ?? "";
 }
 
 /** A vertical extent on screen, in pixels; `top` above `bottom`. */

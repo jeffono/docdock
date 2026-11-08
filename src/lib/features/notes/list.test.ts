@@ -364,14 +364,18 @@ describe("section jumps", () => {
   it("jumps from Pinned to the first root note in Notes", () => {
     expect(jumpSection(folders, "pin.md", 1)).toBe("root.md");
   });
-  it("selects an empty folder label as a section", () => {
-    expect(jumpSection(folders, "root.md", 1)).toBe("folder:Empty");
+  it("skips folder labels and folders without notes", () => {
+    expect(jumpSection(folders, "root.md", 1)).toBe("Projects/a.md");
   });
   it("skips the remaining notes of a folder when jumping forward", () => {
-    expect(jumpSection(folders, "Projects/a.md", 1)).toBe("folder:Reference");
+    expect(jumpSection(folders, "Projects/a.md", 1)).toBe("Reference/c.md");
   });
   it("jumps backward to the previous section from inside a folder", () => {
-    expect(jumpSection(folders, "Projects/b.md", -1)).toBe("folder:Empty");
+    expect(jumpSection(folders, "Projects/b.md", -1)).toBe("root.md");
+  });
+  it("treats a selected folder label as the start of its own section", () => {
+    expect(jumpSection(folders, "folder:Projects", 1)).toBe("Projects/a.md");
+    expect(jumpSection(folders, "folder:Projects", -1)).toBe("root.md");
   });
   it("selects the first note of a non-selectable date group", () => {
     const dated = rows(
@@ -391,13 +395,14 @@ describe("section jumps", () => {
       new Map(),
       ["Projects", "Reference"],
     );
-    expect(jumpSection(grouped, "folder:Projects", 1)).toBe("folder:Reference");
+    expect(jumpSection(grouped, "pin.md", 1)).toBe("Projects/a.md");
+    expect(jumpSection(grouped, "Projects/a.md", -1)).toBe("pin.md");
   });
   it("stays at the first section when jumping above it", () => {
     expect(jumpSection(folders, "pin.md", -1)).toBe("pin.md");
   });
   it("stays at the last section when jumping below it", () => {
-    expect(jumpSection(folders, "Reference/c.md", 1)).toBe("folder:Reference");
+    expect(jumpSection(folders, "Reference/c.md", 1)).toBe("Reference/c.md");
   });
   it("starts at the first section with no selection", () => {
     expect(jumpSection(folders, "", 1)).toBe("pin.md");
