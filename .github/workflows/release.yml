@@ -1,9 +1,8 @@
 name: Release
 
+# Manual only: publishing the draft creates the tag, which must not start a second build.
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
 
 permissions:
   contents: write
@@ -14,7 +13,7 @@ concurrency:
 
 jobs:
   release:
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -42,9 +41,6 @@ jobs:
           }
           cargo metadata --locked --format-version 1 --manifest-path src-tauri/Cargo.toml > $null
           if ($LASTEXITCODE -ne 0) { throw 'Cargo.lock is out of date' }
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
-            throw 'The release tag must match the configured version'
-          }
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -32,7 +32,8 @@ code signing and the updater's artifact signatures solve different problems.
   separate stable audience yet.
 - The release workflow builds and verifies on Windows and creates a draft containing the NSIS
   installer, signature and `latest.json`. Maintainers inspect the draft and publish it as the latest
-  release. Manual dispatch uses the checked-out version; tags use `v<version>` and must match it.
+  release. It runs only by manual dispatch from main; publishing the draft creates the `v<version>` tag, so a
+  tag trigger would build a second, duplicate draft.
 
 ## Consequences
 
@@ -49,10 +50,10 @@ content; force termination by the OS remains outside this guarantee. Ordinary Qu
 downloaded update unapplied. No notes, preferences, or autostart settings are migrated by this change.
 
 To cut a release, align package, Cargo and Tauri versions and Cargo.lock, commit, push through normal
-review, then push the matching `v<version>` tag (or manually run Release on that commit). After the
+review, then manually run Release on main. After the
 workflow succeeds, inspect its draft assets and publish as a regular latest release. Never publish
 an older draft as latest after a newer version.
 
 Local release builds also require `TAURI_SIGNING_PRIVATE_KEY` (file path or contents) and the matching
-password environment variable. The workflow permits manual dispatch from main and version tags only,
-and rejects mismatched package/Cargo/Tauri versions or tags before signing.
+password environment variable. The workflow permits manual dispatch from main only, and rejects
+mismatched package/Cargo/Tauri versions or a stale Cargo.lock before signing.
