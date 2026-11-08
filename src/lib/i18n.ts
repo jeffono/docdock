@@ -120,6 +120,10 @@ const en = {
   "move.linksKept":
     "The note moved, but it changed meanwhile, so its links still point from the old folder.",
   "dialog.cancel": "Cancel",
+  "deleteFolder.menu": "Delete folder",
+  "deleteFolder.title": "Delete folder “{folder}”?",
+  "deleteFolder.text":
+    "This folder contains {count} notes. The folder and all its content move to the Recycle Bin. Restore it there; there is no Undo in DocDock.",
   "delete.title": "Delete “{title}”?",
   "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
   "delete.confirm": "Move to Recycle Bin",
@@ -332,6 +336,10 @@ const ptBR: Record<MessageKey, string> = {
   "move.linksKept":
     "A nota foi movida, mas mudou nesse meio-tempo; seus links ainda partem da pasta antiga.",
   "dialog.cancel": "Cancelar",
+  "deleteFolder.menu": "Excluir pasta",
+  "deleteFolder.title": "Excluir a pasta “{folder}”?",
+  "deleteFolder.text":
+    "Esta pasta contém {count} notas. A pasta e todo o conteúdo vão para a Lixeira. Restaure por lá; não há Desfazer no DocDock.",
   "delete.title": "Excluir “{title}”?",
   "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
   "delete.confirm": "Mover para a Lixeira",

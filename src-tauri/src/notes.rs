@@ -838,6 +838,75 @@ fn create_folder_in(root: &Path, relative: &str) -> Result<(), Error> {
 pub fn create_folder(app: &AppHandle, path: &str) -> Result<(), Error> {
     create_folder_in(&root(app)?, path)
 }
+/// True only for descendants, with a segment boundary and Windows name comparison.
+fn inside_folder(path: &str, folder: &str) -> bool {
+    path.to_lowercase()
+        .starts_with(&(folder.to_lowercase() + "/"))
+}
+/// None means deleted; Some(count) asks the caller to confirm recycling content. Empty removal is
+/// non-recursive, so an entry arriving after the check can never be permanently deleted.
+fn delete_folder_in(
+    root: &Path,
+    relative: &str,
+    confirmed: bool,
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) -> Result<Option<usize>, Error> {
+    if !relative.split('/').all(|name| {
+        !name.is_empty()
+            && !name.starts_with('.')
+            && !name.ends_with(['.', ' '])
+            && !name.eq_ignore_ascii_case(PINNED)
+    }) {
+        return Err(Error::InvalidPath);
+    }
+    let path = checked(relative, |_| true)?;
+    {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let (target, mut held) = hold_folder(root, path)?;
+        // Refuse short-name aliases too: reservations and pins must name the folder being deleted.
+        if !same_name(&target, &target.canonicalize()?) {
+            return Err(Error::InvalidPath);
+        }
+        let empty = fs::read_dir(&target)?.next().transpose()?.is_none();
+        if !empty && !confirmed {
+            let count = list(&target)?.len();
+            return Ok(Some(count));
+        }
+        // Keep all parents held; the target itself must allow the shell/remove_dir to move it.
+        held.pop();
+        if empty {
+            fs::remove_dir(&target)?;
+        } else {
+            recycle(&target).map_err(|error| match error.kind() {
+                io::ErrorKind::Unsupported => Error::NotRecyclable,
+                _ => Error::DeleteFailed {
+                    detail: error.to_string(),
+                },
+            })?;
+        }
+        let mut trash = deleted();
+        trash
+            .notes
+            .retain(|d| d.root != root || !inside_folder(&d.path, relative));
+        trash.folders.push((root.to_owned(), relative.to_owned()));
+    }
+    edit_pinned(root, |text| {
+        pinned::parse(text)
+            .iter()
+            .filter(|item| item.kind == Kind::Note && inside_folder(&item.target, relative))
+            .fold(text.to_owned(), |text, item| {
+                pinned::unpin(&text, &item.target)
+            })
+    })
+    .map_err(|error| {
+        eprintln!("[delete folder] pinned items not removed: {error:?}");
+        Error::PinnedNotRemoved { undo: false }
+    })?;
+    Ok(None)
+}
+pub fn delete_folder(app: &AppHandle, path: &str, confirmed: bool) -> Result<Option<usize>, Error> {
+    delete_folder_in(&root(app)?, path, confirmed, platform::recycle)
+}
 /// A note moved to the Recycle Bin from the app, kept in memory until the panel closes so Undo can
 /// write it back without depending on the Recycle Bin's layout. Its path stays reserved meanwhile:
 /// saves and renames to it answer a conflict, so an editor still open on it cannot recreate it and no
@@ -854,19 +923,26 @@ struct Deleted {
 struct Trash {
     session: u64,
     notes: Vec<Deleted>,
+    folders: Vec<(PathBuf, String)>,
 }
 static DELETED: Mutex<Trash> = Mutex::new(Trash {
     session: 0,
     notes: Vec::new(),
+    folders: Vec::new(),
 });
 fn deleted() -> std::sync::MutexGuard<'static, Trash> {
     DELETED.lock().unwrap_or_else(|e| e.into_inner())
 }
 fn reserved(root: &Path, relative: &str) -> bool {
-    deleted()
-        .notes
+    let trash = deleted();
+    trash
+        .folders
         .iter()
-        .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
+        .any(|(r, folder)| r == root && inside_folder(relative, folder))
+        || trash
+            .notes
+            .iter()
+            .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
 }
 /// Moves the note to the Recycle Bin through `recycle`, which answers where the file landed there.
 /// Undo keeps the bytes read from that file, so they are what the Recycle Bin holds even if another
@@ -975,6 +1051,7 @@ pub fn forget_deleted() {
     let mut trash = deleted();
     trash.session += 1;
     trash.notes.clear();
+    trash.folders.clear();
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1889,6 +1966,119 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "a");
     }
+    #[test]
+    fn deleting_an_empty_folder_removes_only_that_directory() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("parent/empty")).unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "parent/empty", false, |_| panic!(
+                "empty folder must not recycle"
+            )),
+            Ok(None)
+        );
+        assert!(!t.0.join("parent/empty").exists());
+        assert!(t.0.join("parent").is_dir());
+    }
+    #[test]
+    fn deleting_folder_content_requires_confirmation_even_for_hidden_files() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/.hidden"), "keep").unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
+            Ok(Some(0))
+        );
+        assert_eq!(
+            fs::read_to_string(t.0.join("folder/.hidden")).unwrap(),
+            "keep"
+        );
+    }
+    #[test]
+    fn a_folder_the_recycle_bin_refuses_is_never_removed_permanently() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "keep").unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", true, |_| Err(
+                io::ErrorKind::Unsupported.into()
+            )),
+            Err(Error::NotRecyclable)
+        );
+        assert_eq!(fs::read_to_string(t.0.join("folder/a.md")).unwrap(), "keep");
+    }
+    #[test]
+    fn deleting_a_folder_removes_only_pins_inside_it() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("folder/sub")).unwrap();
+        fs::write(t.0.join("folder/sub/a.md"), "keep in bin").unwrap();
+        fs::write(t.0.join(PINNED), "# Pins\n- [A](FOLDER/sub/a.md)\n- [B](folder-other/a.md)\n- [Web](https://example.com/folder/a.md)\n").unwrap();
+        let bin = t.0.join("bin");
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", true, |p| to_bin(p, &bin)),
+            Ok(None)
+        );
+        assert_eq!(
+            fs::read_to_string(t.0.join(PINNED)).unwrap(),
+            "# Pins\n- [B](folder-other/a.md)\n- [Web](https://example.com/folder/a.md)\n"
+        );
+        assert_eq!(
+            fs::read_to_string(bin.join("folder/sub/a.md")).unwrap(),
+            "keep in bin"
+        );
+    }
+    #[test]
+    fn deleting_a_folder_blocks_late_saves_from_recreating_it() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        delete_folder_in(&t.0, "folder", false, |_| unreachable!()).unwrap();
+        assert_eq!(
+            save_note_in(&t.0, "FOLDER/a.md", "late save", ""),
+            Ok(Saved::Conflict)
+        );
+        assert!(!t.0.join("folder").exists());
+    }
+    #[test]
+    fn deleting_a_folder_refuses_root_outside_and_internal_paths() {
+        let t = Temp::new();
+        for path in [
+            "",
+            ".",
+            "..",
+            "../outside",
+            "/",
+            "C:/outside",
+            "a/../../outside",
+            ".hidden",
+            "a/.hidden",
+            "_pinned.md",
+            "folder/.",
+            "folder/",
+            "folder//sub",
+            "folder.",
+            "folder ",
+        ] {
+            assert!(
+                delete_folder_in(&t.0, path, true, |_| panic!("unsafe path")).is_err(),
+                "{path}"
+            );
+        }
+        assert!(t.0.is_dir());
+    }
+    #[test]
+    fn deleting_a_folder_refuses_junctions_at_every_level() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("real/sub")).unwrap();
+        assert!(mklink(&["/J"], &t.0.join("link"), &t.0.join("real")));
+        for path in ["link", "link/sub"] {
+            assert_eq!(
+                delete_folder_in(&t.0, path, true, |_| panic!("junction")),
+                Err(Error::OutsideFolder)
+            );
+        }
+        assert!(t.0.join("real/sub").is_dir());
+    }
+
     /// Moves a deleted note into `bin`, as the Recycle Bin would.
     /// Moves `file` into `bin`, as the Recycle Bin would, and answers where it landed.
     fn to_bin(file: &Path, bin: &Path) -> io::Result<Option<PathBuf>> {

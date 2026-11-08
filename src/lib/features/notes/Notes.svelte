@@ -10,6 +10,7 @@ import {
   notesChoose,
   notesCreateFolder,
   notesDelete,
+  notesDeleteFolder,
   notesFolder,
   notesFolders,
   notesLeftovers,
@@ -110,6 +111,7 @@ $effect(() => {
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
+let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
 let address = $state("");
@@ -240,7 +242,8 @@ export function leaveEditor(): Promise<boolean> {
 let opening: string | null = null;
 async function edit(path: string) {
   // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
-  if (editing || choosing || path === deletingPath || path === movingPath) return;
+  if (editing || choosing || path === deletingPath || path === movingPath || inDeletingFolder(path))
+    return;
   const current = generation;
   opening = path;
   try {
@@ -369,7 +372,14 @@ const previewModel = $derived.by(() => {
   entries.splice(to, 0, ...entries.splice(from, 1));
   return { ...model, pinned: entries };
 });
-const listRows = $derived(rows(previewModel, editing ? selected : "", headings));
+const listRows = $derived(
+  rows(
+    previewModel,
+    editing ? selected : "",
+    headings,
+    $grouping === "folder" && !query.trim() ? folders : undefined,
+  ),
+);
 const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
@@ -460,6 +470,7 @@ async function refresh(value: NotesFolder | null) {
   if (editing) return;
   folder = value;
   notes = [];
+  folders = [];
   removed = null;
   selected = "";
   opened = null;
@@ -471,9 +482,10 @@ async function refresh(value: NotesFolder | null) {
   folderIndex.reset();
   indexVersion++;
   if (!value?.available) return;
-  const list = await notesList();
+  const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
   if (current !== generation) return;
   notes = list;
+  folders = directoryList;
   await sync(list);
   if (current !== generation) return;
   const state = await pinnedList();
@@ -489,8 +501,9 @@ async function restore(path: string) {
     if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
-    const list = await notesList();
+    const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
     notes = list;
+    folders = directoryList;
     await sync(list);
     expanded = note;
     selection = note;
@@ -527,8 +540,9 @@ async function create(text: string, content = "", annotate = false) {
       const name = noteFileName(text, taken);
       const result = await notesSave(name, content, "");
       if (result.status === "saved") {
-        const list = await notesList();
+        const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
         notes = list;
+        folders = directoryList;
         await sync(list);
         query = "";
         expanded = name;
@@ -1073,6 +1087,80 @@ async function moveNote(card: Card) {
   }
 }
 
+let folderMenu: Menu;
+let menuFolder = $state("");
+let folderTarget: HTMLElement | null = null;
+let deletingFolder = "";
+const inDeletingFolder = (path: string) =>
+  deletingFolder !== "" && path.toLowerCase().startsWith(`${deletingFolder.toLowerCase()}/`);
+function openFolderMenu(event: MouseEvent | KeyboardEvent, path: string) {
+  if (
+    event instanceof KeyboardEvent &&
+    event.key !== "ContextMenu" &&
+    !(event.key === "F10" && event.shiftKey)
+  )
+    return;
+  event.preventDefault();
+  event.stopPropagation();
+  menuFolder = path;
+  folderTarget = event.currentTarget as HTMLElement;
+  const rect = folderTarget.getBoundingClientRect();
+  folderMenu.show({
+    from: folderTarget,
+    at:
+      event instanceof MouseEvent
+        ? { x: event.clientX, y: event.clientY }
+        : { x: rect.left, y: rect.bottom },
+  });
+}
+async function deleteFolder() {
+  if (deleting) return;
+  deleting = true;
+  deletingFolder = menuFolder;
+  const path = menuFolder;
+  try {
+    error = "";
+    warning = "";
+    await renamingTask;
+    if (editing && inDeletingFolder(selected) && !(await leaveEditor())) return;
+    if (opening && inDeletingFolder(opening)) opening = null;
+    let problem = "";
+    try {
+      const count = await notesDeleteFolder(path);
+      if (count !== null) {
+        if (
+          !(await confirmDialog.ask(
+            t("deleteFolder.title", { folder: path }),
+            t("deleteFolder.text", { count }),
+            t("delete.confirm"),
+            folderTarget?.getBoundingClientRect(),
+          ))
+        )
+          return;
+        await notesDeleteFolder(path, true);
+      }
+    } catch (e) {
+      if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
+      problem = errorText(e);
+    }
+    removed = null;
+    for (const note of notes) {
+      if (!inDeletingFolder(note.path)) continue;
+      renamedAway.add(note.path);
+      delete contents[note.path];
+      if (expanded === note.path) expanded = "";
+    }
+    list?.focus({ preventScroll: true });
+    changed({ renames: [] });
+    error = problem;
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    deleting = false;
+    deletingFolder = "";
+  }
+}
+
 let cardMenu: Menu;
 /** The card the right-click menu acts on. */
 let menuCard = $state<Card | null>(null);
@@ -1133,9 +1221,10 @@ async function reload() {
     }
     return refresh(value);
   }
-  const list = await notesList();
+  const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
   if (stale()) return;
   notes = list;
+  folders = directoryList;
   await sync(list);
   if (stale()) return;
   const state = await pinnedList();
@@ -1622,6 +1711,9 @@ onMount(() => {
 <ShortcutSheet bind:this={shortcutSheet} />
 <ConfirmDialog bind:this={confirmDialog} />
 <MovePicker bind:this={movePicker} />
+<Menu bind:this={folderMenu} label={t("deleteFolder.menu")}>
+  <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
+</Menu>
 <Menu bind:this={cardMenu} label={t("menu.label")}>
   {#if menuCard}
     {@const card = menuCard}
@@ -1733,11 +1825,14 @@ onMount(() => {
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "group" in row}
           {@const group = row.group}
-          <h2>{"folder" in group ? group.folder
-            : group.kind === "calendarMonth"
+          {#if "folder" in group}
+            <h2><button class="folder-label" oncontextmenu={(event) => openFolderMenu(event, group.folder)} onkeydown={(event) => openFolderMenu(event, group.folder)}>{group.folder}</button></h2>
+          {:else}
+          <h2>{group.kind === "calendarMonth"
             ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(group.date)
             : group.kind === "year" ? new Date(group.date).getFullYear()
             : t(`group.${group.kind}`)}</h2>
+          {/if}
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
@@ -1809,6 +1904,8 @@ onMount(() => {
 </section>
 
 <style>
+  .folder-label { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: default; }
+
   .web-suggestions {
     position: absolute;
     z-index: 1;

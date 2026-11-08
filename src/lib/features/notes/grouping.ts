@@ -61,7 +61,7 @@ export const folderOf = (path: string) => path.slice(0, Math.max(path.lastIndexO
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
 /** By segment, so "a/b" follows "a" even when "a-x" sorts between them as text. */
-function folderCompare(a: string, b: string): number {
+export function folderCompare(a: string, b: string): number {
   const left = a.split("/");
   const right = b.split("/");
   for (let i = 0; i < Math.min(left.length, right.length); i++) {

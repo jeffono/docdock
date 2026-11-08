@@ -305,6 +305,19 @@ as does every other byte. In the editor the rewrite is an edit of the current te
 at the new path; otherwise it is a save with the version just read, so a change made meanwhile wins
 and the links stay (`move.linksKept`). Renames stay in their folder and need no rewrite.
 
+**Deleting folders.** `notes_delete_folder(path, confirmed)` validates a non-root, non-hidden,
+non-internal relative folder with `hold_folder`, refusing junctions and symlinks at every level and
+short-name aliases.
+Under the save lock, no entries means non-recursive `remove_dir`; a concurrent new entry makes that
+fail safely. Otherwise an unconfirmed call returns the recursive listed-note count; a confirmed call
+uses the same permanent-deletion-refusing Recycle Bin operation as notes. Parent handles remain held
+while deletion runs; the target handle is released to permit deletion. Pins within that path are
+removed with the existing conflict-aware pinned helpers; failures report `pinnedNotRemoved` without
+Undo. Descendant paths stay reserved until the panel hides, and note Undo copies inside the folder
+are discarded. The UI leaves an affected editor through its save guard before deleting, cancels
+pending opens, and blocks new opens while deletion runs. Folder labels also include empty folders,
+using `notes_folders` on listing/reload; moves and note deletes never remove their empty parents.
+
 **Deleting.** `notes_delete(path)` moves a note to the Recycle Bin under the save lock, with its folders
 held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
 cancels the delete when `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`, so where the shell would

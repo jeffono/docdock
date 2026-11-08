@@ -109,7 +109,13 @@ pinned and unpinned notes differ only in section and starting state.
 - **Folder groups:** the other optional item, also off by default, groups unfiltered Notes in any
   order. Root notes come first, right under the section title and without a label; then each folder,
   labelled with its path, by path segment, so a subfolder follows its parent. Each group keeps the
-  chosen order.
+  chosen order. Empty folders and folders containing only pinned notes keep their labels. Folder
+  labels are keyboard-focusable; right click, Shift+F10 or the Menu key opens one "Delete folder"
+  item without a shortcut. Empty folders are removed immediately. Any entry (including hidden files
+  and attachments) requires the same nearby confirmation dialog, focused on Cancel, naming the folder
+  and its recursive note count. "Move to Recycle Bin" recycles all content; the text explains that
+  restoration is through the Recycle Bin, with no DocDock Undo. Root has no deletion label. Folders
+  left empty by moves or note deletion stay.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
   the whole card follows the pointer; a dashed gap marks its pending position while the other cards
   stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased

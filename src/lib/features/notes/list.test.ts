@@ -314,3 +314,16 @@ describe("movedPath", () => {
     expect(movedPath("sub/_pinned.md", "", [])).toBe("_pinned 2.md");
   });
 });
+
+// Without these labels an empty folder, or one with only pinned notes, cannot be deleted.
+it("folder rows keep empty folders and folders whose notes are all pinned accessible", () => {
+  const model = buildList({
+    ...base,
+    hits: [hit("parent/pinned.md")],
+    pinned: [item("parent/pinned.md")],
+  });
+  const result = rows(model, "", new Map(), ["parent", "parent/empty"]);
+  expect(
+    result.filter((row) => "group" in row).map((row) => "group" in row && row.group.key),
+  ).toEqual(["folder:parent", "folder:parent/empty"]);
+});

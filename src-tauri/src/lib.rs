@@ -53,6 +53,7 @@ pub fn run() {
         commands::notes_folders,
         commands::notes_create_folder,
         commands::notes_delete,
+        commands::notes_delete_folder,
         commands::notes_undo_delete,
         commands::notes_paste_image,
         commands::notes_leftovers,

@@ -1,7 +1,7 @@
 // The note list as a pure model: which cards and rows exist, in which order, and what each keyboard
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
-import type { DateGroup, FolderGroup } from "./grouping";
+import { type DateGroup, type FolderGroup, folderCompare } from "./grouping";
 import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
@@ -128,6 +128,7 @@ export function rows(
   model: ListModel,
   editing: string,
   headings: ReadonlyMap<string, DateGroup | FolderGroup> = new Map(),
+  folders?: string[],
 ): Row[] {
   const key = (entry: Card | Missing) =>
     isMissing(entry)
@@ -135,6 +136,29 @@ export function rows(
       : entry.hit.path === editing
         ? "editing"
         : `note:${entry.hit.path}`;
+  if (folders) {
+    const groups = new Map<string, Card[]>();
+    for (const folder of ["", ...folders]) groups.set(folder, []);
+    for (const entry of model.notes) {
+      const folder = folderOf(entry.hit.path);
+      if (!groups.has(folder)) groups.set(folder, []);
+      groups.get(folder)?.push(entry);
+    }
+    return [
+      ...rows({ ...model, notes: [] }, editing),
+      ...(model.notes.length || folders.length
+        ? [{ key: "heading:notes", heading: "notes" as const }]
+        : []),
+      ...[...groups.keys()]
+        .sort(folderCompare)
+        .flatMap((folder): Row[] => [
+          ...(folder
+            ? [{ key: `group:folder:${folder}`, group: { key: `folder:${folder}`, folder } }]
+            : []),
+          ...(groups.get(folder) ?? []).map((entry) => ({ key: key(entry), entry })),
+        ]),
+    ];
+  }
   return [
     ...(model.pinned.length ? [{ key: "heading:pinned", heading: "pinned" as const }] : []),
     ...model.pinned.map((entry) => ({ key: key(entry), entry })),

@@ -153,6 +153,15 @@ pub fn notes_folders(app: AppHandle) -> Result<Vec<String>, Error> {
 pub fn notes_create_folder(app: AppHandle, path: String) -> Result<(), Error> {
     crate::notes::create_folder(&app, &path)
 }
+#[tauri::command(async)]
+pub fn notes_delete_folder(
+    app: AppHandle,
+    path: String,
+    confirmed: bool,
+) -> Result<Option<usize>, Error> {
+    crate::notes::delete_folder(&app, &path, confirmed)
+}
+
 /// Moves a note to the Recycle Bin; answers whether `notes_undo_delete` can bring it back, which it
 /// can while the panel stays open.
 #[tauri::command(async)]
