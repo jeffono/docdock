@@ -61,7 +61,7 @@ export const folderOf = (path: string) => path.slice(0, Math.max(path.lastIndexO
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
 /** By segment, so "a/b" follows "a" even when "a-x" sorts between them as text. */
-function folderCompare(a: string, b: string): number {
+export function folderCompare(a: string, b: string): number {
   const left = a.split("/");
   const right = b.split("/");
   for (let i = 0; i < Math.min(left.length, right.length); i++) {
@@ -70,42 +70,4 @@ function folderCompare(a: string, b: string): number {
     if (order) return order;
   }
   return left.length - right.length;
-}
-
-/**
- * Ordered notes with each folder's together, keeping their order: the root first, then folders by
- * path, so a subfolder follows its parent. Searches keep relevance.
- */
-export function byFolder<T>(
-  items: T[],
-  path: (item: T) => string,
-  enabled: boolean,
-  query: string,
-): T[] {
-  if (!enabled || query.trim()) return items;
-  return items
-    .map((hit, at) => ({ hit, at, folder: folderOf(path(hit)) }))
-    .sort((a, b) => {
-      if (a.folder === b.folder) return a.at - b.at;
-      if (!a.folder || !b.folder) return a.folder ? 1 : -1;
-      return folderCompare(a.folder, b.folder);
-    })
-    .map(({ hit }) => hit);
-}
-
-/** Headers for hits already grouped by `byFolder`. The root needs none: it follows the section title. */
-export function folderHeadings(
-  hits: Hit[],
-  enabled: boolean,
-  query: string,
-): Map<string, FolderGroup> {
-  const headings = new Map<string, FolderGroup>();
-  if (!enabled || query.trim()) return headings;
-  let previous = "";
-  for (const hit of hits) {
-    const folder = folderOf(hit.path);
-    if (folder && folder !== previous) headings.set(hit.path, { key: `folder:${folder}`, folder });
-    previous = folder;
-  }
-  return headings;
 }

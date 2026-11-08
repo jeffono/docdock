@@ -56,10 +56,34 @@ pub enum Error {
     PinnedChanged,
     /// The new name is taken, or the note changed since it was read; nothing moved.
     RenameConflict,
-    /// The note was renamed to `path`, but its pinned items still point at the old name.
+    /// A folder name Windows would not keep as typed, a hidden one, or one that leaves the folder.
+    InvalidFolderName,
+    /// A file, not a folder, already has the name `name`.
+    FolderNameTaken {
+        name: String,
+    },
+    /// The note was renamed or moved to `path`, but its pinned items still point at the old path.
     PinnedNotRenamed {
         path: String,
     },
+    /// The note's volume has no Recycle Bin, or it would not take the note; nothing was deleted.
+    NotRecyclable,
+    DeleteFailed {
+        detail: String,
+    },
+    /// The note is in the Recycle Bin, but its pinned items still point at it. `undo`: Undo can bring
+    /// it back.
+    PinnedNotRemoved {
+        undo: bool,
+    },
+    /// The panel closed since the delete, or it was already undone.
+    UndoUnavailable,
+    /// A file took the deleted note's name; the note stays in the Recycle Bin.
+    RestoreTaken {
+        path: String,
+    },
+    /// The note is back, but its pinned items are not.
+    PinnedNotRestored,
     InvalidUrl {
         detail: String,
     },

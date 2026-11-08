@@ -1,7 +1,7 @@
 // The note list as a pure model: which cards and rows exist, in which order, and what each keyboard
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
-import type { DateGroup, FolderGroup } from "./grouping";
+import { type DateGroup, type FolderGroup, folderCompare } from "./grouping";
 import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
@@ -128,6 +128,7 @@ export function rows(
   model: ListModel,
   editing: string,
   headings: ReadonlyMap<string, DateGroup | FolderGroup> = new Map(),
+  folders?: string[],
 ): Row[] {
   const key = (entry: Card | Missing) =>
     isMissing(entry)
@@ -135,6 +136,29 @@ export function rows(
       : entry.hit.path === editing
         ? "editing"
         : `note:${entry.hit.path}`;
+  if (folders) {
+    const groups = new Map<string, Card[]>();
+    for (const folder of ["", ...folders]) groups.set(folder, []);
+    for (const entry of model.notes) {
+      const folder = folderOf(entry.hit.path);
+      if (!groups.has(folder)) groups.set(folder, []);
+      groups.get(folder)?.push(entry);
+    }
+    return [
+      ...rows({ ...model, notes: [] }, editing),
+      ...(model.notes.length || folders.length
+        ? [{ key: "heading:notes", heading: "notes" as const }]
+        : []),
+      ...[...groups.keys()]
+        .sort(folderCompare)
+        .flatMap((folder): Row[] => [
+          ...(folder
+            ? [{ key: `group:folder:${folder}`, group: { key: `folder:${folder}`, folder } }]
+            : []),
+          ...(groups.get(folder) ?? []).map((entry) => ({ key: key(entry), entry })),
+        ]),
+    ];
+  }
   return [
     ...(model.pinned.length ? [{ key: "heading:pinned", heading: "pinned" as const }] : []),
     ...model.pinned.map((entry) => ({ key: key(entry), entry })),
@@ -155,12 +179,18 @@ export const entryKey = (entry: Card | Missing) =>
 
 /**
  * Keys of what arrows can select, top to bottom: "create" first when offered, then every pinned entry,
- * missing ones included so the keyboard can remove them, then the notes.
+ * missing ones included so the keyboard can remove them, then folder labels and notes as displayed.
  */
-export function navKeys(model: ListModel): string[] {
+export function navKeys(model: ListModel, visibleRows = rows(model, "")): string[] {
   return [
     ...(model.create === null ? [] : ["create"]),
-    ...[...model.pinned, ...model.notes].map(entryKey),
+    ...visibleRows.flatMap((row) =>
+      "entry" in row
+        ? [entryKey(row.entry)]
+        : "group" in row && "folder" in row.group
+          ? [row.group.key]
+          : [],
+    ),
   ];
 }
 
@@ -175,6 +205,31 @@ export function move(keys: string[], current: string, delta: -1 | 1): string {
   const at = keys.indexOf(current);
   if (at < 0) return keys[0] ?? "";
   return keys[Math.min(keys.length - 1, Math.max(0, at + delta))];
+}
+
+/**
+ * Jump to the first note or web pin of the previous / next visible section. Folder labels are not
+ * destinations; from a label, its own section counts as the next one.
+ */
+export function jumpSection(visibleRows: Row[], current: string, delta: -1 | 1): string {
+  const starts: string[] = [];
+  // Index of the current section; a half step means a label right before section `starts.length`.
+  let section: number | null = null;
+  let boundary = true;
+  for (const row of visibleRows) {
+    if ("heading" in row || "group" in row) boundary = true;
+    if ("group" in row && "folder" in row.group && row.group.key === current) {
+      section = starts.length - 0.5;
+    }
+    if (!("entry" in row)) continue;
+    const key = entryKey(row.entry);
+    if (boundary) starts.push(key);
+    boundary = false;
+    if (key === current) section = starts.length - 1;
+  }
+  if (section === null) return starts[0] ?? "";
+  const to = delta > 0 ? Math.floor(section) + 1 : Math.ceil(section) - 1;
+  return starts[Math.max(0, Math.min(starts.length - 1, to))] ?? "";
 }
 
 /** A vertical extent on screen, in pixels; `top` above `bottom`. */
@@ -301,10 +356,50 @@ export function renamedPath(from: string, title: string, paths: Iterable<string>
   return folder + noteFileName(title, taken);
 }
 
+/** The folder of a note path, without the trailing `/`; "" for the root. */
+export function folderOf(path: string): string {
+  return path.slice(0, Math.max(0, path.lastIndexOf("/")));
+}
+
+/**
+ * The path a note gets when moved to `folder` ("" for the root): its own file name, numbered " 2" and
+ * so on when taken there (ignoring case, as Windows does), as a rename numbers it. At the root,
+ * `_pinned.md` is never taken.
+ */
+export function movedPath(from: string, folder: string, paths: Iterable<string>): string {
+  const name = from.slice(from.lastIndexOf("/") + 1);
+  const prefix = folder ? `${folder}/` : "";
+  const taken = new Set(folder ? [] : [`${NEVER}.md`]);
+  for (const path of paths)
+    if (folderOf(path).toLowerCase() === folder.toLowerCase())
+      taken.add(path.slice(prefix.length).toLowerCase());
+  const stem = name.slice(0, -3);
+  const extension = name.slice(-3);
+  let moved = name;
+  for (let n = 2; taken.has(moved.toLowerCase()); n++) moved = `${stem} ${n}${extension}`;
+  return prefix + moved;
+}
+
 export function pageHost(url: string): string {
   try {
     return new URL(url).host;
   } catch {
     return url;
   }
+}
+
+/** Only note-bearing folders and completely empty ones get labels. */
+export function folderLabels(
+  notes: { path: string }[],
+  folders: { path: string; empty: boolean }[],
+): string[] {
+  return folders
+    .filter(
+      (folder) =>
+        folder.empty ||
+        notes.some((note) =>
+          note.path.toLowerCase().startsWith([folder.path.toLowerCase(), ""].join("/")),
+        ),
+    )
+    .map((folder) => folder.path);
 }

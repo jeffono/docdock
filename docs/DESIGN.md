@@ -15,6 +15,9 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 - Light and dark themes follow Windows by default, with a System, Light or Dark choice in Preferences.
   Every new color starts in both themes, in `light-dark`.
 - Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
+- Amber (`--color-warning*`, chosen by the user) only tints notices that need attention without being
+  errors, such as Undo after a delete. A light scrim (`--color-scrim`) dims the panel only behind a
+  confirmation dialog.
 - Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
   keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
   functions, orange types, green tags and gray comments. Punctuation and other identifiers keep the
@@ -36,12 +39,15 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 
 Use `src/lib/ui/` before creating anything. Create a component only if nothing existing works.
 
-| Component    | Use                                                                |
-| ------------ | ------------------------------------------------------------------ |
-| `Button`     | Primary action (at most one per area), or neutral secondary action |
-| `IconButton` | Secondary action, always labeled; toggles on and off               |
-| `TextField`  | Single-line input; Esc leaves the field                            |
-| `Icon`       | Lucide stroke, text color, width 2                                 |
+| Component       | Use                                                                |
+| --------------- | ------------------------------------------------------------------ |
+| `Button`        | Primary action (at most one per area), or neutral secondary action |
+| `IconButton`    | Secondary action, always labeled; toggles on and off               |
+| `TextField`     | Single-line input; Esc leaves the field                            |
+| `Menu`          | In-panel menu of items with optional check and shortcut            |
+| `ConfirmDialog` | In-panel question before a costly action, focus on Cancel          |
+| `Notice`        | Amber-tinted message with an icon and actions, for attention       |
+| `Icon`          | Lucide stroke, text color, width 2                                 |
 
 ## States
 
@@ -103,7 +109,20 @@ pinned and unpinned notes differ only in section and starting state.
 - **Folder groups:** the other optional item, also off by default, groups unfiltered Notes in any
   order. Root notes come first, right under the section title and without a label; then each folder,
   labelled with its path, by path segment, so a subfolder follows its parent. Each group keeps the
-  chosen order.
+  chosen order. Labels appear only for folders containing notes directly or below (including pinned
+  notes), or completely empty folders. Folders containing only images or other files have no label
+  and cannot be deleted from the app. Tab enters the list once; arrows select folder labels as well
+  as cards, with a spoken path. Selectable labels gain a discreet triangle
+  and an inset of `--space-3` on hover, focus or selection, with no background, higher text contrast
+  (accent when selected) and transitions
+  over `--duration` (ease-out for the inset and triangle). Reduced motion removes transitions.
+  Date labels and the unlabelled root keep their existing appearance. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
+  item without a shortcut. Empty folders are removed immediately. Any entry (including hidden files
+  and attachments) requires the same nearby confirmation dialog, focused on Cancel, naming the folder
+  and its recursive counts of notes and other files, each with the correct singular or plural in English
+  and pt-BR (for example, "3 notes and 2 other files"). "Move to Recycle Bin" recycles all content; the text explains that
+  restoration is through the Recycle Bin, with no DocDock Undo. Root has no deletion label. Folders
+  left empty by moves or note deletion stay.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
   the whole card follows the pointer; a dashed gap marks its pending position while the other cards
   stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
@@ -181,19 +200,51 @@ pinned and unpinned notes differ only in section and starting state.
   pinned (Delete)".
   Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
   vertical and right inset and a quiet remove icon.
+- **Card menu:** a right click on a note card, Shift+F10 or the Menu key on the selected card opens
+  the same in-panel menu as the order menu: Rename (F2), Pin or Unpin (Ctrl+D), Move (Ctrl+M), then
+  after a separator Delete (Ctrl+Delete), each with its shortcut in muted text at the right. A right click opens it at the pointer, kept inside the panel; the keyboard opens it under
+  the card header. Text fields, the editor and selected reading text keep the native menu. Web pins
+  and missing items have none.
+- **Moving:** Move in the card menu, or Ctrl+M on the selected card from the search bar or the list
+  (not the editor), opens a picker placed and dimmed as the delete dialog: the question "Move “title”",
+  a field with the focus, and a list of fixed height below it. The list holds "Root folder" and every
+  folder, filtered as the field is typed (ignoring case), with a check on the note's own folder; when
+  no folder has the typed name, "Create folder “name”" with a plus icon ends the list. `/` nests a new
+  folder. ↑ / ↓ move the selected-surface highlight, the pointer follows it, and Enter or a click
+  takes it; Esc or a click on the scrim cancels, and focus returns to the list. Taking the note's own
+  folder does nothing. The note keeps its file name, or " 2" and so on where it is taken, and stays
+  selected; an edited note stays in its editor. Folders a move leaves empty stay.
+- **Deleting:** Delete in the card menu, or Ctrl+Delete on the selected card from the list (not in
+  the search bar or the editor, where it deletes the next word), asks in an in-panel dialog without
+  shadow, over a light scrim: the note title as the question, one muted sentence, then the neutral
+  Cancel, which has the focus, and the primary "Move to Recycle Bin". It spans the panel width less
+  its margins and opens just below the card header, or above it near the bottom, always inside the
+  panel. Esc cancels and focus returns. An edited note leaves editing first, which saves. Then a
+  `Notice` under the search bar, on the amber tint with a trash icon, says the note went to the
+  Recycle Bin, with a neutral Undo button, until the panel closes or another note is deleted. Undo
+  brings the note and its pinned items back and selects it. The selection otherwise moves to the
+  next item. Where the folder has no Recycle Bin, nothing is deleted and an error says so. A note over
+  the 2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is
+  too large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
   another app, Esc from the empty search bar, or the shortcut from the search bar. A pinned panel only
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
-- **Tab stops:** search bar → recovery actions when shown ("Restore" on leftovers, then "Restore
-  pinned items") → list → note order button → top bar buttons (including
-  Preferences), reversed with Shift+Tab. Card
+- **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
+  leftovers, then "Restore pinned items") → list → note order button → top bar buttons (including
+  Preferences) → resize handle → search bar, reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
   labeled region of plain groups, not a listbox, since cards hold buttons, links and the editor; the
   selected item has `aria-current` and a polite live region announces it.
+- **Section jumps:** Ctrl+↑ / Ctrl+↓ select the first note of the previous / next visible section:
+  Pinned, Notes and each folder or date group inside Notes. Folder labels are never destinations, and
+  folders without notes are skipped; from a selected label, Ctrl+↓ goes to its first note. Notes and
+  its first group share a destination when there is no root item before it.
+  Jumps stay at the first / last section at the ends; with no selection they select the first section.
+  Search and the editor keep their native Ctrl+arrow behavior.
 - **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below
   work as from the search bar, and typing a character goes to the search bar. Enter acts on the
   selection even on a focused button; Space presses the button.
@@ -204,22 +255,26 @@ pinned and unpinned notes differ only in section and starting state.
   (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
   tag. → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
 
-| Shortcut                  | Action                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| ↑ / ↓                     | Select a card or row; on a long expanded card, first scroll about three lines to its end |
-| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                  |
-| Alt+↑ / Alt+↓             | Select the previous / next item directly                                                 |
-| PgUp / PgDn               | Scroll the list by about one screen                                                      |
-| → / ←                     | Open / close one level: line, preview, expanded                                          |
-| Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
-| Delete                    | Remove the selected missing pinned item                                                  |
-| Ctrl+Enter                | Create a note with the exact typed text                                                  |
-| Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |
-| Ctrl+/                    | Open / close the shortcut sheet                                                          |
-| Ctrl+E                    | Toggle editing on the selected card                                                      |
-| Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first             |
-| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
-| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close         |
+| Shortcut                  | Action                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ↑ / ↓                     | Select a card, folder label or row; on a long expanded card, first scroll about three lines to its end |
+| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                                |
+| Alt+↑ / Alt+↓             | Select the previous / next item directly                                                               |
+| Ctrl+↑ / Ctrl+↓           | Jump to the previous / next section, only with focus on the list                                       |
+| PgUp / PgDn               | Scroll the list by about one screen                                                                    |
+| → / ←                     | Open / close one level: line, preview, expanded                                                        |
+| Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item                       |
+| Delete                    | Remove the selected missing pinned item                                                                |
+| Ctrl+Delete               | Move the selected note to the Recycle Bin, after confirming; outside text fields                       |
+| Ctrl+M                    | Move the selected note to a folder; from the search bar or the list                                    |
+| Shift+F10 / Menu          | Open the selected note or folder menu                                                                  |
+| Ctrl+Enter                | Create a note with the exact typed text                                                                |
+| Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below                      |
+| Ctrl+/                    | Open / close the shortcut sheet                                                                        |
+| Ctrl+E                    | Toggle editing on the selected card                                                                    |
+| Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
+| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close                 |
+| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close                       |
 
 ## Preferences
 

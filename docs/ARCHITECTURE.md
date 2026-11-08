@@ -21,8 +21,8 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
-                         renaming, reading and editing `_pinned.md`
-  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, move, rename
+                         renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
+  pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -284,6 +284,63 @@ at the new path, keeping a `#fragment` and the rest of their line; their link te
 it is still the old title. If `_pinned.md` cannot follow, the answer is `pinnedNotRenamed` and the
 rename stands. Links in other notes are not rewritten. The watcher reports the move as a rename, as for
 an external one.
+
+**Moving.** `notes_move(from, to, base)` shares rename's move (`relocate`): same lock, version check,
+`move_new` without replacing, `renameConflict` on a taken or reserved name, collapsed state and pinned
+items following, `pinnedNotRenamed` when the list cannot. It differs in that the target folder must be
+another existing one, not hidden, held with its ancestry as named rather than canonicalized, so a link
+at any level is refused, even one pointing inside the notes folder, and the name checked against
+reservations and pinned items is the one written; and the pinned link text never changes. `notes_folders` lists the folders listing visits
+(hidden ones and links skipped). `notes_create_folder` creates a `/`-nested folder level by level, each
+parent held, keeping one that exists; a name Windows would not keep as typed (trailing dot or space,
+`<>:"/\|?*`, control characters, device names such as `CON` or `com1.txt`), a hidden one or the root
+`_pinned.md` answers `invalidFolderName`, and a file in the way of a level `folderNameTaken`. The UI (`MovePicker`) creates the folder first, then moves to
+the note's own name there or the next free one (`movedPath`), retried on a conflict as a rename. An
+edited note moves through `Editor.rename`, so the editor follows it and no save reaches the old path;
+otherwise the note cannot open in the editor while it moves. After the move, `movedLinks` (pure, in
+`features/notes/links.ts`, on `noteParser`) points the note's relative link and image destinations,
+inline and in reference definitions, at the same files from the new folder; no file moves. Web, email,
+`#` and absolute targets, targets leaving the notes folder, code, raw HTML and the frontmatter (also
+after a byte order mark) stay, as does every other byte. Only the leading `..` segments and the folders
+the note left change; the link's own segments keep their spelling, and added folder names are
+percent-encoded where Markdown or a URL would read them otherwise. In the editor the rewrite is an edit
+of the current text, saved by autosave at the new path, and the move is registered as a rename, so
+leaving the editor waits for it; otherwise it goes through `notes_rewrite`, a save with the version
+just read that never recreates a missing note, so a change, deletion or rename made meanwhile wins
+and the links stay (`move.linksKept`). Renames stay in their folder and need no rewrite.
+
+**Deleting folders.** `notes_delete_folder(path, confirmed)` validates a non-root, non-hidden,
+non-internal relative folder with `hold_folder`, refusing junctions and symlinks at every level and
+short-name aliases.
+Under the save lock, no entries means non-recursive `remove_dir`; a concurrent new entry makes that
+fail safely. Otherwise an unconfirmed call returns the recursive listed-note count; a confirmed call
+uses the same permanent-deletion-refusing Recycle Bin operation as notes. Parent handles remain held
+while deletion runs; the target handle is released to permit deletion. Pins within that path are
+removed with the existing conflict-aware pinned helpers; failures report `pinnedNotRemoved` without
+Undo. Descendant paths stay reserved until the panel hides, and note Undo copies inside the folder
+are discarded. The UI leaves an affected editor through its save guard before deleting, cancels
+pending opens, and blocks new opens while deletion runs. Folder labels also include empty folders,
+using `notes_folders` on listing/reload; moves and note deletes never remove their empty parents.
+
+**Deleting.** `notes_delete(path)` moves a note to the Recycle Bin under the save lock, with its folders
+held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
+cancels the delete when `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`, so where the shell would
+delete for good (no Recycle Bin on the volume, as on a network share) the note stays and the answer is
+`notRecyclable`. The sink also reports where the file landed in the Recycle Bin; its bytes are read
+from there, so Undo keeps exactly what was recycled even if another app swapped the path, and kept in
+memory with the path until the panel hides (`forget_deleted`, from `dock.rs`). Hides count as
+sessions: a delete that ends after one keeps nothing and answers that Undo is not possible, and the UI
+drops the notice the same way. Meanwhile the path is reserved: saves and renames to it answer a conflict, so a late save
+of an editor cannot recreate the note and a new note takes the next name. Undo (`notes_undo_delete`)
+writes the copy back with the empty-base recreation, never over a file that took the name
+(`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy. Restoring from the Recycle
+Bin itself was not used: finding the item depends on the bin's internal layout. Pinned items are
+removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands); Undo puts back the
+exact previous `_pinned.md` if it did not change since, else pins the items again at the end
+(`pinned::repin`), and leaves a deleted `_pinned.md` to its own restore. The UI leaves the note's editor
+first, the guarded way, so its text is saved and nothing writes after the delete; a conflict there
+stops the delete. While the delete runs, the note cannot open in the editor and an open already in
+flight is dropped.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores

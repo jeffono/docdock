@@ -49,11 +49,15 @@ const en = {
   "shortcut.mode": "Switch Notes / Browser",
   "shortcut.sheet": "Open / close shortcut sheet",
   "shortcut.arrows": "Select item; scroll expanded content first",
+  "shortcut.section": "Previous / next section (list focus only)",
   "shortcut.direct": "Select previous / next item",
   "shortcut.page": "Scroll one screen",
   "shortcut.level": "Open / close one level",
   "shortcut.enter": "Open selected item or create note",
   "shortcut.delete": "Remove missing pinned item",
+  "shortcut.deleteNote": "Move selected note to the Recycle Bin, outside text fields",
+  "shortcut.move": "Move selected note to a folder, outside the editor",
+  "shortcut.menu": "Open the selected note's menu",
   "shortcut.create": "Create note from typed text",
   "shortcut.pin": "Pin / unpin selected note, outside the editor",
   "shortcut.edit": "Toggle reading / editing",
@@ -102,6 +106,36 @@ const en = {
   "card.missing": "Note not found",
   "card.remove": "Remove from pinned (Delete)",
   "card.rename": "Rename note (F2)",
+  "menu.label": "Note actions",
+  "menu.rename": "Rename",
+  "menu.pin": "Pin",
+  "menu.unpin": "Unpin",
+  "menu.move": "Move",
+  "menu.delete": "Delete",
+  "move.title": "Move “{title}”",
+  "move.field": "Folder",
+  "move.placeholder": "Filter or name a new folder",
+  "move.folders": "Folders",
+  "move.root": "Root folder",
+  "move.create": "Create folder “{folder}”",
+  "move.linksKept":
+    "The note moved, but it changed meanwhile, so its links still point from the old folder.",
+  "dialog.cancel": "Cancel",
+  "deleteFolder.note": "{count} note",
+  "deleteFolder.notes": "{count} notes",
+  "deleteFolder.other": "{count} other file",
+  "deleteFolder.others": "{count} other files",
+  "deleteFolder.join": "{notes} and {other}",
+  "deleteFolder.menu": "Delete folder",
+  "deleteFolder.title": "Delete folder “{folder}”?",
+  "deleteFolder.text":
+    "This folder contains {counts}. The folder and all its content move to the Recycle Bin. Restore it there; there is no Undo in DocDock.",
+  "delete.title": "Delete “{title}”?",
+  "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
+  "delete.confirm": "Move to Recycle Bin",
+  "delete.done": "“{title}” moved to the Recycle Bin.",
+  "delete.tooLarge":
+    "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
   "pinned.restore": "Restore pinned items",
   "editor.updated": "Updated from disk",
@@ -151,6 +185,9 @@ const en = {
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is not available.",
   "error.invalidPath": "Invalid file path.",
+  "error.folderNameTaken": "A file named “{name}” is already there; choose another folder name.",
+  "error.invalidFolderName":
+    'Choose another folder name: it cannot start with a dot, end with a dot or space, contain < > : " \\ | ? * or be a name Windows reserves, such as CON.',
   "error.outsideFolder": "The file is outside the chosen folder.",
   "error.tooLarge": "The note has {sizeMb} MB; the limit is {limitMb} MB.",
   "error.notUtf8": "The note is not UTF-8 text.",
@@ -170,7 +207,16 @@ const en = {
   "error.pinnedChanged":
     "The pinned list changed outside the app while it was being updated; try again.",
   "error.pinnedNotRenamed":
-    "The note was renamed to {path}, but the pinned list could not follow it; pin it again.",
+    "The note is now at {path}, but the pinned list could not follow it; pin it again.",
+  "error.notRecyclable": "This folder has no Recycle Bin for the note, so nothing was deleted.",
+  "error.deleteFailed": "Could not delete the note: {detail}",
+  "error.pinnedNotRemoved":
+    "The note moved to the Recycle Bin, but the pinned list could not follow; remove its item.",
+  "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
+  "error.restoreTaken":
+    "Another file now uses the name {path}. Rename it and undo again; the note is still in the Recycle Bin.",
+  "error.pinnedNotRestored":
+    "The note was restored, but the pinned list could not follow; pin it again.",
   "error.invalidUrl": "Invalid address: {detail}",
   "error.urlNotAllowed": "Address not allowed: {url}",
   "error.linkNotAllowed": "Only web and email links open outside the app.",
@@ -225,11 +271,15 @@ const ptBR: Record<MessageKey, string> = {
   "shortcut.mode": "Alternar Notas / Navegador",
   "shortcut.sheet": "Abrir / fechar lista de atalhos",
   "shortcut.arrows": "Selecionar item; rolar conteúdo expandido primeiro",
+  "shortcut.section": "Seção anterior / seguinte (com foco na lista)",
   "shortcut.direct": "Selecionar item anterior / seguinte",
   "shortcut.page": "Rolar uma tela",
   "shortcut.level": "Abrir / fechar um nível",
   "shortcut.enter": "Abrir item selecionado ou criar nota",
   "shortcut.delete": "Remover item fixado ausente",
+  "shortcut.deleteNote": "Mover a nota selecionada para a Lixeira, fora de campos de texto",
+  "shortcut.move": "Mover a nota selecionada para uma pasta, fora do editor",
+  "shortcut.menu": "Abrir o menu da nota selecionada",
   "shortcut.create": "Criar nota com o texto digitado",
   "shortcut.pin": "Fixar / desafixar nota selecionada, fora do editor",
   "shortcut.edit": "Alternar leitura / edição",
@@ -278,6 +328,36 @@ const ptBR: Record<MessageKey, string> = {
   "card.missing": "Nota não encontrada",
   "card.remove": "Remover dos fixados (Delete)",
   "card.rename": "Renomear nota (F2)",
+  "menu.label": "Ações da nota",
+  "menu.rename": "Renomear",
+  "menu.pin": "Fixar",
+  "menu.unpin": "Desafixar",
+  "menu.move": "Mover",
+  "menu.delete": "Excluir",
+  "move.title": "Mover “{title}”",
+  "move.field": "Pasta",
+  "move.placeholder": "Filtre ou dê nome a uma nova pasta",
+  "move.folders": "Pastas",
+  "move.root": "Pasta raiz",
+  "move.create": "Criar pasta “{folder}”",
+  "move.linksKept":
+    "A nota foi movida, mas mudou nesse meio-tempo; seus links ainda partem da pasta antiga.",
+  "dialog.cancel": "Cancelar",
+  "deleteFolder.note": "{count} nota",
+  "deleteFolder.notes": "{count} notas",
+  "deleteFolder.other": "{count} outro arquivo",
+  "deleteFolder.others": "{count} outros arquivos",
+  "deleteFolder.join": "{notes} e {other}",
+  "deleteFolder.menu": "Excluir pasta",
+  "deleteFolder.title": "Excluir a pasta “{folder}”?",
+  "deleteFolder.text":
+    "Esta pasta contém {counts}. A pasta e todo o conteúdo vão para a Lixeira. Restaure por lá; não há Desfazer no DocDock.",
+  "delete.title": "Excluir “{title}”?",
+  "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
+  "delete.confirm": "Mover para a Lixeira",
+  "delete.done": "“{title}” foi para a Lixeira.",
+  "delete.tooLarge":
+    "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
   "pinned.restore": "Restaurar fixados",
   "editor.updated": "Atualizada do disco",
@@ -327,6 +407,10 @@ const ptBR: Record<MessageKey, string> = {
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas não está disponível.",
   "error.invalidPath": "Caminho de arquivo inválido.",
+  "error.folderNameTaken":
+    "Já existe um arquivo chamado “{name}” ali; escolha outro nome de pasta.",
+  "error.invalidFolderName":
+    'Escolha outro nome de pasta: ele não pode começar com ponto, terminar com ponto ou espaço, conter < > : " \\ | ? * nem ser um nome reservado do Windows, como CON.',
   "error.outsideFolder": "O arquivo está fora da pasta escolhida.",
   "error.tooLarge": "A nota tem {sizeMb} MB; o limite é {limitMb} MB.",
   "error.notUtf8": "A nota não é texto UTF-8.",
@@ -345,7 +429,16 @@ const ptBR: Record<MessageKey, string> = {
   "error.pinnedChanged":
     "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
   "error.pinnedNotRenamed":
-    "A nota foi renomeada para {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
+    "A nota agora está em {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
+  "error.notRecyclable": "Esta pasta não tem Lixeira para a nota; nada foi excluído.",
+  "error.deleteFailed": "Não foi possível excluir a nota: {detail}",
+  "error.pinnedNotRemoved":
+    "A nota foi para a Lixeira, mas a lista de fixados não acompanhou; remova o item dela.",
+  "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
+  "error.restoreTaken":
+    "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo; a nota continua na Lixeira.",
+  "error.pinnedNotRestored":
+    "A nota foi restaurada, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
   "error.linkNotAllowed": "Só links da web e de e-mail abrem fora do app.",
@@ -387,5 +480,17 @@ export function dateTime(ms: number): string {
   return new Date(ms).toLocaleString(document.documentElement.lang || "en", {
     dateStyle: "short",
     timeStyle: "short",
+  });
+}
+
+/** Confirmation describes every file, with plural forms for each count. */
+export function folderCountText(counts: { notes: number; other: number }): string {
+  return t("deleteFolder.join", {
+    notes: t(counts.notes === 1 ? "deleteFolder.note" : "deleteFolder.notes", {
+      count: counts.notes,
+    }),
+    other: t(counts.other === 1 ? "deleteFolder.other" : "deleteFolder.others", {
+      count: counts.other,
+    }),
   });
 }

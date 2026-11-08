@@ -82,6 +82,9 @@ export type NoteText = { path: string; text: string; modified: number };
 export const notesTexts = (paths: string[]) => invoke<NoteText[]>("notes_texts", { paths });
 export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });
+/** As `notesSave`, but a note that is gone answers `conflict` instead of being recreated. */
+export const notesRewrite = (path: string, content: string, base: string) =>
+  invoke<SaveResult>("notes_rewrite", { path, content, base });
 /**
  * Renames a note within its folder if it still holds `base`, never over another file: fails with
  * `renameConflict` otherwise. Pinned items follow; `title` is the old and new title, for their link
@@ -89,6 +92,28 @@ export const notesSave = (path: string, content: string, base: string) =>
  */
 export const notesRename = (from: string, to: string, base: string, title: [string, string]) =>
   invoke<void>("notes_rename", { from, to, base, title });
+/**
+ * Moves a note to `to` in another existing folder, as `notesRename` does, keeping the link text of its
+ * pinned items. Hidden folders and the note's own folder are refused.
+ */
+export const notesMove = (from: string, to: string, base: string) =>
+  invoke<void>("notes_move", { from, to, base });
+/** Every folder listing visits, as `/` paths; the root is not included. */
+export const notesFolders = () => invoke<{ path: string; empty: boolean }[]>("notes_folders");
+/** Creates a folder, nested with `/`, keeping one that exists; `invalidFolderName` otherwise. */
+export const notesCreateFolder = (path: string) => invoke<void>("notes_create_folder", { path });
+/** Empty folders go at once; a note count asks for confirmation. null means deleted. */
+export const notesDeleteFolder = (path: string, confirmed = false) =>
+  invoke<{ notes: number; other: number } | null>("notes_delete_folder", { path, confirmed });
+/**
+ * Moves a note to the Recycle Bin and removes its pinned items. Resolves to whether, until the panel
+ * closes, `notesUndoDelete` can bring both back; meanwhile saves or renames to its path answer a
+ * conflict. `notRecyclable`: the note stays where it is. `pinnedNotRemoved` (with `undo`): the note
+ * was deleted all the same.
+ */
+export const notesDelete = (path: string) => invoke<boolean>("notes_delete", { path });
+/** `restoreTaken`: a file took the name; nothing changed and undoing stays possible. */
+export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },

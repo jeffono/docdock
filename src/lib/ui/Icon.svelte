@@ -1,4 +1,4 @@
-<script lang="ts">
+<script lang="ts" module>
 // Lucide paths (ISC license). Only add icons used by the UI here.
 const paths = {
   plus: "M12 5v14 M5 12h14",
@@ -17,9 +17,16 @@ const paths = {
   chevronDown: "m6 9 6 6 6-6",
   chevronUp: "m18 15-6-6-6 6",
   x: "M18 6 6 18 M6 6l12 12",
+  trash:
+    "M3 6h18 M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6 M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2 M10 11v6 M14 11v6",
+  alert:
+    "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3 M12 9v4 M12 17h.01",
 };
+export type IconName = keyof typeof paths;
+</script>
 
-let { name, filled = false }: { name: keyof typeof paths; filled?: boolean } = $props();
+<script lang="ts">
+let { name, filled = false }: { name: IconName; filled?: boolean } = $props();
 </script>
 
 <svg class:pin={name === "pin"} class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>

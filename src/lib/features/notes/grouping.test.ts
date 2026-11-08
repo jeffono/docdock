@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Note, NoteOrder } from "../../ipc";
-import { byFolder, dateHeadings, folderHeadings } from "./grouping";
+import { dateHeadings } from "./grouping";
 import { buildList, navKeys, rows } from "./list";
 import { orderHits } from "./order";
 import type { Hit } from "./search";
@@ -113,13 +113,19 @@ test("folder groups keep the order inside each folder, root first, subfolders af
     "a10/v.md",
     "a2/u.md",
   ];
-  const grouped = byFolder(
-    paths.map((path) => hit(now, path)),
-    (one) => one.path,
-    true,
-    "",
-  );
-  expect(grouped.map((one) => one.path)).toEqual([
+  const model = buildList({
+    hits: paths.map((path) => hit(now, path)),
+    pinned: [],
+    query: "",
+    exactTitle: false,
+    expanded: "",
+    editing: false,
+    kept: null,
+  });
+  const grouped = rows(model, "", new Map(), []);
+  expect(
+    grouped.flatMap((row) => ("entry" in row && "hit" in row.entry ? [row.entry.hit.path] : [])),
+  ).toEqual([
     "z.md",
     "y.md",
     "a/c.md",
@@ -130,19 +136,25 @@ test("folder groups keep the order inside each folder, root first, subfolders af
     "B/w.md",
     "b/x.md",
   ]);
-  expect([...folderHeadings(grouped, true, "").values()].map((group) => group.folder)).toEqual([
-    "a",
-    "a/b",
-    "a-x",
-    "a2",
-    "a10",
-    "B",
-    "b",
-  ]);
+  expect(
+    grouped.flatMap((row) => ("group" in row && "folder" in row.group ? [row.group.folder] : [])),
+  ).toEqual(["a", "a/b", "a-x", "a2", "a10", "B", "b"]);
 });
 
 test("searches keep relevance instead of folder groups", () => {
   const hits = [hit(now, "b/x.md"), hit(now, "a/y.md")];
-  expect(byFolder(hits, (one) => one.path, true, "x")).toBe(hits);
-  expect(folderHeadings(hits, true, "x").size).toBe(0);
+  const model = buildList({
+    hits,
+    pinned: [],
+    query: "x",
+    exactTitle: false,
+    expanded: "",
+    editing: false,
+    kept: null,
+  });
+  expect(
+    rows(model, "").flatMap((row) =>
+      "entry" in row && "hit" in row.entry ? [row.entry.hit.path] : [],
+    ),
+  ).toEqual(hits.map((hit) => hit.path));
 });

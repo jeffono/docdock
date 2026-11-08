@@ -480,17 +480,38 @@ static SAVING: Mutex<()> = Mutex::new(());
 /// Writes `content` only if the file still holds the version identified by `base`. The early check
 /// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
+    write_note_in(root, relative, content, base, true)
+}
+/// As `save_note_in`, but a missing note answers `Conflict` instead of being recreated when
+/// `recreate` is false: for a change the app makes on its own, which must not bring back a note
+/// deleted or renamed elsewhere.
+fn write_note_in(
+    root: &Path,
+    relative: &str,
+    content: &str,
+    base: &str,
+    recreate: bool,
+) -> Result<Saved, Error> {
     too_large(content.len() as u64)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    if reserved(root, relative) {
+        return Ok(Saved::Conflict);
+    }
     let target = match resolve(root, relative, markdown) {
         Ok(target) if !base.is_empty() => target,
         Ok(_) => return Ok(Saved::Conflict),
-        Err(_) if !exists(&root.join(relative)) => return recreate_note(root, relative, content),
+        Err(_) if !exists(&root.join(relative)) => {
+            if !recreate {
+                return Ok(Saved::Conflict);
+            }
+            return recreate_note(root, relative, content.as_bytes());
+        }
         Err(error) => return Err(error),
     };
     let current = match read_bytes(&target) {
         Ok(current) => current,
-        Err(_) if !exists(&target) => return recreate_note(root, relative, content),
+        Err(_) if !exists(&target) && !recreate => return Ok(Saved::Conflict),
+        Err(_) if !exists(&target) => return recreate_note(root, relative, content.as_bytes()),
         Err(error) => return Err(error),
     };
     if current == content.as_bytes() {
@@ -504,7 +525,7 @@ fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Resul
     replace_note(&target, content.as_bytes(), base)
 }
 /// Empty base expects absence; recreation never replaces a file that took the name.
-fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Error> {
+fn recreate_note(root: &Path, relative: &str, content: &[u8]) -> Result<Saved, Error> {
     let path = checked(relative, markdown)?;
     let root = root.canonicalize()?;
     let target = root.join(path);
@@ -516,10 +537,10 @@ fn recreate_note(root: &Path, relative: &str, content: &str) -> Result<Saved, Er
     if exists(&target) {
         return Ok(Saved::Conflict);
     }
-    let temp = write_temp(&target, content.as_bytes())?;
+    let temp = write_temp(&target, content)?;
     let result = match platform::move_new(&temp, &target) {
         Ok(()) => Ok(Saved::Saved {
-            version: version(content.as_bytes()),
+            version: version(content),
         }),
         Err(_) if exists(&target) => Ok(Saved::Conflict),
         Err(error) => Err(error.into()),
@@ -636,11 +657,46 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
 }
-/// Renames the note `from` to `to`, in the same folder, never over another file: a taken name answers
-/// `Conflict`, as does a note that no longer holds `base`. A case-only change renames the same file.
-/// Pinned items of `from` follow it; `title` is the old and new title for their link text. If they
-/// cannot, the answer is `PinnedNotRenamed`: the note is renamed all the same.
+pub fn rewrite_note(
+    app: &AppHandle,
+    path: &str,
+    content: &str,
+    base: &str,
+) -> Result<Saved, Error> {
+    write_note_in(&root(app)?, path, content, base, false)
+}
+/// Renames the note `from` to `to`, in the same folder. See `relocate`.
 fn rename_note_in(
+    root: &Path,
+    from: &str,
+    to: &str,
+    base: &str,
+    title: (&str, &str),
+) -> Result<(), Error> {
+    if Path::new(from).parent() != Path::new(to).parent() {
+        return Err(Error::InvalidPath);
+    }
+    relocate(root, from, to, base, title)
+}
+/// Moves the note `from` to `to`, in another folder that exists and is not hidden, keeping the link
+/// text of its pinned items. See `relocate`.
+fn move_note_in(root: &Path, from: &str, to: &str, base: &str) -> Result<(), Error> {
+    let folder = Path::new(to).parent().unwrap_or(Path::new(""));
+    let hidden = folder
+        .components()
+        .any(|c| c.as_os_str().to_string_lossy().starts_with('.'));
+    let current = Path::new(from).parent().unwrap_or(Path::new(""));
+    if hidden || same_name(folder, current) {
+        return Err(Error::InvalidPath);
+    }
+    // An empty new title never replaces a link text.
+    relocate(root, from, to, base, ("", ""))
+}
+/// Moves the note `from` to `to`, never over another file: a taken name answers `RenameConflict`, as
+/// do a note that no longer holds `base` and a path a deleted note reserves. A case-only change renames
+/// the same file. Pinned items of `from` follow it; `title` is the old and new title for their link
+/// text. If they cannot, the answer is `PinnedNotRenamed`: the note is moved all the same.
+fn relocate(
     root: &Path,
     from: &str,
     to: &str,
@@ -649,18 +705,21 @@ fn rename_note_in(
 ) -> Result<(), Error> {
     let (source, target) = (checked(from, markdown)?, checked(to, markdown)?);
     let pinned = |path: &Path| path.as_os_str().eq_ignore_ascii_case(PINNED);
-    if source.parent() != target.parent() || pinned(source) || pinned(target) {
+    if pinned(source) || pinned(target) {
         return Err(Error::InvalidPath);
     }
     {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        if reserved(root, to) {
+            return Err(Error::RenameConflict);
+        }
         let source = resolve(root, from, markdown)?;
-        let parent = source.parent().ok_or(Error::InvalidPath)?;
-        let _held = hold_ancestry(parent)?;
+        let _held = hold_ancestry(source.parent().ok_or(Error::InvalidPath)?)?;
         if version(&read_bytes(&source)?) != base {
             return Err(Error::RenameConflict);
         }
-        let target = parent.join(target.file_name().ok_or(Error::InvalidPath)?);
+        let (folder, _held_target) = hold_folder(root, target.parent().ok_or(Error::InvalidPath)?)?;
+        let target = folder.join(target.file_name().ok_or(Error::InvalidPath)?);
         // Without replacing, `MoveFileExW` refuses a taken name and allows a case-only change.
         if target != source
             && let Err(error) = platform::move_new(&source, &target)
@@ -674,11 +733,20 @@ fn rename_note_in(
     }
     // The move happened: a failure here must say so, since `from` no longer exists to retry.
     edit_pinned(root, |text| pinned::rename(text, from, to, title)).map_err(|error| {
-        eprintln!("[rename] pinned items not renamed: {error:?}");
+        eprintln!("[move] pinned items not moved: {error:?}");
         Error::PinnedNotRenamed {
             path: to.to_owned(),
         }
     })
+}
+/// An existing folder below `root`, or `root` itself for an empty path, held with its ancestry while
+/// the handles live. The path as named is held, not its canonical form: a link at any level, even one
+/// pointing inside `root`, is refused, so the folder written to is the one named, and the reservations
+/// and pinned items checked against that name apply to it.
+fn hold_folder(root: &Path, relative: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
+    let folder = root.canonicalize()?.join(relative);
+    let held = hold_ancestry(&folder).map_err(|_| Error::OutsideFolder)?;
+    Ok((folder, held))
 }
 /// Windows compares names ignoring case.
 fn same_name(a: &Path, b: &Path) -> bool {
@@ -692,7 +760,17 @@ pub fn rename_note(
     title: (&str, &str),
 ) -> Result<(), Error> {
     let renamed = rename_note_in(&root(app)?, from, to, base, title);
-    if matches!(renamed, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
+    follow(app, from, to, &renamed);
+    renamed
+}
+pub fn move_note(app: &AppHandle, from: &str, to: &str, base: &str) -> Result<(), Error> {
+    let moved = move_note_in(&root(app)?, from, to, base);
+    follow(app, from, to, &moved);
+    moved
+}
+/// Settings that name a moved note follow it.
+fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
+    if matches!(result, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
         // Best effort: the note has moved, and an error here would hide that from the editor, whose
         // next save would bring the old name back. A lost collapsed state only shows the card open.
         let _ = update(app, |settings| {
@@ -705,7 +783,345 @@ pub fn rename_note(
             }
         });
     }
-    renamed
+}
+/// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders and
+/// links are left out.
+fn folders_in(root: &Path) -> Result<Vec<String>, Error> {
+    fn visit(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result<(), Error> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
+            {
+                found.push(relative(root, &entry.path()));
+                visit(root, &entry.path(), found)?;
+            }
+        }
+        Ok(())
+    }
+    let mut found = Vec::new();
+    visit(root, root, &mut found)?;
+    found.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+    Ok(found)
+}
+#[derive(serde::Serialize)]
+pub struct FolderEntry {
+    path: String,
+    empty: bool,
+}
+pub fn folders(app: &AppHandle) -> Result<Vec<FolderEntry>, Error> {
+    let root = root(app)?;
+    folders_in(&root)?
+        .into_iter()
+        .map(|path| {
+            let empty = fs::read_dir(root.join(&path))?
+                .next()
+                .transpose()?
+                .is_none();
+            Ok(FolderEntry { path, empty })
+        })
+        .collect()
+}
+/// A folder name Windows keeps as typed and listing shows: not hidden, no leading or trailing space,
+/// no trailing dot (Windows drops it), no character a name cannot hold and no device name, even with
+/// an extension.
+fn folder_name_allowed(name: &str) -> bool {
+    let device = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_lowercase();
+    let numbered = (device.starts_with("com") || device.starts_with("lpt"))
+        && device.chars().count() == 4
+        && device
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii_digit() || "¹²³".contains(c));
+    !name.is_empty()
+        && name.chars().count() <= 100
+        && !name.starts_with(['.', ' '])
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c < ' ' || r#"<>:"/\|?*"#.contains(c))
+        && !["con", "prn", "aux", "nul"].contains(&device.as_str())
+        && !numbered
+}
+/// Creates the folder `relative` below `root`, with `/` between nested names, and any missing folder
+/// above it; one that exists is kept. Each level must be a real folder inside `root`, never a link.
+fn create_folder_in(root: &Path, relative: &str) -> Result<(), Error> {
+    let names: Vec<&str> = relative.split('/').collect();
+    // A folder in the place of the pinned list would hide it.
+    if !names.iter().all(|name| folder_name_allowed(name)) || names[0].eq_ignore_ascii_case(PINNED)
+    {
+        return Err(Error::InvalidFolderName);
+    }
+    let mut dir = root.canonicalize()?;
+    for name in names {
+        // Holding rejects a link at any level, such as one that took a name meanwhile.
+        let _held = hold_ancestry(&dir).map_err(|_| Error::OutsideFolder)?;
+        dir.push(name);
+        match fs::create_dir(&dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if fs::symlink_metadata(&dir).is_ok_and(|m| m.is_file()) {
+                    return Err(Error::FolderNameTaken {
+                        name: name.to_owned(),
+                    });
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    hold_ancestry(&dir).map_err(|_| Error::OutsideFolder)?;
+    Ok(())
+}
+pub fn create_folder(app: &AppHandle, path: &str) -> Result<(), Error> {
+    create_folder_in(&root(app)?, path)
+}
+/// True only for descendants, with a segment boundary and Windows name comparison.
+fn inside_folder(path: &str, folder: &str) -> bool {
+    path.to_lowercase()
+        .starts_with(&(folder.to_lowercase() + "/"))
+}
+#[derive(Debug, PartialEq, serde::Serialize, Default)]
+pub struct FolderCounts {
+    notes: usize,
+    other: usize,
+}
+/// Count every file, including hidden content; never follow links out of the folder.
+fn folder_counts(path: &Path) -> Result<FolderCounts, Error> {
+    let _held = hold_ancestry(path)?;
+    let mut counts = FolderCounts::default();
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            let nested = folder_counts(&entry.path())?;
+            counts.notes += nested.notes;
+            counts.other += nested.other;
+        } else if kind.is_file() && markdown(&entry.path()) {
+            counts.notes += 1;
+        } else {
+            counts.other += 1;
+        }
+    }
+    Ok(counts)
+}
+/// An entry arriving after the empty check must survive and trigger confirmation.
+fn remove_empty_folder(target: &Path) -> Result<Option<FolderCounts>, Error> {
+    match fs::remove_dir(target) {
+        Ok(()) => Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::DirectoryNotEmpty => {
+            Ok(Some(folder_counts(target)?))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+/// None means deleted; Some(count) asks the caller to confirm recycling content. Empty removal is
+/// non-recursive, so an entry arriving after the check can never be permanently deleted.
+fn delete_folder_in(
+    root: &Path,
+    relative: &str,
+    confirmed: bool,
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) -> Result<Option<FolderCounts>, Error> {
+    if !relative.split('/').all(|name| {
+        !name.is_empty()
+            && !name.starts_with('.')
+            && !name.ends_with(['.', ' '])
+            && !name.eq_ignore_ascii_case(PINNED)
+    }) {
+        return Err(Error::InvalidPath);
+    }
+    let path = checked(relative, |_| true)?;
+    {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let (target, mut held) = hold_folder(root, path)?;
+        // Refuse short-name aliases too: pins must name the folder being deleted.
+        if !same_name(&target, &target.canonicalize()?) {
+            return Err(Error::InvalidPath);
+        }
+        let empty = fs::read_dir(&target)?.next().transpose()?.is_none();
+        if !empty && !confirmed {
+            return Ok(Some(folder_counts(&target)?));
+        }
+        // Keep all parents held; the target itself must allow the shell/remove_dir to move it.
+        held.pop();
+        if empty {
+            if let Some(counts) = remove_empty_folder(&target)? {
+                return Ok(Some(counts));
+            }
+        } else {
+            recycle(&target).map_err(|error| match error.kind() {
+                io::ErrorKind::Unsupported => Error::NotRecyclable,
+                _ => Error::DeleteFailed {
+                    detail: error.to_string(),
+                },
+            })?;
+        }
+        let mut trash = deleted();
+        trash
+            .notes
+            .retain(|d| d.root != root || !inside_folder(&d.path, relative));
+    }
+    edit_pinned(root, |text| {
+        pinned::parse(text)
+            .iter()
+            .filter(|item| item.kind == Kind::Note && inside_folder(&item.target, relative))
+            .fold(text.to_owned(), |text, item| {
+                pinned::unpin(&text, &item.target)
+            })
+    })
+    .map_err(|error| {
+        eprintln!("[delete folder] pinned items not removed: {error:?}");
+        Error::PinnedNotRemoved { undo: false }
+    })?;
+    Ok(None)
+}
+pub fn delete_folder(
+    app: &AppHandle,
+    path: &str,
+    confirmed: bool,
+) -> Result<Option<FolderCounts>, Error> {
+    delete_folder_in(&root(app)?, path, confirmed, platform::recycle)
+}
+/// A note moved to the Recycle Bin from the app, kept in memory until the panel closes so Undo can
+/// write it back without depending on the Recycle Bin's layout. Its path stays reserved meanwhile:
+/// saves and renames to it answer a conflict, so an editor still open on it cannot recreate it and no
+/// new note takes the name Undo needs.
+struct Deleted {
+    root: PathBuf,
+    path: String,
+    bytes: Vec<u8>,
+    /// `_pinned.md` before and after the note's items were removed.
+    pinned: Option<(String, String)>,
+}
+/// The notes deleted since the panel last hid. `session` counts the hides, so a delete that finishes
+/// after one keeps nothing for Undo. Locked after `SAVING` when both are needed.
+struct Trash {
+    session: u64,
+    notes: Vec<Deleted>,
+}
+static DELETED: Mutex<Trash> = Mutex::new(Trash {
+    session: 0,
+    notes: Vec::new(),
+});
+fn deleted() -> std::sync::MutexGuard<'static, Trash> {
+    DELETED.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn reserved(root: &Path, relative: &str) -> bool {
+    let trash = deleted();
+    trash
+        .notes
+        .iter()
+        .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
+}
+/// Moves the note to the Recycle Bin through `recycle`, which answers where the file landed there.
+/// Undo keeps the bytes read from that file, so they are what the Recycle Bin holds even if another
+/// app swapped the note's path meanwhile. A note the Recycle Bin cannot take stays. Answers whether
+/// Undo is possible: not when the panel hid during the delete, or the Recycle Bin copy cannot be read.
+/// Its pinned items are removed after; if they cannot be, the answer is `PinnedNotRemoved`: the note
+/// is in the Recycle Bin all the same.
+fn delete_note_in(
+    root: &Path,
+    relative: &str,
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) -> Result<bool, Error> {
+    if checked(relative, markdown)?
+        .as_os_str()
+        .eq_ignore_ascii_case(PINNED)
+    {
+        return Err(Error::InvalidPath);
+    }
+    let session = deleted().session;
+    let undo = {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let target = resolve(root, relative, markdown)?;
+        let _held = hold_ancestry(target.parent().ok_or(Error::InvalidPath)?)?;
+        // A note too large to keep for Undo is not deleted from the app.
+        too_large(fs::metadata(&target)?.len())?;
+        let recycled = recycle(&target).map_err(|error| match error.kind() {
+            io::ErrorKind::Unsupported => Error::NotRecyclable,
+            _ => Error::DeleteFailed {
+                detail: error.to_string(),
+            },
+        })?;
+        let bytes = recycled.and_then(|bin| read_bytes(&bin).ok());
+        let mut trash = deleted();
+        match bytes {
+            Some(bytes) if trash.session == session => {
+                trash.notes.push(Deleted {
+                    root: root.to_owned(),
+                    path: relative.to_owned(),
+                    bytes,
+                    pinned: None,
+                });
+                true
+            }
+            _ => false,
+        }
+    };
+    let change = std::cell::RefCell::new(None);
+    edit_pinned(root, |text| {
+        let edited = pinned::unpin(text, relative);
+        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
+        edited
+    })
+    .map_err(|error| {
+        eprintln!("[delete] pinned items not removed: {error:?}");
+        Error::PinnedNotRemoved { undo }
+    })?;
+    if let Some(entry) = deleted()
+        .notes
+        .iter_mut()
+        .find(|d| d.root == root && d.path == relative)
+    {
+        entry.pinned = change.into_inner();
+    }
+    Ok(undo)
+}
+/// Writes a deleted note back at its path, never over a file that took the name since
+/// (`RestoreTaken`, and Undo stays possible). Its pinned items return too, in place if `_pinned.md`
+/// did not change since.
+fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
+    let pinned = {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut trash = deleted();
+        let deleted = &mut trash.notes;
+        let at = deleted
+            .iter()
+            .position(|d| d.root == root && d.path == relative)
+            .ok_or(Error::UndoUnavailable)?;
+        if let Saved::Conflict = recreate_note(root, relative, &deleted[at].bytes)? {
+            return Err(Error::RestoreTaken {
+                path: relative.to_owned(),
+            });
+        }
+        deleted.remove(at).pinned
+    };
+    // A deleted list is left for its own restore, rather than created with only these items.
+    if let Some((before, after)) = pinned
+        && exists(&root.join(PINNED))
+    {
+        edit_pinned(root, |text| pinned::repin(text, &before, &after, relative)).map_err(
+            |error| {
+                eprintln!("[undo] pinned items not restored: {error:?}");
+                Error::PinnedNotRestored
+            },
+        )?;
+    }
+    Ok(())
+}
+pub fn delete_note(app: &AppHandle, path: &str) -> Result<bool, Error> {
+    delete_note_in(&root(app)?, path, platform::recycle)
+}
+pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
+    undo_delete_in(&root(app)?, path)
+}
+/// The panel closed: deleted notes stay in the Recycle Bin and their names are free again.
+pub fn forget_deleted() {
+    let mut trash = deleted();
+    trash.session += 1;
+    trash.notes.clear();
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1379,9 +1795,24 @@ mod tests {
         ));
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
         fs::write(&path, "external").unwrap();
-        assert_eq!(recreate_note(&t.0, "a.md", text), Ok(Saved::Conflict));
+        assert_eq!(
+            recreate_note(&t.0, "a.md", text.as_bytes()),
+            Ok(Saved::Conflict)
+        );
         assert_eq!(save_note_in(&t.0, "a.md", text, ""), Ok(Saved::Conflict));
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+    #[test]
+    fn a_rewrite_never_brings_back_a_note_deleted_since_it_was_read() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        let base = version(b"a");
+        fs::remove_file(t.0.join("a.md")).unwrap();
+        assert_eq!(
+            write_note_in(&t.0, "a.md", "rewritten", &base, false),
+            Ok(Saved::Conflict)
+        );
+        assert!(!exists(&t.0.join("a.md")));
     }
     #[test]
     fn save_never_writes_outside_folder() {
@@ -1618,6 +2049,320 @@ mod tests {
         assert_eq!(fs::read_to_string(t.0.join("b.md")).unwrap(), "a");
     }
     #[test]
+    fn deleting_an_empty_folder_removes_only_that_directory() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("parent/empty")).unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "parent/empty", false, |_| panic!(
+                "empty folder must not recycle"
+            )),
+            Ok(None)
+        );
+        assert!(!t.0.join("parent/empty").exists());
+        assert!(t.0.join("parent").is_dir());
+    }
+    #[test]
+    fn deleting_folder_content_requires_confirmation_even_for_hidden_files() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/.hidden"), "keep").unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
+            Ok(Some(FolderCounts { notes: 0, other: 1 }))
+        );
+        assert_eq!(
+            fs::read_to_string(t.0.join("folder/.hidden")).unwrap(),
+            "keep"
+        );
+    }
+    #[test]
+    fn a_folder_the_recycle_bin_refuses_is_never_removed_permanently() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "keep").unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", true, |_| Err(
+                io::ErrorKind::Unsupported.into()
+            )),
+            Err(Error::NotRecyclable)
+        );
+        assert_eq!(fs::read_to_string(t.0.join("folder/a.md")).unwrap(), "keep");
+    }
+    #[test]
+    fn deleting_a_folder_removes_only_pins_inside_it() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("folder/sub")).unwrap();
+        fs::write(t.0.join("folder/sub/a.md"), "keep in bin").unwrap();
+        fs::write(t.0.join(PINNED), "# Pins\n- [A](FOLDER/sub/a.md)\n- [B](folder-other/a.md)\n- [Web](https://example.com/folder/a.md)\n").unwrap();
+        let bin = t.0.join("bin");
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", true, |p| to_bin(p, &bin)),
+            Ok(None)
+        );
+        assert_eq!(
+            fs::read_to_string(t.0.join(PINNED)).unwrap(),
+            "# Pins\n- [B](folder-other/a.md)\n- [Web](https://example.com/folder/a.md)\n"
+        );
+        assert_eq!(
+            fs::read_to_string(bin.join("folder/sub/a.md")).unwrap(),
+            "keep in bin"
+        );
+    }
+    #[test]
+    fn deleting_a_folder_blocks_late_saves_from_recreating_it() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "before").unwrap();
+        let base = version(b"before");
+        let bin = t.0.join("bin");
+        delete_folder_in(&t.0, "folder", true, |p| to_bin(p, &bin)).unwrap();
+        assert!(save_note_in(&t.0, "folder/a.md", "late save", &base).is_err());
+        assert!(!t.0.join("folder").exists());
+    }
+    #[test]
+    fn a_deleted_folder_can_be_explicitly_recreated_and_used() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        delete_folder_in(&t.0, "folder", false, |_| unreachable!()).unwrap();
+        create_folder_in(&t.0, "folder").unwrap();
+        assert!(matches!(
+            save_note_in(&t.0, "folder/a.md", "new", ""),
+            Ok(Saved::Saved { .. })
+        ));
+    }
+    #[test]
+    fn confirmed_folder_that_became_empty_is_removed_without_recycling() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "removed externally").unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
+            Ok(Some(FolderCounts { notes: 1, other: 0 }))
+        );
+        fs::remove_file(t.0.join("folder/a.md")).unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", true, |_| panic!("empty folder")),
+            Ok(None)
+        );
+    }
+    #[test]
+    fn an_entry_arriving_before_empty_removal_returns_counts_and_survives() {
+        let t = Temp::new();
+        fs::write(t.0.join("late.md"), "keep").unwrap();
+        assert_eq!(
+            remove_empty_folder(&t.0),
+            Ok(Some(FolderCounts { notes: 1, other: 0 }))
+        );
+        assert_eq!(fs::read_to_string(t.0.join("late.md")).unwrap(), "keep");
+    }
+    #[test]
+    fn deleting_a_folder_refuses_root_outside_and_internal_paths() {
+        let t = Temp::new();
+        for path in [
+            "",
+            ".",
+            "..",
+            "../outside",
+            "/",
+            "C:/outside",
+            "a/../../outside",
+            ".hidden",
+            "a/.hidden",
+            "_pinned.md",
+            "folder/.",
+            "folder/",
+            "folder//sub",
+            "folder.",
+            "folder ",
+        ] {
+            assert!(
+                delete_folder_in(&t.0, path, true, |_| panic!("unsafe path")).is_err(),
+                "{path}"
+            );
+        }
+        assert!(t.0.is_dir());
+    }
+    #[test]
+    fn deleting_a_folder_refuses_short_name_aliases() {
+        use std::os::windows::process::CommandExt;
+        let t = Temp::new();
+        let target = t.0.join("Long folder name for alias");
+        fs::create_dir(&target).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/D", "/C"])
+            .raw_arg(format!(
+                "for %I in (\"{}\") do @echo %~snxI",
+                target.display()
+            ))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let alias = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if alias == "Long folder name for alias" {
+            eprintln!("8.3 alias unavailable on this volume; verify alias refusal manually");
+            return;
+        }
+        assert!(
+            t.0.join(&alias).is_dir(),
+            "expected an existing short alias: {alias}"
+        );
+        assert_eq!(
+            delete_folder_in(&t.0, &alias, true, |_| panic!("alias must not recycle")),
+            Err(Error::InvalidPath)
+        );
+        assert!(target.is_dir());
+    }
+    #[test]
+    fn folder_confirmation_counts_nested_notes_and_all_other_files() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("folder/sub")).unwrap();
+        for file in ["a.md", "sub/b.MD", "sub/image.png", ".hidden"] {
+            fs::write(t.0.join("folder").join(file), "keep").unwrap();
+        }
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
+            Ok(Some(FolderCounts { notes: 2, other: 2 }))
+        );
+    }
+    #[test]
+    fn deleting_a_folder_refuses_junctions_at_every_level() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("real/sub")).unwrap();
+        assert!(mklink(&["/J"], &t.0.join("link"), &t.0.join("real")));
+        for path in ["link", "link/sub"] {
+            assert_eq!(
+                delete_folder_in(&t.0, path, true, |_| panic!("junction")),
+                Err(Error::OutsideFolder)
+            );
+        }
+        assert!(t.0.join("real/sub").is_dir());
+    }
+
+    /// Moves a deleted note into `bin`, as the Recycle Bin would.
+    /// Moves `file` into `bin`, as the Recycle Bin would, and answers where it landed.
+    fn to_bin(file: &Path, bin: &Path) -> io::Result<Option<PathBuf>> {
+        fs::create_dir_all(bin)?;
+        let landed = bin.join(file.file_name().unwrap());
+        fs::rename(file, &landed)?;
+        Ok(Some(landed))
+    }
+    fn delete(root: &Path, bin: &Path, path: &str) -> Result<bool, Error> {
+        delete_note_in(root, path, |file| to_bin(file, bin))
+    }
+    /// Delete tests share the deleted notes, which hiding the panel clears for every folder.
+    fn deleting() -> std::sync::MutexGuard<'static, ()> {
+        static SERIAL: Mutex<()> = Mutex::new(());
+        SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    #[test]
+    fn undo_restores_what_the_recycle_bin_got_even_if_the_path_was_swapped() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "original").unwrap();
+        let deleted = delete_note_in(&t.0, "a.md", |file| {
+            // Another app moves the note away and puts a different file at its path.
+            fs::rename(file, t.0.join("moved.md"))?;
+            fs::write(file, "replacement")?;
+            to_bin(file, &t.0.join("bin"))
+        });
+        assert_eq!(deleted, Ok(true));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "replacement");
+        assert_eq!(
+            fs::read_to_string(t.0.join("moved.md")).unwrap(),
+            "original"
+        );
+    }
+    #[test]
+    fn a_delete_finishing_after_the_panel_hid_keeps_nothing_for_undo() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        let deleted = delete_note_in(&t.0, "a.md", |file| {
+            forget_deleted();
+            to_bin(file, &t.0.join("bin"))
+        });
+        assert_eq!(deleted, Ok(false));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Err(Error::UndoUnavailable));
+        assert!(!reserved(&t.0, "a.md"));
+    }
+    #[test]
+    fn undoing_a_delete_brings_back_the_note_and_its_pinned_items() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::write(root.join("a.md"), "body\r\n").unwrap();
+        let list = "# Mine\r\n- [A](a.md)\r\n- [C](c.md)\r\n";
+        fs::write(root.join(PINNED), list).unwrap();
+        assert_eq!(delete(&root, &t.0.join("bin"), "a.md"), Ok(true));
+        assert!(!exists(&root.join("a.md")));
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "# Mine\r\n- [C](c.md)\r\n"
+        );
+        assert_eq!(undo_delete_in(&root, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "body\r\n");
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), list);
+    }
+    #[test]
+    fn undoing_a_delete_never_overwrites_a_note_that_took_the_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "deleted").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        fs::write(t.0.join("a.md"), "new").unwrap();
+        assert_eq!(
+            undo_delete_in(&t.0, "a.md"),
+            Err(Error::RestoreTaken {
+                path: "a.md".into()
+            })
+        );
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "new");
+        // Once the name is free again, Undo still has the note.
+        fs::remove_file(t.0.join("a.md")).unwrap();
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "deleted");
+    }
+    #[test]
+    fn an_editor_saving_a_deleted_note_does_not_recreate_it() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        for base in [version(b"a"), String::new()] {
+            assert_eq!(
+                save_note_in(&t.0, "A.md", "late edit", &base),
+                Ok(Saved::Conflict)
+            );
+        }
+        assert!(!exists(&t.0.join("a.md")));
+    }
+    #[test]
+    fn renaming_cannot_take_the_name_of_a_deleted_note() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join("b.md"), "b").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        assert_eq!(rename(&t.0, "b.md", "a.md"), Err(Error::RenameConflict));
+        assert!(exists(&t.0.join("b.md")));
+    }
+    #[test]
+    fn a_note_the_recycle_bin_refuses_stays_with_its_pinned_items() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join(PINNED), "- [A](a.md)\n").unwrap();
+        let refused = delete_note_in(&t.0, "a.md", |_| Err(io::ErrorKind::Unsupported.into()));
+        assert_eq!(refused, Err(Error::NotRecyclable));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "a");
+        assert_eq!(
+            fs::read_to_string(t.0.join(PINNED)).unwrap(),
+            "- [A](a.md)\n"
+        );
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Err(Error::UndoUnavailable));
+    }
+    #[test]
     fn renaming_only_the_case_keeps_the_same_file() {
         let t = Temp::new();
         fs::write(t.0.join("note.md"), "text").unwrap();
@@ -1634,6 +2379,149 @@ mod tests {
             assert_eq!(rename(&t.0, "a.md", to), Err(Error::InvalidPath), "{to}");
         }
         assert!(exists(&t.0.join("a.md")));
+    }
+    fn moving(root: &Path, from: &str, to: &str) -> Result<(), Error> {
+        let base = version(&fs::read(root.join(from)).unwrap());
+        move_note_in(root, from, to, &base)
+    }
+    #[test]
+    fn moving_never_takes_a_name_in_the_target_folder() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        fs::write(t.0.join("sub/A.md"), "b").unwrap();
+        assert_eq!(moving(&t.0, "a.md", "sub/a.md"), Err(Error::RenameConflict));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "a");
+        assert_eq!(fs::read_to_string(t.0.join("sub/A.md")).unwrap(), "b");
+    }
+    #[test]
+    fn moving_takes_the_pinned_items_along_and_keeps_their_text() {
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("a.md"), "body").unwrap();
+        fs::write(root.join(PINNED), "- [My a](a.md)\n- [C](c.md)\n").unwrap();
+        assert_eq!(moving(&root, "a.md", "sub/a.md"), Ok(()));
+        assert!(!exists(&root.join("a.md")));
+        assert_eq!(fs::read_to_string(root.join("sub/a.md")).unwrap(), "body");
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "- [My a](sub/a.md)\n- [C](c.md)\n"
+        );
+    }
+    #[test]
+    fn moving_only_reaches_visible_folders_that_exist_inside_the_notes_folder() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        let outside = t.0.join("outside");
+        for dir in [&root, &outside, &root.join(".hidden")] {
+            fs::create_dir(dir).unwrap();
+        }
+        assert!(mklink(&["/J"], &root.join("link"), &outside));
+        fs::write(root.join("a.md"), "a").unwrap();
+        for to in [
+            "../a.md",
+            ".hidden/a.md",
+            "missing/a.md",
+            "link/a.md",
+            "A.md",
+            PINNED,
+        ] {
+            assert!(moving(&root, "a.md", to).is_err(), "{to}");
+        }
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "a");
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+    }
+    #[test]
+    fn moving_refuses_a_link_to_a_folder_inside_the_notes_folder() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("sub/a.md"), "a").unwrap();
+        assert!(mklink(&["/J"], &t.0.join("dest"), &t.0));
+        assert!(moving(&t.0, "sub/a.md", "dest/a.md").is_err());
+        assert_eq!(fs::read_to_string(t.0.join("sub/a.md")).unwrap(), "a");
+        assert!(!exists(&t.0.join("a.md")));
+    }
+    #[test]
+    fn moving_through_a_link_cannot_take_the_name_of_a_deleted_note() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("sub")).unwrap();
+        fs::write(t.0.join("a.md"), "deleted").unwrap();
+        fs::write(t.0.join("sub/a.md"), "a").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        assert!(mklink(&["/J"], &t.0.join("dest"), &t.0));
+        assert!(moving(&t.0, "sub/a.md", "dest/a.md").is_err());
+        assert!(!exists(&t.0.join("a.md")));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "deleted");
+    }
+    #[test]
+    fn a_file_with_the_folder_name_is_reported_as_such() {
+        let t = Temp::new();
+        fs::write(t.0.join("Work"), "").unwrap();
+        assert_eq!(
+            create_folder_in(&t.0, "Work/Clients"),
+            Err(Error::FolderNameTaken {
+                name: "Work".into()
+            })
+        );
+    }
+    #[test]
+    fn folder_names_stay_inside_and_are_kept_as_typed() {
+        let t = Temp::new();
+        for name in [
+            "",
+            "..",
+            "../x",
+            "a/../b",
+            "C:/x",
+            "/x",
+            "a//b",
+            "a\\b",
+            ".git",
+            "a.",
+            "a ",
+            " a",
+            "a:b",
+            "CON",
+            "nul.txt",
+            "COM1",
+            "lpt9.x",
+            "_pinned.md",
+            "x\u{1}",
+        ] {
+            assert_eq!(
+                create_folder_in(&t.0, name),
+                Err(Error::InvalidFolderName),
+                "{name:?}"
+            );
+        }
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 0);
+        assert_eq!(create_folder_in(&t.0, "Projects/2026 Q1"), Ok(()));
+        assert_eq!(create_folder_in(&t.0, "Projects"), Ok(()));
+        assert!(t.0.join("Projects/2026 Q1").is_dir());
+    }
+    #[test]
+    fn creating_a_folder_never_goes_through_a_link() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        let outside = t.0.join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        assert!(mklink(&["/J"], &root.join("link"), &outside));
+        assert!(create_folder_in(&root, "link/x").is_err());
+        assert!(!outside.join("x").exists());
+    }
+    #[test]
+    fn folders_are_the_ones_listing_visits() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        for dir in ["notes/b", "notes/a/c", "notes/.h/x", "outside/d"] {
+            fs::create_dir_all(t.0.join(dir)).unwrap();
+        }
+        assert!(mklink(&["/J"], &root.join("link"), &t.0.join("outside")));
+        assert_eq!(folders_in(&root).unwrap(), ["a", "a/c", "b"]);
     }
     #[test]
     fn pinning_creates_a_missing_file() {

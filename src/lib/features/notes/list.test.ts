@@ -8,9 +8,12 @@ import {
   defaultKey,
   enter,
   fileLabel,
+  folderLabels,
   isMissing,
   isUntitled,
+  jumpSection,
   move,
+  movedPath,
   navKeys,
   noteFileName,
   renamedPath,
@@ -299,5 +302,112 @@ describe("revealScroll", () => {
   it("leaves a shown card and brings one above the view to the top", () => {
     expect(revealScroll({ top: 100, bottom: 400 }, view)).toBe(0);
     expect(revealScroll({ top: -50, bottom: 300 }, view)).toBe(-50);
+  });
+});
+
+describe("movedPath", () => {
+  const paths = ["Note.md", "sub/note.md", "sub/Note 2.md", "sub/deep/x.md"];
+  it("keeps the name and numbers it when taken in the target folder only", () => {
+    expect(movedPath("Note.md", "sub", paths)).toBe("sub/Note 3.md");
+    expect(movedPath("sub/deep/x.md", "sub", paths)).toBe("sub/x.md");
+    expect(movedPath("sub/note.md", "", paths)).toBe("note 2.md");
+  });
+  it("never takes the pinned list at the root", () => {
+    expect(movedPath("sub/_pinned.md", "", [])).toBe("_pinned 2.md");
+  });
+});
+
+// Without these labels an empty folder, or one with only pinned notes, cannot be deleted.
+it("folder rows keep empty folders and folders whose notes are all pinned accessible", () => {
+  const model = buildList({
+    ...base,
+    hits: [hit("parent/pinned.md")],
+    pinned: [item("parent/pinned.md")],
+  });
+  const result = rows(model, "", new Map(), ["parent", "parent/empty"]);
+  expect(
+    result.filter((row) => "group" in row).map((row) => "group" in row && row.group.key),
+  ).toEqual(["folder:parent", "folder:parent/empty"]);
+});
+
+it("folder labels exclude attachments but keep note ancestors and empty folders", () => {
+  expect(
+    folderLabels(
+      [{ path: "parent/sub/a.md" }],
+      [
+        { path: "parent", empty: false },
+        { path: "parent/sub", empty: false },
+        { path: "attachments", empty: false },
+        { path: "empty", empty: true },
+        { path: "only-empty-children", empty: false },
+      ],
+    ),
+  ).toEqual(["parent", "parent/sub", "empty"]);
+});
+it("arrows include folder menus in displayed order", () => {
+  const model = buildList({ ...base, hits: [hit("sub/a.md"), hit("root.md")] });
+  expect(navKeys(model, rows(model, "", new Map(), ["empty", "sub"]))).toEqual([
+    "root.md",
+    "folder:empty",
+    "folder:sub",
+    "sub/a.md",
+  ]);
+});
+
+describe("section jumps", () => {
+  const model = buildList({
+    ...base,
+    hits: ["pin.md", "root.md", "Projects/a.md", "Projects/b.md", "Reference/c.md"].map(hit),
+    pinned: [item("pin.md")],
+  });
+  const folders = rows(model, "", new Map(), ["Projects", "Reference", "Empty"]);
+  it("jumps from Pinned to the first root note in Notes", () => {
+    expect(jumpSection(folders, "pin.md", 1)).toBe("root.md");
+  });
+  it("skips folder labels and folders without notes", () => {
+    expect(jumpSection(folders, "root.md", 1)).toBe("Projects/a.md");
+  });
+  it("skips the remaining notes of a folder when jumping forward", () => {
+    expect(jumpSection(folders, "Projects/a.md", 1)).toBe("Reference/c.md");
+  });
+  it("jumps backward to the previous section from inside a folder", () => {
+    expect(jumpSection(folders, "Projects/b.md", -1)).toBe("root.md");
+  });
+  it("treats a selected folder label as the start of its own section", () => {
+    expect(jumpSection(folders, "folder:Projects", 1)).toBe("Projects/a.md");
+    expect(jumpSection(folders, "folder:Projects", -1)).toBe("root.md");
+  });
+  it("selects the first note of a non-selectable date group", () => {
+    const dated = rows(
+      model,
+      "",
+      new Map([
+        ["root.md", { key: "today", kind: "today", date: 0 }],
+        ["Projects/a.md", { key: "yesterday", kind: "yesterday", date: 0 }],
+      ]),
+    );
+    expect(jumpSection(dated, "root.md", 1)).toBe("Projects/a.md");
+  });
+  it("does not repeat Notes when its first folder shares the destination", () => {
+    const grouped = rows(
+      { ...model, notes: model.notes.filter((card) => card.hit.path !== "root.md") },
+      "",
+      new Map(),
+      ["Projects", "Reference"],
+    );
+    expect(jumpSection(grouped, "pin.md", 1)).toBe("Projects/a.md");
+    expect(jumpSection(grouped, "Projects/a.md", -1)).toBe("pin.md");
+  });
+  it("stays at the first section when jumping above it", () => {
+    expect(jumpSection(folders, "pin.md", -1)).toBe("pin.md");
+  });
+  it("stays at the last section when jumping below it", () => {
+    expect(jumpSection(folders, "Reference/c.md", 1)).toBe("Reference/c.md");
+  });
+  it("starts at the first section with no selection", () => {
+    expect(jumpSection(folders, "", 1)).toBe("pin.md");
+  });
+  it("returns no selection for an empty list", () => {
+    expect(jumpSection([], "", 1)).toBe("");
   });
 });

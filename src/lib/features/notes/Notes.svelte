@@ -1,21 +1,28 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
-import { dateTime, errorText, t } from "../../i18n";
+import { dateTime, errorText, folderCountText, t } from "../../i18n";
 import {
   type Leftover,
   type Note,
   type NotesChanges,
   type NotesFolder,
   notesChoose,
+  notesCreateFolder,
+  notesDelete,
+  notesDeleteFolder,
   notesFolder,
+  notesFolders,
   notesLeftovers,
   notesList,
+  notesMove,
   notesOpen,
   notesRename,
   notesRestore,
+  notesRewrite,
   notesSave,
   notesTexts,
+  notesUndoDelete,
   type OpenNote,
   onNotesChanged,
   onPanelHidden,
@@ -37,8 +44,11 @@ import {
   webSuggestions,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
+import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
 import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
+import Menu from "../../ui/Menu.svelte";
+import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import {
   barDefault,
@@ -54,7 +64,8 @@ import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
-import { byFolder, dateHeadings, folderHeadings } from "./grouping";
+import { dateHeadings } from "./grouping";
+import { movedLinks } from "./links";
 import {
   arrowScroll,
   buildList,
@@ -63,10 +74,14 @@ import {
   defaultKey,
   enter,
   entryKey,
+  folderLabels,
+  folderOf,
   isMissing,
   isUntitled,
+  jumpSection,
   type Level,
   move,
+  movedPath,
   navKeys,
   noteFileName,
   renamedPath,
@@ -74,6 +89,7 @@ import {
   rows,
   shallower,
 } from "./list";
+import MovePicker from "./MovePicker.svelte";
 import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
@@ -90,12 +106,15 @@ let {
 }: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
 
 let shortcutSheet: ShortcutSheet;
+let confirmDialog: ConfirmDialog;
+let movePicker: MovePicker;
 $effect(() => {
   if (inactive || browser) shortcutSheet?.close();
 });
 
 let folder = $state<NotesFolder | null>(null);
 let notes = $state<Note[]>([]);
+let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
 let address = $state("");
@@ -225,7 +244,9 @@ export function leaveEditor(): Promise<boolean> {
 /** Note whose editor read is in flight; a rename of it cancels the open. */
 let opening: string | null = null;
 async function edit(path: string) {
-  if (editing || choosing) return;
+  // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
+  if (editing || choosing || path === deletingPath || path === movingPath || inDeletingFolder(path))
+    return;
   const current = generation;
   opening = path;
   try {
@@ -321,26 +342,18 @@ const model = $derived.by(() => {
     kept,
     editing,
   });
-  // After the kept card joins, so it lands in its own folder; arrows follow the same order.
-  const grouped = byFolder(built.notes, (card) => card.hit.path, $grouping === "folder", query);
-  return grouped === built.notes ? built : { ...built, notes: grouped };
+  return built;
 });
 let groupingDate = $state(new Date());
 const headings = $derived(
-  $grouping === "folder"
-    ? folderHeadings(
-        model.notes.map((card) => card.hit),
-        true,
-        query,
-      )
-    : dateHeadings(
-        model.notes.map((card) => card.hit),
-        notes,
-        $noteOrder,
-        $grouping === "date",
-        query,
-        groupingDate,
-      ),
+  dateHeadings(
+    model.notes.map((card) => card.hit),
+    notes,
+    $noteOrder,
+    $grouping === "date",
+    query,
+    groupingDate,
+  ),
 );
 /** Folder groups already name the folder; elsewhere each card shows it before its title. */
 const showFolder = $derived($grouping !== "folder" || query.trim() !== "");
@@ -354,8 +367,17 @@ const previewModel = $derived.by(() => {
   entries.splice(to, 0, ...entries.splice(from, 1));
   return { ...model, pinned: entries };
 });
-const listRows = $derived(rows(previewModel, editing ? selected : "", headings));
-const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
+const listRows = $derived(
+  rows(
+    previewModel,
+    editing ? selected : "",
+    headings,
+    $grouping === "folder" && !query.trim() ? folders : undefined,
+  ),
+);
+const noteKeys = $derived(
+  browser || intent !== null || !folder?.available ? [] : navKeys(model, listRows),
+);
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
 );
@@ -376,6 +398,7 @@ const announced = $derived.by(() => {
   const webEntry = shownWebItems.find((entry) => entry.key === active);
   if (webEntry) return webLabel(webEntry);
   if (active === "create" && model.create !== null) return t("list.create", { text: model.create });
+  if (active.startsWith("folder:")) return active.slice(7);
   const entry = [...model.pinned, ...model.notes].find((e) => entryKey(e) === active);
   if (!entry) return "";
   return isMissing(entry) ? `${entry.title}, ${t("card.missing")}` : entry.hit.title;
@@ -395,8 +418,8 @@ const wanted = $derived([
 ]);
 const loading = new Set<string>();
 /**
- * Old names of renamed notes. The pinned list may still name one until it reloads, and reading it
- * would show a not-found error; once nothing wants it, it is forgotten.
+ * Old names of renamed notes, and deleted notes. The pinned list may still name one until it reloads,
+ * and reading it would show a not-found error; once nothing wants it, it is forgotten.
  */
 const renamedAway = new Set<string>();
 async function load(path: string) {
@@ -445,6 +468,8 @@ async function refresh(value: NotesFolder | null) {
   if (editing) return;
   folder = value;
   notes = [];
+  folders = [];
+  removed = null;
   selected = "";
   opened = null;
   leftovers = [];
@@ -455,9 +480,10 @@ async function refresh(value: NotesFolder | null) {
   folderIndex.reset();
   indexVersion++;
   if (!value?.available) return;
-  const list = await notesList();
+  const [list, directoryList] = await listSnapshot();
   if (current !== generation) return;
   notes = list;
+  folders = directoryList;
   await sync(list);
   if (current !== generation) return;
   const state = await pinnedList();
@@ -467,14 +493,21 @@ async function refresh(value: NotesFolder | null) {
   if (current === generation) leftovers = found;
 }
 
+/** Folder enumeration is secondary: a failure must not hide readable notes. */
+async function listSnapshot() {
+  const [list, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
+  return [list, folderLabels(list, directories)] as const;
+}
+
 async function restore(path: string) {
   try {
     error = "";
     if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
-    const list = await notesList();
+    const [list, directoryList] = await listSnapshot();
     notes = list;
+    folders = directoryList;
     await sync(list);
     expanded = note;
     selection = note;
@@ -511,8 +544,9 @@ async function create(text: string, content = "", annotate = false) {
       const name = noteFileName(text, taken);
       const result = await notesSave(name, content, "");
       if (result.status === "saved") {
-        const list = await notesList();
+        const [list, directoryList] = await listSnapshot();
         notes = list;
+        folders = directoryList;
         await sync(list);
         query = "";
         expanded = name;
@@ -890,6 +924,298 @@ async function pinnedAction(action: () => Promise<Pinned>) {
   }
 }
 
+/** The last note moved to the Recycle Bin, offered for Undo until the panel closes. */
+let removed = $state<{ path: string; title: string } | null>(null);
+let deleting = false;
+/** Why the app would not delete a note, until dismissed, the next delete or the panel hides. */
+let warning = $state("");
+/** The note being moved to the Recycle Bin; it cannot open in the editor meanwhile. */
+let deletingPath = "";
+/** Counts panel hides: a delete that ends after one offers no Undo, which Rust no longer keeps. */
+let panelSession = 0;
+/**
+ * Moves a note to the Recycle Bin once confirmed. Its editor is left first, the guarded way, so its
+ * text is saved before the delete and nothing writes the note back afterwards; a conflict or error
+ * there stops the delete. The selection moves to the next item, else the previous.
+ */
+async function deleteNote(card: Card) {
+  if (deleting || card.url) return;
+  deleting = true;
+  try {
+    const title = card.hit.title;
+    warning = "";
+    const header = list?.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"] header`);
+    const confirmed = await confirmDialog.ask(
+      t("delete.title", { title }),
+      t("delete.text"),
+      t("delete.confirm"),
+      header?.getBoundingClientRect(),
+    );
+    if (!confirmed) return;
+    error = "";
+    let path = card.hit.path;
+    if (editing && path === selected) {
+      if (!(await leaveEditor())) return;
+      path = leftPath;
+    }
+    deletingPath = path;
+    // An editor open that started before is dropped when it answers.
+    if (opening === path) opening = null;
+    const session = panelSession;
+    const at = keys.indexOf(path);
+    const next = keys[at + 1] ?? keys[at - 1] ?? "";
+    let problem = "";
+    let undo: boolean;
+    try {
+      undo = await notesDelete(path);
+    } catch (e) {
+      const failed = e as { code?: string; undo?: boolean };
+      if (failed.code !== "pinnedNotRemoved") throw e;
+      problem = errorText(e);
+      undo = failed.undo === true;
+    }
+    removed = undo && session === panelSession ? { path, title } : null;
+    renamedAway.add(path);
+    delete contents[path];
+    if (expanded === path) expanded = "";
+    if (selection === path || active === path) selection = next;
+    changed({ renames: [] });
+    error = problem;
+  } catch (e) {
+    const failed = e as { code?: string; limitMb?: number };
+    if (failed.code === "tooLarge") warning = t("delete.tooLarge", { limitMb: failed.limitMb });
+    else error = errorText(e);
+  } finally {
+    deleting = false;
+    deletingPath = "";
+  }
+}
+/** Writes the deleted note back where it was, with its pinned items; it is a normal note again. */
+async function undoDelete() {
+  const note = removed;
+  if (!note) return;
+  error = "";
+  try {
+    await notesUndoDelete(note.path);
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    error = errorText(e);
+    if (code === "undoUnavailable") removed = null;
+    // Only the pinned items failed: the note is back. Otherwise, a taken name keeps Undo to retry.
+    if (code !== "pinnedNotRestored") return;
+  }
+  removed = null;
+  renamedAway.delete(note.path);
+  // Focus first: an empty selection on focus would pick the first item.
+  list?.focus({ preventScroll: true });
+  selection = note.path;
+  changed({ renames: [] });
+}
+
+let moving = false;
+/** The note being moved, when not in the editor; it cannot open there meanwhile. */
+let movingPath = "";
+/**
+ * Moves a note to the folder picked, creating the folder first when asked. The note keeps its file
+ * name, or takes the next free one there, as a rename does. An edited note stays in its editor, which
+ * follows it as for a rename: its text is saved first and later saves wait for the move, so none
+ * recreates the old path. Its relative links then point at the same files from the new folder: in the
+ * editor as an edit it saves, otherwise as a save that only applies to the moved text.
+ */
+async function moveNote(card: Card) {
+  if (moving || card.url) return;
+  moving = true;
+  const from = card.hit.path;
+  try {
+    const header = list?.querySelector(`.card[data-path="${CSS.escape(from)}"] header`);
+    const choice = await movePicker.ask(
+      card.hit.title,
+      (await notesFolders()).map((folder) => folder.path),
+      folderOf(from),
+      header?.getBoundingClientRect(),
+      list,
+    );
+    if (!choice || !notes.some((note) => note.path === from)) return;
+    error = "";
+    if (choice.create) await notesCreateFolder(choice.folder);
+    const go = async (version: string): Promise<string> => {
+      const taken = notes.map((note) => note.path);
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const to = movedPath(from, choice.folder, taken);
+        try {
+          await notesMove(from, to, version);
+          changed({ renames: [[from, to]] });
+          return to;
+        } catch (e) {
+          const code = (e as { code?: string }).code;
+          if (code === "pinnedNotRenamed") {
+            changed({ renames: [[from, to]] });
+            error = errorText(e);
+            return to;
+          }
+          if (code !== "renameConflict") throw e;
+        }
+        taken.push(to);
+      }
+      throw { code: "saveFailed", detail: from };
+    };
+    await renamingTask;
+    if (editing && selected === from && editor) {
+      const current = editor;
+      // Registered as a rename: leaving the editor waits for the move and its link rewrite, so the
+      // rewrite is saved before the editor closes.
+      const task = (async () => {
+        try {
+          await current.rename(
+            () => null,
+            async (version, _retitled, rewrite) => {
+              const to = await go(version);
+              rewrite((text) => {
+                const next = movedLinks(text, from, to);
+                return next === text ? null : next;
+              });
+            },
+          );
+        } catch (e) {
+          error = errorText(e);
+        }
+      })();
+      renamingTask = task;
+      void task.finally(() => {
+        if (renamingTask === task) renamingTask = null;
+      });
+      await task;
+      return;
+    }
+    movingPath = from;
+    // An editor open that started before is dropped when it answers.
+    if (opening === from) opening = null;
+    const to = await go((await notesOpen(from)).version);
+    movingPath = to;
+    const note = await notesOpen(to);
+    const next = movedLinks(note.text, from, to);
+    // A conflict: the note changed since it was read, and that change is kept as it is.
+    if (next !== note.text && (await notesRewrite(to, next, note.version)).status === "conflict")
+      error = t("move.linksKept");
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    moving = false;
+    movingPath = "";
+  }
+}
+
+let folderMenu: Menu;
+let menuFolder = $state("");
+let folderTarget: HTMLElement | null = null;
+let deletingFolder = "";
+const inDeletingFolder = (path: string) =>
+  deletingFolder !== "" && path.toLowerCase().startsWith(`${deletingFolder.toLowerCase()}/`);
+function openFolderMenu(
+  event: MouseEvent | KeyboardEvent,
+  path: string,
+  target = event.currentTarget as HTMLElement,
+) {
+  if (
+    event instanceof KeyboardEvent &&
+    event.key !== "ContextMenu" &&
+    !(event.key === "F10" && event.shiftKey)
+  )
+    return;
+  event.preventDefault();
+  event.stopPropagation();
+  menuFolder = path;
+  selection = `folder:${path}`;
+  folderTarget = target;
+  const rect = folderTarget.getBoundingClientRect();
+  folderMenu.show({
+    from: folderTarget,
+    at:
+      event instanceof MouseEvent
+        ? { x: event.clientX, y: event.clientY }
+        : { x: rect.left, y: rect.bottom },
+  });
+}
+async function deleteFolder() {
+  if (deleting) return;
+  deleting = true;
+  deletingFolder = menuFolder;
+  const path = menuFolder;
+  try {
+    error = "";
+    warning = "";
+    await renamingTask;
+    if (editing && inDeletingFolder(selected) && !(await leaveEditor())) return;
+    if (opening && inDeletingFolder(opening)) opening = null;
+    let problem = "";
+    try {
+      let count = await notesDeleteFolder(path);
+      while (count !== null) {
+        if (
+          !(await confirmDialog.ask(
+            t("deleteFolder.title", { folder: path }),
+            t("deleteFolder.text", { counts: folderCountText(count) }),
+            t("delete.confirm"),
+            folderTarget?.getBoundingClientRect(),
+          ))
+        )
+          return;
+        count = await notesDeleteFolder(path, true);
+      }
+    } catch (e) {
+      if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
+      problem = errorText(e);
+    }
+    if (removed && inDeletingFolder(removed.path)) removed = null;
+    for (const note of notes) {
+      if (!inDeletingFolder(note.path)) continue;
+      renamedAway.add(note.path);
+      delete contents[note.path];
+      if (expanded === note.path) expanded = "";
+    }
+    list?.focus({ preventScroll: true });
+    changed({ renames: [] });
+    error = problem;
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    deleting = false;
+    deletingFolder = "";
+  }
+}
+
+let cardMenu: Menu;
+/** The card the right-click menu acts on. */
+let menuCard = $state<Card | null>(null);
+/** At `at`, from a right click, or under the card's header, from the keyboard. */
+async function openMenu(card: Card, at?: { x: number; y: number }) {
+  menuCard = card;
+  selection = card.hit.path;
+  await tick();
+  const header = list?.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"] header`);
+  const rect = header?.getBoundingClientRect();
+  cardMenu.show({
+    at: at ?? (rect ? { x: rect.left, y: rect.bottom } : undefined),
+    // The edited card keeps its own focus: the editor or its title field.
+    from: editing && card.hit.path === selected ? null : list,
+  });
+}
+/**
+ * A right click on a note card opens its menu. Text fields and the editor keep the native menu
+ * for copy and paste, as does reading text that is selected.
+ */
+function contextMenu(event: MouseEvent) {
+  const target = event.composedPath()[0];
+  if (!(target instanceof Element)) return;
+  const element = target.closest<HTMLElement>(".card[data-path]");
+  const card = element && cardFor(element.dataset.path ?? "");
+  if (!card || card.url || inField(event) || target.closest(".surface")) return;
+  const selected = getSelection();
+  if (selected && !selected.isCollapsed && element.contains(selected.anchorNode)) return;
+  event.preventDefault();
+  void openMenu(card, { x: event.clientX, y: event.clientY });
+}
+
 /** Removes a pinned item whose note is gone; the selection moves to the next item, else the previous. */
 async function removeMissing(target: string) {
   const at = keys.indexOf(target);
@@ -918,9 +1244,10 @@ async function reload() {
     }
     return refresh(value);
   }
-  const list = await notesList();
+  const [list, directoryList] = await listSnapshot();
   if (stale()) return;
   notes = list;
+  folders = directoryList;
   await sync(list);
   if (stale()) return;
   const state = await pinnedList();
@@ -1107,6 +1434,18 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     case "ArrowDown":
     case "ArrowUp":
       if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !browser &&
+        event.target === list
+      ) {
+        event.preventDefault();
+        selection = jumpSection(listRows, active, event.key === "ArrowUp" ? -1 : 1);
+        return;
+      }
+      if (
         event.altKey &&
         event.shiftKey &&
         !event.ctrlKey &&
@@ -1171,11 +1510,36 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       return;
     }
     case "Delete": {
+      // Ctrl+Delete deletes the next word in the bar, as in any text field.
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && !inBar) {
+        const card = cardFor(active);
+        if (!card || card.url) return;
+        event.preventDefault();
+        if (!event.repeat) void deleteNote(card);
+        return;
+      }
       const action = enter(model, active);
       if (modified || event.altKey || action?.action !== "remove") return;
       if (inBar && !caretAtEnd(event)) return;
       event.preventDefault();
       void removeMissing(action.target);
+      return;
+    }
+    case "ContextMenu":
+    case "F10": {
+      const shiftOnly = event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+      if (inBar || (event.key === "F10" && !shiftOnly)) return;
+      if (active.startsWith("folder:")) {
+        const target = Array.from(list?.querySelectorAll<HTMLElement>("[data-folder]") ?? []).find(
+          (element) => element.dataset.folder === active.slice(7),
+        );
+        if (target) openFolderMenu(event, active.slice(7), target);
+        return;
+      }
+      const card = cardFor(active);
+      if (!card || card.url) return;
+      event.preventDefault();
+      void openMenu(card);
       return;
     }
   }
@@ -1224,7 +1588,7 @@ const inNoteSearch = (event: KeyboardEvent) =>
     .some((node) => node instanceof HTMLElement && node.classList.contains("note-search"));
 
 /** A text field or the editor keeps its keys; the editor sits in a shadow root. */
-function inField(event: KeyboardEvent): boolean {
+function inField(event: Event): boolean {
   const target = event.composedPath()[0];
   return (
     target instanceof HTMLElement &&
@@ -1233,7 +1597,15 @@ function inField(event: KeyboardEvent): boolean {
 }
 
 function shortcut(event: KeyboardEvent) {
-  if (inactive || shortcutSheet?.isOpen() || event.defaultPrevented || event.isComposing) return;
+  if (
+    inactive ||
+    shortcutSheet?.isOpen() ||
+    confirmDialog?.isOpen() ||
+    movePicker?.isOpen() ||
+    event.defaultPrevented ||
+    event.isComposing
+  )
+    return;
   if (
     browser &&
     !tools?.contains(event.target as Node) &&
@@ -1263,10 +1635,12 @@ function shortcut(event: KeyboardEvent) {
     // Recovery actions (leftovers, a deleted pinned list) sit between the bar and the cards.
     const stops = [
       input,
-      ...document.querySelectorAll<HTMLElement>(".leftover button, .restore button"),
+      ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
+      ...document.querySelectorAll<HTMLElement>(
+        ".notice button, .leftover button, .restore button",
+      ),
       ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>(".note-order > button")] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
-      ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
       ...document.querySelectorAll<HTMLElement>("main > .resize"),
     ];
     const target = event.target as HTMLElement;
@@ -1285,6 +1659,14 @@ function shortcut(event: KeyboardEvent) {
     event.preventDefault();
     // Held down, the key repeats: one press is one toggle.
     if (!event.repeat) void pinOrUnpin(card);
+    return;
+  }
+  // In the editor, Ctrl+M stays CodeMirror's.
+  if (!browser && ctrl && key === "m" && !field) {
+    const card = cardFor(active);
+    if (!card || card.url) return;
+    event.preventDefault();
+    if (!event.repeat) void moveNote(card);
     return;
   }
   if (!browser && ctrl && key === "e") {
@@ -1328,6 +1710,10 @@ onMount(() => {
   // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
   const hidden = onPanelHidden(() => {
     shortcutSheet.close();
+    // The panel forgot the deleted note; it stays in the Recycle Bin.
+    removed = null;
+    warning = "";
+    panelSession++;
     void leaveEditor().then((left) => {
       if (left) expanded = "";
     });
@@ -1362,9 +1748,24 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen() && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
+<ConfirmDialog bind:this={confirmDialog} />
+<MovePicker bind:this={movePicker} />
+<Menu bind:this={folderMenu} label={t("deleteFolder.menu")}>
+  <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
+</Menu>
+<Menu bind:this={cardMenu} label={t("menu.label")}>
+  {#if menuCard}
+    {@const card = menuCard}
+    <button role="menuitem" tabindex="-1" onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>
+    <button role="menuitem" tabindex="-1" onclick={() => pinOrUnpin(card)}>{t(card.pinned ? "menu.unpin" : "menu.pin")}<kbd>Ctrl+D</kbd></button>
+    <button role="menuitem" tabindex="-1" onclick={() => moveNote(card)}>{t("menu.move")}<kbd>Ctrl+M</kbd></button>
+    <hr />
+    <button role="menuitem" tabindex="-1" onclick={() => deleteNote(card)}>{t("menu.delete")}<kbd>Ctrl+Delete</kbd></button>
+  {/if}
+</Menu>
 
 {#snippet noteEditor()}
   {#if opened}
@@ -1411,6 +1812,19 @@ onMount(() => {
   <div class="content" hidden={browser}>
   {#if folder?.available}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if removed}
+      {@const note = removed}
+      <Notice icon="trash">
+        {t("delete.done", { title: note.title })}
+        {#snippet actions()}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/snippet}
+      </Notice>
+    {/if}
+    {#if warning}
+      <Notice icon="alert">
+        {warning}
+        {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={() => { warning = ""; }} />{/snippet}
+      </Notice>
+    {/if}
     {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>
         <p class="message">{t("leftovers.notice")}</p>
@@ -1432,7 +1846,7 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">
@@ -1453,11 +1867,14 @@ onMount(() => {
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "group" in row}
           {@const group = row.group}
-          <h2>{"folder" in group ? group.folder
-            : group.kind === "calendarMonth"
+          {#if "folder" in group}
+            <h2><button tabindex="-1" data-folder={group.folder} aria-current={active === group.key || undefined} class="folder-label" class:selected={active === group.key} {@attach (element) => { if (active === group.key) element.scrollIntoView({ block: "nearest" }); }} onclick={() => { selection = group.key; }} oncontextmenu={(event) => openFolderMenu(event, group.folder)} onkeydown={(event) => openFolderMenu(event, group.folder)}>{group.folder}</button></h2>
+          {:else}
+          <h2>{group.kind === "calendarMonth"
             ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(group.date)
             : group.kind === "year" ? new Date(group.date).getFullYear()
             : t(`group.${group.kind}`)}</h2>
+          {/if}
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
@@ -1529,6 +1946,37 @@ onMount(() => {
 </section>
 
 <style>
+  .folder-label {
+    display: inline-flex;
+    align-items: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: default;
+    transition: color var(--duration);
+  }
+  .folder-label::before {
+    content: "\25b6";
+    width: 0;
+    opacity: 0;
+    overflow: hidden;
+    font-size: calc(var(--font-size-sm) * 0.65);
+    transition: width var(--duration) ease-out, opacity var(--duration) ease-out;
+  }
+  .folder-label:hover,
+  .folder-label:focus-visible { color: var(--color-fg); }
+  .folder-label.selected { color: var(--color-accent); }
+  .folder-label:hover::before,
+  .folder-label:focus-visible::before,
+  .folder-label.selected::before { width: var(--space-3); opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .folder-label, .folder-label::before { transition: none; }
+  }
+
   .web-suggestions {
     position: absolute;
     z-index: 1;

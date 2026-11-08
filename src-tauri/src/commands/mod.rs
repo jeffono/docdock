@@ -129,6 +129,16 @@ pub fn notes_save(
 ) -> Result<crate::notes::Saved, Error> {
     crate::notes::save_note(&app, &path, &content, &base)
 }
+/// As `notes_save`, but a note that is gone answers a conflict instead of being recreated.
+#[tauri::command(async)]
+pub fn notes_rewrite(
+    app: AppHandle,
+    path: String,
+    content: String,
+    base: String,
+) -> Result<crate::notes::Saved, Error> {
+    crate::notes::rewrite_note(&app, &path, &content, &base)
+}
 /// `title` is the note's old and new title, for the link text of its pinned items.
 #[tauri::command(async)]
 pub fn notes_rename(
@@ -139,6 +149,38 @@ pub fn notes_rename(
     title: (String, String),
 ) -> Result<(), Error> {
     crate::notes::rename_note(&app, &from, &to, &base, (&title.0, &title.1))
+}
+/// Moves a note to `to`, in another folder, as `notes_rename` does.
+#[tauri::command(async)]
+pub fn notes_move(app: AppHandle, from: String, to: String, base: String) -> Result<(), Error> {
+    crate::notes::move_note(&app, &from, &to, &base)
+}
+#[tauri::command(async)]
+pub fn notes_folders(app: AppHandle) -> Result<Vec<crate::notes::FolderEntry>, Error> {
+    crate::notes::folders(&app)
+}
+#[tauri::command(async)]
+pub fn notes_create_folder(app: AppHandle, path: String) -> Result<(), Error> {
+    crate::notes::create_folder(&app, &path)
+}
+#[tauri::command(async)]
+pub fn notes_delete_folder(
+    app: AppHandle,
+    path: String,
+    confirmed: bool,
+) -> Result<Option<crate::notes::FolderCounts>, Error> {
+    crate::notes::delete_folder(&app, &path, confirmed)
+}
+
+/// Moves a note to the Recycle Bin; answers whether `notes_undo_delete` can bring it back, which it
+/// can while the panel stays open.
+#[tauri::command(async)]
+pub fn notes_delete(app: AppHandle, path: String) -> Result<bool, Error> {
+    crate::notes::delete_note(&app, &path)
+}
+#[tauri::command(async)]
+pub fn notes_undo_delete(app: AppHandle, path: String) -> Result<(), Error> {
+    crate::notes::undo_delete(&app, &path)
 }
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]
