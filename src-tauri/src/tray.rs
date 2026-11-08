@@ -5,11 +5,11 @@ use std::sync::mpsc::Sender;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Wry};
-use tauri_plugin_autostart::ManagerExt;
 
 use crate::dock::{Request, Side};
 use crate::i18n::Locale;
 use crate::notes;
+use crate::platform::autostart;
 
 struct SideItems([(Side, CheckMenuItem<Wry>); 2]);
 
@@ -29,7 +29,10 @@ pub fn setup(
         ],
     };
     // An unreadable registry must not prevent the app from opening.
-    let enabled = app.autolaunch().is_enabled().unwrap_or_else(|error| {
+    if let Err(error) = autostart::repair() {
+        eprintln!("[tray] failed to repair autostart: {error}");
+    }
+    let enabled = autostart::is_enabled().unwrap_or_else(|error| {
         eprintln!("[tray] failed to query autostart: {error}");
         false
     });
@@ -76,18 +79,12 @@ pub fn setup(
                 }
             }
             "autostart" => {
-                let manager = app.autolaunch();
-                let result = manager.is_enabled().and_then(|enabled| {
-                    if enabled {
-                        manager.disable()
-                    } else {
-                        manager.enable()
-                    }
-                });
+                let result =
+                    autostart::is_enabled().and_then(|enabled| autostart::set_enabled(!enabled));
                 if let Err(error) = result {
                     eprintln!("[tray] failed to change autostart: {error}");
                 }
-                match manager.is_enabled() {
+                match autostart::is_enabled() {
                     Ok(enabled) => {
                         if let Err(error) = autostart.set_checked(enabled) {
                             eprintln!("[tray] failed to update check mark: {error}");

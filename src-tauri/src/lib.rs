@@ -68,10 +68,6 @@ pub fn run() {
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
         .plugin(tauri_plugin_dialog::init())
         // By default a script intercepting `target=_blank` is injected into every window. In the
         // page window, which has no capability, it would cancel the link and fail.
