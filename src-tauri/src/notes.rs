@@ -480,6 +480,18 @@ static SAVING: Mutex<()> = Mutex::new(());
 /// Writes `content` only if the file still holds the version identified by `base`. The early check
 /// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
+    write_note_in(root, relative, content, base, true)
+}
+/// As `save_note_in`, but a missing note answers `Conflict` instead of being recreated when
+/// `recreate` is false: for a change the app makes on its own, which must not bring back a note
+/// deleted or renamed elsewhere.
+fn write_note_in(
+    root: &Path,
+    relative: &str,
+    content: &str,
+    base: &str,
+    recreate: bool,
+) -> Result<Saved, Error> {
     too_large(content.len() as u64)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     if reserved(root, relative) {
@@ -489,12 +501,16 @@ fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Resul
         Ok(target) if !base.is_empty() => target,
         Ok(_) => return Ok(Saved::Conflict),
         Err(_) if !exists(&root.join(relative)) => {
+            if !recreate {
+                return Ok(Saved::Conflict);
+            }
             return recreate_note(root, relative, content.as_bytes());
         }
         Err(error) => return Err(error),
     };
     let current = match read_bytes(&target) {
         Ok(current) => current,
+        Err(_) if !exists(&target) && !recreate => return Ok(Saved::Conflict),
         Err(_) if !exists(&target) => return recreate_note(root, relative, content.as_bytes()),
         Err(error) => return Err(error),
     };
@@ -640,6 +656,14 @@ fn discard_if(path: &Path, matches: impl Fn(&[u8]) -> bool) -> bool {
 }
 pub fn save_note(app: &AppHandle, path: &str, content: &str, base: &str) -> Result<Saved, Error> {
     save_note_in(&root(app)?, path, content, base)
+}
+pub fn rewrite_note(
+    app: &AppHandle,
+    path: &str,
+    content: &str,
+    base: &str,
+) -> Result<Saved, Error> {
+    write_note_in(&root(app)?, path, content, base, false)
 }
 /// Renames the note `from` to `to`, in the same folder. See `relocate`.
 fn rename_note_in(
@@ -1731,6 +1755,18 @@ mod tests {
         );
         assert_eq!(save_note_in(&t.0, "a.md", text, ""), Ok(Saved::Conflict));
         assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+    #[test]
+    fn a_rewrite_never_brings_back_a_note_deleted_since_it_was_read() {
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        let base = version(b"a");
+        fs::remove_file(t.0.join("a.md")).unwrap();
+        assert_eq!(
+            write_note_in(&t.0, "a.md", "rewritten", &base, false),
+            Ok(Saved::Conflict)
+        );
+        assert!(!exists(&t.0.join("a.md")));
     }
     #[test]
     fn save_never_writes_outside_folder() {

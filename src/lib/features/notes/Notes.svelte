@@ -19,6 +19,7 @@ import {
   notesOpen,
   notesRename,
   notesRestore,
+  notesRewrite,
   notesSave,
   notesTexts,
   notesUndoDelete,
@@ -1057,16 +1058,30 @@ async function moveNote(card: Card) {
     };
     await renamingTask;
     if (editing && selected === from && editor) {
-      await editor.rename(
-        () => null,
-        async (version, _retitled, rewrite) => {
-          const to = await go(version);
-          rewrite((text) => {
-            const next = movedLinks(text, from, to);
-            return next === text ? null : next;
-          });
-        },
-      );
+      const current = editor;
+      // Registered as a rename: leaving the editor waits for the move and its link rewrite, so the
+      // rewrite is saved before the editor closes.
+      const task = (async () => {
+        try {
+          await current.rename(
+            () => null,
+            async (version, _retitled, rewrite) => {
+              const to = await go(version);
+              rewrite((text) => {
+                const next = movedLinks(text, from, to);
+                return next === text ? null : next;
+              });
+            },
+          );
+        } catch (e) {
+          error = errorText(e);
+        }
+      })();
+      renamingTask = task;
+      void task.finally(() => {
+        if (renamingTask === task) renamingTask = null;
+      });
+      await task;
       return;
     }
     movingPath = from;
@@ -1077,7 +1092,7 @@ async function moveNote(card: Card) {
     const note = await notesOpen(to);
     const next = movedLinks(note.text, from, to);
     // A conflict: the note changed since it was read, and that change is kept as it is.
-    if (next !== note.text && (await notesSave(to, next, note.version)).status === "conflict")
+    if (next !== note.text && (await notesRewrite(to, next, note.version)).status === "conflict")
       error = t("move.linksKept");
   } catch (e) {
     error = errorText(e);

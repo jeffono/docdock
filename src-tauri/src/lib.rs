@@ -48,6 +48,7 @@ pub fn run() {
         commands::notes_open,
         commands::notes_texts,
         commands::notes_save,
+        commands::notes_rewrite,
         commands::notes_rename,
         commands::notes_move,
         commands::notes_folders,

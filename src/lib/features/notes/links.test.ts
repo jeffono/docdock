@@ -47,3 +47,22 @@ describe("movedLinks", () => {
     );
   });
 });
+
+describe("movedLinks spelling", () => {
+  it("keeps each segment as written, so escapes still read the same", () => {
+    const cases = ["a%26amp;b.png", "a&amp;b.png", "a%23b.png", "a%3Fb.png", "x/a%2525.png"];
+    for (const target of cases)
+      expect(movedLinks(`![](${target})`, "n.md", "sub/n.md")).toBe(`![](../${target})`);
+  });
+
+  it("encodes the folder names it adds where Markdown or a URL would read them otherwise", () => {
+    expect(movedLinks("![](a.png)", "R&D #1 (x)/n.md", "n.md")).toBe(
+      "![](R%26D%20%231%20%28x%29/a.png)",
+    );
+  });
+
+  it("leaves a frontmatter after a byte order mark alone", () => {
+    const text = '\uFEFF---\ntitle: "[x](a.md)"\n---\n[y](b.md)\n';
+    expect(movedLinks(text, "n.md", "s/n.md")).toBe(text.replace("(b.md)", "(../b.md)"));
+  });
+});

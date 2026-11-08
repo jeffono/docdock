@@ -82,6 +82,9 @@ export type NoteText = { path: string; text: string; modified: number };
 export const notesTexts = (paths: string[]) => invoke<NoteText[]>("notes_texts", { paths });
 export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });
+/** As `notesSave`, but a note that is gone answers `conflict` instead of being recreated. */
+export const notesRewrite = (path: string, content: string, base: string) =>
+  invoke<SaveResult>("notes_rewrite", { path, content, base });
 /**
  * Renames a note within its folder if it still holds `base`, never over another file: fails with
  * `renameConflict` otherwise. Pinned items follow; `title` is the old and new title, for their link

@@ -300,9 +300,13 @@ edited note moves through `Editor.rename`, so the editor follows it and no save 
 otherwise the note cannot open in the editor while it moves. After the move, `movedLinks` (pure, in
 `features/notes/links.ts`, on `noteParser`) points the note's relative link and image destinations,
 inline and in reference definitions, at the same files from the new folder; no file moves. Web, email,
-`#` and absolute targets, targets leaving the notes folder, code, raw HTML and the frontmatter stay,
-as does every other byte. In the editor the rewrite is an edit of the current text, saved by autosave
-at the new path; otherwise it is a save with the version just read, so a change made meanwhile wins
+`#` and absolute targets, targets leaving the notes folder, code, raw HTML and the frontmatter (also
+after a byte order mark) stay, as does every other byte. Only the leading `..` segments and the folders
+the note left change; the link's own segments keep their spelling, and added folder names are
+percent-encoded where Markdown or a URL would read them otherwise. In the editor the rewrite is an edit
+of the current text, saved by autosave at the new path, and the move is registered as a rename, so
+leaving the editor waits for it; otherwise it goes through `notes_rewrite`, a save with the version
+just read that never recreates a missing note, so a change, deletion or rename made meanwhile wins
 and the links stay (`move.linksKept`). Renames stay in their folder and need no rewrite.
 
 **Deleting folders.** `notes_delete_folder(path, confirmed)` validates a non-root, non-hidden,

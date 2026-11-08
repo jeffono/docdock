@@ -129,6 +129,16 @@ pub fn notes_save(
 ) -> Result<crate::notes::Saved, Error> {
     crate::notes::save_note(&app, &path, &content, &base)
 }
+/// As `notes_save`, but a note that is gone answers a conflict instead of being recreated.
+#[tauri::command(async)]
+pub fn notes_rewrite(
+    app: AppHandle,
+    path: String,
+    content: String,
+    base: String,
+) -> Result<crate::notes::Saved, Error> {
+    crate::notes::rewrite_note(&app, &path, &content, &base)
+}
 /// `title` is the note's old and new title, for the link text of its pinned items.
 #[tauri::command(async)]
 pub fn notes_rename(

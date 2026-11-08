@@ -1,17 +1,17 @@
 import { decodeMarkdown, frontmatter, noteParser, safeHref } from "./markdown";
 
 const SCHEME = /^[a-z][a-z\d+.-]*:/i;
+/** Characters a destination segment cannot hold as themselves: Markdown or a URL reads them otherwise. */
+const sensitive = (c: string) => c <= " " || c === "\u007f" || `"#%&'()*<>?[\\]^\`{|}`.includes(c);
 
 const folders = (note: string) => note.split("/").slice(0, -1);
-const percent = (c: string) =>
-  encodeURIComponent(c).replace(/[()]/g, (p) => `%${p.charCodeAt(0).toString(16).toUpperCase()}`);
 
 /**
  * The text of a note moved from `from` to `to`, with every relative link and image destination
  * (inline, and reference definitions) pointing at the same file from the new folder. Web, email and
  * `#` targets, absolute paths, paths that leave the notes folder and anything in code or the
- * frontmatter stay as they are; so does every other byte, line endings included. Raw HTML is not
- * touched: it shows as text (decision 0007).
+ * frontmatter stay as they are; so does every other byte, line endings and a byte order mark
+ * included. Raw HTML is not touched: it shows as text (decision 0007).
  */
 export function movedLinks(text: string, from: string, to: string): string {
   const before = folders(from);
@@ -19,7 +19,8 @@ export function movedLinks(text: string, from: string, to: string): string {
   if (before.join("/").toLowerCase() === after.join("/").toLowerCase()) return text;
   // Same length as `text`, so offsets match: the parser sees `\n` line ends.
   const flat = text.replace(/\r(?!\n)/g, "\n").replace(/\r/g, " ");
-  const lines = text.split(/\r\n?|\n/);
+  // A byte order mark is ignored for detection only; the offsets below still count it.
+  const lines = text.replace(/^﻿/, "").split(/\r\n?|\n/);
   const meta = frontmatter((n) => lines[n - 1], lines.length);
   let start = 0;
   if (meta) {
@@ -44,7 +45,21 @@ export function movedLinks(text: string, from: string, to: string): string {
   return out;
 }
 
-/** `raw` as written, `<...>` or bare, pointing at the same file from `after`; null to keep it. */
+/** A segment as the reader gets it: Markdown escapes and entities, then percent-encoding. */
+function segmentName(raw: string): string | null {
+  try {
+    return decodeURIComponent(decodeMarkdown(raw).replace(/%(?![a-f\d]{2})/gi, "%25"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `raw` as written, `<...>` or bare, pointing at the same file from `after`; null to keep it. Only the
+ * leading `..` segments and the folders the note left change: the segments the link already had keep
+ * their exact spelling, and folder names taken from the note path are percent-encoded wherever
+ * Markdown or a URL would read a character differently.
+ */
 function movedTarget(raw: string, before: string[], after: string[]): string | null {
   const angle = raw.startsWith("<");
   const body = angle ? raw.slice(1, -1) : raw;
@@ -53,35 +68,40 @@ function movedTarget(raw: string, before: string[], after: string[]): string | n
   if (/^[/\\#?]/.test(target) || target.includes("\\")) return null;
   // The query or fragment stays exactly as written.
   const cut = body.search(/[?#]/);
-  const suffix = cut < 0 ? "" : body.slice(cut);
-  let path: string;
-  try {
-    const written = decodeMarkdown(cut < 0 ? body : body.slice(0, cut));
-    path = decodeURIComponent(written.replace(/%(?![a-f\d]{2})/gi, "%25"));
-  } catch {
-    return null;
-  }
-  const parts = [...before];
-  for (const part of path.split("/")) {
-    if (!part || part === ".") continue;
-    if (part === "..") {
+  const path = cut < 0 ? body : body.slice(0, cut);
+  const suffix = body.slice(path.length);
+  const parts = before.map((name) => ({ name, raw: encodeName(name) }));
+  for (const segment of path.split("/")) {
+    const name = segmentName(segment);
+    if (name === null || name.includes("/")) return null;
+    if (!name || name === ".") continue;
+    if (name === "..") {
       if (!parts.length) return null;
       parts.pop();
-    } else parts.push(part);
+    } else parts.push({ name, raw: segment });
   }
   let common = 0;
   while (
     common < after.length &&
     common < parts.length &&
-    after[common].toLowerCase() === parts[common].toLowerCase()
+    after[common].toLowerCase() === parts[common].name.toLowerCase()
   )
     common++;
   const trailing = path.endsWith("/") ? "/" : "";
-  const moved =
-    [...after.slice(common).map(() => ".."), ...parts.slice(common)].join("/") + trailing || ".";
+  const ups = after.slice(common).map(() => "..");
+  const moved = [...ups, ...parts.slice(common).map((p) => p.raw)].join("/") + trailing || ".";
   if (moved === path) return null;
-  const encoded = Array.from(moved, (c) =>
-    c < " " || "%<>".includes(c) || (!angle && " ()[]".includes(c)) ? percent(c) : c,
+  return angle ? `<${moved}${suffix}>` : moved + suffix;
+}
+
+/** A folder name as a destination segment that reads back as the same name. */
+function encodeName(name: string): string {
+  return Array.from(name, (c) =>
+    sensitive(c)
+      ? Array.from(
+          new TextEncoder().encode(c),
+          (b) => `%${b.toString(16).toUpperCase().padStart(2, "0")}`,
+        ).join("")
+      : c,
   ).join("");
-  return angle ? `<${encoded}${suffix}>` : encoded + suffix;
 }
