@@ -11,17 +11,17 @@ O DocDock é um painel lateral para Windows que se oculta automaticamente e mant
 
 ## Instalação
 
-O DocDock requer Windows 10 ou 11 e Microsoft Edge WebView2. A primeira versão planejada, **0.1.0-beta.1**, é uma versão beta preliminar. Quando estiver disponível, baixe `DocDock_<version>_x64-setup.exe` em [GitHub Releases](https://github.com/jeffono/docdock/releases) e execute o instalador.
+O DocDock requer Windows 10 ou 11. A primeira versão, **0.1.0-beta.1**, é uma beta preliminar: faça backup das suas notas antes de experimentá-la. Baixe `DocDock_<version>_x64-setup.exe` em [GitHub Releases](https://github.com/jeffono/docdock/releases) e execute o instalador. Ele instala para o usuário atual, sem exigir administrador, e baixa o Microsoft Edge WebView2 se estiver faltando.
 
-O instalador não tem assinatura de código. Se o Windows SmartScreen exibir “O Windows protegeu o computador”, selecione **Mais informações** e depois **Executar assim mesmo**. As atualizações automáticas estão planejadas, mas ainda não foram implementadas.
+O instalador não tem assinatura de código. Se o Windows SmartScreen exibir “O Windows protegeu o computador”, selecione **Mais informações** e depois **Executar assim mesmo**. O DocDock procura atualizações ao iniciar e as baixa em segundo plano; quando uma estiver pronta, escolha **Atualização disponível — reiniciar** no menu da bandeja. Sair normalmente não a instala.
 
 ## Primeiros passos
 
-Abra o DocDock e escolha uma pasta para suas notas. Mantenha o ponteiro na borda direita da tela para abrir o painel ou pressione **Ctrl+Alt+Espaço**. O menu da bandeja permite mudar o lado, iniciar o DocDock com o Windows ou sair. Use o alfinete do painel para mantê-lo aberto e a engrenagem para alterar as preferências. Pressione **Ctrl+/** para ver os atalhos.
+Abra o DocDock e escolha uma pasta para suas notas. Mantenha o ponteiro na borda direita da tela para abrir o painel ou pressione **Ctrl+Alt+Espaço**. O menu da bandeja permite mudar o lado, iniciar o DocDock com o Windows, instalar uma atualização ou sair. Use o alfinete do painel para mantê-lo aberto e a engrenagem para alterar as preferências. Pressione **Ctrl+/** para ver os atalhos.
 
 ## Privacidade
 
-As notas são armazenadas localmente na pasta escolhida. O DocDock não tem telemetria. A navegação e as sugestões de pesquisa acessam os sites e o provedor de busca usados por você.
+As notas são armazenadas localmente na pasta escolhida. O DocDock não tem telemetria. A cada inicialização, ele consulta o GitHub para saber se há uma versão nova. A navegação e as sugestões de pesquisa acessam os sites e o provedor de busca usados por você.
 
 ## Desenvolvimento
 

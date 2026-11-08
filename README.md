@@ -11,17 +11,17 @@ DocDock is an autohiding Windows sidebar for keeping Markdown notes, images and 
 
 ## Installation
 
-DocDock requires Windows 10 or 11 and Microsoft Edge WebView2. The planned first release, **0.1.0-beta.1**, is a preliminary beta. When available, download `DocDock_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/jeffono/docdock/releases) and run it.
+DocDock requires Windows 10 or 11. The first release, **0.1.0-beta.1**, is a preliminary beta: back up your notes before trying it. Download `DocDock_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/jeffono/docdock/releases) and run it. It installs for the current user without administrator rights and downloads Microsoft Edge WebView2 if it is missing.
 
-The installer is not code-signed. If Windows SmartScreen displays “Windows protected your PC”, select **More info** and then **Run anyway**. Automatic updates are planned but not yet implemented.
+The installer is not code-signed. If Windows SmartScreen displays “Windows protected your PC”, select **More info** and then **Run anyway**. DocDock checks for updates when it starts and downloads them in the background; when one is ready, choose **Update available — restart** in the tray menu. Quitting normally does not install it.
 
 ## Getting started
 
-Launch DocDock and choose a folder for your notes. Hold the pointer against the right edge of the screen to open the panel, or press **Ctrl+Alt+Space**. The tray menu lets you change the side, start DocDock with Windows or quit. Use the panel pin to keep it open and the gear to change preferences. Press **Ctrl+/** for shortcuts.
+Launch DocDock and choose a folder for your notes. Hold the pointer against the right edge of the screen to open the panel, or press **Ctrl+Alt+Space**. The tray menu lets you change the side, start DocDock with Windows, install an update or quit. Use the panel pin to keep it open and the gear to change preferences. Press **Ctrl+/** for shortcuts.
 
 ## Privacy
 
-Notes are stored locally in your chosen folder. DocDock has no telemetry. Web browsing and web search suggestions contact the sites and search provider you use.
+Notes are stored locally in your chosen folder. DocDock has no telemetry. At each start it asks GitHub whether a new version exists. Web browsing and web search suggestions contact the sites and search provider you use.
 
 ## Development
 
