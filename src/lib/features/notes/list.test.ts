@@ -8,6 +8,7 @@ import {
   defaultKey,
   enter,
   fileLabel,
+  folderLabels,
   isMissing,
   isUntitled,
   move,
@@ -326,4 +327,28 @@ it("folder rows keep empty folders and folders whose notes are all pinned access
   expect(
     result.filter((row) => "group" in row).map((row) => "group" in row && row.group.key),
   ).toEqual(["folder:parent", "folder:parent/empty"]);
+});
+
+it("folder labels exclude attachments but keep note ancestors and empty folders", () => {
+  expect(
+    folderLabels(
+      [{ path: "parent/sub/a.md" }],
+      [
+        { path: "parent", empty: false },
+        { path: "parent/sub", empty: false },
+        { path: "attachments", empty: false },
+        { path: "empty", empty: true },
+        { path: "only-empty-children", empty: false },
+      ],
+    ),
+  ).toEqual(["parent", "parent/sub", "empty"]);
+});
+it("arrows include folder menus in displayed order", () => {
+  const model = buildList({ ...base, hits: [hit("sub/a.md"), hit("root.md")] });
+  expect(navKeys(model, rows(model, "", new Map(), ["empty", "sub"]))).toEqual([
+    "root.md",
+    "folder:empty",
+    "folder:sub",
+    "sub/a.md",
+  ]);
 });

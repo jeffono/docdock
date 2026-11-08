@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
-import { dateTime, errorText, t } from "../../i18n";
+import { dateTime, errorText, folderCountText, t } from "../../i18n";
 import {
   type Leftover,
   type Note,
@@ -64,7 +64,7 @@ import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
-import { byFolder, dateHeadings, folderHeadings } from "./grouping";
+import { dateHeadings } from "./grouping";
 import { movedLinks } from "./links";
 import {
   arrowScroll,
@@ -74,6 +74,7 @@ import {
   defaultKey,
   enter,
   entryKey,
+  folderLabels,
   folderOf,
   isMissing,
   isUntitled,
@@ -340,26 +341,18 @@ const model = $derived.by(() => {
     kept,
     editing,
   });
-  // After the kept card joins, so it lands in its own folder; arrows follow the same order.
-  const grouped = byFolder(built.notes, (card) => card.hit.path, $grouping === "folder", query);
-  return grouped === built.notes ? built : { ...built, notes: grouped };
+  return built;
 });
 let groupingDate = $state(new Date());
 const headings = $derived(
-  $grouping === "folder"
-    ? folderHeadings(
-        model.notes.map((card) => card.hit),
-        true,
-        query,
-      )
-    : dateHeadings(
-        model.notes.map((card) => card.hit),
-        notes,
-        $noteOrder,
-        $grouping === "date",
-        query,
-        groupingDate,
-      ),
+  dateHeadings(
+    model.notes.map((card) => card.hit),
+    notes,
+    $noteOrder,
+    $grouping === "date",
+    query,
+    groupingDate,
+  ),
 );
 /** Folder groups already name the folder; elsewhere each card shows it before its title. */
 const showFolder = $derived($grouping !== "folder" || query.trim() !== "");
@@ -381,7 +374,9 @@ const listRows = $derived(
     $grouping === "folder" && !query.trim() ? folders : undefined,
   ),
 );
-const noteKeys = $derived(browser || intent !== null || !folder?.available ? [] : navKeys(model));
+const noteKeys = $derived(
+  browser || intent !== null || !folder?.available ? [] : navKeys(model, listRows),
+);
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
 );
@@ -402,6 +397,7 @@ const announced = $derived.by(() => {
   const webEntry = shownWebItems.find((entry) => entry.key === active);
   if (webEntry) return webLabel(webEntry);
   if (active === "create" && model.create !== null) return t("list.create", { text: model.create });
+  if (active.startsWith("folder:")) return active.slice(7);
   const entry = [...model.pinned, ...model.notes].find((e) => entryKey(e) === active);
   if (!entry) return "";
   return isMissing(entry) ? `${entry.title}, ${t("card.missing")}` : entry.hit.title;
@@ -483,7 +479,7 @@ async function refresh(value: NotesFolder | null) {
   folderIndex.reset();
   indexVersion++;
   if (!value?.available) return;
-  const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
+  const [list, directoryList] = await listSnapshot();
   if (current !== generation) return;
   notes = list;
   folders = directoryList;
@@ -496,13 +492,19 @@ async function refresh(value: NotesFolder | null) {
   if (current === generation) leftovers = found;
 }
 
+/** Folder enumeration is secondary: a failure must not hide readable notes. */
+async function listSnapshot() {
+  const [list, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
+  return [list, folderLabels(list, directories)] as const;
+}
+
 async function restore(path: string) {
   try {
     error = "";
     if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
-    const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
+    const [list, directoryList] = await listSnapshot();
     notes = list;
     folders = directoryList;
     await sync(list);
@@ -541,7 +543,7 @@ async function create(text: string, content = "", annotate = false) {
       const name = noteFileName(text, taken);
       const result = await notesSave(name, content, "");
       if (result.status === "saved") {
-        const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
+        const [list, directoryList] = await listSnapshot();
         notes = list;
         folders = directoryList;
         await sync(list);
@@ -1027,7 +1029,7 @@ async function moveNote(card: Card) {
     const header = list?.querySelector(`.card[data-path="${CSS.escape(from)}"] header`);
     const choice = await movePicker.ask(
       card.hit.title,
-      await notesFolders(),
+      (await notesFolders()).map((folder) => folder.path),
       folderOf(from),
       header?.getBoundingClientRect(),
       list,
@@ -1108,7 +1110,11 @@ let folderTarget: HTMLElement | null = null;
 let deletingFolder = "";
 const inDeletingFolder = (path: string) =>
   deletingFolder !== "" && path.toLowerCase().startsWith(`${deletingFolder.toLowerCase()}/`);
-function openFolderMenu(event: MouseEvent | KeyboardEvent, path: string) {
+function openFolderMenu(
+  event: MouseEvent | KeyboardEvent,
+  path: string,
+  target = event.currentTarget as HTMLElement,
+) {
   if (
     event instanceof KeyboardEvent &&
     event.key !== "ContextMenu" &&
@@ -1118,7 +1124,8 @@ function openFolderMenu(event: MouseEvent | KeyboardEvent, path: string) {
   event.preventDefault();
   event.stopPropagation();
   menuFolder = path;
-  folderTarget = event.currentTarget as HTMLElement;
+  selection = `folder:${path}`;
+  folderTarget = target;
   const rect = folderTarget.getBoundingClientRect();
   folderMenu.show({
     from: folderTarget,
@@ -1141,24 +1148,24 @@ async function deleteFolder() {
     if (opening && inDeletingFolder(opening)) opening = null;
     let problem = "";
     try {
-      const count = await notesDeleteFolder(path);
-      if (count !== null) {
+      let count = await notesDeleteFolder(path);
+      while (count !== null) {
         if (
           !(await confirmDialog.ask(
             t("deleteFolder.title", { folder: path }),
-            t("deleteFolder.text", { count }),
+            t("deleteFolder.text", { counts: folderCountText(count) }),
             t("delete.confirm"),
             folderTarget?.getBoundingClientRect(),
           ))
         )
           return;
-        await notesDeleteFolder(path, true);
+        count = await notesDeleteFolder(path, true);
       }
     } catch (e) {
       if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
       problem = errorText(e);
     }
-    removed = null;
+    if (removed && inDeletingFolder(removed.path)) removed = null;
     for (const note of notes) {
       if (!inDeletingFolder(note.path)) continue;
       renamedAway.add(note.path);
@@ -1236,7 +1243,7 @@ async function reload() {
     }
     return refresh(value);
   }
-  const [list, directoryList] = await Promise.all([notesList(), notesFolders()]);
+  const [list, directoryList] = await listSnapshot();
   if (stale()) return;
   notes = list;
   folders = directoryList;
@@ -1509,6 +1516,13 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     case "F10": {
       const shiftOnly = event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
       if (inBar || (event.key === "F10" && !shiftOnly)) return;
+      if (active.startsWith("folder:")) {
+        const target = Array.from(list?.querySelectorAll<HTMLElement>("[data-folder]") ?? []).find(
+          (element) => element.dataset.folder === active.slice(7),
+        );
+        if (target) openFolderMenu(event, active.slice(7), target);
+        return;
+      }
       const card = cardFor(active);
       if (!card || card.url) return;
       event.preventDefault();
@@ -1841,7 +1855,7 @@ onMount(() => {
         {:else if "group" in row}
           {@const group = row.group}
           {#if "folder" in group}
-            <h2><button class="folder-label" oncontextmenu={(event) => openFolderMenu(event, group.folder)} onkeydown={(event) => openFolderMenu(event, group.folder)}>{group.folder}</button></h2>
+            <h2><button tabindex="-1" data-folder={group.folder} aria-current={active === group.key || undefined} class="folder-label" class:selected={active === group.key} {@attach (element) => { if (active === group.key) element.scrollIntoView({ block: "nearest" }); }} onclick={() => { selection = group.key; }} oncontextmenu={(event) => openFolderMenu(event, group.folder)} onkeydown={(event) => openFolderMenu(event, group.folder)}>{group.folder}</button></h2>
           {:else}
           <h2>{group.kind === "calendarMonth"
             ? new Intl.DateTimeFormat(undefined, { month: "long" }).format(group.date)
@@ -1919,6 +1933,7 @@ onMount(() => {
 </section>
 
 <style>
+  .folder-label.selected { background: var(--color-selected); color: var(--color-accent); }
   .folder-label { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: default; }
 
   .web-suggestions {

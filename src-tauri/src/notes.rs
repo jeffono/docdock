@@ -803,8 +803,23 @@ fn folders_in(root: &Path) -> Result<Vec<String>, Error> {
     found.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
     Ok(found)
 }
-pub fn folders(app: &AppHandle) -> Result<Vec<String>, Error> {
-    folders_in(&root(app)?)
+#[derive(serde::Serialize)]
+pub struct FolderEntry {
+    path: String,
+    empty: bool,
+}
+pub fn folders(app: &AppHandle) -> Result<Vec<FolderEntry>, Error> {
+    let root = root(app)?;
+    folders_in(&root)?
+        .into_iter()
+        .map(|path| {
+            let empty = fs::read_dir(root.join(&path))?
+                .next()
+                .transpose()?
+                .is_none();
+            Ok(FolderEntry { path, empty })
+        })
+        .collect()
 }
 /// A folder name Windows keeps as typed and listing shows: not hidden, no leading or trailing space,
 /// no trailing dot (Windows drops it), no character a name cannot hold and no device name, even with
@@ -867,6 +882,40 @@ fn inside_folder(path: &str, folder: &str) -> bool {
     path.to_lowercase()
         .starts_with(&(folder.to_lowercase() + "/"))
 }
+#[derive(Debug, PartialEq, serde::Serialize, Default)]
+pub struct FolderCounts {
+    notes: usize,
+    other: usize,
+}
+/// Count every file, including hidden content; never follow links out of the folder.
+fn folder_counts(path: &Path) -> Result<FolderCounts, Error> {
+    let _held = hold_ancestry(path)?;
+    let mut counts = FolderCounts::default();
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            let nested = folder_counts(&entry.path())?;
+            counts.notes += nested.notes;
+            counts.other += nested.other;
+        } else if kind.is_file() && markdown(&entry.path()) {
+            counts.notes += 1;
+        } else {
+            counts.other += 1;
+        }
+    }
+    Ok(counts)
+}
+/// An entry arriving after the empty check must survive and trigger confirmation.
+fn remove_empty_folder(target: &Path) -> Result<Option<FolderCounts>, Error> {
+    match fs::remove_dir(target) {
+        Ok(()) => Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::DirectoryNotEmpty => {
+            Ok(Some(folder_counts(target)?))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
 /// None means deleted; Some(count) asks the caller to confirm recycling content. Empty removal is
 /// non-recursive, so an entry arriving after the check can never be permanently deleted.
 fn delete_folder_in(
@@ -874,7 +923,7 @@ fn delete_folder_in(
     relative: &str,
     confirmed: bool,
     recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
-) -> Result<Option<usize>, Error> {
+) -> Result<Option<FolderCounts>, Error> {
     if !relative.split('/').all(|name| {
         !name.is_empty()
             && !name.starts_with('.')
@@ -887,19 +936,20 @@ fn delete_folder_in(
     {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let (target, mut held) = hold_folder(root, path)?;
-        // Refuse short-name aliases too: reservations and pins must name the folder being deleted.
+        // Refuse short-name aliases too: pins must name the folder being deleted.
         if !same_name(&target, &target.canonicalize()?) {
             return Err(Error::InvalidPath);
         }
         let empty = fs::read_dir(&target)?.next().transpose()?.is_none();
         if !empty && !confirmed {
-            let count = list(&target)?.len();
-            return Ok(Some(count));
+            return Ok(Some(folder_counts(&target)?));
         }
         // Keep all parents held; the target itself must allow the shell/remove_dir to move it.
         held.pop();
         if empty {
-            fs::remove_dir(&target)?;
+            if let Some(counts) = remove_empty_folder(&target)? {
+                return Ok(Some(counts));
+            }
         } else {
             recycle(&target).map_err(|error| match error.kind() {
                 io::ErrorKind::Unsupported => Error::NotRecyclable,
@@ -912,7 +962,6 @@ fn delete_folder_in(
         trash
             .notes
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
-        trash.folders.push((root.to_owned(), relative.to_owned()));
     }
     edit_pinned(root, |text| {
         pinned::parse(text)
@@ -928,7 +977,11 @@ fn delete_folder_in(
     })?;
     Ok(None)
 }
-pub fn delete_folder(app: &AppHandle, path: &str, confirmed: bool) -> Result<Option<usize>, Error> {
+pub fn delete_folder(
+    app: &AppHandle,
+    path: &str,
+    confirmed: bool,
+) -> Result<Option<FolderCounts>, Error> {
     delete_folder_in(&root(app)?, path, confirmed, platform::recycle)
 }
 /// A note moved to the Recycle Bin from the app, kept in memory until the panel closes so Undo can
@@ -947,12 +1000,10 @@ struct Deleted {
 struct Trash {
     session: u64,
     notes: Vec<Deleted>,
-    folders: Vec<(PathBuf, String)>,
 }
 static DELETED: Mutex<Trash> = Mutex::new(Trash {
     session: 0,
     notes: Vec::new(),
-    folders: Vec::new(),
 });
 fn deleted() -> std::sync::MutexGuard<'static, Trash> {
     DELETED.lock().unwrap_or_else(|e| e.into_inner())
@@ -960,13 +1011,9 @@ fn deleted() -> std::sync::MutexGuard<'static, Trash> {
 fn reserved(root: &Path, relative: &str) -> bool {
     let trash = deleted();
     trash
-        .folders
+        .notes
         .iter()
-        .any(|(r, folder)| r == root && inside_folder(relative, folder))
-        || trash
-            .notes
-            .iter()
-            .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
+        .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
 }
 /// Moves the note to the Recycle Bin through `recycle`, which answers where the file landed there.
 /// Undo keeps the bytes read from that file, so they are what the Recycle Bin holds even if another
@@ -1075,7 +1122,6 @@ pub fn forget_deleted() {
     let mut trash = deleted();
     trash.session += 1;
     trash.notes.clear();
-    trash.folders.clear();
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -2022,7 +2068,7 @@ mod tests {
         fs::write(t.0.join("folder/.hidden"), "keep").unwrap();
         assert_eq!(
             delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
-            Ok(Some(0))
+            Ok(Some(FolderCounts { notes: 0, other: 1 }))
         );
         assert_eq!(
             fs::read_to_string(t.0.join("folder/.hidden")).unwrap(),
@@ -2064,15 +2110,50 @@ mod tests {
     }
     #[test]
     fn deleting_a_folder_blocks_late_saves_from_recreating_it() {
-        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "before").unwrap();
+        let base = version(b"before");
+        let bin = t.0.join("bin");
+        delete_folder_in(&t.0, "folder", true, |p| to_bin(p, &bin)).unwrap();
+        assert!(save_note_in(&t.0, "folder/a.md", "late save", &base).is_err());
+        assert!(!t.0.join("folder").exists());
+    }
+    #[test]
+    fn a_deleted_folder_can_be_explicitly_recreated_and_used() {
         let t = Temp::new();
         fs::create_dir(t.0.join("folder")).unwrap();
         delete_folder_in(&t.0, "folder", false, |_| unreachable!()).unwrap();
+        create_folder_in(&t.0, "folder").unwrap();
+        assert!(matches!(
+            save_note_in(&t.0, "folder/a.md", "new", ""),
+            Ok(Saved::Saved { .. })
+        ));
+    }
+    #[test]
+    fn confirmed_folder_that_became_empty_is_removed_without_recycling() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "removed externally").unwrap();
         assert_eq!(
-            save_note_in(&t.0, "FOLDER/a.md", "late save", ""),
-            Ok(Saved::Conflict)
+            delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
+            Ok(Some(FolderCounts { notes: 1, other: 0 }))
         );
-        assert!(!t.0.join("folder").exists());
+        fs::remove_file(t.0.join("folder/a.md")).unwrap();
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", true, |_| panic!("empty folder")),
+            Ok(None)
+        );
+    }
+    #[test]
+    fn an_entry_arriving_before_empty_removal_returns_counts_and_survives() {
+        let t = Temp::new();
+        fs::write(t.0.join("late.md"), "keep").unwrap();
+        assert_eq!(
+            remove_empty_folder(&t.0),
+            Ok(Some(FolderCounts { notes: 1, other: 0 }))
+        );
+        assert_eq!(fs::read_to_string(t.0.join("late.md")).unwrap(), "keep");
     }
     #[test]
     fn deleting_a_folder_refuses_root_outside_and_internal_paths() {
@@ -2100,6 +2181,48 @@ mod tests {
             );
         }
         assert!(t.0.is_dir());
+    }
+    #[test]
+    fn deleting_a_folder_refuses_short_name_aliases() {
+        use std::os::windows::process::CommandExt;
+        let t = Temp::new();
+        let target = t.0.join("Long folder name for alias");
+        fs::create_dir(&target).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/D", "/C"])
+            .raw_arg(format!(
+                "for %I in (\"{}\") do @echo %~snxI",
+                target.display()
+            ))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let alias = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if alias == "Long folder name for alias" {
+            eprintln!("8.3 alias unavailable on this volume; verify alias refusal manually");
+            return;
+        }
+        assert!(
+            t.0.join(&alias).is_dir(),
+            "expected an existing short alias: {alias}"
+        );
+        assert_eq!(
+            delete_folder_in(&t.0, &alias, true, |_| panic!("alias must not recycle")),
+            Err(Error::InvalidPath)
+        );
+        assert!(target.is_dir());
+    }
+    #[test]
+    fn folder_confirmation_counts_nested_notes_and_all_other_files() {
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("folder/sub")).unwrap();
+        for file in ["a.md", "sub/b.MD", "sub/image.png", ".hidden"] {
+            fs::write(t.0.join("folder").join(file), "keep").unwrap();
+        }
+        assert_eq!(
+            delete_folder_in(&t.0, "folder", false, |_| panic!("must confirm")),
+            Ok(Some(FolderCounts { notes: 2, other: 2 }))
+        );
     }
     #[test]
     fn deleting_a_folder_refuses_junctions_at_every_level() {

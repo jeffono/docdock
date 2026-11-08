@@ -46,6 +46,7 @@ Decided 2026-11-07:
   and "Create folder X" when the typed name does not exist.
 - A moved note's relative links and images are rewritten to keep pointing at the same files; no
   file moves with it.
+- Folder labels appear only for folders with notes (directly or below) or completely empty folders; attachment-only folders have no app deletion action, and confirmation counts notes and other files.
 - Folders are deleted from a right-click menu on their group label (also Shift+F10 and the Menu key)
   when grouping by folder: an empty folder goes at once, one with content asks first and goes to the
   Recycle Bin. Folders left empty by moves or deletes are kept.

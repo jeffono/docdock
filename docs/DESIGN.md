@@ -109,11 +109,14 @@ pinned and unpinned notes differ only in section and starting state.
 - **Folder groups:** the other optional item, also off by default, groups unfiltered Notes in any
   order. Root notes come first, right under the section title and without a label; then each folder,
   labelled with its path, by path segment, so a subfolder follows its parent. Each group keeps the
-  chosen order. Empty folders and folders containing only pinned notes keep their labels. Folder
-  labels are keyboard-focusable; right click, Shift+F10 or the Menu key opens one "Delete folder"
+  chosen order. Labels appear only for folders containing notes directly or below (including pinned
+  notes), or completely empty folders. Folders containing only images or other files have no label
+  and cannot be deleted from the app. Tab enters the list once; arrows select folder labels as well
+  as cards, with the selected surface and a spoken path. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
   item without a shortcut. Empty folders are removed immediately. Any entry (including hidden files
   and attachments) requires the same nearby confirmation dialog, focused on Cancel, naming the folder
-  and its recursive note count. "Move to Recycle Bin" recycles all content; the text explains that
+  and its recursive counts of notes and other files, each with the correct singular or plural in English
+  and pt-BR (for example, "3 notes and 2 other files"). "Move to Recycle Bin" recycles all content; the text explains that
   restoration is through the Recycle Bin, with no DocDock Undo. Root has no deletion label. Folders
   left empty by moves or note deletion stay.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
@@ -242,25 +245,25 @@ pinned and unpinned notes differ only in section and starting state.
   (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
   tag. → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
 
-| Shortcut                  | Action                                                                                   |
-| ------------------------- | ---------------------------------------------------------------------------------------- |
-| ↑ / ↓                     | Select a card or row; on a long expanded card, first scroll about three lines to its end |
-| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                  |
-| Alt+↑ / Alt+↓             | Select the previous / next item directly                                                 |
-| PgUp / PgDn               | Scroll the list by about one screen                                                      |
-| → / ←                     | Open / close one level: line, preview, expanded                                          |
-| Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item         |
-| Delete                    | Remove the selected missing pinned item                                                  |
-| Ctrl+Delete               | Move the selected note to the Recycle Bin, after confirming; outside text fields         |
-| Ctrl+M                    | Move the selected note to a folder; from the search bar or the list                      |
-| Shift+F10 / Menu          | Open the selected note's menu                                                            |
-| Ctrl+Enter                | Create a note with the exact typed text                                                  |
-| Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below        |
-| Ctrl+/                    | Open / close the shortcut sheet                                                          |
-| Ctrl+E                    | Toggle editing on the selected card                                                      |
-| Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first             |
-| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close   |
-| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close         |
+| Shortcut                  | Action                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| ↑ / ↓                     | Select a card, folder label or row; on a long expanded card, first scroll about three lines to its end |
+| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                                |
+| Alt+↑ / Alt+↓             | Select the previous / next item directly                                                               |
+| PgUp / PgDn               | Scroll the list by about one screen                                                                    |
+| → / ←                     | Open / close one level: line, preview, expanded                                                        |
+| Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item                       |
+| Delete                    | Remove the selected missing pinned item                                                                |
+| Ctrl+Delete               | Move the selected note to the Recycle Bin, after confirming; outside text fields                       |
+| Ctrl+M                    | Move the selected note to a folder; from the search bar or the list                                    |
+| Shift+F10 / Menu          | Open the selected note or folder menu                                                                  |
+| Ctrl+Enter                | Create a note with the exact typed text                                                                |
+| Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below                      |
+| Ctrl+/                    | Open / close the shortcut sheet                                                                        |
+| Ctrl+E                    | Toggle editing on the selected card                                                                    |
+| Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
+| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close                 |
+| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close                       |
 
 ## Preferences
 

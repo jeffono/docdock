@@ -156,7 +156,7 @@ pub fn notes_move(app: AppHandle, from: String, to: String, base: String) -> Res
     crate::notes::move_note(&app, &from, &to, &base)
 }
 #[tauri::command(async)]
-pub fn notes_folders(app: AppHandle) -> Result<Vec<String>, Error> {
+pub fn notes_folders(app: AppHandle) -> Result<Vec<crate::notes::FolderEntry>, Error> {
     crate::notes::folders(&app)
 }
 #[tauri::command(async)]
@@ -168,7 +168,7 @@ pub fn notes_delete_folder(
     app: AppHandle,
     path: String,
     confirmed: bool,
-) -> Result<Option<usize>, Error> {
+) -> Result<Option<crate::notes::FolderCounts>, Error> {
     crate::notes::delete_folder(&app, &path, confirmed)
 }
 

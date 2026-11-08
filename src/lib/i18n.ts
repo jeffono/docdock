@@ -120,10 +120,15 @@ const en = {
   "move.linksKept":
     "The note moved, but it changed meanwhile, so its links still point from the old folder.",
   "dialog.cancel": "Cancel",
+  "deleteFolder.note": "{count} note",
+  "deleteFolder.notes": "{count} notes",
+  "deleteFolder.other": "{count} other file",
+  "deleteFolder.others": "{count} other files",
+  "deleteFolder.join": "{notes} and {other}",
   "deleteFolder.menu": "Delete folder",
   "deleteFolder.title": "Delete folder “{folder}”?",
   "deleteFolder.text":
-    "This folder contains {count} notes. The folder and all its content move to the Recycle Bin. Restore it there; there is no Undo in DocDock.",
+    "This folder contains {counts}. The folder and all its content move to the Recycle Bin. Restore it there; there is no Undo in DocDock.",
   "delete.title": "Delete “{title}”?",
   "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
   "delete.confirm": "Move to Recycle Bin",
@@ -336,10 +341,15 @@ const ptBR: Record<MessageKey, string> = {
   "move.linksKept":
     "A nota foi movida, mas mudou nesse meio-tempo; seus links ainda partem da pasta antiga.",
   "dialog.cancel": "Cancelar",
+  "deleteFolder.note": "{count} nota",
+  "deleteFolder.notes": "{count} notas",
+  "deleteFolder.other": "{count} outro arquivo",
+  "deleteFolder.others": "{count} outros arquivos",
+  "deleteFolder.join": "{notes} e {other}",
   "deleteFolder.menu": "Excluir pasta",
   "deleteFolder.title": "Excluir a pasta “{folder}”?",
   "deleteFolder.text":
-    "Esta pasta contém {count} notas. A pasta e todo o conteúdo vão para a Lixeira. Restaure por lá; não há Desfazer no DocDock.",
+    "Esta pasta contém {counts}. A pasta e todo o conteúdo vão para a Lixeira. Restaure por lá; não há Desfazer no DocDock.",
   "delete.title": "Excluir “{title}”?",
   "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
   "delete.confirm": "Mover para a Lixeira",
@@ -468,5 +478,17 @@ export function dateTime(ms: number): string {
   return new Date(ms).toLocaleString(document.documentElement.lang || "en", {
     dateStyle: "short",
     timeStyle: "short",
+  });
+}
+
+/** Confirmation describes every file, with plural forms for each count. */
+export function folderCountText(counts: { notes: number; other: number }): string {
+  return t("deleteFolder.join", {
+    notes: t(counts.notes === 1 ? "deleteFolder.note" : "deleteFolder.notes", {
+      count: counts.notes,
+    }),
+    other: t(counts.other === 1 ? "deleteFolder.other" : "deleteFolder.others", {
+      count: counts.other,
+    }),
   });
 }

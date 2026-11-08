@@ -179,12 +179,18 @@ export const entryKey = (entry: Card | Missing) =>
 
 /**
  * Keys of what arrows can select, top to bottom: "create" first when offered, then every pinned entry,
- * missing ones included so the keyboard can remove them, then the notes.
+ * missing ones included so the keyboard can remove them, then folder labels and notes as displayed.
  */
-export function navKeys(model: ListModel): string[] {
+export function navKeys(model: ListModel, visibleRows = rows(model, "")): string[] {
   return [
     ...(model.create === null ? [] : ["create"]),
-    ...[...model.pinned, ...model.notes].map(entryKey),
+    ...visibleRows.flatMap((row) =>
+      "entry" in row
+        ? [entryKey(row.entry)]
+        : "group" in row && "folder" in row.group
+          ? [row.group.key]
+          : [],
+    ),
   ];
 }
 
@@ -355,4 +361,20 @@ export function pageHost(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** Only note-bearing folders and completely empty ones get labels. */
+export function folderLabels(
+  notes: { path: string }[],
+  folders: { path: string; empty: boolean }[],
+): string[] {
+  return folders
+    .filter(
+      (folder) =>
+        folder.empty ||
+        notes.some((note) =>
+          note.path.toLowerCase().startsWith([folder.path.toLowerCase(), ""].join("/")),
+        ),
+    )
+    .map((folder) => folder.path);
 }

@@ -99,12 +99,12 @@ export const notesRename = (from: string, to: string, base: string, title: [stri
 export const notesMove = (from: string, to: string, base: string) =>
   invoke<void>("notes_move", { from, to, base });
 /** Every folder listing visits, as `/` paths; the root is not included. */
-export const notesFolders = () => invoke<string[]>("notes_folders");
+export const notesFolders = () => invoke<{ path: string; empty: boolean }[]>("notes_folders");
 /** Creates a folder, nested with `/`, keeping one that exists; `invalidFolderName` otherwise. */
 export const notesCreateFolder = (path: string) => invoke<void>("notes_create_folder", { path });
 /** Empty folders go at once; a note count asks for confirmation. null means deleted. */
 export const notesDeleteFolder = (path: string, confirmed = false) =>
-  invoke<number | null>("notes_delete_folder", { path, confirmed });
+  invoke<{ notes: number; other: number } | null>("notes_delete_folder", { path, confirmed });
 /**
  * Moves a note to the Recycle Bin and removes its pinned items. Resolves to whether, until the panel
  * closes, `notesUndoDelete` can bring both back; meanwhile saves or renames to its path answer a
