@@ -297,8 +297,13 @@ parent held, keeping one that exists; a name Windows would not keep as typed (tr
 `_pinned.md` answers `invalidFolderName`, and a file in the way of a level `folderNameTaken`. The UI (`MovePicker`) creates the folder first, then moves to
 the note's own name there or the next free one (`movedPath`), retried on a conflict as a rename. An
 edited note moves through `Editor.rename`, so the editor follows it and no save reaches the old path;
-otherwise the note cannot open in the editor while it moves. Relative image links in the note are not
-rewritten.
+otherwise the note cannot open in the editor while it moves. After the move, `movedLinks` (pure, in
+`features/notes/links.ts`, on `noteParser`) points the note's relative link and image destinations,
+inline and in reference definitions, at the same files from the new folder; no file moves. Web, email,
+`#` and absolute targets, targets leaving the notes folder, code, raw HTML and the frontmatter stay,
+as does every other byte. In the editor the rewrite is an edit of the current text, saved by autosave
+at the new path; otherwise it is a save with the version just read, so a change made meanwhile wins
+and the links stay (`move.linksKept`). Renames stay in their folder and need no rewrite.
 
 **Deleting.** `notes_delete(path)` moves a note to the Recycle Bin under the save lock, with its folders
 held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink

@@ -44,6 +44,8 @@ Decided 2026-11-07:
   Menu key), holds Rename, Pin, Move and Delete, each showing its shortcut.
 - Moving opens an in-panel picker: a text field filtering the existing folders, the root included,
   and "Create folder X" when the typed name does not exist.
+- A moved note's relative links and images are rewritten to keep pointing at the same files; no
+  file moves with it.
 - Folders are deleted from a right-click menu on their group label (also Shift+F10 and the Menu key)
   when grouping by folder: an empty folder goes at once, one with content asks first and goes to the
   Recycle Bin. Folders left empty by moves or deletes are kept.

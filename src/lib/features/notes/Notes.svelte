@@ -63,6 +63,7 @@ import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
 import { byFolder, dateHeadings, folderHeadings } from "./grouping";
+import { movedLinks } from "./links";
 import {
   arrowScroll,
   buildList,
@@ -1000,7 +1001,8 @@ let movingPath = "";
  * Moves a note to the folder picked, creating the folder first when asked. The note keeps its file
  * name, or takes the next free one there, as a rename does. An edited note stays in its editor, which
  * follows it as for a rename: its text is saved first and later saves wait for the move, so none
- * recreates the old path.
+ * recreates the old path. Its relative links then point at the same files from the new folder: in the
+ * editor as an edit it saves, otherwise as a save that only applies to the moved text.
  */
 async function moveNote(card: Card) {
   if (moving || card.url) return;
@@ -1018,20 +1020,20 @@ async function moveNote(card: Card) {
     if (!choice || !notes.some((note) => note.path === from)) return;
     error = "";
     if (choice.create) await notesCreateFolder(choice.folder);
-    const go = async (version: string) => {
+    const go = async (version: string): Promise<string> => {
       const taken = notes.map((note) => note.path);
       for (let attempt = 0; attempt < 50; attempt++) {
         const to = movedPath(from, choice.folder, taken);
         try {
           await notesMove(from, to, version);
           changed({ renames: [[from, to]] });
-          return;
+          return to;
         } catch (e) {
           const code = (e as { code?: string }).code;
           if (code === "pinnedNotRenamed") {
             changed({ renames: [[from, to]] });
             error = errorText(e);
-            return;
+            return to;
           }
           if (code !== "renameConflict") throw e;
         }
@@ -1041,13 +1043,28 @@ async function moveNote(card: Card) {
     };
     await renamingTask;
     if (editing && selected === from && editor) {
-      await editor.rename(() => null, go);
+      await editor.rename(
+        () => null,
+        async (version, _retitled, rewrite) => {
+          const to = await go(version);
+          rewrite((text) => {
+            const next = movedLinks(text, from, to);
+            return next === text ? null : next;
+          });
+        },
+      );
       return;
     }
     movingPath = from;
     // An editor open that started before is dropped when it answers.
     if (opening === from) opening = null;
-    await go((await notesOpen(from)).version);
+    const to = await go((await notesOpen(from)).version);
+    movingPath = to;
+    const note = await notesOpen(to);
+    const next = movedLinks(note.text, from, to);
+    // A conflict: the note changed since it was read, and that change is kept as it is.
+    if (next !== note.text && (await notesSave(to, next, note.version)).status === "conflict")
+      error = t("move.linksKept");
   } catch (e) {
     error = errorText(e);
   } finally {

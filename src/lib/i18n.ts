@@ -117,6 +117,8 @@ const en = {
   "move.folders": "Folders",
   "move.root": "Root folder",
   "move.create": "Create folder “{folder}”",
+  "move.linksKept":
+    "The note moved, but it changed meanwhile, so its links still point from the old folder.",
   "dialog.cancel": "Cancel",
   "delete.title": "Delete “{title}”?",
   "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
@@ -327,6 +329,8 @@ const ptBR: Record<MessageKey, string> = {
   "move.folders": "Pastas",
   "move.root": "Pasta raiz",
   "move.create": "Criar pasta “{folder}”",
+  "move.linksKept":
+    "A nota foi movida, mas mudou nesse meio-tempo; seus links ainda partem da pasta antiga.",
   "dialog.cancel": "Cancelar",
   "delete.title": "Excluir “{title}”?",
   "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
