@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M4.4 — Move and delete, on branch `move-delete`.
+- Next: M5 — Distribute.
 
 ## Completed
 
@@ -27,35 +27,9 @@ detail each stage when it is next.
 - M4.3 — Editor: find and replace in the note, several cursors, formatting bar, shortcut sheet on
   Ctrl+/, bracket pairing, tag repair on leaving and theme choice; see the editor section of
   `docs/DESIGN.md`.
-
-## M4.4 — Move and delete
-
-Renaming already moves files without overwriting and updates `_pinned.md`; links in other notes are
-not rewritten. A tree view is out of scope.
-
-Decided 2026-11-07:
-- Deleting asks first, in an in-panel dialog with focus on Cancel and "Move to Recycle Bin", then
-  offers Undo in a notice. If restoring from the Recycle Bin is unreliable, Undo may keep a temporary
-  copy until the panel closes.
-- Ctrl+Delete deletes the selected card from the list or search results. In the editor and the search
-  bar it keeps deleting the next word, and Delete alone still only removes missing pinned items. No
-  delete button on the card header.
-- A right-click menu on cards, opened inside the panel like the order menu (also Shift+F10 and the
-  Menu key), holds Rename, Pin, Move and Delete, each showing its shortcut.
-- Moving opens an in-panel picker: a text field filtering the existing folders, the root included,
-  and "Create folder X" when the typed name does not exist.
-- A moved note's relative links and images are rewritten to keep pointing at the same files; no
-  file moves with it.
-- Folder labels appear only for folders with notes (directly or below) or completely empty folders; attachment-only folders have no app deletion action, and confirmation counts notes and other files.
-- Folders are deleted from a right-click menu on their group label (also Shift+F10 and the Menu key)
-  when grouping by folder: an empty folder goes at once, one with content asks first and goes to the
-  Recycle Bin. Folders left empty by moves or deletes are kept.
-
-- [x] (advanced) Delete a note to the Recycle Bin from its card and the keyboard, with undo while the
-  panel is open; pinned entries follow, and an open editor stops saving instead of recreating it
-- [x] (advanced) Move a note to a folder through a picker that can create it, reusing rename's
-  no-overwrite move and pin updates
-- [x] (standard) Delete empty folders, or folders to the Recycle Bin after confirmation
+- M4.4 — Move and delete: card menu, notes to the Recycle Bin with undo while the panel is open,
+  moving through a folder picker with relative links rewritten, and folder deletion from group labels;
+  see "Note list" in `docs/DESIGN.md` and "Notes" in `docs/ARCHITECTURE.md`.
 
 ## M5 — Distribute
 
