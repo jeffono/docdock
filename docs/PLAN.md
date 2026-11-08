@@ -35,7 +35,7 @@ detail each stage when it is next.
 
 - [ ] (basic) README in English, with a link to the pt-BR version
 - [ ] (standard) Installer, automatic updates and decision on code signing
-- [ ] (advanced) Quote the autostart path: `auto-launch` writes `Run` without quotes
+- [x] (advanced) Quote the autostart path: `auto-launch` writes `Run` without quotes
 
 ## Later
 

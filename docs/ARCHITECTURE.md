@@ -41,7 +41,12 @@ hidden through the same operation used by the Notes tab. Formatting shortcut des
 the editor bindings.
 
 The tray also exits the app and controls Windows startup; a second instance simply
-exits.
+exits. Startup is the `DocDock` value in the current user's `Run` key, written by
+`platform/autostart.rs` with the executable path quoted, so a path with spaces can neither break nor
+start `C:\Program.exe`. Turning it on or off from the tray clears Task Manager's choice in
+`StartupApproved\Run`; a choice made later in Task Manager is respected. At startup, an entry left
+unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
+one; an entry for another existing copy is left alone.
 
 ## Flow
 
