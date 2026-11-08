@@ -4,6 +4,9 @@ import Notes from "./lib/features/notes/Notes.svelte";
 import Preferences from "./lib/features/preferences/Preferences.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
+  exitReady,
+  onExitCancelled,
+  onExitRequested,
   onPanelFocus,
   onPanelSearch,
   onToggleMode,
@@ -39,6 +42,32 @@ async function action(work: Promise<void>) {
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
 
 onMount(() => {
+  let exiting = false;
+  const cancelled = onExitCancelled(() => {
+    exiting = false;
+    document.body.inert = false;
+  });
+  const exit = onExitRequested((id) => {
+    if (exiting) return;
+    exiting = true;
+    document.body.inert = true;
+    void (async () => {
+      let saved = false;
+      try {
+        saved = await notes.prepareExit();
+        await exitReady(id, saved);
+      } catch (e) {
+        saved = false;
+        error = errorText(e);
+        await exitReady(id, false).catch(() => {});
+      } finally {
+        if (!saved) {
+          exiting = false;
+          document.body.inert = false;
+        }
+      }
+    })();
+  });
   const stop = onPanelFocus((value) => {
     focus = value;
   });
@@ -86,7 +115,7 @@ onMount(() => {
   window.addEventListener("keydown", shortcut, true);
   return () => {
     window.removeEventListener("keydown", shortcut, true);
-    for (const listener of [stop, state, visible, toggle, search])
+    for (const listener of [stop, state, visible, toggle, search, exit, cancelled])
       void listener.then((unlisten) => unlisten());
   };
 });

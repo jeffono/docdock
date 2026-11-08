@@ -54,6 +54,20 @@ flowchart LR
   D --> V[(".md notes folder")]
 ```
 
+## Distribution and updates
+
+NSIS installs for the current Windows user, in English or pt-BR, with a WebView2 bootstrapper when
+needed. Installers have no Windows code signature; see `decisions/0008-distribution.md` for the
+accepted SmartScreen warning and release-channel policy. The manual/tag release workflow creates
+a GitHub release draft with signed updater artifacts and `latest.json`.
+
+`updates.rs` checks once at production startup, downloads and verifies in Rust, and enables a tray
+restart action. Neither webview has updater permissions. Quit and update share a native exit gate:
+an event asks the main UI to freeze input and finish the editor through its existing save guard;
+only its matching acknowledgement allows exit or installation. Busy content operations, save errors
+and conflicts keep the process open. Failed installation restores input and reports a native dialog;
+the next launch retries the download. Windows NSIS relaunches without a process plugin.
+
 ## Language
 
 Rust reads the Windows display language once at startup: any Portuguese gets pt-BR, everything else

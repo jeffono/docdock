@@ -34,7 +34,7 @@ detail each stage when it is next.
 ## M5 — Distribute
 
 - [ ] (basic) README in English, with a link to the pt-BR version
-- [ ] (standard) Installer, automatic updates and decision on code signing
+- [x] (standard) Installer, automatic updates and decision on code signing
 - [ ] (advanced) Quote the autostart path: `auto-launch` writes `Run` without quotes
 
 ## Later

@@ -2,6 +2,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+/** Native exit waits indefinitely for the trusted UI to confirm its saves. */
+export const onExitRequested = (handler: (id: number) => void) =>
+  listen<number>("exit-requested", (event) => handler(event.payload));
+export const onExitCancelled = (handler: () => void) => listen("exit-cancelled", handler);
+export const exitReady = (id: number, saved: boolean) => invoke<void>("exit_ready", { id, saved });
+
 export function appVersion(): Promise<string> {
   return invoke<string>("app_version");
 }

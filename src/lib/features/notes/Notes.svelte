@@ -216,6 +216,22 @@ let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
 /** The note the editor last left, under the name it left with: leaving may rename it. */
 let leftPath = "";
+/** Refuse exit during content operations; the user can retry after they finish. */
+export async function prepareExit(): Promise<boolean> {
+  if (
+    choosing ||
+    savingPage ||
+    creating ||
+    opening ||
+    movingPath ||
+    deletingPath ||
+    deletingFolder
+  ) {
+    error = t("notes.exitBusy");
+    return false;
+  }
+  return leaveEditor();
+}
 export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
@@ -534,7 +550,10 @@ export async function choose() {
 }
 
 /** Creates the note for the typed text and opens it expanded. */
+let creating = false;
 async function create(text: string, content = "", annotate = false) {
+  if (creating) return;
+  creating = true;
   try {
     error = "";
     if (!(await leaveEditor())) return;
@@ -562,6 +581,8 @@ async function create(text: string, content = "", annotate = false) {
     error = errorText({ code: "saveFailed", detail: text });
   } catch (e) {
     error = errorText(e);
+  } finally {
+    creating = false;
   }
 }
 
