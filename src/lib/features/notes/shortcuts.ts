@@ -6,6 +6,7 @@ export const panelShortcuts: [string, MessageKey][] = [
   ["Ctrl+Tab", "shortcut.mode"],
   ["Ctrl+/", "shortcut.sheet"],
   ["↑ / ↓", "shortcut.arrows"],
+  ["Ctrl+↑ / Ctrl+↓", "shortcut.section"],
   ["Alt+↑ / Alt+↓", "shortcut.direct"],
   ["Alt+Shift+↑ / Alt+Shift+↓", "shortcut.reorder"],
   ["PgUp / PgDn", "shortcut.page"],

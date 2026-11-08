@@ -11,6 +11,7 @@ import {
   folderLabels,
   isMissing,
   isUntitled,
+  jumpSection,
   move,
   movedPath,
   navKeys,
@@ -351,4 +352,57 @@ it("arrows include folder menus in displayed order", () => {
     "folder:sub",
     "sub/a.md",
   ]);
+});
+
+describe("section jumps", () => {
+  const model = buildList({
+    ...base,
+    hits: ["pin.md", "root.md", "Projects/a.md", "Projects/b.md", "Reference/c.md"].map(hit),
+    pinned: [item("pin.md")],
+  });
+  const folders = rows(model, "", new Map(), ["Projects", "Reference", "Empty"]);
+  it("jumps from Pinned to the first root note in Notes", () => {
+    expect(jumpSection(folders, "pin.md", 1)).toBe("root.md");
+  });
+  it("selects an empty folder label as a section", () => {
+    expect(jumpSection(folders, "root.md", 1)).toBe("folder:Empty");
+  });
+  it("skips the remaining notes of a folder when jumping forward", () => {
+    expect(jumpSection(folders, "Projects/a.md", 1)).toBe("folder:Reference");
+  });
+  it("jumps backward to the previous section from inside a folder", () => {
+    expect(jumpSection(folders, "Projects/b.md", -1)).toBe("folder:Empty");
+  });
+  it("selects the first note of a non-selectable date group", () => {
+    const dated = rows(
+      model,
+      "",
+      new Map([
+        ["root.md", { key: "today", kind: "today", date: 0 }],
+        ["Projects/a.md", { key: "yesterday", kind: "yesterday", date: 0 }],
+      ]),
+    );
+    expect(jumpSection(dated, "root.md", 1)).toBe("Projects/a.md");
+  });
+  it("does not repeat Notes when its first folder shares the destination", () => {
+    const grouped = rows(
+      { ...model, notes: model.notes.filter((card) => card.hit.path !== "root.md") },
+      "",
+      new Map(),
+      ["Projects", "Reference"],
+    );
+    expect(jumpSection(grouped, "folder:Projects", 1)).toBe("folder:Reference");
+  });
+  it("stays at the first section when jumping above it", () => {
+    expect(jumpSection(folders, "pin.md", -1)).toBe("pin.md");
+  });
+  it("stays at the last section when jumping below it", () => {
+    expect(jumpSection(folders, "Reference/c.md", 1)).toBe("folder:Reference");
+  });
+  it("starts at the first section with no selection", () => {
+    expect(jumpSection(folders, "", 1)).toBe("pin.md");
+  });
+  it("returns no selection for an empty list", () => {
+    expect(jumpSection([], "", 1)).toBe("");
+  });
 });

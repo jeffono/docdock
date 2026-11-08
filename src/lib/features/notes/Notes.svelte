@@ -78,6 +78,7 @@ import {
   folderOf,
   isMissing,
   isUntitled,
+  jumpSection,
   type Level,
   move,
   movedPath,
@@ -1433,6 +1434,18 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     case "ArrowDown":
     case "ArrowUp":
       if (
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !browser &&
+        event.target === list
+      ) {
+        event.preventDefault();
+        selection = jumpSection(listRows, active, event.key === "ArrowUp" ? -1 : 1);
+        return;
+      }
+      if (
         event.altKey &&
         event.shiftKey &&
         !event.ctrlKey &&
@@ -1622,12 +1635,12 @@ function shortcut(event: KeyboardEvent) {
     // Recovery actions (leftovers, a deleted pinned list) sit between the bar and the cards.
     const stops = [
       input,
+      ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
       ...document.querySelectorAll<HTMLElement>(
         ".notice button, .leftover button, .restore button",
       ),
       ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>(".note-order > button")] : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
-      ...(tools?.querySelectorAll<HTMLElement>("button") ?? []),
       ...document.querySelectorAll<HTMLElement>("main > .resize"),
     ];
     const target = event.target as HTMLElement;
@@ -1933,8 +1946,36 @@ onMount(() => {
 </section>
 
 <style>
+  .folder-label {
+    display: inline-flex;
+    align-items: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: default;
+    transition: color var(--duration), background var(--duration);
+  }
+  .folder-label::before {
+    content: "\25b6";
+    width: 0;
+    opacity: 0;
+    overflow: hidden;
+    font-size: var(--font-size-sm);
+    transition: width var(--duration) ease-out, opacity var(--duration) ease-out;
+  }
+  .folder-label:hover,
+  .folder-label:focus-visible { background: var(--color-surface); color: var(--color-fg); }
   .folder-label.selected { background: var(--color-selected); color: var(--color-accent); }
-  .folder-label { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: default; }
+  .folder-label:hover::before,
+  .folder-label:focus-visible::before,
+  .folder-label.selected::before { width: var(--space-4); opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .folder-label, .folder-label::before { transition: none; }
+  }
 
   .web-suggestions {
     position: absolute;

@@ -207,6 +207,31 @@ export function move(keys: string[], current: string, delta: -1 | 1): string {
   return keys[Math.min(keys.length - 1, Math.max(0, at + delta))];
 }
 
+/** Jump between visible section starts; Notes and its first group can share a destination. */
+export function jumpSection(visibleRows: Row[], current: string, delta: -1 | 1): string {
+  const keys: string[] = [];
+  const starts: number[] = [];
+  let boundary = false;
+  for (const row of visibleRows) {
+    if ("heading" in row || "group" in row) boundary = true;
+    const key =
+      "entry" in row
+        ? entryKey(row.entry)
+        : "group" in row && "folder" in row.group
+          ? row.group.key
+          : null;
+    if (key === null) continue;
+    if (boundary) starts.push(keys.length);
+    boundary = false;
+    keys.push(key);
+  }
+  const at = keys.indexOf(current);
+  if (at < 0) return keys[starts[0]] ?? "";
+  const section = starts.filter((start) => start <= at).length - 1;
+  const to = Math.max(0, Math.min(starts.length - 1, section + delta));
+  return keys[starts[to]] ?? "";
+}
+
 /** A vertical extent on screen, in pixels; `top` above `bottom`. */
 export type Span = { top: number; bottom: number };
 

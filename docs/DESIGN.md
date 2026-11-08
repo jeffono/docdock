@@ -112,7 +112,10 @@ pinned and unpinned notes differ only in section and starting state.
   chosen order. Labels appear only for folders containing notes directly or below (including pinned
   notes), or completely empty folders. Folders containing only images or other files have no label
   and cannot be deleted from the app. Tab enters the list once; arrows select folder labels as well
-  as cards, with the selected surface and a spoken path. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
+  as cards, with the selected surface and a spoken path. Selectable labels gain a small triangle
+  and an inset of `--space-4` on hover, focus or selection, with higher text contrast and transitions
+  over `--duration` (ease-out for the inset and triangle). Reduced motion removes transitions.
+  Date labels and the unlabelled root keep their existing appearance. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
   item without a shortcut. Empty folders are removed immediately. Any entry (including hidden files
   and attachments) requires the same nearby confirmation dialog, focused on Cancel, naming the folder
   and its recursive counts of notes and other files, each with the correct singular or plural in English
@@ -227,14 +230,19 @@ pinned and unpinned notes differ only in section and starting state.
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
-- **Tab stops:** search bar → recovery actions when shown (Undo after a delete, "Restore" on
+- **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
   leftovers, then "Restore pinned items") → list → note order button → top bar buttons (including
-  Preferences), reversed with Shift+Tab. Card
+  Preferences) → resize handle → search bar, reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
   labeled region of plain groups, not a listbox, since cards hold buttons, links and the editor; the
   selected item has `aria-current` and a polite live region announces it.
+- **Section jumps:** Ctrl+↑ / Ctrl+↓ select the first item of the previous / next visible section:
+  Pinned, Notes and each folder or date group inside Notes. A selectable folder label is its group's
+  first item. Notes and its first group share a destination when there is no root item before it.
+  Jumps stay at the first / last section at the ends; with no selection they select the first section.
+  Search and the editor keep their native Ctrl+arrow behavior.
 - **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below
   work as from the search bar, and typing a character goes to the search bar. Enter acts on the
   selection even on a focused button; Space presses the button.
@@ -250,6 +258,7 @@ pinned and unpinned notes differ only in section and starting state.
 | ↑ / ↓                     | Select a card, folder label or row; on a long expanded card, first scroll about three lines to its end |
 | Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                                |
 | Alt+↑ / Alt+↓             | Select the previous / next item directly                                                               |
+| Ctrl+↑ / Ctrl+↓           | Jump to the previous / next section, only with focus on the list                                       |
 | PgUp / PgDn               | Scroll the list by about one screen                                                                    |
 | → / ←                     | Open / close one level: line, preview, expanded                                                        |
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item                       |
