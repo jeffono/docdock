@@ -37,13 +37,16 @@ pub fn set_enabled(enabled: bool) -> io::Result<()> {
 }
 
 /// Points an existing entry at this executable when older builds left it unquoted or the
-/// executable it names no longer exists. An entry for another existing copy is left alone.
+/// executable it names is confirmed gone. An entry for another copy that exists, or that cannot be
+/// checked, such as one on an unreachable share, is left alone.
 pub fn repair() -> io::Result<()> {
     let Some(stored) = read(RUN, RRF_RT_REG_SZ)? else {
         return Ok(());
     };
     let exe = std::env::current_exe()?;
-    if needs_repair(&utf16(&stored), &exe, Path::exists) {
+    if needs_repair(&utf16(&stored), &exe, |path| {
+        path.try_exists().unwrap_or(true)
+    }) {
         write(&command(&exe))?;
     }
     Ok(())
@@ -190,9 +193,17 @@ mod tests {
     #[test]
     fn task_manager_turning_the_entry_off_disables_it() {
         let off = [3, 0, 0, 0, 0x21, 0xAA, 0xF0, 0x92, 0xEE, 0x79, 0xDC, 0x01];
-        let on = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(!approved(Some(&off)));
+    }
+
+    #[test]
+    fn task_manager_turning_the_entry_on_enables_it() {
+        let on = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(approved(Some(&on)));
+    }
+
+    #[test]
+    fn an_entry_task_manager_never_touched_is_enabled() {
         assert!(approved(None));
     }
 }
