@@ -63,7 +63,7 @@ flowchart LR
 
 NSIS installs for the current Windows user, in English or pt-BR, with a WebView2 bootstrapper when
 needed. Installers have no Windows code signature; see `decisions/0008-distribution.md` for the
-accepted SmartScreen warning and release-channel policy. The manual/tag release workflow creates
+accepted SmartScreen warning and release-channel policy. The manual release workflow creates
 a GitHub release draft with signed updater artifacts and `latest.json`.
 
 `updates.rs` checks once at production startup, downloads and verifies in Rust, and enables a tray
