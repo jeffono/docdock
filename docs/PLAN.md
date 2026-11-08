@@ -45,6 +45,12 @@ In no defined order:
 - Screenshots.
 - Dictation with local models, downloaded separately from the installer.
 - Plugins: require a recorded decision before starting.
+- Code signing, free options (see `docs/decisions/0008-distribution.md`): SignPath Foundation once the
+  project has verifiable reputation, which shows SignPath Foundation as publisher; or the Microsoft
+  Store with a free individual account, which signs only MSIX packages. Tauri does not build MSIX, so
+  the Store means a second channel without our updater, autostart through a package `StartupTask`
+  instead of `Run`, offline WebView2 and testing the panel packaged. A paid Store edition for
+  convenience is a possible revenue model while the code stays MIT.
 - macOS and Linux: new `platform/` implementation. On Wayland, the panel depends on layer-shell, which
   GNOME does not provide.
 
