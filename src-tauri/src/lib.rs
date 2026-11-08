@@ -105,6 +105,15 @@ pub fn run() {
             );
             Ok(())
         })
+        // Alt+F4 on the panel would destroy the only UI that can flush saves.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                api.prevent_close();
+                updates::request_exit(window.app_handle(), false);
+            }
+        })
         // App commands need no capability from a local origin. Without this barrier, the page
         // window could reach all of them if it loaded an app origin.
         .invoke_handler(move |invoke| {

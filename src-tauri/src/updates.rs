@@ -44,6 +44,8 @@ impl ExitGate {
     }
 }
 
+struct UpdateItem(MenuItem<Wry>);
+
 #[derive(Default)]
 struct State {
     exit: ExitGate,
@@ -56,7 +58,7 @@ pub fn menu_item(app: &tauri::App, locale: Locale) -> tauri::Result<MenuItem<Wry
         Locale::PtBr => "Atualização disponível — reiniciar",
     };
     let item = MenuItem::with_id(app, "update", label, false, None::<&str>)?;
-    app.manage(item.clone());
+    app.manage(UpdateItem(item.clone()));
     Ok(item)
 }
 
@@ -76,7 +78,7 @@ pub fn start(app: &AppHandle) {
             if let Some(update) = updater.check().await? {
                 let bytes = update.download(|_, _| {}, || {}).await?;
                 app.state::<Mutex<State>>().lock().unwrap().downloaded = Some((update, bytes));
-                app.state::<MenuItem<Wry>>().set_enabled(true)?;
+                app.state::<UpdateItem>().0.set_enabled(true)?;
             }
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
         }
@@ -96,6 +98,13 @@ pub fn request_exit(app: &AppHandle, update: bool) {
     let state = app.state::<Mutex<State>>();
     let mut state = state.lock().unwrap();
     if update && state.downloaded.is_none() {
+        return;
+    }
+    if app.get_webview_window("main").is_none() {
+        // Without the UI there is nothing left to save, and no one to acknowledge.
+        state.exit.allowed = true;
+        drop(state);
+        app.exit(0);
         return;
     }
     if let Some(id) = state.exit.request(update) {
@@ -150,7 +159,7 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
         }
     }
     app.state::<Mutex<State>>().lock().unwrap().exit.allowed = false;
-    let _ = app.state::<MenuItem<Wry>>().set_enabled(false);
+    let _ = app.state::<UpdateItem>().0.set_enabled(false);
     let _ = app.emit_to("main", "exit-cancelled", ());
 }
 

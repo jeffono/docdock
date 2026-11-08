@@ -54,7 +54,6 @@
     "windows": {
       "nsis": {
         "languages": ["English", "PortugueseBR"],
-        "displayLanguageSelector": true,
         "installMode": "currentUser"
       },
       "webviewInstallMode": {
