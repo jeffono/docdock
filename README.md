@@ -33,3 +33,7 @@ pnpm tauri dev
 ```
 
 See [AGENTS.md](AGENTS.md) for contributor instructions and the commands table. Run `pnpm check` before integrating changes.
+
+## License
+
+[MIT](LICENSE)

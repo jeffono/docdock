@@ -2,6 +2,7 @@
   "name": "docdock",
   "version": "0.1.0-beta.1",
   "description": "Autohide sidebar for viewing, adding, and editing references",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.6.0",
@@ -18,7 +19,6 @@
     "check:types": "svelte-check --tsconfig ./tsconfig.json --output human",
     "check:rust": "cargo clippy -q --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings && cargo test -q --manifest-path src-tauri/Cargo.toml"
   },
-  "license": "UNLICENSED",
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
     "@codemirror/commands": "^6.11.1",
