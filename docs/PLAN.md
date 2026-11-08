@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: M5 — Distribute.
+- Next: publish release 0.1.0-beta.1 and validate the update with 0.1.0-beta.2.
 
 ## Completed
 
@@ -30,12 +30,9 @@ detail each stage when it is next.
 - M4.4 — Move and delete: card menu, notes to the Recycle Bin with undo while the panel is open,
   moving through a folder picker with relative links rewritten, and folder deletion from group labels;
   see "Note list" in `docs/DESIGN.md` and "Notes" in `docs/ARCHITECTURE.md`.
-
-## M5 — Distribute
-
-- [ ] (basic) README in English, with a link to the pt-BR version
-- [x] (standard) Installer, automatic updates and decision on code signing
-- [x] (advanced) Quote the autostart path: `auto-launch` writes `Run` without quotes
+- M5 — Distribute: README in English and pt-BR, MIT license, per-user NSIS installer, signed automatic
+  updates from GitHub Releases, release workflow and quoted autostart path; see
+  `docs/decisions/0008-distribution.md`.
 
 ## Later
 
