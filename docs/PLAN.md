@@ -7,6 +7,32 @@ detail each stage when it is next.
 
 - Next: publish release 0.1.0-beta.1 and validate the update with 0.1.0-beta.2.
 
+## M6 — Note privacy
+
+Threats that matter: leaks through cloud sync and a stolen device with synced notes; screen sharing
+also matters for a panel that appears over other apps. Notes stay plain `.md`; encryption is delegated
+to a vault the user mounts, such as Cryptomator, which stays optional. The app's own encryption is in
+`docs/EXPLORATIONS.md`.
+
+- [ ] Record the decision above in `docs/decisions/`, including the rule that nothing derived from note
+  content is stored outside the notes folder. `basic`
+- [ ] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
+  deleted folder; never create the notes folder or its parents, which would write plaintext under a
+  vault's mount point (regression test); a failed save keeps the text in memory with a notice and
+  writes nowhere else, then saves when the folder returns; note text and the search index are
+  cleared from memory while the folder is unavailable. `advanced`
+- [ ] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
+  `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
+  `standard`
+- [ ] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give
+  such notes an Undo that keeps the copy inside the notes folder. `advanced`
+- [ ] Hide the panel from screen capture and sharing with `WDA_EXCLUDEFROMCAPTURE`. `standard`
+- [ ] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`
+- [ ] Optional vault file in Preferences: an Unlock action on the unavailable state opens
+  `vault.cryptomator`, which Cryptomator unlocks with Windows Hello. `standard`
+- [ ] README section in English and pt-BR: protecting notes with Cryptomator, including that moving notes
+  into a vault does not remove earlier plaintext from cloud history. `basic`
+
 ## Completed
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
@@ -45,6 +71,8 @@ In no defined order:
 - Screenshots.
 - Dictation with local models, downloaded separately from the installer.
 - Plugins: require a recorded decision before starting.
+- Privacy deterrents, not encryption: Windows Hello to show notes after the panel has been hidden for a
+  while, and notes marked private in the frontmatter shown blurred until revealed.
 - Code signing, free options (see `docs/decisions/0008-distribution.md`): SignPath Foundation once the
   project has verifiable reputation, which shows SignPath Foundation as publisher; or the Microsoft
   Store with a free individual account, which signs only MSIX packages. Tauri does not build MSIX, so
@@ -63,3 +91,5 @@ Defaults used until you decide otherwise.
 | Monitor                    | The outermost on the chosen side, whose edge holds the cursor               |
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
+| Panel in screen captures   | Always hidden, which also blanks the user's own screenshots of the panel    |
+| Clipboard from notes       | Kept out of history and cloud clipboard; not cleared after a delay          |
