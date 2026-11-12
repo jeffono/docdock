@@ -36,6 +36,41 @@ pub fn hold_directory(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Opens a folder through links and mount points, so the handle is on the volume that really holds
+/// it, and keeps it from being renamed or deleted while the handle lives. Reading access includes
+/// listing: a folder whose ACL refuses listing fails to open.
+pub fn open_folder(path: &Path) -> io::Result<File> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    OpenOptions::new()
+        .access_mode(FILE_GENERIC_READ.0)
+        .share_mode((FILE_SHARE_READ | FILE_SHARE_WRITE).0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(path)
+}
+
+/// The serial number and file system name (`NTFS`, or the name a vault's driver gives) of the volume
+/// holding `file`.
+pub fn volume_of(file: &File) -> io::Result<(u32, String)> {
+    use windows::Win32::Storage::FileSystem::GetVolumeInformationByHandleW;
+    let mut serial = 0u32;
+    let mut name = [0u16; 261];
+    unsafe {
+        GetVolumeInformationByHandleW(
+            HANDLE(file.as_raw_handle()),
+            None,
+            Some(&raw mut serial),
+            None,
+            None,
+            Some(&mut name),
+        )
+    }
+    .map_err(os_error)?;
+    let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+    Ok((serial, String::from_utf16_lossy(&name[..end])))
+}
+
 pub fn paste_timestamp() -> String {
     let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     format!(

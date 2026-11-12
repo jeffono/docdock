@@ -76,6 +76,12 @@ struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     activation_shortcut: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "place_or_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    folder_place: Option<Place>,
 }
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -174,6 +180,9 @@ fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error
 fn width_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<u32>, D::Error> {
     Ok(Option::<u32>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
+fn place_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<Place>, D::Error> {
+    Ok(Option::<Place>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
 fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
     Ok(Option::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
@@ -198,33 +207,106 @@ pub enum Availability {
 /// What looking at a path found.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Probe {
+    /// A folder that lists.
     Folder,
     /// Nothing, or a file, has the name.
     Absent,
     /// Any other failure, such as access denied or a network error.
     Unreadable,
 }
-/// A folder is `Missing` only when its parent is readable and shows it absent; whatever cannot be
-/// told is `Unavailable`. A volume root has no parent, so a drive or share that left is unavailable.
-fn availability(folder: Probe, parent: Option<Probe>) -> Availability {
+/// A folder is `Missing` only when its parent is a folder that lists without it (`listed` is false);
+/// whatever cannot be told is `Unavailable`. A volume root has no parent, so a drive or share that left
+/// is unavailable, as is a name the parent lists that does not open, such as a link or mount point
+/// whose target left.
+fn availability(folder: Probe, parent: Option<Probe>, listed: bool) -> Availability {
     match (folder, parent) {
         (Probe::Folder, _) => Availability::Available,
-        (Probe::Absent, Some(Probe::Folder)) => Availability::Missing,
+        (Probe::Absent, Some(Probe::Folder)) if !listed => Availability::Missing,
         _ => Availability::Unavailable,
     }
 }
+/// Lists rather than reads attributes: an ACL can allow attributes but refuse listing.
 fn probe(path: &Path) -> Probe {
-    match fs::metadata(path) {
-        Ok(metadata) if metadata.is_dir() => Probe::Folder,
-        Ok(_) => Probe::Absent,
+    match fs::read_dir(path) {
+        Ok(mut entries) => match entries.next() {
+            Some(Err(_)) => Probe::Unreadable,
+            _ => Probe::Folder,
+        },
         Err(error) if error.kind() == io::ErrorKind::NotFound => Probe::Absent,
+        Err(_) if fs::metadata(path).is_ok_and(|m| !m.is_dir()) => Probe::Absent,
         Err(_) => Probe::Unreadable,
     }
+}
+/// Whether `parent` holds an entry called `name`; an entry that cannot be read counts as it.
+fn lists(parent: &Path, name: &std::ffi::OsStr) -> bool {
+    fs::read_dir(parent).map_or(true, |mut entries| {
+        entries.any(|entry| {
+            entry.map_or(true, |e| {
+                same_name(Path::new(&e.file_name()), Path::new(name))
+            })
+        })
+    })
 }
 fn folder_availability(path: &Path) -> Availability {
     match probe(path) {
         Probe::Folder => Availability::Available,
-        folder => availability(folder, path.parent().map(probe)),
+        folder => {
+            let parent = path.parent();
+            let listed = parent
+                .zip(path.file_name())
+                .is_none_or(|(parent, name)| lists(parent, name));
+            availability(folder, parent.map(probe), listed)
+        }
+    }
+}
+/// Where the notes folder lives: the file system of its volume and whether that volume is another one
+/// than the root of its path, as for a vault or drive mounted in a folder. Recorded when the folder is
+/// chosen, so a different place behind the same path, such as the empty local folder a locked vault
+/// can leave at its mount point, is never written to. Names no note.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+struct Place {
+    file_system: String,
+    mounted: bool,
+}
+/// `folder` and `top` are the serial number and file system name of the volumes holding the folder and
+/// the root of its path. Serial numbers are only compared: a vault's can change on every unlock.
+fn place(folder: &(u32, String), top: &(u32, String)) -> Place {
+    Place {
+        file_system: folder.1.clone(),
+        mounted: folder != top,
+    }
+}
+/// The folder opened on the volume that really holds it, and its place.
+fn open_place(path: &Path) -> io::Result<(fs::File, Place)> {
+    let held = platform::open_folder(path)?;
+    let top = path.ancestors().last().unwrap_or(path);
+    let folder = platform::volume_of(&held)?;
+    let top = platform::volume_of(&platform::open_folder(top)?)?;
+    Ok((held, place(&folder, &top)))
+}
+/// The notes folder, opened, if it is available at the place `expected` (`None` takes any place).
+fn open_root(path: &Path, expected: Option<&Place>) -> Result<(fs::File, Place), Availability> {
+    match folder_availability(path) {
+        Availability::Available => {}
+        state => return Err(state),
+    }
+    let (held, now) = open_place(path).map_err(|_| Availability::Unavailable)?;
+    if expected.is_some_and(|place| *place != now) {
+        return Err(Availability::Unavailable);
+    }
+    Ok((held, now))
+}
+/// The notes folder for one command. Its handle, opened where the place was checked, stays open until
+/// the command ends: the folder cannot be renamed or deleted meanwhile, and a vault asks before
+/// locking under it.
+struct Root {
+    path: PathBuf,
+    _held: fs::File,
+}
+impl std::ops::Deref for Root {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.path
     }
 }
 #[derive(Serialize)]
@@ -266,6 +348,7 @@ fn load(path: &Path) -> Settings {
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
 }
+#[cfg(test)]
 fn read_settings(path: &Path) -> Option<PathBuf> {
     load(path).folder
 }
@@ -282,9 +365,6 @@ static SETTINGS: Mutex<()> = Mutex::new(());
 fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<(), Error> {
     let path = config(app)?;
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(root) = read_settings(&path) {
-        try_migrate_derived(&root, &path);
-    }
     let mut settings = load(&path);
     change(&mut settings);
     save(&path, &settings)
@@ -304,17 +384,21 @@ pub fn activation_shortcut(app: &AppHandle) -> Option<String> {
 pub fn set_activation_shortcut(app: &AppHandle, shortcut: Option<String>) -> Result<(), Error> {
     update(app, |settings| settings.activation_shortcut = shortcut)
 }
+fn folder_in(settings: &Settings) -> Option<(PathBuf, Availability)> {
+    let path = settings.folder.clone()?;
+    let state = open_root(&path, settings.folder_place.as_ref())
+        .map_or_else(|state| state, |_| Availability::Available);
+    Some((path, state))
+}
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
-    Ok(read_settings(&config(app)?).map(|p| Folder {
-        path: p.to_string_lossy().into_owned(),
-        state: folder_availability(&p),
+    Ok(folder_in(&load(&config(app)?)).map(|(path, state)| Folder {
+        path: path.to_string_lossy().into_owned(),
+        state,
     }))
 }
 /// The folder in use and whether it is available, for the watch that notices it leave and return.
 pub fn folder_state(app: &AppHandle) -> Option<(PathBuf, Availability)> {
-    let path = read_settings(&config(app).ok()?)?;
-    let state = folder_availability(&path);
-    Some((path, state))
+    folder_in(&load(&config(app).ok()?))
 }
 fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
     let parent = path
@@ -458,23 +542,39 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     // Owned by the panel, the picker stays above it and does not open a second picker.
     let dialog = app.dialog().file().set_parent(&window);
     if let Some(path) = dialog.blocking_pick_folder() {
-        let folder = Some(path.into_path().map_err(Error::unexpected)?);
-        update(app, |settings| settings.folder = folder)?;
+        let path = path.into_path().map_err(Error::unexpected)?;
+        // Choosing again is how a folder moved to another place behind the same path is accepted.
+        let place = open_place(&path).ok().map(|(_, place)| place);
+        update(app, |settings| {
+            settings.folder = Some(path);
+            settings.folder_place = place;
+        })?;
         crate::watch::stop();
     }
     folder(app)
 }
-fn root(app: &AppHandle) -> Result<PathBuf, Error> {
-    let path = read_settings(&config(app)?).ok_or(Error::NoFolder)?;
-    match folder_availability(&path) {
-        Availability::Available => {
-            let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-            try_migrate_derived(&path, &config(app)?);
-            Ok(path)
-        }
-        Availability::Unavailable => Err(Error::FolderUnavailable),
-        Availability::Missing => Err(Error::FolderMissing),
+fn root(app: &AppHandle) -> Result<Root, Error> {
+    let settings = load(&config(app)?);
+    let path = settings.folder.ok_or(Error::NoFolder)?;
+    let (held, place) =
+        open_root(&path, settings.folder_place.as_ref()).map_err(|state| match state {
+            Availability::Missing => Error::FolderMissing,
+            _ => Error::FolderUnavailable,
+        })?;
+    if settings.folder_place.is_none() {
+        // Chosen before places were recorded: the place seen now is the one expected from here on.
+        let _ = update(app, |settings| {
+            if settings.folder.as_deref() == Some(&*path) && settings.folder_place.is_none() {
+                settings.folder_place = Some(place);
+            }
+        });
     }
+    // Legacy derived data moves in once the folder is confirmed in its place.
+    {
+        let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+        try_migrate_derived(&path, &config(app)?);
+    }
+    Ok(Root { path, _held: held })
 }
 fn markdown(path: &Path) -> bool {
     path.extension()
@@ -1351,9 +1451,13 @@ fn try_migrate_derived(root: &Path, settings: &Path) {
     }
 }
 fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
-    if folder_availability(root) != Availability::Available {
+    // Only into the folder in its recorded place: a locked vault's empty mount point must stay empty.
+    let expected = load(settings)
+        .folder_place
+        .filter(|_| load(settings).folder.as_deref() == Some(root));
+    let Ok((_root, _)) = open_root(root, expected.as_ref()) else {
         return Ok(());
-    }
+    };
     let _held = hold_ancestry(root)?;
     let legacy = settings.with_file_name("pinned-copy.json");
     if legacy.try_exists()? {
@@ -1770,7 +1874,7 @@ fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Respo
     response
 }
 pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec<u8>> {
-    image_response(webview, root(app).ok(), uri_path)
+    image_response(webview, root(app).ok().map(|root| root.path), uri_path)
 }
 
 #[cfg(test)]
@@ -2966,6 +3070,29 @@ mod tests {
         assert!(value.get("collapsed").is_none());
         assert_eq!(value["theme"], "dark");
     }
+    /// Regression: migrating into the empty local folder a locked vault leaves at its mount point
+    /// would write pinned names in plaintext outside the vault.
+    #[test]
+    fn migration_skips_a_folder_at_another_place() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        let settings = t.0.join("settings.json");
+        let vault = Place {
+            file_system: "cryptoFs".into(),
+            mounted: true,
+        };
+        fs::write(
+            &settings,
+            serde_json::to_vec(&serde_json::json!({
+                "folder": root, "folder_place": vault, "collapsed": ["secret.md"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        migrate_derived(&root, &settings).unwrap();
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+    }
     #[test]
     fn unavailable_migration_keeps_sources_and_creates_nothing() {
         let t = Temp::new();
@@ -3207,17 +3334,19 @@ mod tests {
         assert!(leftovers_in(&t.0).unwrap().is_empty());
     }
     #[test]
-    fn a_folder_is_missing_only_when_its_parent_shows_it_absent() {
+    fn a_folder_is_missing_only_when_its_parent_lists_without_it() {
         use Availability::*;
         use Probe::*;
-        assert_eq!(availability(Folder, None), Available);
-        assert_eq!(availability(Absent, Some(Folder)), Missing);
+        assert_eq!(availability(Folder, None, true), Available);
+        assert_eq!(availability(Absent, Some(Folder), false), Missing);
+        // The parent lists the name, but it does not open: a link or mount point whose target left.
+        assert_eq!(availability(Absent, Some(Folder), true), Unavailable);
         // A vault's mount point or another folder above it is gone.
-        assert_eq!(availability(Absent, Some(Absent)), Unavailable);
+        assert_eq!(availability(Absent, Some(Absent), false), Unavailable);
         // The volume root itself: a drive letter or share that left.
-        assert_eq!(availability(Absent, None), Unavailable);
-        assert_eq!(availability(Unreadable, Some(Folder)), Unavailable);
-        assert_eq!(availability(Absent, Some(Unreadable)), Unavailable);
+        assert_eq!(availability(Absent, None, false), Unavailable);
+        assert_eq!(availability(Unreadable, Some(Folder), false), Unavailable);
+        assert_eq!(availability(Absent, Some(Unreadable), false), Unavailable);
     }
     #[test]
     fn probing_tells_a_deleted_folder_from_one_whose_parent_left() {
@@ -3234,7 +3363,74 @@ mod tests {
         fs::write(t.0.join("file"), "").unwrap();
         assert_eq!(
             folder_availability(&t.0.join("file")),
-            Availability::Missing
+            Availability::Unavailable
+        );
+    }
+    #[test]
+    fn a_junction_whose_target_left_is_unavailable_not_missing() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("vault")).unwrap();
+        assert!(mklink(&["/J"], &t.0.join("notes"), &t.0.join("vault")));
+        fs::remove_dir(t.0.join("vault")).unwrap();
+        assert_eq!(
+            folder_availability(&t.0.join("notes")),
+            Availability::Unavailable
+        );
+    }
+    /// Regression: an ACL can allow reading attributes but refuse listing; such a folder was available.
+    #[test]
+    fn a_folder_that_refuses_listing_is_unavailable() {
+        let t = Temp::new();
+        let notes = t.0.join("notes");
+        fs::create_dir(&notes).unwrap();
+        let icacls = |args: &[&str]| {
+            std::process::Command::new("icacls")
+                .arg(&notes)
+                .args(args)
+                .output()
+                .is_ok_and(|out| out.status.success())
+        };
+        // Everyone, by SID: refused to list the folder.
+        assert!(icacls(&["/deny", "*S-1-1-0:(RD)"]));
+        let state = folder_availability(&notes);
+        assert!(icacls(&["/remove:d", "*S-1-1-0"]));
+        assert_eq!(state, Availability::Unavailable);
+    }
+    #[test]
+    fn a_place_is_mounted_when_its_volume_is_not_the_path_root() {
+        let ntfs = (7, "NTFS".to_owned());
+        let vault = (9, "cryptoFs".to_owned());
+        assert_eq!(
+            place(&ntfs, &ntfs),
+            Place {
+                file_system: "NTFS".into(),
+                mounted: false
+            }
+        );
+        assert_eq!(
+            place(&vault, &ntfs),
+            Place {
+                file_system: "cryptoFs".into(),
+                mounted: true
+            }
+        );
+    }
+    /// Regression: a locked vault can leave an empty local folder at its mount point; saving there
+    /// wrote plaintext outside the vault.
+    #[test]
+    fn a_folder_at_another_place_than_chosen_is_unavailable() {
+        let t = Temp::new();
+        let (_, here) = open_place(&t.0).unwrap();
+        assert!(!here.mounted);
+        assert!(open_root(&t.0, Some(&here)).is_ok());
+        assert!(open_root(&t.0, None).is_ok());
+        let vault = Place {
+            file_system: "cryptoFs".into(),
+            mounted: true,
+        };
+        assert_eq!(
+            open_root(&t.0, Some(&vault)).err(),
+            Some(Availability::Unavailable)
         );
     }
     /// Regression: a folder created under a locked vault's mount point puts plaintext on the

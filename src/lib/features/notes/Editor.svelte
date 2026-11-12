@@ -95,10 +95,10 @@ export function folderLeft(state: "unavailable" | "missing") {
   revision++;
 }
 /** The folder is back: save what it does not hold yet, against the version read, so a change made
- * meanwhile still conflicts. */
+ * meanwhile still conflicts. A save that started before it came back and fails is sent again. */
 export function resume() {
   folderGone = null;
-  if (status === "error") void saving.flush();
+  saving.retry();
 }
 /** The text for an error, or nothing when the folder left, which its own notice explains. */
 function failure(cause: unknown): string {
@@ -342,7 +342,7 @@ onMount(() => {
   {#if status === "conflict"}
     <div class="notice" role="status">
       <p>{t("editor.conflict")}</p>
-      <div class="actions">
+      <div class="actions" hidden={folderGone !== null}>
         <Button onclick={() => resolve(true)} disabled={resolving}>{t("editor.keep")}</Button>
         <button class="discard" onclick={() => resolve(false)} disabled={resolving}>{t("editor.discard")}</button>
       </div>
@@ -351,11 +351,10 @@ onMount(() => {
   {#if folderGone}
     <div class="notice" role="status">
       <p>{t(folderGone === "missing" ? "editor.folderMissing" : "editor.folderUnavailable")}</p>
-      {#if status !== "conflict"}
-        <div class="actions">
-          <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
-        </div>
-      {/if}
+      <!-- Always offered, also after a conflict: leaving must never need the folder. -->
+      <div class="actions">
+        <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
+      </div>
     </div>
   {/if}
   {#if error}
