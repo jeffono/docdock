@@ -15,7 +15,10 @@ pub enum Error {
         detail: String,
     },
     NoFolder,
+    /// The folder's volume, share or a folder above it is gone: a locked vault, an unplugged drive.
     FolderUnavailable,
+    /// The folder above the notes folder is there, but the notes folder is not.
+    FolderMissing,
     InvalidPath,
     OutsideFolder,
     TooLarge {

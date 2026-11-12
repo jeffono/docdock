@@ -96,6 +96,7 @@ pub fn run() {
             tray::setup(app, locale, side, requests.clone())?;
             app.manage(locale);
             updates::start(app.handle());
+            watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
             app.manage(requests);
             dock::start(

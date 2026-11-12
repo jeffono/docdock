@@ -114,7 +114,8 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
-#[tauri::command]
+/// `async`: looking at an offline share can take seconds.
+#[tauri::command(async)]
 pub fn notes_folder(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::folder(&app)
 }
@@ -125,7 +126,7 @@ pub async fn notes_choose(
 ) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::choose(&app, &requests)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
     crate::notes::list_for(&app)
 }

@@ -176,7 +176,52 @@ fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>
 #[derive(Serialize)]
 pub struct Folder {
     path: String,
-    available: bool,
+    state: Availability,
+}
+/// Whether the notes folder can be used. Neither `Unavailable` nor `Missing` is ever created: under a
+/// locked vault's mount point, a new folder would put plaintext on the unencrypted disk.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Availability {
+    Available,
+    /// Its volume, share or a folder above it is gone or unreadable: a locked vault, an unplugged
+    /// drive, an offline share.
+    Unavailable,
+    /// The folder above it is there but the folder is not: deleted, moved, or itself the mount point
+    /// of a locked vault, which cannot be told apart.
+    Missing,
+}
+/// What looking at a path found.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Probe {
+    Folder,
+    /// Nothing, or a file, has the name.
+    Absent,
+    /// Any other failure, such as access denied or a network error.
+    Unreadable,
+}
+/// A folder is `Missing` only when its parent is readable and shows it absent; whatever cannot be
+/// told is `Unavailable`. A volume root has no parent, so a drive or share that left is unavailable.
+fn availability(folder: Probe, parent: Option<Probe>) -> Availability {
+    match (folder, parent) {
+        (Probe::Folder, _) => Availability::Available,
+        (Probe::Absent, Some(Probe::Folder)) => Availability::Missing,
+        _ => Availability::Unavailable,
+    }
+}
+fn probe(path: &Path) -> Probe {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Probe::Folder,
+        Ok(_) => Probe::Absent,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Probe::Absent,
+        Err(_) => Probe::Unreadable,
+    }
+}
+fn folder_availability(path: &Path) -> Availability {
+    match probe(path) {
+        Probe::Folder => Availability::Available,
+        folder => availability(folder, path.parent().map(probe)),
+    }
 }
 #[derive(Serialize)]
 pub struct Note {
@@ -255,8 +300,14 @@ pub fn set_activation_shortcut(app: &AppHandle, shortcut: Option<String>) -> Res
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
         path: p.to_string_lossy().into_owned(),
-        available: p.is_dir(),
+        state: folder_availability(&p),
     }))
+}
+/// The folder in use and whether it is available, for the watch that notices it leave and return.
+pub fn folder_state(app: &AppHandle) -> Option<(PathBuf, Availability)> {
+    let path = read_settings(&config(app).ok()?)?;
+    let state = folder_availability(&path);
+    Some((path, state))
 }
 fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
     let parent = path
@@ -340,10 +391,11 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
 }
 fn root(app: &AppHandle) -> Result<PathBuf, Error> {
     let path = read_settings(&config(app)?).ok_or(Error::NoFolder)?;
-    if !path.is_dir() {
-        return Err(Error::FolderUnavailable);
+    match folder_availability(&path) {
+        Availability::Available => Ok(path),
+        Availability::Unavailable => Err(Error::FolderUnavailable),
+        Availability::Missing => Err(Error::FolderMissing),
     }
-    Ok(path)
 }
 fn markdown(path: &Path) -> bool {
     path.extension()
@@ -2770,5 +2822,73 @@ mod tests {
         assert_eq!(fs::read_to_string(t.0.join("a (r).md")).unwrap(), "antiga");
         assert_eq!(fs::read_to_string(t.0.join("a (r 2).md")).unwrap(), "outra");
         assert!(leftovers_in(&t.0).unwrap().is_empty());
+    }
+    #[test]
+    fn a_folder_is_missing_only_when_its_parent_shows_it_absent() {
+        use Availability::*;
+        use Probe::*;
+        assert_eq!(availability(Folder, None), Available);
+        assert_eq!(availability(Absent, Some(Folder)), Missing);
+        // A vault's mount point or another folder above it is gone.
+        assert_eq!(availability(Absent, Some(Absent)), Unavailable);
+        // The volume root itself: a drive letter or share that left.
+        assert_eq!(availability(Absent, None), Unavailable);
+        assert_eq!(availability(Unreadable, Some(Folder)), Unavailable);
+        assert_eq!(availability(Absent, Some(Unreadable)), Unavailable);
+    }
+    #[test]
+    fn probing_tells_a_deleted_folder_from_one_whose_parent_left() {
+        let t = Temp::new();
+        assert_eq!(folder_availability(&t.0), Availability::Available);
+        assert_eq!(
+            folder_availability(&t.0.join("notes")),
+            Availability::Missing
+        );
+        assert_eq!(
+            folder_availability(&t.0.join("vault/notes")),
+            Availability::Unavailable
+        );
+        fs::write(t.0.join("file"), "").unwrap();
+        assert_eq!(
+            folder_availability(&t.0.join("file")),
+            Availability::Missing
+        );
+    }
+    /// Regression: a folder created under a locked vault's mount point puts plaintext on the
+    /// unencrypted disk, and the vault can no longer mount there.
+    #[test]
+    fn nothing_creates_a_notes_folder_that_is_not_there() {
+        let t = Temp::new();
+        let store = t.0.join("config").join("pinned-copy.json");
+        let png = b"\x89PNG\r\n\x1a\n";
+        for root in [t.0.join("vault").join("notes"), t.0.join("notes")] {
+            keep_copy(&store, &root, "- [a](a.md)\n");
+            assert!(save_note_in(&root, "a.md", "secret", "").is_err());
+            assert!(save_note_in(&root, "sub/a.md", "secret", "v").is_err());
+            assert!(!matches!(
+                write_note_in(&root, "a.md", "secret", "v", false),
+                Ok(Saved::Saved { .. })
+            ));
+            assert!(create_folder_in(&root, "sub").is_err());
+            assert!(
+                edit_pinned(&root, |text| pinned::pin(
+                    text,
+                    Kind::Url,
+                    "https://a.b/",
+                    "a"
+                ))
+                .is_err()
+            );
+            assert!(restore_pinned_in(&root, &store).is_err());
+            assert!(paste_image_in(&root, "a.md", png, "stamp").is_err());
+            assert!(restore_in(&root, "a.md.1-1.docdock-bak", "r").is_err());
+            assert!(move_note_in(&root, "a.md", "sub/a.md", "v").is_err());
+            assert!(rename_note_in(&root, "a.md", "b.md", "v", ("", "")).is_err());
+            let created: Vec<_> = fs::read_dir(&t.0)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert_eq!(created, ["config"]);
+        }
     }
 }

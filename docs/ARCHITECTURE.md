@@ -25,7 +25,7 @@ src-tauri/src/           Backend (Rust)
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
-  watch.rs               Tells the UI when the notes folder changes
+  watch.rs               Tells the UI when the notes folder changes, leaves or returns
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
@@ -541,6 +541,32 @@ disk version before writing.
 mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
 `(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
 the user compares the copies and removes the extra one.
+
+**Folder away.** A locked vault, an unplugged drive or an offline share takes the notes folder away;
+creating it again would write plaintext under the vault's mount point. `notes_folder` reports a
+`state`: `available`, `unavailable` or `missing`. The pure `availability` rule in `notes.rs` calls the
+folder `missing` only when its parent is a readable folder that shows it absent; a folder, volume root
+or share that cannot be read or is gone above it is `unavailable`, as is anything it cannot tell. A
+vault mounted directly at the notes folder therefore reads as `missing`: both states behave the same,
+only the text differs. Every command starts from `root`, which answers `folderUnavailable` or
+`folderMissing` without touching the disk further, and no write path creates the folder or its parents
+(saves, recreation, pinned edits and restore, folder creation, pasted images, leftovers, moves); a
+regression test runs them against a missing folder under a missing parent. `notes_folder` and
+`notes_list` run off the main thread, since an offline share can take seconds to answer.
+`watch::monitor` checks the folder's state every 2 s on its own thread: an event may never come from a
+volume that left, and a watch that ended sees no return. When the state of the same folder changes, it
+emits `notes-changed`; on leaving it also stops the watch, so the next listing starts a new one, and
+forgets the deleted notes kept for Undo. A change of folder is the picker's, which the UI follows. The
+UI's reread asks the pure `folderAction` (`features/notes/folder-state.ts`) what to do. Leaving with no
+unsaved text closes any editor and forgets every note's text, name and tag: list, previews, pinned
+items, search index and its tag suggestions; nothing is read while away. Leaving while the editor holds
+unsaved text (an edit not saved or an image being pasted) forgets everything else but keeps that editor
+as the only card: the note's text and history stay in memory until it is saved or discarded, the
+accepted exception to "nothing in memory". Its saves fail with no fallback copy anywhere; leaving
+editing refuses, as for any failed save, so only Discard my changes or the folder's return ends it. On
+return the editor saves against the version it read, so a change made meanwhile conflicts as usual, and
+the list, index, pinned items and leftovers are read again; without an editor, it starts over as on
+choosing the folder.
 
 ## Note list
 

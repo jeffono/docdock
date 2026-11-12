@@ -96,6 +96,13 @@ pinned and unpinned notes differ only in section and starting state.
   one saved choice: name (display title), modified or created, ascending or descending. The default is
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
+- **Folder away:** a notes folder the app cannot reach replaces the list with the empty state: one
+  sentence, the folder path in muted text and Choose folder. "Unavailable" names the usual causes (a
+  locked vault, an unplugged drive, an offline share) and says the folder opens again when it is back;
+  "not found" (the folder above it is there) adds that a moved or renamed folder is chosen again. The
+  list, previews, pinned items and tag suggestions disappear with it. An editor holding unsaved text
+  stays as the only card, with a notice at the top of its body that the text stays there and is saved
+  when the folder is back, and Discard my changes; Preferences shows the same sentence under the path.
 - **Order menu:** six single-choice items show a check on the current order; a separator precedes
   the checkable "Group by date" and "Group by folder" items; checking one clears the other. Enter/Space and arrows open and navigate it; Esc, selection and
   outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu

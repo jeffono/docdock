@@ -16,7 +16,7 @@ to a vault the user mounts, such as Cryptomator, which stays optional. The app's
 
 - [ ] Record the decision above in `docs/decisions/`, including the rule that nothing derived from note
   content is stored outside the notes folder. `basic`
-- [ ] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
+- [x] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
   deleted folder; never create the notes folder or its parents, which would write plaintext under a
   vault's mount point (regression test); a failed save keeps the text in memory with a notice and
   writes nowhere else, then saves when the folder returns; note text and the search index are
