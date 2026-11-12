@@ -89,6 +89,33 @@ onMount(() => {
   });
   const shortcut = (event: KeyboardEvent) => {
     if (
+      !event.isComposing &&
+      event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.repeat &&
+      event.key === ","
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void action(togglePreferences());
+      return;
+    }
+    if (
+      !event.isComposing &&
+      event.ctrlKey &&
+      event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      event.key.toLowerCase() === "d"
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!event.repeat) togglePin();
+      return;
+    }
+    if (
       preferences &&
       event.key === "Escape" &&
       !event.isComposing &&
@@ -212,8 +239,8 @@ function togglePin() {
       <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
     {/if}
     <span class="spacer"></span>
-    <IconButton quiet icon="settings" label={t("preferences.title")} pressed={preferences} onclick={() => action(togglePreferences())} />
-    <IconButton quiet icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
+    <IconButton quiet icon="settings" label={t("preferences.shortcutTooltip")} pressed={preferences} onclick={() => action(togglePreferences())} />
+    <IconButton quiet icon="pin" label={t(pinned ? "app.unpinShortcut" : "app.pinShortcut")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
   {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
