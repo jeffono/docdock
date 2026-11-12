@@ -1,5 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { FolderIndex, type Listed, type Read, type SearchIndex, search, syncIndex } from "./search";
+import {
+  FolderIndex,
+  folderTags,
+  type Listed,
+  type Read,
+  type SearchIndex,
+  search,
+  syncIndex,
+} from "./search";
 
 type Note = { path: string; text: string; modified?: number };
 
@@ -241,4 +249,26 @@ describe("FolderIndex", () => {
     expect(paths(folder.index, "alpha")).toEqual([]);
     expect(paths(folder.index, "beta")).toEqual(["a.md"]);
   });
+});
+
+test("tag filters require every complete frontmatter tag along with free text", async () => {
+  const index = await indexOf([
+    { path: "a.md", text: "---\ntags: [Work, revisão]\n---\nbudget" },
+    { path: "b.md", text: "---\ntags: [workshop, revisão]\n---\nbudget" },
+    { path: "c.md", text: "---\ntags: [work]\n---\nbudget #revisão" },
+  ]);
+  expect(paths(index, "budget #WORK #revisao")).toEqual(["a.md"]);
+  expect(paths(index, "#work #work")).toEqual(["c.md", "a.md"]);
+  expect(paths(index, "missing #work")).toEqual([]);
+});
+test("folder completion follows note changes and excludes root pinned metadata", async () => {
+  const notes = [
+    { path: "a.md", text: "---\ntags: [Work, work, revisão]\n---" },
+    { path: "_pinned.md", text: "---\ntags: [wrong]\n---" },
+  ];
+  const index = await indexOf(notes);
+  expect(folderTags(index, "W")).toEqual(["Work"]);
+  expect(folderTags(index, "revi")).toEqual(["revisão"]);
+  await syncIndex(index, [], reader([]));
+  expect(folderTags(index, "")).toEqual([]);
 });

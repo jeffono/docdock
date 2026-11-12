@@ -2,6 +2,7 @@
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
 import { type DateGroup, type FolderGroup, folderCompare } from "./grouping";
+import { filterQuery } from "./query";
 import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
@@ -117,7 +118,7 @@ export function buildList(input: {
     if (card) notes.unshift(card);
   }
   return {
-    create: searching && !input.exactTitle ? query.trim() : null,
+    create: searching && !filterQuery(query) && !input.exactTitle ? query.trim() : null,
     pinned,
     notes,
   };

@@ -102,6 +102,7 @@ const en = {
   "app.resize": "Resize panel (double-click: default width)",
   "notes.label": "Notes",
   "notes.search": "Search or create a note",
+  "notes.tagCompletion": "Folder tags",
   "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
@@ -345,6 +346,7 @@ const ptBR: Record<MessageKey, string> = {
   "app.resize": "Redimensionar painel (clique duplo: largura padrão)",
   "notes.label": "Notas",
   "notes.search": "Buscar ou criar uma nota",
+  "notes.tagCompletion": "Tags da pasta",
   "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",

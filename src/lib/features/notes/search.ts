@@ -1,6 +1,7 @@
 // In-memory note search: pure functions, no IPC. The caller supplies the listing and a reader for
 // note texts, and renders the results; snippets are plain text plus offsets, never HTML.
 import { frontmatter } from "./markdown";
+import { parseQuery } from "./query";
 
 /** What the listing says about a note. */
 export type Listed = { path: string; name: string; modified: number };
@@ -229,18 +230,21 @@ function snippet(entry: Entry, terms: string[]): Snippet | null {
 }
 
 /**
- * Every word of `query` must appear in the title (frontmatter title, else the file name), the tags or
+ * Every parsed tag must equal a frontmatter tag. Every free-text word must appear in the title (frontmatter title, else the file name), the tags or
  * the body or folder, ignoring case and accents. Order: exact title, title starting with the query, a word in
  * the title, a word in a tag, body only; then newest first. An empty query lists every note by
  * modified time.
  */
 export function search(index: SearchIndex, query: string): Results {
-  const terms = words(query);
+  const parsed = parseQuery(query);
+  const terms = words(parsed.text);
+  const tags = parsed.tokens.map((token) => fold(token.value));
   const whole = terms.join(" ");
   const ranked: { entry: Entry; tier: number }[] = [];
   let exactTitle = false;
   for (const entry of index.values()) {
     if (isPinnedList(entry.path)) continue;
+    if (!tags.every((tag) => entry.tagKeys.includes(tag))) continue;
     if (terms.length && entry.titleKey === whole) exactTitle = true;
     const inTitle = terms.map((term) => entry.titleKey.includes(term));
     const inTags = terms.map((term) => entry.tagKeys.some((tag) => tag.includes(term)));
@@ -281,4 +285,17 @@ export function search(index: SearchIndex, query: string): Results {
       snippet: terms.length ? snippet(entry, terms) : null,
     })),
   };
+}
+
+/** Suggestions are derived only from the current folder's note frontmatter. */
+export function folderTags(index: SearchIndex, prefix: string): string[] {
+  const tags = new Map<string, string>();
+  for (const entry of index.values()) {
+    if (isPinnedList(entry.path)) continue;
+    for (const tag of entry.tags) {
+      const key = fold(tag);
+      if (key.startsWith(fold(prefix)) && !tags.has(key)) tags.set(key, tag);
+    }
+  }
+  return [...tags.values()].sort((a, b) => a.localeCompare(b));
 }

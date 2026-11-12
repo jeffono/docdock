@@ -96,9 +96,10 @@ import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
+import { applyCompletion, creationText, queryCompletion, tagToken } from "./query";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
-import { FolderIndex, isPinnedList, search } from "./search";
+import { FolderIndex, folderTags, isPinnedList, search } from "./search";
 
 let {
   browser = false,
@@ -118,6 +119,26 @@ let notes = $state<Note[]>([]);
 let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
+let completionCaret = $state<number | null>(null);
+let completionDismissed = $state(false);
+let completionSelection = $state(0);
+function updateCompletion(event: Event) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  completionCaret = input.selectionStart === input.selectionEnd ? input.selectionStart : null;
+  completionSelection = 0;
+  completionDismissed = false;
+}
+async function acceptTag(tag: string) {
+  if (!completionContext) return;
+  const result = applyCompletion(query, completionContext, tag);
+  query = result.text;
+  completionDismissed = true;
+  selection = "";
+  await tick();
+  bar()?.focus();
+  bar()?.setSelectionRange(result.caret, result.caret);
+}
 let address = $state("");
 let addressEditing = $state(false);
 let showingHistory = $state(false);
@@ -323,6 +344,18 @@ let generation = 0;
 // Search: the index follows the listing, one sync at a time, and starts over with each folder.
 const folderIndex = new FolderIndex(notesTexts);
 let indexVersion = $state(0);
+const completionContext = $derived(
+  !browser && !inactive && intent === null && !completionDismissed && completionCaret !== null
+    ? queryCompletion(query, completionCaret)
+    : null,
+);
+const tagItems = $derived.by(() => {
+  void indexVersion;
+  return folder?.available && completionContext
+    ? folderTags(folderIndex.index, completionContext.prefix)
+    : [];
+});
+
 async function sync(list: Note[]): Promise<void> {
   await folderIndex.sync(list);
   indexVersion++;
@@ -1381,7 +1414,8 @@ export function focusSearch() {
 }
 
 /** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
-function typed() {
+function typed(event: Event) {
+  updateCompletion(event);
   showingHistory = false;
   if (browser) addressEditing = true;
   selection = "";
@@ -1526,7 +1560,7 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       event.preventDefault();
       if (event.ctrlKey) {
         if (!browser && intent === null && folder?.available && query.trim())
-          void create(query.trim());
+          void create(creationText(query));
         return;
       }
       const webEntry = shownWebItems.find((entry) => entry.key === active);
@@ -1598,6 +1632,20 @@ function caretAtEnd(event: KeyboardEvent): boolean {
 /** The search bar's keys. Runs in capture, before the field's own Esc. */
 function barKey(event: KeyboardEvent) {
   if (!(event.target instanceof HTMLInputElement) || event.isComposing) return;
+  if (tagItems.length && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+    if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") completionDismissed = true;
+      else if (event.key === "Enter" || event.key === "Tab")
+        void acceptTag(tagItems[completionSelection] ?? tagItems[0]);
+      else
+        completionSelection =
+          (completionSelection + (event.key === "ArrowDown" ? 1 : -1) + tagItems.length) %
+          tagItems.length;
+      return;
+    }
+  }
   if (
     event.key === "ArrowDown" &&
     !event.ctrlKey &&
@@ -1829,12 +1877,28 @@ onMount(() => {
       <TextField
         value={inputQuery}
         oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}
-        aria-controls="note-list"
+        onselect={updateCompletion}
+        onclick={updateCompletion}
+        onfocus={updateCompletion}
+        onblur={() => { completionCaret = null; }}
+        aria-controls={tagItems.length ? "tag-completion" : "note-list"}
+        aria-expanded={tagItems.length > 0}
+        aria-autocomplete="list"
+        role="combobox"
+        aria-activedescendant={tagItems.length ? "tag-option-" + completionSelection : undefined}
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(query.trim(), "", true)} />
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query), "", true)} />
     </div>
+  {#if tagItems.length}
+    <div class="web-suggestions" id="tag-completion" role="listbox" aria-label={t("notes.tagCompletion")}>
+      {#each tagItems as tag, index (tag)}
+        <button id={"tag-option-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptTag(tag)}
+          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{tagToken(tag)}</span></button>
+      {/each}
+    </div>
+  {/if}
   {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
