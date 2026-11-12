@@ -301,8 +301,21 @@ folding, and every free-text word must still match. Body hashtags are not metada
 case/accent-deduplicated prefix suggestions from the current index, excluding root `_pinned.md`.
 The Notes bar owns caret, selection, dismissal and focus effects; accepting replaces just that token.
 No tag index is persisted. Listing/watcher sync and folder reset update both hits and suggestions.
-Filter queries suppress automatic Create; explicit creation uses only free text (untitled if empty).
-Token kinds and completion contexts are explicit so another syntax can extend these pure functions.
+Filter queries suppress automatic Create and web suggestions, which receive only the free text;
+explicit creation uses only free text (untitled if empty) and seeds the `#tag` filters as frontmatter
+tags, so the note stays in the filtered list; the editor opens such a note with the caret after them.
+Tag completion ignores only its active token while open; all other filters still apply. Folder tag
+suggestions use cached folded keys; the first 50 in alphabetical order are shown. Creation serializes
+parsed tags with the existing YAML scalar writer, ignoring date tokens.
+
+Date tokens extend the same `query.ts` parser and completion ranges. Pure `query-date.ts` takes an
+explicit `now`, resolves presets and partial ISO ranges to local calendar boundaries, and uses an
+exclusive upper bound after the entire final day/month/year. Invalid and reversed tokens are ignored.
+The search index derives its filter date from valid frontmatter `created`, then `date`, else modified
+time; the existing scalar parser handles single/double quotes. Full ISO timestamps preserve offsets;
+date-only values use local midnight. This does not change date display, filesystem creation dates,
+ordering or grouping. Searches refresh on the existing 30-second grouping clock.
+
 Order: title equal to the query, title starting with it, a word in the title, a word in a tag, body only;
 ties newest first. `search` also says whether a title equals the query (`exactTitle`, which decides
 whether the UI offers "Create"), and gives each body match a short snippet of plain text with offsets for
@@ -602,18 +615,6 @@ update on a change; Tauri forwards Windows theme changes to WebView2, including 
 `prefers-color-scheme`. Sites can still choose their own colors. The native blank/loading background
 is WebView2's default and is not overridden by the app's CSS tokens.
 
-
-Tag completion ignores only its active token while open; all other filters still apply. Folder tag
-suggestions use cached folded keys and are capped at 50. Creation serializes parsed tags with the
-existing YAML scalar writer, ignoring date tokens.
-
-Date tokens extend the same `query.ts` parser and completion ranges. Pure `query-date.ts` takes an
-explicit `now`, resolves presets and partial ISO ranges to local calendar boundaries, and uses an
-exclusive upper bound after the entire final day/month/year. Invalid and reversed tokens are ignored.
-The search index derives its filter date from valid frontmatter `created`, then `date`, else modified
-time; the existing scalar parser handles single/double quotes. Full ISO timestamps preserve offsets;
-date-only values use local midnight. This does not change date display, filesystem creation dates,
-ordering or grouping. Searches refresh on the existing 30-second grouping clock.
 
 ## Note order
 

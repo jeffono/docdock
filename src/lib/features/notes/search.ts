@@ -325,8 +325,7 @@ export function folderTags(index: SearchIndex, prefix: string): string[] {
     for (let i = 0; i < entry.tags.length; i++) {
       const key = entry.tagKeys[i];
       if (key.startsWith(prefixKey) && !tags.has(key)) tags.set(key, entry.tags[i]);
-      if (tags.size >= 50) return [...tags.values()].sort((a, b) => a.localeCompare(b));
     }
   }
-  return [...tags.values()].sort((a, b) => a.localeCompare(b));
+  return [...tags.values()].sort((a, b) => a.localeCompare(b)).slice(0, 50);
 }

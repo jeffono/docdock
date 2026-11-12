@@ -5,8 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M7: `relative-dates` and `search-tags` in parallel; `date-filters` starts after `search-tags`, whose
-  query parser it extends.
+- M7: tasks merged into the `m7` integration branch; awaiting manual verification and merge.
 
 ## M7 — Versatile search
 

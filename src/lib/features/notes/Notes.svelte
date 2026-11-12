@@ -172,7 +172,15 @@ $effect(() => {
 });
 const inputQuery = $derived(browser ? address : query);
 const intent = $derived(webQuery(inputQuery, browser));
-const webItems = $derived(webEntries(inputQuery, browser, history, remote));
+// In Notes, `#tag` and `date:` filters are not web text: only free text is offered to the web.
+const webItems = $derived(
+  webEntries(
+    browser || intent !== null ? inputQuery : creationText(query),
+    browser,
+    history,
+    remote,
+  ),
+);
 $effect(() => {
   if (browser && !addressEditing) address = pageUrl;
 });

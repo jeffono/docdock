@@ -286,6 +286,9 @@ onMount(() => {
   contentCss.href = contentCssUrl;
   root.append(contentCss, css);
   view = new EditorView({ root, parent: root, state: editorState(raw, extensions()) });
+  // A note created with only frontmatter (tags from the search) takes typing after it, not inside.
+  if (/^---\r?\n[\s\S]*\r?\n---\r?\n?$/.test(raw))
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
   view.focus();
   return () => {
     disposed = true;

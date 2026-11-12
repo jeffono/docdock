@@ -281,7 +281,8 @@ test("date filters combine with all tags and free text", async () => {
   const index = await indexOf([
     {
       path: "a.md",
-      text: '---\ncreated: "2026-10-31T23:59:59-03:00"\ntags: [work, review]\n---\nbudget',
+      // Built in local time: a fixed offset lands in another month in other zones, such as CI's UTC.
+      text: `---\ncreated: "${new Date(2026, 9, 31, 23, 59, 59).toISOString()}"\ntags: [work, review]\n---\nbudget`,
     },
     { path: "b.md", text: "---\ndate: '2026-11-01'\ntags: [work, review]\n---\nbudget" },
     { path: "c.md", text: "---\ndate: 2026-10-01\ntags: [work]\n---\nbudget" },

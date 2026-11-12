@@ -339,7 +339,8 @@ bar's text and typing replaces the whole query. Browser and `?` modes keep their
 Queries containing filters (or beginning with `#`) never offer automatic Create. Explicit Ctrl+Enter
 and "+" create from the free text only; a tags-only query creates an untitled note. Creation seeds
 all tag filters in frontmatter so the note remains in the results; date filters are ignored for
-creation, and the new note is dated now.
+creation, and the new note is dated now. Typing in such a note starts after its frontmatter. The web
+search row offers only the free text, and none for a filters-only query.
 While completion is open, its partial tag token is ignored for filtering; accepting it applies the
 complete tag. A sole suggestion identical to the complete token leaves list navigation available.
 Keyboard caret movement updates completion; leaving the token dismisses it.
