@@ -23,6 +23,18 @@ Launch DocDock and choose a folder for your notes. Hold the pointer against the 
 
 Notes are stored locally in your chosen folder. DocDock has no telemetry. At each start it asks GitHub whether a new version exists. Web browsing and web search suggestions contact the sites and search provider you use.
 
+### Protecting notes with Cryptomator
+
+An optional [Cryptomator](https://cryptomator.org) vault encrypts notes for cloud sync and helps protect them if a device is stolen while the vault is locked. DocDock stores no note content outside the notes folder.
+
+1. In Cryptomator, create a vault inside your synced cloud folder and unlock it.
+2. In DocDock, choose a folder **inside the mounted vault** as your notes folder.
+3. Optionally, select the vault's `vault.cryptomator` file in Preferences. The panel's **Unlock** action opens it in Cryptomator. Windows Hello unlock is configured in Cryptomator.
+
+While the vault is locked, DocDock shows the notes folder as unavailable and never recreates it. Unsaved text stays in memory, with a notice, and is saved when the vault returns; keep DocDock running until it is saved. Deletions in a vault without a Recycle Bin use a hidden trash inside the notes folder, with Undo while the panel is open. DocDock also asks Windows to hide the panel from screen capture (best effort) and keeps copies from notes out of clipboard history and cloud clipboard.
+
+**Moving existing notes into a vault does not remove earlier plaintext versions from your cloud provider's version history or trash, or from backups.** Purge those earlier copies too, or start with new notes in the vault.
+
 ## Development
 
 Install Node 24, pnpm, Rust via rustup, and the Visual Studio C++ Build Tools. Then run:
