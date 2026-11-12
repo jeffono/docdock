@@ -223,30 +223,37 @@ pub fn notes_folders(app: AppHandle) -> Result<Vec<crate::notes::FolderEntry>, E
 pub fn notes_create_folder(app: AppHandle, path: String) -> Result<(), Error> {
     crate::notes::create_folder(&app, &path)
 }
+/// Deletes a folder and everything in it at once, as `notes_delete` does a note.
 #[tauri::command(async)]
-pub fn notes_delete_folder(
-    app: AppHandle,
-    path: String,
-    confirmed: bool,
-    binless: bool,
-) -> Result<Option<crate::notes::FolderCounts>, Error> {
-    crate::notes::delete_folder(&app, &path, confirmed, binless)
+pub fn notes_delete_folder(app: AppHandle, path: String) -> Result<crate::notes::Removal, Error> {
+    crate::notes::delete_folder(&app, &path)
 }
+/// Moves a note to the Recycle Bin, or to the notes folder's own trash where the Recycle Bin cannot
+/// take it, and answers how it can come back.
 #[tauri::command(async)]
-pub fn notes_undo_delete_folder(app: AppHandle, path: String) -> Result<(), Error> {
-    crate::notes::undo_delete_folder(&app, &path)
-}
-
-/// Moves a note to the Recycle Bin, or with `binless` to the notes folder's own trash until the panel
-/// closes; answers whether `notes_undo_delete` can bring it back, which it can while the panel stays
-/// open.
-#[tauri::command(async)]
-pub fn notes_delete(app: AppHandle, path: String, binless: bool) -> Result<bool, Error> {
-    crate::notes::delete_note(&app, &path, binless)
+pub fn notes_delete(app: AppHandle, path: String) -> Result<crate::notes::Removal, Error> {
+    crate::notes::delete_note(&app, &path)
 }
 #[tauri::command(async)]
 pub fn notes_undo_delete(app: AppHandle, path: String) -> Result<(), Error> {
     crate::notes::undo_delete(&app, &path)
+}
+#[tauri::command(async)]
+pub fn notes_trash(app: AppHandle) -> Result<Vec<crate::trash::Item>, Error> {
+    crate::notes::trash_items(&app)
+}
+/// Answers the path the item took. The notes list hears of it as of any change.
+#[tauri::command(async)]
+pub fn notes_trash_restore(app: AppHandle, id: String, undo: bool) -> Result<String, Error> {
+    let restored = crate::notes::restore_trashed(&app, &id, undo);
+    if !matches!(restored, Err(Error::TrashItemMissing)) {
+        crate::watch::notify(&app);
+    }
+    restored
+}
+#[tauri::command(async)]
+pub fn notes_trash_empty(app: AppHandle) -> Result<(), Error> {
+    crate::notes::empty_trash(&app)
 }
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]

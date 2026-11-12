@@ -45,6 +45,13 @@ pub fn ensure(app: &AppHandle, root: &Path) {
     }
 }
 
+/// Tells the UI that the app itself changed the folder, as the watcher would.
+pub fn notify(app: &AppHandle) {
+    if let Err(error) = app.emit_to("main", EVENT, Changes::default()) {
+        eprintln!("[watch] failed to notify the UI: {error}");
+    }
+}
+
 /// Stops watching, so the next `ensure` starts again even for the same path: a folder that went away
 /// and came back needs a new watch.
 pub fn stop() {

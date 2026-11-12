@@ -1,45 +1,28 @@
 //! The notes folder's own trash, for deletes the Recycle Bin cannot take, such as on a mounted
-//! Cryptomator vault or a network share. A deleted item moves to `.docdock-trash` at the root of the
-//! notes folder, on the same volume, so it never leaves the folder (or the vault). Hidden folders are
-//! skipped by listing, search, tags and the watcher.
+//! Cryptomator vault or a network share. It lives in `.docdock/trash`, inside the notes folder and on
+//! its volume, so a deleted item never leaves the folder (or the vault) and syncs with it. Items stay
+//! `KEEP_MS`, then are purged; Preferences lists them, restores them and empties the trash.
 //!
-//! Entries are named `<install>-<run>-<session>-<created>-<n> <name>`, each field in lowercase base36:
-//! the installation that made them (a random id kept in this computer's local app data), the run,
-//! the panel session, the creation time in ms since the Unix epoch and a counter. A synced notes
-//! folder may hold another computer's entries, and that computer's panel may still offer their Undo,
-//! so the name says who may remove what:
-//! - this run's entries go once their session has ended, never while it is the live one;
-//! - another run of this installation (another Windows session of the same user, or an earlier run)
-//!   is asked whether it still runs: its entries go once it does not;
-//! - another installation's entries, and those of a run whose state cannot be told, go only after
-//!   `OLD_MS`;
-//! - a name in no such form was not made by DocDock and stays.
+//! Each deleted item is one entry: a folder named `<deleted>-<n>-<random>-<depth>`, each field in
+//! lowercase base36 (the deletion time in ms since the Unix epoch, a counter, a random value against
+//! collisions between computers syncing one folder, and how many folders lie above the item). The
+//! entry holds the item at its original path below the notes folder, so the path and the date need no
+//! index file: `a/b/note.md` deleted becomes `<entry>/a/b/note.md`, with depth 2.
 
-use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::os::windows::io::OwnedHandle;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::platform;
 
-pub const DIR: &str = ".docdock-trash";
-/// Far longer than a panel stays open with an Undo, and than any plausible clock difference.
-const OLD_MS: u64 = 30 * 24 * 60 * 60 * 1000;
-
-/// Who makes entries: this installation and this run, in lowercase base36.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Owner {
-    install: String,
-    run: String,
-}
-static OWNER: OnceLock<Owner> = OnceLock::new();
-/// This run's presence, which other runs of the installation check before purging its entries.
-static PRESENCE: OnceLock<Result<OwnedHandle, String>> = OnceLock::new();
+/// The trash folder's name inside the notes folder's derived-data folder.
+pub const DIR: &str = "trash";
+/// How long a deleted item stays.
+pub const KEEP_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+/// Deeper paths are not DocDock's: Windows paths cannot nest this far anyway.
+const MAX_DEPTH: usize = 128;
 
 /// A random 64-bit value: `RandomState` is seeded by the system's random source.
 pub(crate) fn random() -> u64 {
@@ -61,196 +44,245 @@ fn base36(mut value: u64) -> String {
     digits.reverse();
     String::from_utf8(digits).unwrap_or_default()
 }
-fn is_base36(text: &str, max: usize) -> bool {
-    (1..=max).contains(&text.len())
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase())
-}
-/// A new installation id (40 random bits), to keep on this computer.
-pub fn new_install_id() -> String {
-    base36(random() >> 24)
-}
-/// Whether `id` is one `new_install_id` could have made.
-pub fn valid_install_id(id: &str) -> bool {
-    is_base36(id, 8)
-}
-/// Sets this installation's id, once, before the first entry; without it, an id for this run only.
-pub fn set_install(install: String) {
-    let _ = OWNER.set(Owner {
-        install,
-        run: base36(random() >> 32),
-    });
-}
-fn owner() -> &'static Owner {
-    OWNER.get_or_init(|| Owner {
-        install: new_install_id(),
-        run: base36(random() >> 32),
-    })
-}
-fn presence_name(install: &str, run: &str) -> String {
-    format!("DocDock-trash-{install}-{run}")
-}
-/// Announces this run, once, for as long as it runs. An entry is only made once that holds, so no
-/// other run can take this one for ended.
-fn announced() -> io::Result<()> {
-    let me = owner();
-    PRESENCE
-        .get_or_init(|| {
-            platform::presence::announce(&presence_name(&me.install, &me.run))
-                .map_err(|e| e.to_string())
-        })
-        .as_ref()
-        .map(|_| ())
-        .map_err(|e| io::Error::other(format!("cannot announce this run: {e}")))
-}
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
 }
 
-/// The entry name for `name`, cut so the whole stays within `MAX_NAME`: never between the halves of
-/// a surrogate pair, and without a trailing dot or space, which Windows drops from names. The cut
-/// name only helps someone looking in the trash; Undo keeps the original path itself.
-fn entry_name(owner: &Owner, session: u64, created: u64, n: u64, name: &OsStr) -> OsString {
-    let prefix = format!(
-        "{}-{}-{}-{}-{} ",
-        owner.install,
-        owner.run,
-        base36(session),
-        base36(created),
-        base36(n)
-    );
-    let room = platform::MAX_NAME.saturating_sub(prefix.len());
-    let mut wide: Vec<u16> = name.encode_wide().collect();
-    if wide.len() > room {
-        wide = platform::fit_name(name, room).encode_wide().collect();
-        while wide
-            .last()
-            .is_some_and(|&u| u == u16::from(b'.') || u == u16::from(b' '))
-        {
-            wide.pop();
-        }
-    }
-    let mut entry = OsString::from(prefix);
-    entry.push(OsString::from_wide(&wide));
-    entry
+/// The parts of an entry name that matter.
+#[derive(Debug, PartialEq)]
+struct Entry {
+    deleted: u64,
+    depth: usize,
 }
-/// The parts of an entry name, or None for a name DocDock did not make.
-struct Entry<'a> {
-    install: &'a str,
-    run: &'a str,
-    session: u64,
-    created: u64,
+fn entry_name(deleted: u64, n: u64, random: u64, depth: usize) -> String {
+    format!(
+        "{}-{}-{}-{}",
+        base36(deleted),
+        base36(n),
+        base36(random),
+        base36(depth as u64)
+    )
 }
-fn parse(name: &str) -> Option<Entry<'_>> {
-    let (prefix, _) = name.split_once(' ')?;
-    let parts: Vec<&str> = prefix.split('-').collect();
-    let [install, run, session, created, n] = parts[..] else {
+/// None for a name DocDock did not make.
+fn parse(name: &str) -> Option<Entry> {
+    let number = |text: &str| {
+        let digits = (1..=13).contains(&text.len())
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase());
+        digits.then(|| u64::from_str_radix(text, 36).ok()).flatten()
+    };
+    let parts: Vec<&str> = name.split('-').collect();
+    let [deleted, n, random, depth] = parts[..] else {
         return None;
     };
-    let number = |text: &str| {
-        is_base36(text, 13)
-            .then(|| u64::from_str_radix(text, 36).ok())
-            .flatten()
-    };
     number(n)?;
-    (is_base36(install, 8) && is_base36(run, 7)).then_some(Entry {
-        install,
-        run,
-        session: number(session)?,
-        created: number(created)?,
+    number(random)?;
+    let depth = usize::try_from(number(depth)?).ok()?;
+    (depth <= MAX_DEPTH).then_some(Entry {
+        deleted: number(deleted)?,
+        depth,
     })
 }
-/// Whether a purge by `me`, whose live panel session is `live`, removes the entry `name` at `now`
-/// (ms since the Unix epoch). `running` tells whether another run of this installation still runs,
-/// or None when that cannot be told. See the module comment.
-fn purgeable(
-    name: &OsStr,
-    me: &Owner,
-    live: u64,
-    now: u64,
-    running: impl Fn(&str, &str) -> Option<bool>,
-) -> bool {
-    let name = name.to_string_lossy();
-    let Some(entry) = parse(&name) else {
-        return false;
-    };
-    // A creation time ahead of this clock is not old.
-    let old = now.saturating_sub(entry.created) > OLD_MS;
-    if entry.install != me.install {
-        return old;
-    }
-    if entry.run == me.run {
-        return entry.session < live;
-    }
-    match running(entry.install, entry.run) {
-        Some(running) => !running,
-        None => old,
-    }
+/// Whether an entry deleted at `deleted` goes at `now`: after exactly `KEEP_MS` it still stays. A
+/// deletion time ahead of this clock is not old.
+fn expired(deleted: u64, now: u64) -> bool {
+    now.saturating_sub(deleted) > KEEP_MS
+}
+
+/// A deleted item, as Preferences lists it.
+#[derive(Debug, PartialEq, serde::Serialize)]
+pub struct Item {
+    /// The entry name, which restoring names.
+    pub id: String,
+    /// Where it was, relative to the notes folder, with `/`.
+    pub path: String,
+    pub folder: bool,
+    /// ms since the Unix epoch.
+    pub deleted: u64,
 }
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-/// Moves `target`, a note or a folder below `root`, into the trash as an entry of `session`, and
-/// answers where it landed. A rename on the same volume: it either moves whole or stays. The trash
-/// folder is created if needed and held, so a link planted under its name is refused rather than
-/// followed out of the folder. The caller holds `target`'s ancestry.
-pub fn put(root: &Path, target: &Path, session: u64) -> io::Result<PathBuf> {
-    let name = target.file_name().ok_or(io::ErrorKind::InvalidInput)?;
-    announced()?;
-    let trash = root.canonicalize()?.join(DIR);
-    match fs::create_dir(&trash) {
-        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
-        _ => {}
-    }
-    let _held = platform::hold_ancestry(&trash)?;
-    loop {
+/// Moves `target`, a note or a folder at `relative` below the notes folder, into `trash` as a new
+/// entry, and answers its id. A rename on the same volume: it either moves whole or stays. `trash` must
+/// exist; it is held, with every folder above it, so a link planted under its name is refused rather
+/// than followed out of the notes folder. The caller holds `target`'s ancestry.
+pub fn put(trash: &Path, relative: &Path, target: &Path) -> io::Result<String> {
+    let names: Vec<_> = relative.iter().collect();
+    let (name, folders) = names.split_last().ok_or(io::ErrorKind::InvalidInput)?;
+    let _held = platform::hold_ancestry(trash)?;
+    let (id, entry) = loop {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let landed = trash.join(entry_name(owner(), session, now_ms(), n, name));
-        match platform::move_new(target, &landed) {
-            Ok(()) => return Ok(landed),
+        let id = entry_name(now_ms(), n, random() >> 24, folders.len());
+        let entry = trash.join(&id);
+        match fs::create_dir(&entry) {
+            Ok(()) => break (id, entry),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error),
+        }
+    };
+    let moved = (|| {
+        let mut dir = entry.clone();
+        for folder in folders {
+            dir.push(folder);
+            fs::create_dir(&dir)?;
+        }
+        let _held = platform::hold_ancestry(&dir)?;
+        platform::move_new(target, &dir.join(name))
+    })();
+    if let Err(error) = moved {
+        // Only the folders made above, still empty: the item stayed where it was.
+        discard(&entry);
+        return Err(error);
+    }
+    Ok(id)
+}
+
+/// The item of `entry`, whose name parsed as `parsed`: the entry holds one chain of `depth` real
+/// folders, then one file or folder. Links are never followed; anything else is not an item.
+fn item_in(entry: &Path, parsed: &Entry) -> Option<(PathBuf, String, bool)> {
+    let only = |dir: &Path| -> Option<fs::DirEntry> {
+        let mut children = fs::read_dir(dir).ok()?;
+        let child = children.next()?.ok()?;
+        children.next().is_none().then_some(child)
+    };
+    let mut dir = entry.to_owned();
+    let mut names = Vec::new();
+    for _ in 0..parsed.depth {
+        let child = only(&dir)?;
+        if !child.file_type().ok()?.is_dir() {
+            return None;
+        }
+        names.push(child.file_name().into_string().ok()?);
+        dir = child.path();
+    }
+    let child = only(&dir)?;
+    let kind = child.file_type().ok()?;
+    if !kind.is_dir() && !kind.is_file() {
+        return None;
+    }
+    names.push(child.file_name().into_string().ok()?);
+    Some((child.path(), names.join("/"), kind.is_dir()))
+}
+
+/// Every item in `trash`, newest first. No trash lists nothing; a trash that is a link fails.
+pub fn list(trash: &Path) -> io::Result<Vec<Item>> {
+    let _held = match platform::hold_ancestry(trash) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        held => held?,
+    };
+    let mut items = Vec::new();
+    for entry in fs::read_dir(trash)? {
+        let entry = entry?;
+        let Ok(id) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Some(parsed) = parse(&id) else { continue };
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        if let Some((_, path, folder)) = item_in(&entry.path(), &parsed) {
+            items.push(Item {
+                id,
+                path,
+                folder,
+                deleted: parsed.deleted,
+            });
+        }
+    }
+    items.sort_by(|a, b| b.deleted.cmp(&a.deleted).then_with(|| b.id.cmp(&a.id)));
+    Ok(items)
+}
+
+/// The item of entry `id` in `trash`, and where it is now. `NotFound` when there is no such item.
+/// The caller holds `trash`'s ancestry.
+pub fn find(trash: &Path, id: &str) -> io::Result<(PathBuf, Item)> {
+    let parsed = parse(id).ok_or(io::ErrorKind::NotFound)?;
+    let entry = trash.join(id);
+    if !fs::symlink_metadata(&entry)?.is_dir() {
+        return Err(io::ErrorKind::NotFound.into());
+    }
+    let (source, path, folder) = item_in(&entry, &parsed).ok_or(io::ErrorKind::NotFound)?;
+    Ok((
+        source,
+        Item {
+            id: id.to_owned(),
+            path,
+            folder,
+            deleted: parsed.deleted,
+        },
+    ))
+}
+
+/// Removes entry `id` once its item has moved out: only the empty folders it held, from the deepest
+/// up, so anything that arrived meanwhile stays.
+pub fn discard_entry(trash: &Path, id: &str) {
+    discard(&trash.join(id));
+}
+fn discard(entry: &Path) {
+    let mut chain = Vec::new();
+    let mut dir = entry.to_owned();
+    loop {
+        let next = fs::read_dir(&dir)
+            .ok()
+            .and_then(|mut children| children.next())
+            .and_then(Result::ok)
+            .filter(|child| child.file_type().is_ok_and(|kind| kind.is_dir()));
+        chain.push(dir);
+        match next {
+            Some(child) => dir = child.path(),
+            None => break,
+        }
+    }
+    for dir in chain.iter().rev() {
+        if fs::remove_dir(dir).is_err() {
+            break;
         }
     }
 }
 
-/// Whether `path` is an entry of `root`'s trash, the only place Undo moves a folder back from.
-pub fn holds(root: &Path, path: &Path) -> bool {
-    root.canonicalize()
-        .is_ok_and(|root| path.parent() == Some(root.join(DIR).as_path()))
+/// Deletes for good the entries of `trash` older than `KEEP_MS` at `now`, then the trash itself if
+/// nothing is left. Names DocDock did not make stay. Best effort: what cannot be removed now, for
+/// example while the vault is locked, goes next time.
+pub fn purge(trash: &Path, now: u64) {
+    sweep(trash, |name| {
+        parse(name).is_some_and(|entry| expired(entry.deleted, now))
+    });
 }
 
-/// Deletes for good the entries of `root`'s trash that may go, then the trash itself if nothing is
-/// left. `live` answers the live panel session, read again for each entry: a session that is live
-/// when the entry is judged may still offer its Undo, and one that has ended never will again, so a
-/// purge started long ago cannot take a newer session's entry. Links inside are removed, never
-/// followed; a trash that is a link is left alone. Best effort: what cannot be removed now, for
-/// example while the vault is locked, goes next time.
-pub fn purge(root: &Path, live: impl Fn() -> u64) {
-    let trash = root.join(DIR);
-    let running =
-        |install: &str, run: &str| platform::presence::present(&presence_name(install, run)).ok();
+/// Deletes for good everything in `trash`, then the trash itself.
+pub fn empty(trash: &Path) -> io::Result<()> {
+    sweep(trash, |_| true).map_or(Ok(()), |kind| Err(kind.into()))
+}
+
+/// Removes the entries of `trash` that `goes` accepts, links without following them. A trash that is
+/// a link is left alone. Answers the kind of the first failure, if any.
+fn sweep(trash: &Path, goes: impl Fn(&str) -> bool) -> Option<io::ErrorKind> {
+    let mut failed = None;
     {
-        let Ok(_held) = platform::hold_ancestry(&trash) else {
-            return;
-        };
-        let Ok(entries) = fs::read_dir(&trash) else {
-            return;
+        let held = platform::hold_ancestry(trash);
+        let entries = held.and_then(|held| fs::read_dir(trash).map(|entries| (held, entries)));
+        let (_held, entries) = match entries {
+            Ok(found) => found,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
+            Err(error) => return Some(error.kind()),
         };
         for entry in entries.flatten() {
-            if !purgeable(&entry.file_name(), owner(), live(), now_ms(), running) {
+            if !goes(&entry.file_name().to_string_lossy()) {
                 continue;
             }
             if let Err(error) = remove(&entry.path()) {
-                eprintln!("[trash] purge failed: {:?}", error.kind());
+                eprintln!("[trash] removal failed: {:?}", error.kind());
+                failed.get_or_insert(error.kind());
             }
         }
     }
     // Not recursive: an entry that stays keeps it.
-    let _ = fs::remove_dir(&trash);
+    let _ = fs::remove_dir(trash);
+    failed
 }
 
 /// Deletes `path` and everything below it, removing links without following them. Walks the tree
@@ -272,110 +304,42 @@ fn remove(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
 
-    /// An entry name as an earlier run of this installation, no longer running, would make it.
-    pub fn earlier_run_entry(name: &str) -> OsString {
-        let earlier = Owner {
-            install: owner().install.clone(),
-            run: if owner().run == "0" { "1" } else { "0" }.into(),
-        };
-        entry_name(&earlier, 0, now_ms(), 0, OsStr::new(name))
-    }
-    fn me() -> Owner {
-        Owner {
-            install: "abc123".into(),
-            run: "z9".into(),
-        }
-    }
     const NOW: u64 = 1_800_000_000_000;
-    fn unknown(_: &str, _: &str) -> Option<bool> {
-        None
-    }
 
     #[test]
-    fn entry_names_carry_their_owner_and_keep_the_original_name() {
-        let name = entry_name(&me(), 7, NOW, 36, OsStr::new("a b.md"));
+    fn entry_names_carry_the_deletion_time_and_depth() {
+        let name = entry_name(NOW, 36, 7, 2);
+        assert_eq!(name, format!("{}-10-7-2", base36(NOW)));
         assert_eq!(
-            name.to_str(),
-            Some(format!("abc123-z9-7-{}-10 a b.md", base36(NOW)).as_str())
-        );
-        let entry = parse(name.to_str().unwrap()).unwrap();
-        assert_eq!((entry.session, entry.created), (7, NOW));
-    }
-    #[test]
-    fn a_long_name_is_cut_to_fit_without_splitting_a_character() {
-        // Two UTF-16 units each, so a cut at an odd place would split one.
-        // The cut falls exactly between the halves of the first emoji.
-        let room = platform::MAX_NAME - entry_name(&me(), 7, NOW, 0, OsStr::new("")).len();
-        let long = format!("{}{}", "a".repeat(room - 1), "😀".repeat(3));
-        let name = entry_name(&me(), 7, NOW, 0, OsStr::new(&long));
-        assert!(name.encode_wide().count() <= platform::MAX_NAME);
-        assert!(
-            name.to_string_lossy().ends_with('a'),
-            "a surrogate pair was split"
+            parse(&name),
+            Some(Entry {
+                deleted: NOW,
+                depth: 2
+            })
         );
     }
     #[test]
-    fn a_cut_name_drops_the_dots_and_spaces_it_ends_with() {
-        let room = platform::MAX_NAME - entry_name(&me(), 7, NOW, 0, OsStr::new("")).len();
-        let dotted = format!("{}. .md", "a".repeat(room - 3));
-        let cut = entry_name(&me(), 7, NOW, 0, OsStr::new(&dotted));
-        assert!(cut.to_string_lossy().ends_with('a'), "{cut:?}");
-    }
-    #[test]
-    fn this_runs_entries_go_only_once_their_session_has_ended() {
-        let name = entry_name(&me(), 7, NOW, 0, OsStr::new("a.md"));
-        assert!(!purgeable(&name, &me(), 7, NOW, unknown));
-        // A newer live session than the purge expected: still not an ended session's entry.
-        let newer = entry_name(&me(), 8, NOW, 0, OsStr::new("a.md"));
-        assert!(!purgeable(&newer, &me(), 7, NOW, unknown));
-        assert!(purgeable(&name, &me(), 8, NOW, unknown));
-    }
-    #[test]
-    fn another_run_of_this_installation_goes_only_once_it_has_ended() {
-        let other = Owner {
-            run: "0".into(),
-            ..me()
-        };
-        let name = entry_name(&other, 9, NOW, 0, OsStr::new("a.md"));
-        assert!(!purgeable(&name, &me(), 0, NOW, |_, _| Some(true)));
-        assert!(purgeable(&name, &me(), 0, NOW, |_, _| Some(false)));
-        // Not knowing falls under the age rule.
-        assert!(!purgeable(&name, &me(), 0, NOW + OLD_MS, unknown));
-        assert!(purgeable(&name, &me(), 0, NOW + OLD_MS + 1, unknown));
-    }
-    #[test]
-    fn another_computers_entries_go_only_when_old() {
-        let other = Owner {
-            install: "x".into(),
-            ..me()
-        };
-        let gone = |created| {
-            let name = entry_name(&other, 0, created, 0, OsStr::new("a.md"));
-            purgeable(&name, &me(), 5, NOW, |_, _| Some(false))
-        };
-        assert!(!gone(NOW - OLD_MS));
-        assert!(gone(NOW - OLD_MS - 1));
-        // Its clock ahead of this one.
-        assert!(!gone(NOW + 1000));
-    }
-    #[test]
-    fn names_docdock_did_not_make_stay() {
+    fn names_docdock_did_not_make_are_not_entries() {
         for name in [
             "dropped here by hand.md",
-            "123-4-5 a.md",
-            "abc123-z9-7-mz2xp0w0",
-            "ABC123-z9-7-mz2xp0w0-0 a.md",
-            "abc123-z9-7-mz2x_p0w0-0 a.md",
-            "abc123-z9-7-mz2xp0w0-0-0 a.md",
-            "abc1234567-z9-7-mz2xp0w0-0 a.md",
+            "mz2xp0w0-0-0",
+            "mz2xp0w0-0-0-0-0",
+            "MZ2XP0W0-0-0-0",
+            "mz2xp0w0-0--0",
+            "mz2xp0w0-0-0-zz",
+            "mz2xp0w0 a-0-0-0",
         ] {
-            let gone = purgeable(OsStr::new(name), &me(), u64::MAX, u64::MAX, |_, _| {
-                Some(false)
-            });
-            assert!(!gone, "{name}");
+            assert_eq!(parse(name), None, "{name}");
         }
+    }
+    #[test]
+    fn items_stay_exactly_thirty_days() {
+        assert!(!expired(NOW - KEEP_MS, NOW));
+        assert!(expired(NOW - KEEP_MS - 1, NOW));
+        // A clock ahead of this one.
+        assert!(!expired(NOW + 1000, NOW));
     }
 }
