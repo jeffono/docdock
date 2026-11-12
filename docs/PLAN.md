@@ -5,8 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- Release 0.1.0-beta.3 with M8 and validate the automatic update from 0.1.0-beta.2; then M9 — Clean
-  pages.
+- M9 — Clean pages: tracking prevention, content blocking and reader view on branches `m9-tracking`,
+  `m9-adblock` and `m9-reader`, merged into `m9`.
 
 ## M9 — Clean pages
 
@@ -61,6 +61,7 @@ another provider: they touch untrusted content.
   capture exclusion, private clipboard and an Unlock action for a Cryptomator vault file; see "Notes" in
   `docs/ARCHITECTURE.md`. Rust tests grew 33%, on content loss and link safety around the folder marker,
   the unavailable folder and the trash.
+- Release 0.1.0-beta.3: automatic update from 0.1.0-beta.2 validated.
 
 ## Later
 
