@@ -13,7 +13,7 @@ detail each stage when it is next.
 
 Quick fixes first: the search tasks in M7 build on the new Esc and search behavior.
 
-- [ ] Search and expanded note persist: only the user empties the search (typing over the selected text
+- [x] Search and expanded note persist: only the user empties the search (typing over the selected text
   or deleting it). Esc layers become: leave editing, then return to the bar, then close; no layer clears
   the search. The expanded note stays expanded until collapsed or another note expands, and the list
   keeps its scroll until the user scrolls; hiding the panel or losing focus changes neither.

@@ -119,7 +119,7 @@ per-monitor DPI awareness (PMv2).
   it does nothing: the picker is modal and would re-enable the hidden panel window.
 - **Summoned (focus governs):** by the shortcut, or once a cursor-opened panel or its page becomes
   foreground (a click). Focus governs, not the cursor. It closes when the UI asks (`panel_close`: Esc in
-  the empty search bar, or the shortcut there) or when focus moves to another app. A focused page counts as
+  the search bar, or the shortcut there) or when focus moves to another app. A focused page counts as
   panel focus, and the native picker keeps it open. Null focus, common during system transitions, is
   ignored. After closing this way, the edge only takes effect again once the cursor leaves it. Without
   focus (hover only), the panel never takes it and closes when the cursor leaves.
@@ -513,7 +513,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   `_pinned.md` appear in file order as one-line cards with the link label and host; no preview or
   network fetch is needed. Click or Enter opens the page through the save guard, and the bookmark
   removes it. Web cards ignore collapsed state and participate in the same selection model.
-- **State:** one `expanded` path (not remembered: `panel-hidden` clears it once editing is left);
+- **State:** one `expanded` path, kept in memory until collapsed or another card expands;
+  `panel-hidden` leaves editing through its save guard without resetting expansion, query or scroll.
+  Only user input empties the query, including after note creation or opening a page.
   `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
   query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
   collapsed card also opens it.
@@ -521,9 +523,11 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   window listener for keys typed anywhere else except a text field or the editor (found through
   `composedPath`, since the editor sits in a shadow root). → and ← in the bar act on the selected card only
   with the caret at the end of the text. Esc goes in layers: while editing, it leaves editing (from the
-  editor through its keymap, or from a button) and the card header takes the focus; next, it clears the
-  search and focuses the bar; from the empty bar it leaves editing the guarded way and then calls
-  `panel_close`. A missing pinned item is selectable; Enter or Delete removes it. Ctrl+D ignores key
+  editor through its keymap, or from a button) and the list takes focus; next, it focuses the bar and
+  selects its text without scrolling or clearing the query; from the bar it calls `panel_close`.
+  `escapeAction` in `list.ts` decides these layers independently of the query. Selection changes
+  reveal cards from Notes rather than on card mount, keeping scroll when leaving editing remounts
+  the reading card. A missing pinned item is selectable; Enter or Delete removes it. Ctrl+D ignores key
   repeat and a toggle in flight. Outside a field, a printable key
   other than Space focuses the bar, which then receives it; Ctrl+F focuses the bar and selects its text
   from anywhere but a field. ↑ and ↓ on an expanded selected card ask `arrowScroll` (pure, in `list.ts`)

@@ -74,6 +74,7 @@ import {
   defaultKey,
   enter,
   entryKey,
+  escapeAction,
   folderLabels,
   folderOf,
   isMissing,
@@ -197,7 +198,7 @@ function webLabel(entry: WebEntry): string {
 }
 let leftovers = $state<Leftover[]>([]);
 let pinned = $state<Pinned>({ version: "", items: [], restorable: false });
-/** Path of the one expanded card, or "". Not remembered when the panel closes. */
+/** Path of the one expanded card, or "". Kept until collapsed or another card expands. */
 let expanded = $state("");
 /** Chosen with the arrows or the mouse; "" means the default for the query. */
 let selection = $state("");
@@ -292,7 +293,7 @@ async function leaveByKeyboard() {
   await tick();
   const focused = document.activeElement;
   if (focused && focused !== document.body) return;
-  list?.focus();
+  list?.focus({ preventScroll: true });
 }
 /**
  * A mouse click leaves focus on an untabbable button inside the list. The list keys then move the
@@ -567,7 +568,6 @@ async function create(text: string, content = "", annotate = false) {
         notes = list;
         folders = directoryList;
         await sync(list);
-        query = "";
         expanded = name;
         selection = name;
         if (annotate) {
@@ -676,6 +676,10 @@ function reveal(path: string) {
   stopReveal = stop;
 }
 let scrollFrame = 0;
+function stopScrolling() {
+  stopReveal?.();
+  cancelAnimationFrame(scrollFrame);
+}
 function scrollListTo(view: HTMLElement, top: number) {
   cancelAnimationFrame(scrollFrame);
   const start = view.scrollTop;
@@ -1334,7 +1338,6 @@ function changed(changes: NotesChanges) {
 async function openPage(url: string) {
   if (!(await leaveEditor())) return false;
   await webOpen(url);
-  query = "";
   return true;
 }
 
@@ -1359,10 +1362,20 @@ function linkClick(event: MouseEvent): boolean {
 
 let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
+// Selection changes reveal their destination; remounting a card after editing must not scroll it.
+$effect(() => {
+  const key = active;
+  untrack(() => {
+    void tick().then(() => {
+      const card = list?.querySelector<HTMLElement>(`.card[data-path="${CSS.escape(key)}"]`);
+      card?.scrollIntoView({ block: "nearest" });
+    });
+  });
+});
 const bar = () => tools?.querySelector("input");
 export function focusSearch() {
   void tick().then(() => {
-    bar()?.focus();
+    bar()?.focus({ preventScroll: true });
     bar()?.select();
   });
 }
@@ -1408,7 +1421,7 @@ async function closePanel() {
 }
 
 /**
- * Esc, in layers: leave editing; clear the search and return to the bar; from the empty bar, close
+ * Esc, in layers: leave editing; return to the bar; from the bar, close
  * the panel. A pinned panel stays.
  */
 function escapeKey(inBar: boolean) {
@@ -1418,7 +1431,7 @@ function escapeKey(inBar: boolean) {
     selection = "";
     return;
   }
-  if (editing && !inBar) {
+  if (browser && editing && !inBar) {
     void leaveByKeyboard();
     return;
   }
@@ -1432,13 +1445,17 @@ function escapeKey(inBar: boolean) {
     } else void closePanel();
     return;
   }
-  if (query || (input && !inBar)) {
-    query = "";
-    selection = "";
-    input?.focus();
-    return;
+  switch (escapeAction(editing, inBar)) {
+    case "leaveEditor":
+      void leaveByKeyboard();
+      return;
+    case "focusSearch":
+      input?.focus({ preventScroll: true });
+      input?.select();
+      return;
+    case "close":
+      void closePanel();
   }
-  void closePanel();
 }
 
 /** List keys, from the search bar (`inBar`) or from anywhere in the panel outside a text field. */
@@ -1728,16 +1745,15 @@ onMount(() => {
     groupingDate = new Date();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
-  // An expanded card returns to preview when the panel closes, after editing is left the guarded way.
+  // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden(() => {
     shortcutSheet.close();
     // The panel forgot the deleted note; it stays in the Recycle Bin.
     removed = null;
     warning = "";
     panelSession++;
-    void leaveEditor().then((left) => {
-      if (left) expanded = "";
-    });
+    stopScrolling();
+    void leaveEditor();
     // WebView2 keeps its inner focus after Windows moves the foreground away: without this, a
     // hover-opened panel would show a focused bar and caret while it has no focus.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -1752,7 +1768,7 @@ onMount(() => {
       void closePanel();
       return;
     }
-    input?.focus();
+    input?.focus({ preventScroll: true });
     input?.select();
   });
   notesFolder()
@@ -1769,7 +1785,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen() && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen() && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <ConfirmDialog bind:this={confirmDialog} />
@@ -1867,7 +1883,7 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu} onwheel={stopScrolling} onpointerdown={stopScrolling}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">

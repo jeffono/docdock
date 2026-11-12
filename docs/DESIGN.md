@@ -141,8 +141,11 @@ pinned and unpinned notes differ only in section and starting state.
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
-  editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and
-  editing return to preview when the panel closes.
+  editing (expanded, with the editor). Only line versus open is remembered across app restarts, per
+  computer. Hiding the panel leaves editing through its save guard, keeping the card expanded.
+  The expanded card and list scroll survive hiding and focus loss; only collapsing the card or
+  expanding another changes the expanded note. Selection navigation and explicit opening may reveal
+  a card, but returning to the search bar does not scroll the list.
 - **Expanded:** no height limit and no inner scroll. While scrolling inside the card, its header
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
@@ -227,7 +230,7 @@ pinned and unpinned notes differ only in section and starting state.
   the 2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is
   too large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
-  another app, Esc from the empty search bar, or the shortcut from the search bar. A pinned panel only
+  another app, Esc from the search bar, or the shortcut from the search bar. A pinned panel only
   closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
@@ -273,7 +276,7 @@ pinned and unpinned notes differ only in section and starting state.
 | Ctrl+/                    | Open / close the shortcut sheet                                                                        |
 | Ctrl+E                    | Toggle editing on the selected card                                                                    |
 | Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
-| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close                 |
+| Esc                       | Leave editing; next, return to the bar and select its text; from the bar, close                        |
 | Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close                       |
 
 ## Preferences
@@ -291,8 +294,8 @@ previous focus, including the editor cursor. No native popup takes panel focus. 
 System (default), Light and Dark theme radio buttons, applied immediately and remembered on this
 computer; it also shows the panel width, how to resize it and a reset. Folder choice and width reset
 use neutral buttons. The active section has an accessible name without repeating the tab
-label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
-Notes query so returning to Notes starts with an empty search.
+label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors.
+Opening a page preserves the Notes query.
 
 ## Panel navigation
 
@@ -316,6 +319,10 @@ suggestions; typing resumes the normal suggestion rules.
 Suggestions float below the bar on one solid surface, with icons for search, history and Open;
 only the selected row is highlighted. The native page is clipped behind them without moving or resizing. Esc restores
 the current URL and dismisses suggestions before the next Esc closes the panel.
+
+In notes mode the search persists until the user replaces or deletes its text; Esc, note creation,
+opening a page, hiding the panel and focus loss never clear it. Returning to the bar with Esc or the
+activation shortcut selects its text so typing replaces the previous search.
 
 In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
 after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
