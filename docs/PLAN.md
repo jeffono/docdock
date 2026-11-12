@@ -5,7 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- Release 0.1.0-beta.2 with M6, then validate the automatic update from the installed 0.1.0-beta.1.
+- M7: `relative-dates` and `search-tags` in parallel; `date-filters` starts after `search-tags`, whose
+  query parser it extends.
 
 ## M7 — Versatile search
 
@@ -87,6 +88,7 @@ another provider: they touch untrusted content.
 - M6 — Panel adjustments: search and expanded note persist, pinned panel releases focus, Ctrl+, and
   Ctrl+Shift+D, Start with Windows and a custom activation shortcut; see "Note list", "Preferences"
   and "Panel navigation" in `docs/DESIGN.md`.
+- Release 0.1.0-beta.2: automatic update from 0.1.0-beta.1 validated.
 
 ## Later
 
