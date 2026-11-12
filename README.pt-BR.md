@@ -17,7 +17,7 @@ O instalador não tem assinatura de código. Se o Windows SmartScreen exibir “
 
 ## Primeiros passos
 
-Abra o DocDock e escolha uma pasta para suas notas. Mantenha o ponteiro na borda direita da tela para abrir o painel ou pressione **Ctrl+Alt+Espaço**. O menu da bandeja permite mudar o lado, iniciar o DocDock com o Windows, instalar uma atualização ou sair. Use o alfinete do painel para mantê-lo aberto e a engrenagem para alterar as preferências. Pressione **Ctrl+/** para ver os atalhos.
+Abra o DocDock e escolha uma pasta para suas notas. Mantenha o ponteiro na borda direita da tela para abrir o painel ou pressione **Ctrl+Alt+Espaço**, que pode ser alterado em Preferências > Atalhos. O menu da bandeja permite mudar o lado, iniciar o DocDock com o Windows, instalar uma atualização ou sair. Use o alfinete do painel para mantê-lo aberto e a engrenagem para alterar as preferências. Pressione **Ctrl+/** para ver os atalhos.
 
 ## Privacidade
 

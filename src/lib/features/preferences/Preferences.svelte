@@ -12,6 +12,7 @@ import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import ShortcutList from "../notes/ShortcutList.svelte";
+import ActivationShortcut from "./ActivationShortcut.svelte";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
@@ -88,6 +89,7 @@ onMount(() => {
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
     {:else}
+      <ActivationShortcut />
       <ShortcutList />
     {/if}
   </section>

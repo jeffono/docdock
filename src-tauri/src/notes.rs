@@ -60,6 +60,13 @@ struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     width: Option<u32>,
+    /// Activation shortcut as shown, such as `Ctrl+Alt+Space`; absent for the default.
+    #[serde(
+        default,
+        deserialize_with = "text_or_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    activation_shortcut: Option<String>,
     /// Pinned targets shown as one line on this computer; the rest start as previews.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     collapsed: BTreeSet<String>,
@@ -155,6 +162,9 @@ fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error
 fn width_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<u32>, D::Error> {
     Ok(Option::<u32>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
+fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
+    Ok(Option::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
 #[derive(Serialize)]
 pub struct Folder {
     path: String,
@@ -227,6 +237,12 @@ pub fn width(app: &AppHandle) -> Option<u32> {
 }
 pub fn set_width(app: &AppHandle, width: Option<u32>) -> Result<(), Error> {
     update(app, |settings| settings.width = width)
+}
+pub fn activation_shortcut(app: &AppHandle) -> Option<String> {
+    config(app).ok().and_then(|p| load(&p).activation_shortcut)
+}
+pub fn set_activation_shortcut(app: &AppHandle, shortcut: Option<String>) -> Result<(), Error> {
+    update(app, |settings| settings.activation_shortcut = shortcut)
 }
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
@@ -1965,6 +1981,17 @@ mod tests {
             .unwrap();
             assert_eq!(settings.grouping(), Grouping::None);
             assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
+            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        }
+    }
+    #[test]
+    fn invalid_activation_shortcut_does_not_discard_other_settings() {
+        for value in ["null", "42", "{}", "[]"] {
+            let settings: Settings = serde_json::from_str(&format!(
+                r#"{{"folder":"notes","activation_shortcut":{value}}}"#
+            ))
+            .unwrap();
+            assert_eq!(settings.activation_shortcut, None);
             assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         }
     }

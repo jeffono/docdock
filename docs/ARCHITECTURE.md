@@ -108,8 +108,16 @@ per-monitor DPI awareness (PMv2).
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
   from scrollbars and maximized window buttons. Points outside that monitor are ignored.
-- **Shortcut:** `Ctrl+Alt+Space`, registered by Rust, without permission in the capability. If registration
-  fails, the failure is logged and the panel still opens by cursor. The machine never closes on it: hidden,
+- **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
+  `shortcut.rs` validates a recorded combination as a pure function (Ctrl, Alt or Win required; Ctrl+Alt
+  with a letter or digit refused as AltGr; only keys whose name does not depend on the layout) and keeps a
+  small state machine behind a `Hotkeys` seam: recording unregisters the current combination so the
+  panel receives it, a new one replaces it only once registered, and otherwise the previous one is
+  registered again. The UI sends the modifiers and `KeyboardEvent.code` through `shortcut_set`; the
+  shown form, such as `Ctrl+Shift+K`, is saved as `activation_shortcut` in `settings.json`. A saved
+  combination that fails at startup falls back to the default for the session, keeps the saved value
+  and is reported as `failed` for a notice; if the default also fails, the panel still opens by cursor.
+  The machine never closes on it: hidden,
   opened by cursor or summoned, the panel opens at once if needed, takes focus and becomes summoned; pinned,
   it takes focus and stays pinned. Rust then emits `panel-search` with `toggle`, whether the panel window
   was already foreground before the press. The UI focuses the search bar and selects its text, or, with

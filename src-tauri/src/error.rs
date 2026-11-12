@@ -91,6 +91,16 @@ pub enum Error {
         url: String,
     },
     LinkNotAllowed,
+    /// A shortcut key needs Ctrl, Alt or Win.
+    ShortcutModifierRequired,
+    /// Ctrl+Alt with a character key is AltGr on layouts such as ABNT2.
+    ShortcutAltGr,
+    /// A key a shortcut cannot use, such as one whose name depends on the keyboard layout.
+    ShortcutKeyUnsupported,
+    /// Registration failed, usually because another app holds `shortcut`; the previous one stays.
+    ShortcutTaken {
+        shortcut: String,
+    },
 }
 
 impl Error {

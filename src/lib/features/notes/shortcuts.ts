@@ -1,8 +1,8 @@
 import type { MessageKey } from "../../i18n";
 import { formattingShortcuts } from "./formatting";
 
+/** The activation shortcut is not here: it can change; see `activation.svelte.ts`. */
 export const panelShortcuts: [string, MessageKey][] = [
-  ["Ctrl+Alt+Space", "shortcut.global"],
   ["Ctrl+Tab", "shortcut.mode"],
   ["Ctrl+/", "shortcut.sheet"],
   ["↑ / ↓", "shortcut.arrows"],

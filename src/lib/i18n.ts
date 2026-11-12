@@ -46,6 +46,16 @@ const en = {
   "preferences.engineName": "DuckDuckGo",
   "preferences.panelKeys": "Panel and note list",
   "preferences.editorKeys": "Note editor",
+  "preferences.activation": "Activation shortcut",
+  "preferences.activationChange": "Change",
+  "preferences.activationRecording": "Press the new combination…",
+  "preferences.activationHint":
+    "Hold Ctrl, Alt or Win with a letter, digit, F1–F24, arrow, Space, Home, End, Page Up, Page Down, Insert or Delete. Esc cancels.",
+  "preferences.activationNone": "None",
+  "notice.activationFailed":
+    "{failed} is unavailable, probably taken by another app; {shortcut} opens the panel instead. Change it in Preferences > Shortcuts.",
+  "notice.activationNone":
+    "{failed} is unavailable, probably taken by another app, and no shortcut opens the panel. Choose another in Preferences > Shortcuts.",
   "shortcut.global": "Open panel and focus search; press again in search to close",
   "shortcut.mode": "Switch Notes / Browser",
   "shortcut.sheet": "Open / close shortcut sheet",
@@ -221,6 +231,11 @@ const en = {
   "error.invalidUrl": "Invalid address: {detail}",
   "error.urlNotAllowed": "Address not allowed: {url}",
   "error.linkNotAllowed": "Only web and email links open outside the app.",
+  "error.shortcutModifierRequired": "Hold Ctrl, Alt or Win with the key.",
+  "error.shortcutAltGr":
+    "Ctrl+Alt with a letter or digit types characters (AltGr) on some keyboards; choose another combination.",
+  "error.shortcutKeyUnsupported": "This key cannot be part of the shortcut.",
+  "error.shortcutTaken": "{shortcut} is taken by another app; the previous shortcut stays.",
 };
 
 export type MessageKey = keyof typeof en;
@@ -269,6 +284,16 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.engineName": "DuckDuckGo",
   "preferences.panelKeys": "Painel e lista de notas",
   "preferences.editorKeys": "Editor de notas",
+  "preferences.activation": "Atalho de ativação",
+  "preferences.activationChange": "Alterar",
+  "preferences.activationRecording": "Pressione a nova combinação…",
+  "preferences.activationHint":
+    "Segure Ctrl, Alt ou Win com uma letra, um dígito, F1–F24, uma seta, Espaço, Home, End, Page Up, Page Down, Insert ou Delete. Esc cancela.",
+  "preferences.activationNone": "Nenhum",
+  "notice.activationFailed":
+    "{failed} está indisponível, provavelmente em uso por outro app; {shortcut} abre o painel no lugar. Altere em Preferências > Atalhos.",
+  "notice.activationNone":
+    "{failed} está indisponível, provavelmente em uso por outro app, e nenhum atalho abre o painel. Escolha outro em Preferências > Atalhos.",
   "shortcut.global": "Abrir painel e focar busca; pressionar na busca para fechar",
   "shortcut.mode": "Alternar Notas / Navegador",
   "shortcut.sheet": "Abrir / fechar lista de atalhos",
@@ -444,6 +469,11 @@ const ptBR: Record<MessageKey, string> = {
   "error.invalidUrl": "Endereço inválido: {detail}",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
   "error.linkNotAllowed": "Só links da web e de e-mail abrem fora do app.",
+  "error.shortcutModifierRequired": "Segure Ctrl, Alt ou Win com a tecla.",
+  "error.shortcutAltGr":
+    "Ctrl+Alt com uma letra ou um dígito digita caracteres (AltGr) em alguns teclados; escolha outra combinação.",
+  "error.shortcutKeyUnsupported": "Esta tecla não pode fazer parte do atalho.",
+  "error.shortcutTaken": "{shortcut} está em uso por outro app; o atalho anterior continua.",
 };
 
 const messages: Record<Locale, Record<MessageKey, string>> = { en, "pt-BR": ptBR };

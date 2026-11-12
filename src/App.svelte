@@ -1,6 +1,11 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import Notes from "./lib/features/notes/Notes.svelte";
+import {
+  activation,
+  dismissActivationNotice,
+  loadActivation,
+} from "./lib/features/preferences/activation.svelte";
 import Preferences from "./lib/features/preferences/Preferences.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
@@ -22,6 +27,7 @@ import {
 } from "./lib/ipc";
 
 import IconButton from "./lib/ui/IconButton.svelte";
+import Notice from "./lib/ui/Notice.svelte";
 
 let notes: Notes;
 let pinned = $state(false);
@@ -42,6 +48,7 @@ async function action(work: Promise<void>) {
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
 
 onMount(() => {
+  void action(loadActivation());
   let exiting = false;
   const cancelled = onExitCancelled(() => {
     exiting = false;
@@ -88,6 +95,7 @@ onMount(() => {
       );
   });
   const shortcut = (event: KeyboardEvent) => {
+    if (activation.recording) return;
     if (
       preferences &&
       event.key === "Escape" &&
@@ -216,6 +224,12 @@ function togglePin() {
     <IconButton quiet icon="pin" label={t("app.pin")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
+  {#if activation.failed}
+    <Notice icon="alert">
+      {t(activation.shortcut ? "notice.activationFailed" : "notice.activationNone", { failed: activation.failed, shortcut: activation.shortcut ?? "" })}
+      {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={dismissActivationNotice} />{/snippet}
+    </Notice>
+  {/if}
   {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
   <Notes bind:this={notes} browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>
