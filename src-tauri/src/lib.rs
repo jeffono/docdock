@@ -73,6 +73,7 @@ pub fn run() {
         commands::pinned_set_collapsed,
         commands::pinned_restore,
         commands::open_external,
+        commands::clipboard_write,
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))

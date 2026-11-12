@@ -2,6 +2,7 @@
 
 pub mod autostart;
 pub mod browser;
+mod clipboard;
 pub mod edge;
 mod files;
 mod guard;
@@ -9,6 +10,7 @@ pub mod keyboard;
 mod recycle;
 mod windows;
 
+pub use self::clipboard::write_private_text;
 pub use self::files::{
     delete_on_close, hold_directory, move_new, open_exclusive, paste_timestamp, replace_file,
 };

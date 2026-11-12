@@ -27,7 +27,7 @@ to a vault the user mounts, such as Cryptomator, which stays optional. The app's
 - [ ] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give
   such notes an Undo that keeps the copy inside the notes folder. `advanced`
 - [ ] Hide the panel from screen capture and sharing with `WDA_EXCLUDEFROMCAPTURE`. `standard`
-- [ ] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`
+- [x] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`
 - [ ] Optional vault file in Preferences: an Unlock action on the unavailable state opens
   `vault.cryptomator`, which Cryptomator unlocks with Windows Hello. `standard`
 - [ ] README section in English and pt-BR: protecting notes with Cryptomator, including that moving notes
@@ -113,4 +113,3 @@ Defaults used until you decide otherwise.
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Panel in screen captures   | Always hidden, which also blanks the user's own screenshots of the panel    |
-| Clipboard from notes       | Kept out of history and cloud clipboard; not cleared after a delay          |

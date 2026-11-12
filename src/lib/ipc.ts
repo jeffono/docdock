@@ -185,6 +185,9 @@ export const pinnedRestore = () => invoke<Pinned>("pinned_restore");
 
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
 
+/** Replaces the clipboard with text kept out of Windows clipboard history and cloud clipboard. */
+export const clipboardWrite = (text: string) => invoke<void>("clipboard_write", { text });
+
 /** Something in the notes folder changed outside the app, or a save landed. */
 export type NotesChanges = { renames: [string, string][] };
 export const onNotesChanged = (handler: (changes: NotesChanges) => void): Promise<UnlistenFn> =>

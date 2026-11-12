@@ -9,6 +9,7 @@ src/                     UI (Svelte 5 + Vite)
   App.svelte             Screen composition, no business rules
   lib/ipc.ts             Only entry point that calls Rust
   lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
+  lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
   lib/features/<name>/   Components, state and tests for each feature
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
@@ -224,7 +225,8 @@ per-monitor DPI awareness (PMv2).
   editor gets Ctrl+J. The page keeps reload, zoom and back/forward; the UI keeps none, except
   DevTools in debug builds. Ctrl+Tab on the page is consumed natively and emitted to `main` as
   `panel-toggle-mode`; the page never sees it. Context menus keep only editing items, plus
-  back/forward/reload on the page; unknown or future items are dropped.
+  back/forward/reload on the page; unknown or future items are dropped. The UI's menu also drops Copy
+  link and Copy image, which bypass the copy event (see "Copy and cut" in Notes).
 - **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
   or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
   `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
@@ -508,6 +510,24 @@ The editor is read-only while the paste is pending, preserves the insertion sele
 it before leaving. Reloads are refused during that wait; insertion then creates an ordinary unsaved
 Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
 The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
+
+**Copy and cut.** Text copied in `main` stays out of Windows clipboard history and cloud clipboard,
+and is not cleared later. Every route (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete, the context menu)
+fires a `copy` or `cut` event, so `lib/clipboard.ts` intercepts the events, not keys: a window
+listener, the last to see each event, cancels the browser's write and sends the text to
+`clipboard_write`. The text is what a handler such as CodeMirror's copy left in the event, else the
+field's selected text, else `getSelection()` with non-breaking spaces as spaces. Plain text only: the
+browser's HTML would carry `note-asset` image addresses that resolve nowhere else; a selection without
+text copies nothing. Cut deletes only after the write succeeds, and only if nothing changed meanwhile:
+fields through `execCommand("delete")`, which keeps their undo, and the editor through `privateCut`,
+which runs CodeMirror's own copy and cut handlers on synthetic events, so several cursors and
+whole-line copies behave as in CodeMirror (verified in headless Chromium). `platform/clipboard.rs`
+opens the clipboard as the main window, retrying for about 100 ms while another app holds it, and in
+one transaction sets `CF_UNICODETEXT` with CR-LF line ends plus the registered formats of [Cloud
+Clipboard and Clipboard History Formats](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard-formats):
+`ExcludeClipboardContentFromMonitorProcessing`, and `CanIncludeInClipboardHistory` and
+`CanUploadToCloudClipboard` as DWORD 0. Not covered: drag and drop, and the page window, which shows
+sites rather than notes and has no script or channel of ours by design.
 
 CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
 `CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
