@@ -1,6 +1,7 @@
 //! Operating system-specific code. Currently Windows only.
 
 pub mod autostart;
+pub mod blocker;
 pub mod browser;
 mod capture;
 mod clipboard;

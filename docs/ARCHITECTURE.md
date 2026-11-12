@@ -21,6 +21,7 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
+  blocking.rs            Content blocking in the page window: filter lists, engine and hiding passes
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
@@ -229,6 +230,29 @@ per-monitor DPI awareness (PMv2).
   `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
   still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
+- **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
+  `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`;
+  if it is missing or unreadable (corrupt, another `adblock` version), it rebuilds from the cached
+  lists there and rewrites the cache, and without lists nothing is blocked. Every 15 minutes it
+  downloads each list older than four days (HTTPS only, 60 s, 16 MiB, no cookies), keeps the old copy
+  when a download fails or is not an Adblock Plus list, writes lists atomically, then rebuilds and
+  swaps the engine (`Arc` behind a mutex held only to clone or replace it). `web::open` installs
+  `platform/blocker.rs` with the guard and observers, before the first navigation; `main` never gets
+  it. It adds a `*` `WebResourceRequested` filter for all contexts and request source kinds (workers
+  and iframes included); the handler maps the resource context to a filter-list type, uses the page's
+  `Source` as the third-party reference and answers a blocked request with an empty 403. The target of
+  the last main-frame `NavigationStarting` is the `document` the user asked for and is never blocked.
+  Wry's custom-protocol handler ignores the extra requests. On each main-frame `ContentLoading`,
+  `blocking::committed` starts six passes (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
+  a newer document stops them. Each pass goes through `web::evaluate` (the selection read's isolated
+  world, turn-taking and two-second limit) with one fixed function and JSON arguments: it checks
+  `location.hostname`, adds its `CSSStyleSheet` to `document.adoptedStyleSheets` again if the page
+  removed it, inserts each selector as its own `display:none!important` rule, and returns up to
+  1,000 new class names and ids recorded by a `MutationObserver` (at most 20,000 per document, 100
+  characters each; the last pass disconnects it). The first pass carries the host's selectors and
+  the lists' generic non-class selectors; later passes carry generic class and id rules for what the
+  previous pass saw, unless `$generichide` applies. Selectors with braces or starting with `@` are
+  dropped, and responses over 2 MiB or of any other shape are ignored.
 - **Edge features:** `platform/edge.rs` filters WebView2's accelerator keys and context menu in both
   windows, installed natively before the first navigation, so no script or channel is involved.
   Edge's dialogs and popups (downloads, history, print, save, view source, DevTools, find) either

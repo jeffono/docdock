@@ -277,14 +277,18 @@ pub enum Read {
 /// prototypes, and the page cannot reach it.
 const WORLD: &str = "docdock";
 
-/// Reads the URL from WebView2, then evaluates a fixed expression in an isolated world of the
+/// Reads the URL from WebView2, then evaluates Rust's own expression in an isolated world of the
 /// main frame through the DevTools protocol. The page cannot call Rust: only these one-shot
 /// completion handlers receive results, which are untrusted. The page cannot override the
 /// expression's builtins there, so the expression's own length limit bounds the response.
 /// Nothing is evaluated while a navigation is in flight, and the result is dropped unless the
 /// document is still the one whose URL was reported.
 /// The handlers run on the WebView2 UI thread, so the caller waits on the receiver from another thread.
-pub fn read(window: &WebviewWindow, expression: &'static str) -> tauri::Result<Receiver<Read>> {
+pub fn read(
+    window: &WebviewWindow,
+    expression: impl Into<String>,
+) -> tauri::Result<Receiver<Read>> {
+    let expression = expression.into();
     let (sender, receiver) = mpsc::channel();
     window.with_webview(move |view| unsafe {
         let run = || -> windows::core::Result<()> {
@@ -308,7 +312,7 @@ pub fn read(window: &WebviewWindow, expression: &'static str) -> tauri::Result<R
 fn evaluate(
     page: &ICoreWebView2,
     document: Document,
-    expression: &'static str,
+    expression: String,
     reply: Sender<Read>,
 ) -> windows::core::Result<()> {
     call(
@@ -416,7 +420,7 @@ fn evaluate_in(
     page: &ICoreWebView2,
     context: String,
     document: Document,
-    expression: &'static str,
+    expression: String,
     reply: Sender<Read>,
 ) -> windows::core::Result<()> {
     if !unchanged(page, &document) {

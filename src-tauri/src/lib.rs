@@ -1,5 +1,6 @@
 //! App composition: registers modules and commands, without business logic.
 
+mod blocking;
 mod commands;
 mod dock;
 mod error;
@@ -107,6 +108,7 @@ pub fn run() {
             app.manage(locale);
             notes::purge_trash(app.handle());
             updates::start(app.handle());
+            blocking::start(app.handle());
             watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
             app.manage(requests);

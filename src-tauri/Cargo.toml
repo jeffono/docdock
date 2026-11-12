@@ -30,6 +30,11 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2.7.2"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 notify = { version = "8", default-features = false }
+# Without `single-thread` the engine is Send + Sync: built off the UI thread, matched on it.
+adblock = { version = "0.13.5", default-features = false, features = [
+  "embedded-domain-resolver",
+  "full-regex-handling",
+] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
@@ -61,3 +66,26 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Unoptimized, the engine took about 10 ms per request on the WebView2 UI thread in `tauri dev`;
+# optimized, about 0.3 ms. Release builds are optimized anyway.
+[profile.dev.package.adblock]
+opt-level = 3
+[profile.dev.package.regex]
+opt-level = 3
+[profile.dev.package.regex-automata]
+opt-level = 3
+[profile.dev.package.regex-syntax]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.memchr]
+opt-level = 3
+[profile.dev.package.flatbuffers]
+opt-level = 3
+[profile.dev.package.idna]
+opt-level = 3
+[profile.dev.package.psl]
+opt-level = 3
+[profile.dev.package.seahash]
+opt-level = 3

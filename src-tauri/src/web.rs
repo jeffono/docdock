@@ -107,7 +107,13 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     let setup = crate::platform::guard(&window, frame_allowed)
         .and_then(|()| edge::filter(&window, edge::Owner::Page))
         .and_then(|()| crate::platform::browser::mobile(&window))
-        .and_then(|()| crate::platform::browser::observe(&window));
+        .and_then(|()| crate::platform::browser::observe(&window))
+        .and_then(|()| {
+            let app = app.clone();
+            crate::platform::blocker::install(&window, crate::blocking::blocked, move |url| {
+                crate::blocking::committed(&app, url);
+            })
+        });
     if let Err(error) = setup {
         let _ = window.destroy();
         return Err(error);
@@ -220,6 +226,25 @@ pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
         title,
         selection,
     }))
+}
+
+/// Evaluates Rust's `expression` in its isolated world of the page's main frame, taking turns with
+/// other reads, and returns the untrusted `Runtime.evaluate` response. None without a page window,
+/// while a navigation is in flight or when the page does not answer within `SELECTION_TIMEOUT`.
+/// Blocks the calling thread, never the WebView2 UI thread.
+pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
+    let window = app.get_webview_window(LABEL)?;
+    let _turn = READING.lock().unwrap_or_else(PoisonError::into_inner);
+    let deadline = Instant::now() + SELECTION_TIMEOUT;
+    let reply = crate::platform::browser::read(&window, expression).ok()?;
+    let wait = || reply.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+    let Ok(Read::Page { .. }) = wait() else {
+        return None;
+    };
+    match wait() {
+        Ok(Read::Script(json)) => Some(json),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
