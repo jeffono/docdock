@@ -281,8 +281,10 @@ pinned and unpinned notes differ only in section and starting state.
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order, date grouping and panel side; side changes
-mirror the tray. Browser
+General contains the folder path, folder picker, note order, date grouping, panel side and a
+"Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
+from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
+the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
 shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
 keys, deriving formatting keys from the editor bindings. From anywhere in Notes (including search and editing), Ctrl+/ opens
 a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
