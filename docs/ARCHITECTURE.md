@@ -146,7 +146,7 @@ per-monitor DPI awareness (PMv2).
 - **Focus:** the window uses `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW` and opens without activation by
   cursor. UI `pointerdown` requests activation, which makes the panel summoned at the next poll. At each cursor poll, the panel remembers the last foreground
   app outside itself and the native picker; on close, focus returns to that app unless the user is already
-  in another. If it no longer exists, focus goes to the desktop.
+  in another. If it no longer exists or is minimized, focus goes to the desktop.
 - **Web page:** its own window (`web.rs`), owned by the panel, below the header and unified bar. The panel thread positions
   and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
   because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
