@@ -59,7 +59,9 @@ onMount(() => {
       return;
     }
     unlisten = stop;
-    autostart = await appAutostart();
+    const initial = await appAutostart();
+    // A change reported while this read was in flight is newer.
+    if (autostart === null) autostart = initial;
   })().catch((e) => {
     if (!disposed) error = errorText(e);
   });

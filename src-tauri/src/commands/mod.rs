@@ -29,8 +29,8 @@ pub fn app_set_theme(app: AppHandle, theme: crate::notes::Theme) -> Result<(), E
 }
 
 #[tauri::command]
-pub fn app_autostart(app: AppHandle) -> Result<bool, Error> {
-    crate::tray::autostart_enabled(&app)
+pub fn app_autostart() -> Result<bool, Error> {
+    crate::tray::autostart_enabled()
 }
 
 #[tauri::command]
