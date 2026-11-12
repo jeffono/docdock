@@ -652,13 +652,15 @@ folder itself is never created; an unavailable choice is recorded without an id)
 the folder, so every computer shares it, and each records it when choosing the folder. A folder at the
 path whose marker is absent or holds another id is `unrecognized`: never written to, never marked
 automatically; the UI says it is not the folder chosen, that a locked vault's folder opens again once
-unlocked, and that notes moved there are accepted by choosing the folder again. No volume API is used,
+unlocked, and that notes moved there are accepted by choosing the folder again. "Use this folder", in
+the list and in an editor waiting to save, does the same for the configured path without the picker or
+leaving the editor (`notes_trust`). No volume API is used,
 so a folder on an SMB share is checked like any other.
 
-Settings written before markers existed have a folder and no id. The folder is then marked and its id
-recorded only if it is available and either has a marker already (another computer marked it) or holds
-a `.md` file in it or a visible folder below it (`_pinned.md` included), which an empty mount-point
-leftover does not; otherwise it stays `unrecognized` until chosen again. The rule is the pure
+Settings written before markers existed have a folder and no id. An existing marker (another computer
+marked the folder) is adopted; otherwise the folder stays `unrecognized` until the user confirms it once.
+Notes in it prove nothing: a local folder with old plaintext notes can sit at a locked vault's mount
+point. The rule is the pure
 `identity` in `notes.rs`; marking and recording run under the settings lock and decide again there.
 
 Every command starts from `root`, which opens the folder through links, on the volume that really

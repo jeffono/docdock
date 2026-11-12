@@ -305,23 +305,6 @@ fn stamp(root: &Path) -> Result<String, Error> {
     write_atomic(&dir.join(MARKER), id.as_bytes())?;
     Ok(id)
 }
-/// Whether `dir` or a visible folder below it holds a note, which the empty folder a locked vault can
-/// leave at its mount point does not. Links are not followed.
-fn holds_notes(dir: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return false;
-    };
-    entries.flatten().any(|entry| {
-        let (name, ty) = (entry.file_name(), entry.file_type());
-        match ty {
-            Ok(ty) if ty.is_file() => markdown(Path::new(&name)),
-            Ok(ty) if ty.is_dir() => {
-                !name.to_string_lossy().starts_with('.') && holds_notes(&entry.path())
-            }
-            _ => false,
-        }
-    })
-}
 /// What an available folder is, from the id the settings expect and the one its marker holds.
 #[derive(Debug, PartialEq)]
 enum Identity {
@@ -329,21 +312,15 @@ enum Identity {
     Chosen,
     /// Chosen before markers existed, and marked since, as by another computer: record its id.
     Adopt(String),
-    /// Chosen before markers existed and holding notes: mark it and record the id.
-    Stamp,
-    /// Another folder, or one that cannot be told from the empty folder a locked vault leaves.
+    /// Another folder, or, chosen before markers existed and unmarked, one that cannot be told from
+    /// the folder a locked vault's mount point shows, which may even hold old plaintext notes.
     Foreign,
 }
-fn identity(
-    expected: Option<&str>,
-    marker: Option<&str>,
-    holds_notes: impl FnOnce() -> bool,
-) -> Identity {
+fn identity(expected: Option<&str>, marker: Option<&str>) -> Identity {
     match (expected, marker) {
         (Some(expected), Some(marker)) if expected == marker => Identity::Chosen,
         (Some(_), _) => Identity::Foreign,
         (None, Some(marker)) => Identity::Adopt(marker.to_owned()),
-        (None, None) if holds_notes() => Identity::Stamp,
         (None, None) => Identity::Foreign,
     }
 }
@@ -361,10 +338,10 @@ fn open_chosen(
     // Opened through links, on the volume that really holds the folder, before its marker is read.
     let held = platform::open_folder(path).map_err(|_| Availability::Unavailable)?;
     let marker = read_marker(path).map_err(|_| Availability::Unavailable)?;
-    let upgrade = match identity(expected, marker.as_deref(), || holds_notes(path)) {
+    let id = match identity(expected, marker.as_deref()) {
         Identity::Chosen => return Ok(held),
         Identity::Foreign => return Err(Availability::Unrecognized),
-        upgrade => upgrade,
+        Identity::Adopt(id) => id,
     };
     // Decided again under the lock: another command may have recorded the id, or the folder changed.
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
@@ -379,10 +356,6 @@ fn open_chosen(
             _ => Err(Availability::Unrecognized),
         };
     }
-    let id = match upgrade {
-        Identity::Adopt(id) => id,
-        _ => stamp(path).map_err(|_| Availability::Unavailable)?,
-    };
     settings.folder_id = Some(id);
     save(config, &settings).map_err(|_| Availability::Unavailable)?;
     Ok(held)
@@ -658,6 +631,20 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
 /// Choosing is the trusted moment: the folder's marker is adopted, or created if it has none, and its
 /// id recorded. Choosing again is how a folder whose marker changed, or a new folder at the same path,
 /// is accepted. An unavailable folder is recorded without an id, and is never created.
+/// The user confirms that the folder at the configured path is the notes folder, as choosing it again
+/// would, without leaving an editor whose text waits for it.
+pub fn trust(app: &AppHandle) -> Result<Option<Folder>, Error> {
+    trust_in(&config(app)?)?;
+    folder(app)
+}
+fn trust_in(config: &Path) -> Result<(), Error> {
+    let path = load(config).folder.ok_or(Error::NoFolder)?;
+    match folder_availability(&path) {
+        Availability::Available => choose_in(config, path),
+        Availability::Missing => Err(Error::FolderMissing),
+        _ => Err(Error::FolderUnavailable),
+    }
+}
 fn choose_in(config: &Path, path: PathBuf) -> Result<(), Error> {
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
     let id = match folder_availability(&path) {
@@ -3947,25 +3934,38 @@ mod tests {
         assert!(tree(&root).is_empty());
         assert_eq!(fs::read(&settings).unwrap(), before);
     }
+    /// Regression: a folder with old plaintext notes left at a locked vault's mount point was taken
+    /// for the vault and received new writes in plaintext.
     #[test]
-    fn a_folder_with_notes_from_earlier_settings_is_marked_then_migrated() {
+    fn an_unmarked_folder_with_notes_from_earlier_settings_is_unrecognized() {
         let t = Temp::new();
         let root = t.0.join("notes");
-        fs::create_dir_all(root.join("work")).unwrap();
-        fs::write(root.join("work").join("a.md"), "mine").unwrap();
-        let settings = earlier_settings(
-            &t,
-            serde_json::json!({ "folder": root, "collapsed": ["work/a.md"] }),
-        );
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.md"), "old").unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": root }));
+        assert_eq!(root_in(&settings).err(), Some(Error::FolderUnrecognized));
+        assert_eq!(tree(&root), ["a.md"]);
+    }
+    #[test]
+    fn a_folder_marked_elsewhere_is_adopted_from_earlier_settings() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir_all(root.join(DERIVED)).unwrap();
+        let id = new_folder_id();
+        fs::write(root.join(DERIVED).join(MARKER), &id).unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": root }));
         assert!(root_in(&settings).is_ok());
-        let id = read_marker(&root).unwrap();
-        assert!(id.is_some());
-        assert_eq!(load(&settings).folder_id, id);
-        assert!(load_value(&settings).get("collapsed").is_none());
-        assert_eq!(
-            read_collapsed(&root.join(DERIVED)).unwrap(),
-            BTreeSet::from(["work/a.md".into()])
-        );
+        assert_eq!(load(&settings).folder_id, Some(id));
+    }
+    #[test]
+    fn trusting_the_configured_folder_marks_it() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": root }));
+        trust_in(&settings).unwrap();
+        assert!(root_in(&settings).is_ok());
+        assert_eq!(load(&settings).folder_id, read_marker(&root).unwrap());
     }
     /// Regression: a folder created under a locked vault's mount point puts plaintext on the
     /// unencrypted disk, and the vault can no longer mount there.

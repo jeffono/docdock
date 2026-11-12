@@ -5,7 +5,14 @@ import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
 import { privateCut } from "../../clipboard";
 import { errorText, type MessageKey, t } from "../../i18n";
-import { clipboardWrite, notesOpen, notesPasteImage, notesSave, type OpenNote } from "../../ipc";
+import {
+  clipboardWrite,
+  notesOpen,
+  notesPasteImage,
+  notesSave,
+  notesTrust,
+  type OpenNote,
+} from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
@@ -111,6 +118,15 @@ export function folderLeft(state: FolderGone) {
 export function resume() {
   folderGone = null;
   saving.retry();
+}
+/** The user confirms the folder now at the path is theirs: the text waiting here saves into it. */
+async function trustFolder() {
+  try {
+    await notesTrust();
+    resume();
+  } catch (cause) {
+    error = errorText(cause);
+  }
 }
 /** The text for an error, or nothing when the folder left, which its own notice explains. */
 function failure(cause: unknown): string {
@@ -366,6 +382,7 @@ onMount(() => {
       <p>{t(goneText[folderGone])}</p>
       <!-- Always offered, also after a conflict: leaving must never need the folder. -->
       <div class="actions">
+        {#if folderGone === "unrecognized"}<Button onclick={trustFolder}>{t("notes.trust")}</Button>{/if}
         <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
       </div>
     </div>

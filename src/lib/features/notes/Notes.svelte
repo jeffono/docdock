@@ -22,6 +22,7 @@ import {
   notesRewrite,
   notesSave,
   notesTexts,
+  notesTrust,
   notesUndoDelete,
   notesUndoDeleteFolder,
   type OpenNote,
@@ -621,6 +622,15 @@ async function restore(path: string) {
 
 /** While the folder picker is open no editor can open: its note would belong to the old folder. */
 let choosing = false;
+/** The folder at the configured path is the user's after all, such as one marked before an upgrade. */
+async function trust() {
+  try {
+    error = "";
+    await refresh(await notesTrust());
+  } catch (e) {
+    error = errorText(e);
+  }
+}
 export async function choose() {
   if (choosing || savingPage) return;
   choosing = true;
@@ -2170,6 +2180,7 @@ onMount(() => {
       <p>{folder && folder.state !== "available" ? t(folderNotice(folder.state)) : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
       {#if folder}<UnlockVault />{/if}
+      {#if folder?.state === "unrecognized"}<Button variant="neutral" onclick={trust}>{t("notes.trust")}</Button>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <Button variant="neutral" onclick={choose}>{t("notes.choose")}</Button>
     </div>
