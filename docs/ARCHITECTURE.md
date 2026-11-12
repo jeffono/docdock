@@ -526,7 +526,9 @@ opens the clipboard as the main window, retrying for about 100 ms while another 
 one transaction sets `CF_UNICODETEXT` with CR-LF line ends plus the registered formats of [Cloud
 Clipboard and Clipboard History Formats](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard-formats):
 `ExcludeClipboardContentFromMonitorProcessing`, and `CanIncludeInClipboardHistory` and
-`CanUploadToCloudClipboard` as DWORD 0. Not covered: drag and drop, and the page window, which shows
+`CanUploadToCloudClipboard` as DWORD 0. Writes run one at a time in event order, so a copy still
+retrying cannot land after a later cut; a failed write shows a notice, since the clipboard still holds
+the earlier item. Not covered: drag and drop, and the page window, which shows
 sites rather than notes and has no script or channel of ours by design.
 
 CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses

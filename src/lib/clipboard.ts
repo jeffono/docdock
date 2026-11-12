@@ -9,10 +9,28 @@ import { EditorView } from "@codemirror/view";
 
 type Write = (text: string) => Promise<void>;
 
-const report = (error: unknown) => console.error("[clipboard]", error);
+/** The panel shows a notice: the copy was cancelled, so the clipboard still holds the earlier item. */
+const report = (error: unknown) => {
+  console.error("[clipboard]", error);
+  window.dispatchEvent(new CustomEvent("clipboard-failed"));
+};
+
+let queue: Promise<unknown> = Promise.resolve();
+/**
+ * Writes one at a time, in event order: a copy retrying on a busy clipboard must not land after a
+ * later cut that already deleted its text.
+ */
+export function inOrder(write: Write): Write {
+  return (text) => {
+    const done = queue.then(() => write(text));
+    queue = done.catch(() => {});
+    return done;
+  };
+}
 
 /** Installs the window-wide interception, the last listener a copy or cut event reaches. */
-export function keepCopiesPrivate(write: Write) {
+export function keepCopiesPrivate(unordered: Write) {
+  const write = inOrder(unordered);
   const intercept = (event: ClipboardEvent) => void copy(event, write);
   window.addEventListener("copy", intercept);
   window.addEventListener("cut", intercept);
@@ -88,7 +106,8 @@ function replay(view: EditorView, type: "copy" | "cut"): string | null {
  * the deletion, so several cursors and whole-line cuts behave as in CodeMirror. Its copy needs no
  * change: `keepCopiesPrivate` takes the text it leaves in the event.
  */
-export function privateCut(write: Write): Extension {
+export function privateCut(unordered: Write): Extension {
+  const write = inOrder(unordered);
   return EditorView.domEventHandlers({
     cut(_event, view) {
       if (replaying) return false;

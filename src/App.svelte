@@ -49,6 +49,10 @@ async function action(work: Promise<void>) {
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
 
 onMount(() => {
+  const clipboardFailed = () => {
+    error = t("error.clipboard");
+  };
+  window.addEventListener("clipboard-failed", clipboardFailed);
   const activationChanged = watchActivation();
   void action(loadActivation());
   let exiting = false;
@@ -151,6 +155,7 @@ onMount(() => {
   };
   window.addEventListener("keydown", shortcut, true);
   return () => {
+    window.removeEventListener("clipboard-failed", clipboardFailed);
     window.removeEventListener("keydown", shortcut, true);
     for (const listener of [
       stop,
