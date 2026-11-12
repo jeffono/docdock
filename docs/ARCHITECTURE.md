@@ -86,18 +86,17 @@ already in its language. An unknown code shows as an unexpected error with its r
 
 ## Panel
 
-The panel and its owned web page window always request capture exclusion through
-`platform/capture.rs`: `SetWindowDisplayAffinity` targets each top-level Tauri HWND, covering its
-WebView2 children and the app's DOM-rendered menus. It runs after creation while still hidden, before note/page
-content is shown, including every recreation of the page window. Windows 10 2004 (build 19041) and
-later use `WDA_EXCLUDEFROMCAPTURE`; older builds use `WDA_MONITOR` and log the fallback (a black window
-in captures). A failed exclusion request also retries with `WDA_MONITOR`; failures are logged without
-stopping the app. There is no preference: this also hides
-content from the user's own screenshots. System folder pickers and update message dialogs are not
-content windows and are left alone; new browser windows are denied. This is best-effort protection
-for capture APIs that honor Windows display affinity, not a guarantee against every capture method.
-Native Chromium popups (such as page select lists or tooltips) may use separate HWNDs in the WebView2
-process; their exclusion has not been verified and is not guaranteed by the app's top-level affinity.
+**Capture exclusion.** The panel and its owned web page window always request capture exclusion
+through `platform/capture.rs`: `SetWindowDisplayAffinity` targets each top-level Tauri HWND, which
+covers its WebView2 children and the app's DOM-rendered menus. It runs after creation while the window
+is still hidden, before note or page content is shown, including every recreation of the page window.
+`WDA_EXCLUDEFROMCAPTURE` is tried first; Windows before 10 2004 refuses it and gets `WDA_MONITOR`, a
+black window in captures. This is best effort: failures are only logged, and only capture APIs that
+honor display affinity respect it. There is no preference, so the user's own screenshots of the panel
+are blank too. System folder pickers and update dialogs show no note content and are left alone; new
+browser windows are denied. Known gap: Chromium-native popups, such as the default context menu (which
+can show selected text in "Search the web for") and page `<select>` lists, are separate windows in the
+WebView2 process that the app's affinity does not reach.
 
 `panel.rs` is a pure state machine, without Win32 access:
 
