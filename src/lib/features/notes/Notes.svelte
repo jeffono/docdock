@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
-import { dateTime, errorText, folderCountText, t } from "../../i18n";
+import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
   type Note,
@@ -22,9 +22,9 @@ import {
   notesRewrite,
   notesSave,
   notesTexts,
+  notesTrashRestore,
   notesTrust,
   notesUndoDelete,
-  notesUndoDeleteFolder,
   type OpenNote,
   onNotesChanged,
   onPanelHidden,
@@ -38,6 +38,7 @@ import {
   pinnedRemove,
   pinnedRestore,
   pinnedSetCollapsed,
+  type Removal,
   webAddresses,
   webOpen,
   webOverlay,
@@ -46,7 +47,6 @@ import {
   webSuggestions,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
-import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
 import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
@@ -120,7 +120,6 @@ let {
 }: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
 
 let shortcutSheet: ShortcutSheet;
-let confirmDialog: ConfirmDialog;
 let movePicker: MovePicker;
 $effect(() => {
   if (inactive || browser) shortcutSheet?.close();
@@ -1045,23 +1044,39 @@ async function pinnedAction(action: () => Promise<Pinned>) {
 }
 
 /**
- * The last note deleted, or folder deleted without a Recycle Bin, offered for Undo until the panel
- * closes. `binless`: it waits in the notes folder's own trash and is deleted for good then.
+ * The last note or folder deleted, and how it comes back: `trash`, the entry in the trash inside the
+ * notes folder, which outlives the panel session; `undo`, a note Rust keeps for Undo from the Recycle
+ * Bin until the panel closes. Neither: the notice only says where it went.
  */
-let removed = $state<{ path: string; title: string; folder?: boolean; binless?: boolean } | null>(
-  null,
-);
+let removed = $state<{
+  path: string;
+  title: string;
+  folder: boolean;
+  trash: string | null;
+  undo: boolean;
+} | null>(null);
 let deleting = false;
 /** Why the app would not delete a note, until dismissed, the next delete or the panel hides. */
 let warning = $state("");
-/** The note being moved to the Recycle Bin; it cannot open in the editor meanwhile. */
+/** The note being deleted; it cannot open in the editor meanwhile. */
 let deletingPath = "";
 /** Counts panel hides: a delete that ends after one offers no Undo, which Rust no longer keeps. */
 let panelSession = 0;
+/** A delete's answer, also when only its pinned items could not follow; `problem` says so. */
+async function removal(work: Promise<Removal>): Promise<Removal & { problem: string }> {
+  try {
+    return { ...(await work), problem: "" };
+  } catch (e) {
+    const failed = e as { code?: string } & Partial<Removal>;
+    if (failed.code !== "pinnedNotRemoved") throw e;
+    return { undo: failed.undo === true, trash: failed.trash ?? null, problem: errorText(e) };
+  }
+}
 /**
- * Moves a note to the Recycle Bin once confirmed. Its editor is left first, the guarded way, so its
- * text is saved before the delete and nothing writes the note back afterwards; a conflict or error
- * there stops the delete. The selection moves to the next item, else the previous.
+ * Deletes a note at once: to the Recycle Bin, or to the trash inside the notes folder where the
+ * Recycle Bin cannot take it; the notice offers Undo. Its editor is left first, the guarded way, so
+ * its text is saved before the delete and nothing writes the note back afterwards; a conflict or
+ * error there stops the delete. The selection moves to the next item, else the previous.
  */
 async function deleteNote(card: Card) {
   if (deleting || card.url) return;
@@ -1069,14 +1084,6 @@ async function deleteNote(card: Card) {
   try {
     const title = card.hit.title;
     warning = "";
-    const header = list?.querySelector(`.card[data-path="${CSS.escape(card.hit.path)}"] header`);
-    const confirmed = await confirmDialog.ask(
-      t("delete.title", { title }),
-      t("delete.text"),
-      t("delete.confirm"),
-      header?.getBoundingClientRect(),
-    );
-    if (!confirmed) return;
     error = "";
     let path = card.hit.path;
     if (editing && path === selected) {
@@ -1089,32 +1096,8 @@ async function deleteNote(card: Card) {
     const session = panelSession;
     const at = keys.indexOf(path);
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
-    let problem = "";
-    let undo: boolean;
-    let binless = false;
-    try {
-      try {
-        undo = await notesDelete(path);
-      } catch (e) {
-        if ((e as { code?: string }).code !== "notRecyclable") throw e;
-        // No Recycle Bin here, as on an encrypted vault: deleting means for good once the panel closes.
-        const agreed = await confirmDialog.ask(
-          t("delete.binlessTitle", { title }),
-          t("delete.binlessText"),
-          t("delete.binlessConfirm"),
-          header?.getBoundingClientRect(),
-        );
-        if (!agreed) return;
-        binless = true;
-        undo = await notesDelete(path, true);
-      }
-    } catch (e) {
-      const failed = e as { code?: string; undo?: boolean };
-      if (failed.code !== "pinnedNotRemoved") throw e;
-      problem = errorText(e);
-      undo = failed.undo === true;
-    }
-    removed = undo && session === panelSession ? { path, title, binless } : null;
+    const { undo, trash, problem } = await removal(notesDelete(path));
+    removed = { path, title, folder: false, trash, undo: undo && session === panelSession };
     renamedAway.add(path);
     delete contents[path];
     if (expanded === path) expanded = "";
@@ -1132,29 +1115,31 @@ async function deleteNote(card: Card) {
 }
 /**
  * Puts the deleted note or folder back where it was, with its pinned items; it is a normal note or
- * folder again.
+ * folder again. From the trash it takes a free name if its own is taken.
  */
 async function undoDelete() {
   const item = removed;
   if (!item) return;
   error = "";
+  let path = item.path;
   try {
-    await (item.folder ? notesUndoDeleteFolder(item.path) : notesUndoDelete(item.path));
+    if (item.trash) path = await notesTrashRestore(item.trash, true);
+    else await notesUndoDelete(item.path);
   } catch (e) {
     const code = (e as { code?: string }).code;
     error = errorText(e);
-    if (code === "undoUnavailable") removed = null;
+    if (code === "undoUnavailable" || code === "trashItemMissing") removed = null;
     // Only the pinned items failed: the item is back. Otherwise, a taken name keeps Undo to retry.
     if (code !== "pinnedNotRestored") return;
   }
   removed = null;
   const inside = `${item.path.toLowerCase()}/`;
-  for (const path of renamedAway)
-    if (path === item.path || (item.folder && path.toLowerCase().startsWith(inside)))
-      renamedAway.delete(path);
+  for (const name of renamedAway)
+    if (name === item.path || (item.folder && name.toLowerCase().startsWith(inside)))
+      renamedAway.delete(name);
   // Focus first: an empty selection on focus would pick the first item.
   list?.focus({ preventScroll: true });
-  if (!item.folder) selection = item.path;
+  if (!item.folder) selection = path;
   changed({ renames: [] });
 }
 
@@ -1293,44 +1278,11 @@ async function deleteFolder() {
     await renamingTask;
     if (editing && inDeletingFolder(selected) && !(await leaveEditor())) return;
     if (opening && inDeletingFolder(opening)) opening = null;
-    let problem = "";
-    const session = panelSession;
-    let binless = false;
-    try {
-      let count = await notesDeleteFolder(path);
-      while (count !== null) {
-        if (
-          !(await confirmDialog.ask(
-            t("deleteFolder.title", { folder: path }),
-            t("deleteFolder.text", { counts: folderCountText(count) }),
-            t("delete.confirm"),
-            folderTarget?.getBoundingClientRect(),
-          ))
-        )
-          return;
-        try {
-          count = await notesDeleteFolder(path, true, binless);
-        } catch (e) {
-          if (binless || (e as { code?: string }).code !== "notRecyclable") throw e;
-          const agreed = await confirmDialog.ask(
-            t("deleteFolder.binlessTitle", { folder: path }),
-            t("deleteFolder.binlessText"),
-            t("delete.binlessConfirm"),
-            folderTarget?.getBoundingClientRect(),
-          );
-          if (!agreed) return;
-          binless = true;
-          count = await notesDeleteFolder(path, true, true);
-        }
-      }
-    } catch (e) {
-      if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
-      problem = errorText(e);
-    }
-    if (removed && inDeletingFolder(removed.path)) removed = null;
-    // Rust keeps a folder for Undo only from its own trash, and only within the panel session.
-    if (binless && session === panelSession)
-      removed = { path, title: path, folder: true, binless: true };
+    // Only a folder with notes says where it went; an empty one is just gone.
+    const hadNotes = notes.some((note) => inDeletingFolder(note.path));
+    const { trash, problem } = await removal(notesDeleteFolder(path));
+    if (trash || hadNotes) removed = { path, title: path, folder: true, trash, undo: false };
+    else if (removed && inDeletingFolder(removed.path)) removed = null;
     for (const note of notes) {
       if (!inDeletingFolder(note.path)) continue;
       renamedAway.add(note.path);
@@ -1817,7 +1769,6 @@ function shortcut(event: KeyboardEvent) {
   if (
     inactive ||
     shortcutSheet?.isOpen() ||
-    confirmDialog?.isOpen() ||
     movePicker?.isOpen() ||
     event.defaultPrevented ||
     event.isComposing
@@ -1927,8 +1878,8 @@ onMount(() => {
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden(() => {
     shortcutSheet.close();
-    // The panel forgot the deleted note; it stays in the Recycle Bin.
-    removed = null;
+    // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
+    if (!removed?.trash) removed = null;
     warning = "";
     panelSession++;
     stopScrolling();
@@ -1964,10 +1915,9 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !confirmDialog.isOpen() && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
-<ConfirmDialog bind:this={confirmDialog} />
 <MovePicker bind:this={movePicker} />
 <Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
@@ -2050,13 +2000,18 @@ onMount(() => {
   {#if ready || editing}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if removed}
-      {@const note = removed}
-      <Notice icon="trash">
-        {note.folder
-          ? t("deleteFolder.done", { folder: note.title })
-          : t(note.binless ? "delete.binlessDone" : "delete.done", { title: note.title })}
-        {#snippet actions()}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/snippet}
-      </Notice>
+      {@const item = removed}
+      {#key item}
+        <Notice icon="trash" attention={item.trash !== null || item.undo}>
+          {item.trash
+            ? t("delete.trashed", { title: item.title })
+            : t(item.folder ? "deleteFolder.done" : "delete.done", { title: item.title })}
+          {#snippet actions()}
+            {#if item.trash || item.undo}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/if}
+            <IconButton quiet icon="x" label={t("search.close")} onclick={() => { removed = null; }} />
+          {/snippet}
+        </Notice>
+      {/key}
     {/if}
     {#if warning}
       <Notice icon="alert">

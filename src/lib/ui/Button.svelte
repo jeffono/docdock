@@ -6,10 +6,14 @@ let {
   children,
   variant = "primary",
   ...rest
-}: HTMLButtonAttributes & { children: Snippet; variant?: "primary" | "neutral" } = $props();
+}: HTMLButtonAttributes & {
+  children: Snippet;
+  /** `danger`: an action that deletes for good. */
+  variant?: "primary" | "neutral" | "danger";
+} = $props();
 </script>
 
-<button class:neutral={variant === "neutral"} {...rest}>{@render children()}</button>
+<button class:neutral={variant === "neutral"} class:danger={variant === "danger"} {...rest}>{@render children()}</button>
 
 <style>
   button {
@@ -34,6 +38,10 @@ let {
     background: var(--color-surface);
     color: var(--color-muted);
     font-weight: 400;
+  }
+
+  button.danger {
+    background: var(--color-danger);
   }
 
   button.neutral:hover {

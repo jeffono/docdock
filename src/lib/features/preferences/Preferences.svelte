@@ -1,24 +1,30 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { errorText, type MessageKey, t } from "../../i18n";
+import { dateTime, errorText, type MessageKey, t } from "../../i18n";
 import {
   appAutostart,
   appSetAutostart,
   type NotesFolder,
   notesFolder,
+  notesTrash,
+  notesTrashEmpty,
+  notesTrashRestore,
   onAutostartChanged,
   onNotesChanged,
   type PanelFocus,
   panelResize,
   panelSetSide,
+  type TrashItem,
   vaultChoose,
   vaultClear,
 } from "../../ipc";
 import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
+import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
 import { folderNotice } from "../notes/folder-state";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
+import { relativeDate } from "../notes/relative-date";
 import ShortcutList from "../notes/ShortcutList.svelte";
 import ActivationShortcut from "./ActivationShortcut.svelte";
 import UnlockVault from "./UnlockVault.svelte";
@@ -26,7 +32,7 @@ import { loadVault, vaultPath } from "./vault-store";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
-const sections = ["general", "appearance", "browser", "shortcuts"] as const;
+const sections = ["general", "appearance", "browser", "shortcuts", "trash"] as const;
 const themes = ["system", "light", "dark"] as const;
 /** The panel's own width is the setting's current value. */
 let width = $state(window.innerWidth);
@@ -35,6 +41,58 @@ let folder = $state<NotesFolder | null>(null);
 let error = $state("");
 let busy = $state(false);
 let autostart = $state<boolean | null>(null);
+let confirm: ConfirmDialog;
+/** The trash inside the notes folder; null while the folder is away. */
+let trash = $state<TrashItem[] | null>([]);
+/** Where the last restored item went. */
+let restored = $state("");
+const away = ["noFolder", "folderUnavailable", "folderMissing", "folderUnrecognized"];
+async function loadTrash() {
+  try {
+    trash = await notesTrash();
+  } catch (e) {
+    if (!away.includes((e as { code?: string }).code ?? "")) throw e;
+    trash = null;
+  }
+}
+/** The item's name as the notes list shows it. */
+function trashName(item: TrashItem) {
+  const name = item.path.slice(item.path.lastIndexOf("/") + 1);
+  return item.folder ? name : name.replace(/\.md$/i, "");
+}
+function trashFolder(item: TrashItem) {
+  const at = item.path.lastIndexOf("/");
+  return at < 0 ? t("trash.root") : item.path.slice(0, at);
+}
+async function restore(item: TrashItem) {
+  restored = "";
+  await action(async () => {
+    try {
+      restored = await notesTrashRestore(item.id);
+    } finally {
+      await loadTrash();
+    }
+  });
+}
+async function emptyTrash() {
+  const count = trash?.length ?? 0;
+  const text = count === 1 ? t("trash.emptyOne") : t("trash.emptyMany", { count });
+  if (!(await confirm.ask(t("trash.emptyTitle"), text, t("trash.emptyConfirm"), undefined, true)))
+    return;
+  restored = "";
+  await action(async () => {
+    try {
+      await notesTrashEmpty();
+    } finally {
+      await loadTrash();
+    }
+  });
+}
+$effect(() => {
+  if (section !== "trash") return;
+  restored = "";
+  void action(loadTrash);
+});
 async function action(work: () => Promise<void>) {
   busy = true;
   error = "";
@@ -60,9 +118,11 @@ onMount(() => {
     await loadVault();
   });
   const notesChanged = onNotesChanged(() => {
-    void refreshFolder().catch((e) => {
-      error = errorText(e);
-    });
+    void refreshFolder()
+      .then(() => (section === "trash" ? loadTrash() : undefined))
+      .catch((e) => {
+        error = errorText(e);
+      });
   });
   let disposed = false;
   let unlisten: (() => void) | undefined;
@@ -90,6 +150,8 @@ onMount(() => {
 </script>
 
 <svelte:window bind:innerWidth={width} />
+
+<ConfirmDialog bind:this={confirm} />
 
 <section aria-label={t("preferences.title")}>
   <h1>{t("preferences.title")}</h1>
@@ -142,6 +204,29 @@ onMount(() => {
       </div>
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
+    {:else if section === "trash"}
+      <div class="setting">
+        <p>{t("trash.about")}</p>
+        {#if trash === null}
+          <p>{t("trash.unavailable")}</p>
+        {:else if trash.length === 0}
+          <p>{t("trash.empty")}</p>
+        {:else}
+          <ul class="trash">
+            {#each trash as item (item.id)}
+              <li>
+                <div class="item">
+                  <span class="name">{trashName(item)}</span>
+                  <small>{trashFolder(item)} · <span title={dateTime(item.deleted)}>{relativeDate(item.deleted, Date.now(), document.documentElement.lang || "en")}</span></small>
+                </div>
+                <Button variant="neutral" disabled={busy} onclick={() => restore(item)}>{t("trash.restore")}</Button>
+              </li>
+            {/each}
+          </ul>
+          <Button variant="danger" disabled={busy} onclick={emptyTrash}>{t("trash.emptyAction")}</Button>
+        {/if}
+        {#if restored}<p class="restored" role="status">{t("trash.restored", { path: restored })}</p>{/if}
+      </div>
     {:else}
       <ActivationShortcut />
       <ShortcutList />
@@ -152,7 +237,7 @@ onMount(() => {
 <style>
 section { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4) var(--panel-inset-right) var(--space-4) var(--panel-inset-left); }
 h1 { font-size: var(--font-size-xl); margin: 0 0 var(--space-3); font-weight: 600; }
-nav { display: flex; gap: var(--space-1); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-line); }
+nav { display: flex; flex-wrap: wrap; gap: var(--space-1); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-line); }
 nav button { font: inherit; color: var(--color-muted); background: transparent; border: 0; border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); }
 nav button:hover, nav button.active { background: var(--color-surface); color: var(--color-fg); }
 nav button.active { font-weight: 600; }
@@ -165,4 +250,10 @@ p[role="alert"] { color: var(--color-danger); }
 fieldset { border: 0; padding: 0; margin: var(--space-4) 0; }
 label { display: inline-flex; align-items: center; gap: var(--space-1); margin-right: var(--space-4); }
 input { accent-color: var(--color-accent); }
+.trash { list-style: none; margin: 0 0 var(--space-3); padding: 0; border-top: 1px solid var(--color-line); }
+.trash li { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-line); }
+.item { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); font-size: var(--font-size-sm); }
+.restored { margin-top: var(--space-3); overflow-wrap: anywhere; }
 </style>

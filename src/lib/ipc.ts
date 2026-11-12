@@ -159,30 +159,38 @@ export const notesFolders = () => invoke<{ path: string; empty: boolean }[]>("no
 /** Creates a folder, nested with `/`, keeping one that exists; `invalidFolderName` otherwise. */
 export const notesCreateFolder = (path: string) => invoke<void>("notes_create_folder", { path });
 /**
- * Empty folders go at once; a note count asks for confirmation. null means deleted. `binless` as for
- * `notesDelete`; only such a folder can come back, through `notesUndoDeleteFolder`.
+ * Where a deleted note or folder went. `undo`: `notesUndoDelete` can bring the note back from the
+ * Recycle Bin until the panel closes. `trash`: the Recycle Bin could not take it, as on an encrypted
+ * vault or a network folder, so it went to the trash inside the notes folder for 30 days, as this
+ * entry, which `notesTrashRestore` brings back.
  */
-export const notesDeleteFolder = (path: string, confirmed = false, binless = false) =>
-  invoke<{ notes: number; other: number } | null>("notes_delete_folder", {
-    path,
-    confirmed,
-    binless,
-  });
+export type Removal = { undo: boolean; trash: string | null };
 /**
- * Moves a note to the Recycle Bin and removes its pinned items. Resolves to whether, until the panel
- * closes, `notesUndoDelete` can bring both back; meanwhile saves or renames to its path answer a
- * conflict. `notRecyclable`: the Recycle Bin would not take it, as on an encrypted vault or a network
- * folder, and the note stays where it is. `binless`, once the user agreed to delete for good: the
- * note waits in a hidden trash inside the notes folder, for Undo, until the panel closes.
- * `pinnedNotRemoved` (with `undo`): the note was deleted all the same.
+ * Deletes a folder and everything in it at once. Its notes' pinned items are removed;
+ * `pinnedNotRemoved` (with the `Removal` fields): the folder was deleted all the same.
  */
-export const notesDelete = (path: string, binless = false) =>
-  invoke<boolean>("notes_delete", { path, binless });
+export const notesDeleteFolder = (path: string) => invoke<Removal>("notes_delete_folder", { path });
+/**
+ * Deletes a note and removes its pinned items. While `notesUndoDelete` can bring it back, saves or
+ * renames to its path answer a conflict. `pinnedNotRemoved` (with the `Removal` fields): the note was
+ * deleted all the same.
+ */
+export const notesDelete = (path: string) => invoke<Removal>("notes_delete", { path });
 /** `restoreTaken`: a file took the name; nothing changed and undoing stays possible. */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
-/** As `notesUndoDelete`, for a folder deleted with `binless`. */
-export const notesUndoDeleteFolder = (path: string) =>
-  invoke<void>("notes_undo_delete_folder", { path });
+/** An item in the trash inside the notes folder; `deleted` is in ms since the Unix epoch. */
+export type TrashItem = { id: string; path: string; folder: boolean; deleted: number };
+/** Newest first. */
+export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
+/**
+ * Moves an item back to its path, or a free name such as "name (2).md" when that is taken, and
+ * resolves to the path it took. `undo` also puts back the pinned items its delete removed.
+ * `trashItemMissing`: it is no longer in the trash.
+ */
+export const notesTrashRestore = (id: string, undo = false) =>
+  invoke<string>("notes_trash_restore", { id, undo });
+/** Deletes everything in the trash for good. */
+export const notesTrashEmpty = () => invoke<void>("notes_trash_empty");
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },

@@ -133,7 +133,11 @@ onMount(() => {
       preferences &&
       event.key === "Escape" &&
       !event.isComposing &&
-      !(event.target instanceof Element && event.target.closest("[popover]:popover-open"))
+      // An open menu or dialog takes its own Esc.
+      !(
+        event.target instanceof Element &&
+        event.target.closest("[popover]:popover-open, dialog[open]")
+      )
     ) {
       event.preventDefault();
       event.stopImmediatePropagation();
