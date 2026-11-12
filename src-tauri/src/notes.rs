@@ -73,6 +73,14 @@ struct Settings {
     /// Pinned targets shown as one line on this computer; the rest start as previews.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     collapsed: BTreeSet<String>,
+    /// Random id of this installation, naming its entries in the notes folder's own trash so another
+    /// computer syncing the folder leaves them alone (`trash.rs`).
+    #[serde(
+        default,
+        deserialize_with = "text_or_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    install_id: Option<String>,
 }
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -996,7 +1004,10 @@ fn delete_folder_in(
             .folders
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
     }
-    let undo = folder_undo(root, relative).is_some();
+    let undo = deleted()
+        .folders
+        .iter()
+        .any(|d| d.root == root && d.path == relative);
     let change = std::cell::RefCell::new(None);
     edit_pinned(root, |text| {
         let edited = pinned::parse(text)
@@ -1012,17 +1023,15 @@ fn delete_folder_in(
         eprintln!("[delete folder] pinned items not removed: {error:?}");
         Error::PinnedNotRemoved { undo }
     })?;
-    if let Some(at) = folder_undo(root, relative) {
-        deleted().folders[at].pinned = change.into_inner();
+    // One guard: the panel hiding meanwhile clears the folders.
+    if let Some(entry) = deleted()
+        .folders
+        .iter_mut()
+        .find(|d| d.root == root && d.path == relative)
+    {
+        entry.pinned = change.into_inner();
     }
     Ok(None)
-}
-/// Where Undo keeps the folder `relative` deleted from `root`, if it does.
-fn folder_undo(root: &Path, relative: &str) -> Option<usize> {
-    deleted()
-        .folders
-        .iter()
-        .position(|d| d.root == root && d.path == relative)
 }
 /// Moves a folder deleted to the notes folder's own trash back to its path, never over a file or
 /// folder that took the name since (`RestoreTaken`, and Undo stays possible). Its pinned items return
@@ -1265,19 +1274,40 @@ pub fn forget_deleted() {
     trash.session += 1;
     trash.notes.clear();
     trash.folders.clear();
-    let (roots, session) = (trash.roots.clone(), trash.session);
+    let roots = trash.roots.clone();
     std::thread::spawn(move || {
         for root in roots {
-            trash::purge(&root, session);
+            trash::purge(&root, live_session);
         }
     });
 }
-/// Deletes for good what an earlier run left in the notes folder's own trash: at startup and when a
-/// folder is chosen. The current session's entries stay.
+/// The live panel session, which the trash purge reads for each entry it judges.
+fn live_session() -> u64 {
+    deleted().session
+}
+/// Deletes for good what may go from the notes folder's own trash, such as what an earlier run left:
+/// on choosing a folder, and at startup through `start_trash`.
 pub fn purge_trash(app: &AppHandle) {
     let Ok(root) = root(app) else { return };
-    let session = deleted().session;
-    std::thread::spawn(move || trash::purge(&root, session));
+    std::thread::spawn(move || trash::purge(&root, live_session));
+}
+/// At startup: names this installation for the trash, creating its id once, then purges.
+pub fn start_trash(app: &AppHandle) {
+    let mut id = config(app)
+        .ok()
+        .and_then(|path| load(&path).install_id)
+        .filter(|id| trash::valid_install_id(id));
+    if id.is_none() {
+        let new = trash::new_install_id();
+        // Unsaved, the id lasts this run: entries left behind then go after the foreign age.
+        let saved = update(app, |settings| settings.install_id = Some(new.clone()));
+        if let Err(error) = saved {
+            eprintln!("[trash] installation id not saved: {error:?}");
+        }
+        id = Some(new);
+    }
+    trash::set_install(id.unwrap_or_default());
+    purge_trash(app);
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1682,6 +1712,7 @@ pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trash::tests::earlier_run_entry;
     use std::time::{SystemTime, UNIX_EPOCH};
     struct Temp(PathBuf);
     impl Temp {
@@ -2606,7 +2637,7 @@ mod tests {
         assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
         // Purging leaves a linked trash and what it points at alone.
         fs::write(outside.join("other.md"), "keep").unwrap();
-        trash::purge(&root, u64::MAX);
+        trash::purge(&root, || u64::MAX);
         assert_eq!(
             fs::read_to_string(outside.join("other.md")).unwrap(),
             "keep"
@@ -2616,24 +2647,36 @@ mod tests {
     fn purging_removes_links_in_the_trash_without_following_them() {
         let t = Temp::new();
         let (root, outside) = (t.0.join("notes"), t.0.join("outside"));
-        fs::create_dir_all(root.join(trash::DIR).join("1-0-0 folder")).unwrap();
+        let folder = root.join(trash::DIR).join(earlier_run_entry("folder"));
+        fs::create_dir_all(&folder).unwrap();
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("other.md"), "keep").unwrap();
-        assert!(mklink(
-            &["/J"],
-            &root.join(trash::DIR).join("1-0-1 link"),
-            &outside
-        ));
-        assert!(mklink(
-            &["/J"],
-            &root.join(trash::DIR).join("1-0-0 folder").join("link"),
-            &outside
-        ));
-        trash::purge(&root, u64::MAX);
+        let link = root.join(trash::DIR).join(earlier_run_entry("link"));
+        assert!(mklink(&["/J"], &link, &outside));
+        assert!(mklink(&["/J"], &folder.join("link"), &outside));
+        trash::purge(&root, || 0);
         assert!(!exists(&root.join(trash::DIR)));
         assert_eq!(
             fs::read_to_string(outside.join("other.md")).unwrap(),
             "keep"
+        );
+    }
+    #[test]
+    fn a_purge_never_takes_an_entry_of_the_live_session() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "only copy").unwrap();
+        // A purge scheduled when the panel last hid, still running in the next session.
+        let earlier = live_session();
+        forget_deleted();
+        delete_folder_in(&t.0, "folder", true, |p| to_trash(&t.0, p)).unwrap();
+        trash::purge(&t.0, || earlier);
+        trash::purge(&t.0, live_session);
+        assert_eq!(undo_delete_folder_in(&t.0, "folder"), Ok(()));
+        assert_eq!(
+            fs::read_to_string(t.0.join("folder/a.md")).unwrap(),
+            "only copy"
         );
     }
     #[test]

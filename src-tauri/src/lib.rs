@@ -97,7 +97,7 @@ pub fn run() {
             let (requests, receiver) = mpsc::channel();
             tray::setup(app, locale, side, requests.clone())?;
             app.manage(locale);
-            notes::purge_trash(app.handle());
+            notes::start_trash(app.handle());
             updates::start(app.handle());
             shortcut::setup(app, requests.clone());
             app.manage(requests);

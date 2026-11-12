@@ -417,17 +417,29 @@ flight is dropped.
 closes, then calls `notes_delete` or `notes_delete_folder` with `binless`. `trash.rs` moves the item
 with `move_new` into `.docdock-trash` at the root of the notes folder, a rename on the same volume, so
 nothing leaves the folder or the vault and the move is whole or not at all. The trash is created if
-needed and held with its ancestry, so a link planted under its name is refused. Entries are named
-`<pid>-<session>-<n> <name>`, unique and readable; everything else (Undo bytes, reservation, pinned
-items) works as for the Recycle Bin. Being hidden, the trash is skipped by listing, search, tags,
-folder labels and the watcher, which reports the move as a deletion. When the panel hides,
-`forget_deleted` purges, on a thread of its own, every entry that the new session did not make, in
-each notes folder whose trash took something during the run; at startup and on choosing a folder, the
-same purge removes what an earlier run left. Purging removes links inside without following them,
-leaves a trash that is a link alone, and keeps what it cannot remove (a locked vault) for the next
-purge. A synced notes folder syncs the trash too until the purge: in a vault, encrypted like the
-rest. Attachments stay beside a deleted note, as with the Recycle Bin; a deleted folder takes its
+needed and held with its ancestry, so a link planted under its name is refused. Everything else
+(Undo bytes, reservation, pinned items) works as for the Recycle Bin. Being hidden, the trash is
+skipped by listing, search, tags, folder labels and the watcher, which reports the move as a
+deletion. Attachments stay beside a deleted note, as with the Recycle Bin; a deleted folder takes its
 own along.
+
+Entries are named `<install>-<run>-<session>-<created>-<n> <name>`: a random installation id kept in
+`settings.json` (created at startup; not derived from notes), a random id of the run, the panel
+session, the creation time in ms and a counter. A purge removes this run's entries only once their
+session has ended, an earlier run's entries of this installation at once (one instance per computer),
+and another installation's only when their creation time is over 7 days old, since that computer's
+panel may still offer their Undo in a synced folder. Names in no such form are not DocDock's and
+stay. The trade-off: another computer's deleted items linger up to 7 days in the synced folder
+(encrypted in a vault), and an item whose Undo stays offered longer than that on another computer
+can go. When the panel hides, `forget_deleted` purges on a thread of its own each notes folder whose
+trash took something during the run; startup (`start_trash`) and choosing a folder purge the current
+one. The purge reads the live session again for each entry, under the deleted-items lock: a session
+that has ended never offers Undo again (hiding clears it, and a delete records Undo only if its
+session is still live after the move), so a purge that started long ago cannot remove a newer
+session's entry, and folder Undo, which moves the entry back under the same lock, never races it.
+Purging removes links inside without following them, leaves a trash that is a link alone, and keeps
+what it cannot remove (a locked vault) for the next purge. A synced notes folder syncs the trash too
+until the purge: in a vault, encrypted like the rest.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
