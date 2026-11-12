@@ -270,6 +270,8 @@ pinned and unpinned notes differ only in section and starting state.
 | Shift+F10 / Menu          | Open the selected note or folder menu                                                                  |
 | Ctrl+Enter                | Create a note with the exact typed text                                                                |
 | Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below                      |
+| Ctrl+Shift+D              | Toggle the panel pin                                                                                   |
+| Ctrl+,                    | Open / close Preferences                                                                               |
 | Ctrl+/                    | Open / close the shortcut sheet                                                                        |
 | Ctrl+E                    | Toggle editing on the selected card                                                                    |
 | Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
@@ -297,11 +299,11 @@ Notes query so returning to Notes starts with an empty search.
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the Preferences gear and panel pin. The panel is 460 logical pixels wide by default;
+controls, then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
 a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
-Button tooltips include their working shortcuts. There is no app name or page title. The same search
+Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
 field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.

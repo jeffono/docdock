@@ -20,7 +20,7 @@ Quick fixes first: the search tasks in M7 build on the new Esc and search behavi
   `standard`
 - [ ] A pinned panel releases focus: Esc or the global shortcut from the search bar returns focus to the
   previous app, as when unpinned, and the panel stays shown. `advanced`
-- [ ] Panel shortcuts: Ctrl+, opens and closes Preferences; Ctrl+Shift+D pins and unpins the panel (Ctrl+D
+- [x] Panel shortcuts: Ctrl+, opens and closes Preferences; Ctrl+Shift+D pins and unpins the panel (Ctrl+D
   already pins a card). Add them to tooltips and the shortcut sheet. `basic`
 - [ ] "Start with Windows" in Preferences > General, through `platform/autostart.rs` and mirrored with the
   tray item. `standard`
