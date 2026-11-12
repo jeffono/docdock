@@ -231,7 +231,8 @@ pinned and unpinned notes differ only in section and starting state.
   too large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
   another app, Esc from the search bar, or the shortcut from the search bar. A pinned panel only
-  closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
+  closes by unpinning: Esc or the shortcut from its search bar returns focus to the previous app and it
+  stays shown; the shortcut then takes focus back. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on

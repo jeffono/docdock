@@ -27,7 +27,7 @@ export function panelSetPinned(pinned: boolean): Promise<void> {
   return invoke("panel_set_pinned", { pinned });
 }
 
-/** Closes a focused or cursor-opened panel; a pinned one stays. */
+/** Closes a focused or cursor-opened panel; a pinned one stays shown and returns focus to the previous app. */
 export function panelClose(): Promise<void> {
   return invoke("panel_close");
 }

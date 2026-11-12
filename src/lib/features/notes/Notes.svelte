@@ -1422,7 +1422,7 @@ async function closePanel() {
 
 /**
  * Esc, in layers: leave editing; return to the bar; from the bar, close
- * the panel. A pinned panel stays.
+ * the panel. A pinned panel stays shown and returns focus to the previous app.
  */
 function escapeKey(inBar: boolean) {
   if (showingHistory) {

@@ -18,7 +18,7 @@ Quick fixes first: the search tasks in M7 build on the new Esc and search behavi
   the search. The expanded note stays expanded until collapsed or another note expands, and the list
   keeps its scroll until the user scrolls; hiding the panel or losing focus changes neither.
   `standard`
-- [ ] A pinned panel releases focus: Esc or the global shortcut from the search bar returns focus to the
+- [x] A pinned panel releases focus: Esc or the global shortcut from the search bar returns focus to the
   previous app, as when unpinned, and the panel stays shown. `advanced`
 - [ ] Panel shortcuts: Ctrl+, opens and closes Preferences; Ctrl+Shift+D pins and unpins the panel (Ctrl+D
   already pins a card). Add them to tooltips and the shortcut sheet. `basic`

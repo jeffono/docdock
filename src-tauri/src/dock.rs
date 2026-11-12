@@ -38,7 +38,7 @@ pub enum Request {
     Activate,
     SetPinned(bool),
     SetDialog(bool),
-    /// Escape in the empty search bar, or the shortcut while already there.
+    /// Escape in the search bar, or the shortcut while already there; pinned, only releases focus.
     Close,
     /// The web page window was created and is still invisible.
     AttachWeb(isize),
@@ -471,6 +471,13 @@ impl Dock {
         }
     }
 
+    /// Returns focus to the previous app. If the user already clicked another app, leave its focus alone.
+    fn release_focus(&mut self) {
+        if self.is_foreground() {
+            platform::restore_focus(self.previous_focus);
+        }
+    }
+
     fn apply(&mut self, action: Action) {
         match action {
             Action::None => {}
@@ -486,13 +493,12 @@ impl Dock {
                 }
             }
             Action::Hide => {
-                // If the user already clicked another app, leave its focus alone.
-                if self.is_foreground() {
-                    platform::restore_focus(self.previous_focus);
-                }
+                self.release_focus();
                 self.set_enabled(false);
                 self.slide = Some(Slide::new(self.x, self.parked_x));
             }
+            // The panel is foreground, so Windows lets it hand focus over.
+            Action::Release => self.release_focus(),
         }
     }
 

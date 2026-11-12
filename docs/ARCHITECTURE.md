@@ -113,7 +113,8 @@ per-monitor DPI awareness (PMv2).
   opened by cursor or summoned, the panel opens at once if needed, takes focus and becomes summoned; pinned,
   it takes focus and stays pinned. Rust then emits `panel-search` with `toggle`, whether the panel window
   was already foreground before the press. The UI focuses the search bar and selects its text, or, with
-  `toggle` and the bar already focused, asks to close (`panel_close`), which a pinned panel ignores.
+  `toggle` and the bar already focused, asks to close (`panel_close`); a pinned panel stays shown and only
+  returns focus to the previous app, like Esc in its search bar.
   Deciding in the UI avoids mirroring the bar's focus in Rust; reading `toggle` before activating keeps a
   bar that kept DOM focus in a hidden or hover-opened panel from counting. With the native picker open,
   it does nothing: the picker is modal and would re-enable the hidden panel window.
@@ -123,6 +124,9 @@ per-monitor DPI awareness (PMv2).
   panel focus, and the native picker keeps it open. Null focus, common during system transitions, is
   ignored. After closing this way, the edge only takes effect again once the cursor leaves it. Without
   focus (hover only), the panel never takes it and closes when the cursor leaves.
+- **Pinned:** neither the cursor nor focus closes it. A close request from the UI returns focus to the
+  previous app, as closing does, but the panel stays shown; the previous app is the last foreground window
+  outside the panel, tracked at each poll. Being foreground, the panel may hand focus over.
 - **Shortcut activation:** the key gives the process the right to use `SetForegroundWindow`, provided the
   window is already enabled. If activation fails, with no focus to lose, the panel follows the cursor rule
   and does not get stuck over other windows.
