@@ -112,7 +112,10 @@ const en = {
   "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
-  "notes.unavailable": "The notes folder is not available.",
+  "notes.unavailable":
+    "The notes folder is unavailable, as on a locked vault, an unplugged drive or an offline share. It opens again when it is back.",
+  "notes.missing":
+    "The notes folder was not found. It opens again if it comes back; if it was moved or renamed, choose it again.",
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
   "notes.gone": "This note was moved or deleted outside the app.",
@@ -165,6 +168,10 @@ const en = {
   "editor.updated": "Updated from disk",
   "editor.undo": "Undo",
   "editor.deleted": "Deleted outside the app; your next edit recreates it.",
+  "editor.folderUnavailable":
+    "The notes folder is unavailable. Your text stays here and is saved when the folder is back.",
+  "editor.folderMissing":
+    "The notes folder was not found. Your text stays here and is saved if the folder comes back.",
   "editor.toggle": "Edit (Ctrl+E)",
   "editor.saving": "Saving…",
   "editor.saved": "Saved",
@@ -208,7 +215,8 @@ const en = {
   "error.unexpected": "Something went wrong: {detail}",
   "error.clipboard": "Could not copy: another app is using the clipboard. Try again.",
   "error.noFolder": "Choose a notes folder.",
-  "error.folderUnavailable": "The notes folder is not available.",
+  "error.folderUnavailable": "The notes folder is unavailable.",
+  "error.folderMissing": "The notes folder was not found.",
   "error.invalidPath": "Invalid file path.",
   "error.folderNameTaken": "A file named “{name}” is already there; choose another folder name.",
   "error.invalidFolderName":
@@ -364,7 +372,10 @@ const ptBR: Record<MessageKey, string> = {
   "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
-  "notes.unavailable": "A pasta de notas não está disponível.",
+  "notes.unavailable":
+    "A pasta de notas está indisponível, como num cofre trancado, num disco desconectado ou numa rede offline. Ela abre de novo quando voltar.",
+  "notes.missing":
+    "A pasta de notas não foi encontrada. Ela abre de novo se voltar; se foi movida ou renomeada, escolha-a de novo.",
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
@@ -417,6 +428,10 @@ const ptBR: Record<MessageKey, string> = {
   "editor.updated": "Atualizada do disco",
   "editor.undo": "Desfazer",
   "editor.deleted": "Apagada fora do app; sua próxima edição a recria.",
+  "editor.folderUnavailable":
+    "A pasta de notas está indisponível. Seu texto fica aqui e é salvo quando a pasta voltar.",
+  "editor.folderMissing":
+    "A pasta de notas não foi encontrada. Seu texto fica aqui e é salvo se a pasta voltar.",
   "editor.toggle": "Editar (Ctrl+E)",
   "editor.saving": "Salvando…",
   "editor.saved": "Salvo",
@@ -461,7 +476,8 @@ const ptBR: Record<MessageKey, string> = {
   "error.clipboard":
     "Não foi possível copiar: outro app está usando a área de transferência. Tente de novo.",
   "error.noFolder": "Escolha uma pasta de notas.",
-  "error.folderUnavailable": "A pasta de notas não está disponível.",
+  "error.folderUnavailable": "A pasta de notas está indisponível.",
+  "error.folderMissing": "A pasta de notas não foi encontrada.",
   "error.invalidPath": "Caminho de arquivo inválido.",
   "error.folderNameTaken":
     "Já existe um arquivo chamado “{name}” ali; escolha outro nome de pasta.",

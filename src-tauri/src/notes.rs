@@ -69,9 +69,6 @@ struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     activation_shortcut: Option<String>,
-    /// Pinned targets shown as one line on this computer; the rest start as previews.
-    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-    collapsed: BTreeSet<String>,
 }
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -176,7 +173,52 @@ fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>
 #[derive(Serialize)]
 pub struct Folder {
     path: String,
-    available: bool,
+    state: Availability,
+}
+/// Whether the notes folder can be used. Neither `Unavailable` nor `Missing` is ever created: under a
+/// locked vault's mount point, a new folder would put plaintext on the unencrypted disk.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Availability {
+    Available,
+    /// Its volume, share or a folder above it is gone or unreadable: a locked vault, an unplugged
+    /// drive, an offline share.
+    Unavailable,
+    /// The folder above it is there but the folder is not: deleted, moved, or itself the mount point
+    /// of a locked vault, which cannot be told apart.
+    Missing,
+}
+/// What looking at a path found.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Probe {
+    Folder,
+    /// Nothing, or a file, has the name.
+    Absent,
+    /// Any other failure, such as access denied or a network error.
+    Unreadable,
+}
+/// A folder is `Missing` only when its parent is readable and shows it absent; whatever cannot be
+/// told is `Unavailable`. A volume root has no parent, so a drive or share that left is unavailable.
+fn availability(folder: Probe, parent: Option<Probe>) -> Availability {
+    match (folder, parent) {
+        (Probe::Folder, _) => Availability::Available,
+        (Probe::Absent, Some(Probe::Folder)) => Availability::Missing,
+        _ => Availability::Unavailable,
+    }
+}
+fn probe(path: &Path) -> Probe {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Probe::Folder,
+        Ok(_) => Probe::Absent,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Probe::Absent,
+        Err(_) => Probe::Unreadable,
+    }
+}
+fn folder_availability(path: &Path) -> Availability {
+    match probe(path) {
+        Probe::Folder => Availability::Available,
+        folder => availability(folder, path.parent().map(probe)),
+    }
 }
 #[derive(Serialize)]
 pub struct Note {
@@ -233,6 +275,9 @@ static SETTINGS: Mutex<()> = Mutex::new(());
 fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<(), Error> {
     let path = config(app)?;
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(root) = read_settings(&path) {
+        try_migrate_derived(&root, &path);
+    }
     let mut settings = load(&path);
     change(&mut settings);
     save(&path, &settings)
@@ -255,15 +300,31 @@ pub fn set_activation_shortcut(app: &AppHandle, shortcut: Option<String>) -> Res
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
     Ok(read_settings(&config(app)?).map(|p| Folder {
         path: p.to_string_lossy().into_owned(),
-        available: p.is_dir(),
+        state: folder_availability(&p),
     }))
+}
+/// The folder in use and whether it is available, for the watch that notices it leave and return.
+pub fn folder_state(app: &AppHandle) -> Option<(PathBuf, Availability)> {
+    let path = read_settings(&config(app).ok()?)?;
+    let state = folder_availability(&path);
+    Some((path, state))
 }
 fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
     let parent = path
         .parent()
         .ok_or_else(|| Error::unexpected("settings path has no folder"))?;
     fs::create_dir_all(parent)?;
-    let bytes = serde_json::to_vec(settings).map_err(Error::unexpected)?;
+    let mut value = serde_json::to_value(settings).map_err(Error::unexpected)?;
+    // Preserve a pending legacy migration during preference changes while the vault is locked.
+    if let Ok(bytes) = fs::read(path)
+        && let Ok(old) = serde_json::from_slice::<serde_json::Value>(&bytes)
+        && let Some(collapsed) = old.get("collapsed")
+        && old.get("folder") == value.get("folder")
+    {
+        value["collapsed"] = collapsed.clone();
+    }
+    // Changing folders discards only obsolete UI state, never note content.
+    let bytes = serde_json::to_vec(&value).map_err(Error::unexpected)?;
     Ok(write_atomic(path, &bytes)?)
 }
 /// Writes a complete temporary file next to `path` and renames it over `path` in one step. Any failure
@@ -340,10 +401,15 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
 }
 fn root(app: &AppHandle) -> Result<PathBuf, Error> {
     let path = read_settings(&config(app)?).ok_or(Error::NoFolder)?;
-    if !path.is_dir() {
-        return Err(Error::FolderUnavailable);
+    match folder_availability(&path) {
+        Availability::Available => {
+            let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+            try_migrate_derived(&path, &config(app)?);
+            Ok(path)
+        }
+        Availability::Unavailable => Err(Error::FolderUnavailable),
+        Availability::Missing => Err(Error::FolderMissing),
     }
-    Ok(path)
 }
 fn markdown(path: &Path) -> bool {
     path.extension()
@@ -797,13 +863,11 @@ fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
     if matches!(result, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
         // Best effort: the note has moved, and an error here would hide that from the editor, whose
         // next save would bring the old name back. A lost collapsed state only shows the card open.
-        let _ = update(app, |settings| {
-            let before = settings.collapsed.len();
-            settings
-                .collapsed
-                .retain(|target| target.to_lowercase() != from.to_lowercase());
-            if settings.collapsed.len() != before {
-                settings.collapsed.insert(to.to_owned());
+        let _ = update_collapsed(app, |collapsed| {
+            let before = collapsed.len();
+            collapsed.retain(|target| target.to_lowercase() != from.to_lowercase());
+            if collapsed.len() != before {
+                collapsed.insert(to.to_owned());
             }
         });
     }
@@ -1158,7 +1222,7 @@ pub struct PinnedItem {
     item: pinned::Item,
     /// A note that no longer exists at that path; the UI offers to remove the item.
     missing: bool,
-    /// Shown as one line on this computer.
+    /// Shown as one line in this notes folder.
     collapsed: bool,
 }
 #[derive(Serialize)]
@@ -1168,38 +1232,131 @@ pub struct Pinned {
     /// `_pinned.md` is gone but a copy of its last read version can bring it back.
     restorable: bool,
 }
-/// The last version of `_pinned.md` read in `folder`, kept in `app_config_dir` so a deleted file can come
-/// back. One slot: it follows the folder in use.
+/// The last version of `_pinned.md`, kept inside the notes folder for restoration.
 #[derive(Serialize, Deserialize)]
 struct PinnedCopy {
     folder: PathBuf,
     text: String,
 }
 fn copy_path(app: &AppHandle) -> Result<PathBuf, Error> {
-    Ok(config(app)?.with_file_name("pinned-copy.json"))
+    Ok(derived_dir(&root(app)?)?.join("pinned-copy.json"))
+}
+/// Hidden from listing, search and watcher; never creates the notes root or follows a link.
+fn derived_dir(root: &Path) -> Result<PathBuf, Error> {
+    let _held = hold_ancestry(root)?;
+    let dir = root.join(".docdock");
+    match fs::create_dir(&dir) {
+        Ok(()) => (),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
+        Err(error) => return Err(error.into()),
+    }
+    let _held = hold_ancestry(&dir)?;
+    Ok(dir)
+}
+fn read_collapsed(dir: &Path) -> Result<BTreeSet<String>, Error> {
+    match fs::read(dir.join("collapsed.json")) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(Error::unexpected),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+static COLLAPSED: Mutex<()> = Mutex::new(());
+fn update_collapsed(
+    app: &AppHandle,
+    change: impl FnOnce(&mut BTreeSet<String>),
+) -> Result<(), Error> {
+    let root = root(app)?;
+    let _guard = COLLAPSED.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = derived_dir(&root)?;
+    let _held = hold_ancestry(&dir)?;
+    let mut collapsed = read_collapsed(&dir)?;
+    change(&mut collapsed);
+    write_atomic(
+        &dir.join("collapsed.json"),
+        &serde_json::to_vec(&collapsed).map_err(Error::unexpected)?,
+    )?;
+    Ok(())
+}
+/// Called under SETTINGS, before changing the configured folder. Unavailable folders leave legacy
+/// bytes untouched and unread. Destination files win after a crash between write and cleanup.
+fn try_migrate_derived(root: &Path, settings: &Path) {
+    if let Err(error) = migrate_derived(root, settings) {
+        // Legacy restoration data must never lock the user out of ordinary notes/preferences.
+        eprintln!("[pinned] derived-state migration deferred: {error:?}");
+    }
+}
+fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
+    if folder_availability(root) != Availability::Available {
+        return Ok(());
+    }
+    let _held = hold_ancestry(root)?;
+    let legacy = settings.with_file_name("pinned-copy.json");
+    if legacy.try_exists()? {
+        let copy =
+            read_copy(&legacy).ok_or_else(|| Error::unexpected("invalid legacy pinned copy"))?;
+        // A copy for an earlier folder stays until that folder is selected and available again.
+        if copy.folder == root {
+            let dir = derived_dir(root)?;
+            let _held = hold_ancestry(&dir)?;
+            let dest = dir.join("pinned-copy.json");
+            if !dest.try_exists()? {
+                write_atomic(
+                    &dest,
+                    &serde_json::to_vec(&copy).map_err(Error::unexpected)?,
+                )?;
+            }
+            read_copy(&dest).ok_or_else(|| Error::unexpected("invalid destination pinned copy"))?;
+            fs::remove_file(&legacy)?;
+        }
+    }
+    let Ok(bytes) = fs::read(settings) else {
+        return Ok(());
+    };
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(Error::unexpected)?;
+    if let Some(old) = value.get("collapsed") {
+        let dir = derived_dir(root)?;
+        let _held = hold_ancestry(&dir)?;
+        let dest = dir.join("collapsed.json");
+        let targets: BTreeSet<String> =
+            serde_json::from_value(old.clone()).map_err(Error::unexpected)?;
+        if !dest.try_exists()? {
+            write_atomic(
+                &dest,
+                &serde_json::to_vec(&targets).map_err(Error::unexpected)?,
+            )?;
+        }
+        read_collapsed(&dir)?;
+        value
+            .as_object_mut()
+            .ok_or_else(|| Error::unexpected("invalid settings"))?
+            .remove("collapsed");
+        write_atomic(
+            settings,
+            &serde_json::to_vec(&value).map_err(Error::unexpected)?,
+        )?;
+    }
+    Ok(())
 }
 fn read_copy(store: &Path) -> Option<PinnedCopy> {
     serde_json::from_slice(&fs::read(store).ok()?).ok()
 }
 /// The copy for `root`, if it holds anything worth restoring.
-fn restorable_copy(store: &Path, root: &Path) -> Option<String> {
+fn restorable_copy(store: &Path, _root: &Path) -> Option<String> {
     read_copy(store)
-        .filter(|copy| copy.folder == root && !copy.text.trim().is_empty())
+        .filter(|copy| !copy.text.trim().is_empty())
         .map(|copy| copy.text)
 }
 /// Best effort: a copy that cannot be written only means a deleted file cannot be restored.
 fn keep_copy(store: &Path, root: &Path, text: &str) {
-    if read_copy(store).is_some_and(|copy| copy.folder == root && copy.text == text) {
+    if read_copy(store).is_some_and(|copy| copy.text == text) {
         return;
     }
     let copy = PinnedCopy {
         folder: root.to_owned(),
         text: text.to_owned(),
     };
-    let written = store
-        .parent()
-        .map_or(Ok(()), fs::create_dir_all)
-        .and_then(|()| write_atomic(store, &serde_json::to_vec(&copy)?));
+    let written = hold_ancestry(store.parent().unwrap_or(root))
+        .and_then(|_held| write_atomic(store, &serde_json::to_vec(&copy)?));
     if let Err(error) = written {
         eprintln!("[pinned] failed to keep a copy: {error}");
     }
@@ -1218,6 +1375,7 @@ fn read_pinned(root: &Path) -> Result<Option<(String, String)>, Error> {
 static PINNED_COPY: Mutex<()> = Mutex::new(());
 fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Result<Pinned, Error> {
     let guard = PINNED_COPY.lock().unwrap_or_else(|e| e.into_inner());
+    let _held = hold_ancestry(store.parent().ok_or(Error::InvalidPath)?)?;
     let Some((text, version)) = read_pinned(root)? else {
         return Ok(Pinned {
             version: String::new(),
@@ -1259,13 +1417,16 @@ fn edit_pinned(root: &Path, edit: impl Fn(&str) -> String) -> Result<(), Error> 
 }
 /// Brings back the last version read, only if `_pinned.md` is absent: an empty base never replaces.
 fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
+    let _held = hold_ancestry(store.parent().ok_or(Error::InvalidPath)?)?;
     if let Some(text) = restorable_copy(store, root) {
         save_note_in(root, PINNED, &text, "")?;
     }
     Ok(())
 }
 fn collapsed(app: &AppHandle) -> Result<BTreeSet<String>, Error> {
-    Ok(load(&config(app)?).collapsed)
+    let dir = derived_dir(&root(app)?)?;
+    let _held = hold_ancestry(&dir)?;
+    read_collapsed(&dir)
 }
 pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
     pinned_state(&root(app)?, &copy_path(app)?, &collapsed(app)?)
@@ -1299,8 +1460,8 @@ fn pinned_kind(target: &str) -> Kind {
 /// Works for a missing note too: that is what "remove" is for.
 pub fn unpin(app: &AppHandle, target: &str) -> Result<Pinned, Error> {
     edit_pinned(&root(app)?, |text| pinned::unpin(text, target))?;
-    update(app, |settings| {
-        settings.collapsed.remove(target);
+    update_collapsed(app, |collapsed| {
+        collapsed.remove(target);
     })?;
     pinned(app)
 }
@@ -1326,11 +1487,11 @@ pub fn move_pinned(app: &AppHandle, target: &str, to: &str, base: &str) -> Resul
     pinned(app)
 }
 pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<Pinned, Error> {
-    update(app, |settings| {
+    update_collapsed(app, |targets| {
         if collapsed {
-            settings.collapsed.insert(target.to_owned());
+            targets.insert(target.to_owned());
         } else {
-            settings.collapsed.remove(target);
+            targets.remove(target);
         }
     })?;
     pinned(app)
@@ -1956,7 +2117,7 @@ mod tests {
             fs::read_to_string(root.join(PINNED)).unwrap(),
             "# Pins\r\n- [B](b.md)\r\n<!-- keep -->\n- [A](a.md)"
         );
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
     }
     #[test]
     fn invalid_note_order_does_not_discard_other_settings() {
@@ -2031,7 +2192,8 @@ mod tests {
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
         let root = t.0.join("notes");
         fs::create_dir(&root).unwrap();
-        (root, t.0.join("config").join("pinned-copy.json"))
+        let store = derived_dir(&root).unwrap().join("pinned-copy.json");
+        (root, store)
     }
     fn no_collapsed() -> BTreeSet<String> {
         BTreeSet::new()
@@ -2616,7 +2778,7 @@ mod tests {
         });
         assert_eq!(result, Err(Error::PinnedChanged));
         assert_eq!(fs::read_to_string(&path).unwrap(), "external 3");
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
     }
     #[test]
     fn pinned_state_flags_missing_notes_and_collapsed_items() {
@@ -2644,6 +2806,148 @@ mod tests {
             ]
         );
         assert!(!state.restorable);
+    }
+    // Catch plaintext migration loss, writes under locked mounts, and retry overwrites.
+    #[test]
+    fn legacy_derived_data_moves_before_sources_are_removed() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        let settings = t.0.join("settings.json");
+        fs::write(
+            &settings,
+            serde_json::to_vec(&serde_json::json!({
+                "folder": root, "collapsed": ["secret.md"], "theme": "dark"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let legacy = settings.with_file_name("pinned-copy.json");
+        fs::write(
+            &legacy,
+            serde_json::to_vec(&PinnedCopy {
+                folder: root.clone(),
+                text: "- [Secret](secret.md)\n".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        migrate_derived(&root, &settings).unwrap();
+        assert!(!legacy.exists());
+        assert_eq!(read_copy(&store).unwrap().text, "- [Secret](secret.md)\n");
+        assert_eq!(
+            read_collapsed(store.parent().unwrap()).unwrap(),
+            BTreeSet::from(["secret.md".into()])
+        );
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(settings).unwrap()).unwrap();
+        assert!(value.get("collapsed").is_none());
+        assert_eq!(value["theme"], "dark");
+    }
+    #[test]
+    fn unavailable_migration_keeps_sources_and_creates_nothing() {
+        let t = Temp::new();
+        let settings = t.0.join("settings.json");
+        let legacy = t.0.join("pinned-copy.json");
+        // Invalid bytes prove the copy was not read/deserialized while the folder was away.
+        fs::write(&legacy, "unread legacy content").unwrap();
+        fs::write(&settings, r#"{"collapsed":["secret.md"]}"#).unwrap();
+        for root in [t.0.join("missing"), t.0.join("offline/notes")] {
+            migrate_derived(&root, &settings).unwrap();
+            assert!(!root.exists());
+            assert!(!root.parent().unwrap().join(".docdock").exists());
+        }
+        assert_eq!(fs::read_to_string(legacy).unwrap(), "unread legacy content");
+        assert_eq!(
+            fs::read_to_string(settings).unwrap(),
+            r#"{"collapsed":["secret.md"]}"#
+        );
+    }
+    #[test]
+    fn preference_save_retains_pending_collapsed_migration() {
+        let t = Temp::new();
+        let settings = t.0.join("settings.json");
+        let root = t.0.join("offline/notes");
+        fs::write(
+            &settings,
+            serde_json::to_vec(&serde_json::json!({
+                "folder": root, "collapsed": ["secret.md"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut prefs = load(&settings);
+        prefs.theme = Theme::Dark;
+        save(&settings, &prefs).unwrap();
+        let before = fs::read(&settings).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        assert_eq!(value["collapsed"], serde_json::json!(["secret.md"]));
+        prefs.folder = Some(t.0.join("other"));
+        save(&settings, &prefs).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&settings).unwrap()).unwrap();
+        assert!(value.get("collapsed").is_none());
+        assert!(!root.exists());
+    }
+    #[test]
+    fn migration_retry_preserves_newer_destination_state() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        let settings = t.0.join("settings.json");
+        fs::write(&settings, r#"{"collapsed":["old.md"]}"#).unwrap();
+        let dir = store.parent().unwrap();
+        fs::write(dir.join("collapsed.json"), r#"["new.md"]"#).unwrap();
+        migrate_derived(&root, &settings).unwrap();
+        assert_eq!(
+            read_collapsed(dir).unwrap(),
+            BTreeSet::from(["new.md".into()])
+        );
+    }
+    #[test]
+    fn synced_copy_from_another_mount_wins_over_legacy_copy() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        let settings = t.0.join("settings.json");
+        let legacy = settings.with_file_name("pinned-copy.json");
+        fs::write(
+            &legacy,
+            serde_json::to_vec(&PinnedCopy {
+                folder: root.clone(),
+                text: "old".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &store,
+            serde_json::to_vec(&PinnedCopy {
+                folder: PathBuf::from("another-computer"),
+                text: "synced".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        migrate_derived(&root, &settings).unwrap();
+        assert!(!legacy.exists());
+        assert_eq!(restorable_copy(&store, &root).unwrap(), "synced");
+    }
+    #[test]
+    fn failed_migration_keeps_legacy_copy() {
+        let t = Temp::new();
+        let (root, store) = pinned_setup(&t);
+        let settings = t.0.join("settings.json");
+        let legacy = t.0.join("pinned-copy.json");
+        fs::write(
+            &legacy,
+            serde_json::to_vec(&PinnedCopy {
+                folder: root.clone(),
+                text: "secret".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::create_dir(&store).unwrap();
+        assert!(migrate_derived(&root, &settings).is_err());
+        assert!(legacy.exists());
     }
     #[test]
     fn deleted_pinned_file_is_restorable_and_comes_back_unchanged() {
@@ -2692,11 +2996,19 @@ mod tests {
         fs::write(root.join(PINNED), "- [A](a.md)\n").unwrap();
         pinned_state(&root, &store, &no_collapsed()).unwrap();
         assert!(
-            !pinned_state(&other, &store, &no_collapsed())
-                .unwrap()
-                .restorable
+            !pinned_state(
+                &other,
+                &derived_dir(&other).unwrap().join("pinned-copy.json"),
+                &no_collapsed()
+            )
+            .unwrap()
+            .restorable
         );
-        restore_pinned_in(&other, &store).unwrap();
+        restore_pinned_in(
+            &other,
+            &derived_dir(&other).unwrap().join("pinned-copy.json"),
+        )
+        .unwrap();
         assert!(!other.join(PINNED).exists());
     }
     #[test]
@@ -2770,5 +3082,73 @@ mod tests {
         assert_eq!(fs::read_to_string(t.0.join("a (r).md")).unwrap(), "antiga");
         assert_eq!(fs::read_to_string(t.0.join("a (r 2).md")).unwrap(), "outra");
         assert!(leftovers_in(&t.0).unwrap().is_empty());
+    }
+    #[test]
+    fn a_folder_is_missing_only_when_its_parent_shows_it_absent() {
+        use Availability::*;
+        use Probe::*;
+        assert_eq!(availability(Folder, None), Available);
+        assert_eq!(availability(Absent, Some(Folder)), Missing);
+        // A vault's mount point or another folder above it is gone.
+        assert_eq!(availability(Absent, Some(Absent)), Unavailable);
+        // The volume root itself: a drive letter or share that left.
+        assert_eq!(availability(Absent, None), Unavailable);
+        assert_eq!(availability(Unreadable, Some(Folder)), Unavailable);
+        assert_eq!(availability(Absent, Some(Unreadable)), Unavailable);
+    }
+    #[test]
+    fn probing_tells_a_deleted_folder_from_one_whose_parent_left() {
+        let t = Temp::new();
+        assert_eq!(folder_availability(&t.0), Availability::Available);
+        assert_eq!(
+            folder_availability(&t.0.join("notes")),
+            Availability::Missing
+        );
+        assert_eq!(
+            folder_availability(&t.0.join("vault/notes")),
+            Availability::Unavailable
+        );
+        fs::write(t.0.join("file"), "").unwrap();
+        assert_eq!(
+            folder_availability(&t.0.join("file")),
+            Availability::Missing
+        );
+    }
+    /// Regression: a folder created under a locked vault's mount point puts plaintext on the
+    /// unencrypted disk, and the vault can no longer mount there.
+    #[test]
+    fn nothing_creates_a_notes_folder_that_is_not_there() {
+        let t = Temp::new();
+        let store = t.0.join("config").join("pinned-copy.json");
+        let png = b"\x89PNG\r\n\x1a\n";
+        for root in [t.0.join("vault").join("notes"), t.0.join("notes")] {
+            keep_copy(&store, &root, "- [a](a.md)\n");
+            assert!(save_note_in(&root, "a.md", "secret", "").is_err());
+            assert!(save_note_in(&root, "sub/a.md", "secret", "v").is_err());
+            assert!(!matches!(
+                write_note_in(&root, "a.md", "secret", "v", false),
+                Ok(Saved::Saved { .. })
+            ));
+            assert!(create_folder_in(&root, "sub").is_err());
+            assert!(
+                edit_pinned(&root, |text| pinned::pin(
+                    text,
+                    Kind::Url,
+                    "https://a.b/",
+                    "a"
+                ))
+                .is_err()
+            );
+            assert!(restore_pinned_in(&root, &store).is_err());
+            assert!(paste_image_in(&root, "a.md", png, "stamp").is_err());
+            assert!(restore_in(&root, "a.md.1-1.docdock-bak", "r").is_err());
+            assert!(move_note_in(&root, "a.md", "sub/a.md", "v").is_err());
+            assert!(rename_note_in(&root, "a.md", "b.md", "v", ("", "")).is_err());
+            let created: Vec<_> = fs::read_dir(&t.0)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert!(created.is_empty());
+        }
     }
 }

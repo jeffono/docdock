@@ -64,6 +64,7 @@ import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
+import { folderAction } from "./folder-state";
 import { dateHeadings } from "./grouping";
 import { movedLinks } from "./links";
 import {
@@ -123,6 +124,8 @@ $effect(() => {
 });
 
 let folder = $state<NotesFolder | null>(null);
+/** The folder can be read; otherwise the list holds no note, except an editor's unsaved text. */
+const ready = $derived(folder?.state === "available");
 let notes = $state<Note[]>([]);
 let folders = $state<string[]>([]);
 let error = $state("");
@@ -380,7 +383,7 @@ const completionContext = $derived(
 const completionItems = $derived.by(() => {
   void indexVersion;
   const values =
-    folder?.available && completionContext
+    ready && completionContext
       ? completionContext.kind === "date"
         ? datePresets.filter((preset) => preset.startsWith(completionContext.prefix))
         : folderTags(folderIndex.index, completionContext.prefix)
@@ -406,7 +409,7 @@ const kept = $derived.by(() => {
   void indexVersion;
   if (!expanded || results.hits.some((hit) => hit.path === expanded)) return null;
   const listed = notes.some((note) => note.path === expanded);
-  if (!listed && !contents[expanded]) return null;
+  if (!listed && !contents[expanded] && !(editing && expanded === selected)) return null;
   const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
   const entry = listed ? folderIndex.index.get(expanded) : undefined;
   return {
@@ -416,7 +419,7 @@ const kept = $derived.by(() => {
     url: entry?.url,
     modified: entry?.modified ?? 0,
     snippet: null,
-    gone: !listed,
+    gone: !listed && ready,
   };
 });
 const model = $derived.by(() => {
@@ -462,9 +465,7 @@ const listRows = $derived(
     $grouping === "folder" && !query.trim() ? folders : undefined,
   ),
 );
-const noteKeys = $derived(
-  browser || intent !== null || !folder?.available ? [] : navKeys(model, listRows),
-);
+const noteKeys = $derived(browser || intent !== null || !ready ? [] : navKeys(model, listRows));
 const shownWebItems = $derived(
   showingHistory ? historyEntries(history) : browser && !addressEditing ? [] : webItems,
 );
@@ -472,12 +473,7 @@ const keys = $derived([...noteKeys, ...shownWebItems.map((item) => item.key)]);
 const active = $derived(
   keys.includes(selection)
     ? selection
-    : barDefault(
-        inputQuery,
-        browser,
-        folder?.available ? defaultKey(model, query) : "",
-        shownWebItems,
-      ),
+    : barDefault(inputQuery, browser, ready ? defaultKey(model, query) : "", shownWebItems),
 );
 
 /** What a screen reader hears when the selection changes. */
@@ -522,6 +518,8 @@ async function load(path: string) {
   }
 }
 function loadWanted() {
+  // Without its folder nothing is read; the edited note lives in its editor.
+  if (!ready) return;
   for (const path of renamedAway) if (!wanted.includes(path)) renamedAway.delete(path);
   for (const path of wanted)
     if (!(path in contents) && !loading.has(path) && !renamedAway.has(path)) void load(path);
@@ -550,23 +548,28 @@ async function reloadContents(current: number) {
   );
 }
 
+/** Drops every note's text, name and tag from memory: the list, previews, index and pinned items. */
+function forget() {
+  notes = [];
+  folders = [];
+  removed = null;
+  leftovers = [];
+  contents = {};
+  pinned = { version: "", items: [], restorable: false };
+  folderIndex.reset();
+  indexVersion++;
+}
+
 async function refresh(value: NotesFolder | null) {
   const current = ++generation;
   if (editing) return;
   folder = value;
-  notes = [];
-  folders = [];
-  removed = null;
+  forget();
   selected = "";
   opened = null;
-  leftovers = [];
-  contents = {};
   expanded = "";
   selection = "";
-  pinned = { version: "", items: [], restorable: false };
-  folderIndex.reset();
-  indexVersion++;
-  if (!value?.available) return;
+  if (value?.state !== "available") return;
   const [list, directoryList] = await listSnapshot();
   if (current !== generation) return;
   notes = list;
@@ -1322,6 +1325,8 @@ async function removeMissing(target: string) {
  * the same text does not disturb it; a note that disappeared keeps its last content on screen.
  */
 async function reload() {
+  // A leave that read the note before the folder left must not put its text back afterwards.
+  if (leaving) await leaving;
   const current = generation;
   const editRevision = editor?.snapshot();
   // A newer action made this read stale; reading again picks up the change for what is shown now.
@@ -1331,12 +1336,30 @@ async function reload() {
   };
   const value = await notesFolder();
   if (stale()) return;
-  if (!value?.available) {
-    if (editing) {
-      editor?.unavailable({ code: "folderUnavailable" });
+  switch (folderAction(folder?.state ?? null, value?.state ?? null, editing, !!editor?.dirty())) {
+    case "keep":
+      // Everything but the editor's text goes; reads in flight are dropped.
+      generation++;
+      folder = value;
+      forget();
+      editor?.folderLeft(value?.state === "missing" ? "missing" : "unavailable");
       return;
-    }
-    return refresh(value);
+    case "close":
+      editing = false;
+      selected = "";
+      opened = null;
+      return refresh(value);
+    case "open":
+      return refresh(value);
+    case "resume":
+      folder = value;
+      editor?.resume();
+      notesLeftovers().then(
+        (found) => {
+          if (current === generation) leftovers = found;
+        },
+        () => {},
+      );
   }
   const [list, directoryList] = await listSnapshot();
   if (stale()) return;
@@ -1595,8 +1618,7 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     case "Enter": {
       event.preventDefault();
       if (event.ctrlKey) {
-        if (!browser && intent === null && folder?.available && query.trim())
-          void create(creationText(query));
+        if (!browser && intent === null && ready && query.trim()) void create(creationText(query));
         return;
       }
       const webEntry = shownWebItems.find((entry) => entry.key === active);
@@ -1906,9 +1928,12 @@ onMount(() => {
       onleave={() => void leaveByKeyboard()}
       tags={() => [...folderIndex.index.values()].flatMap((entry) => entry.tags)}
       ondiscard={() => {
-        void load(selected);
+        const path = selected;
         selected = "";
         editing = false;
+        // Without its folder, the note is not read again, and the list forgets it.
+        if (ready) void load(path);
+        else void refresh(folder);
       }}
     />
   {/if}
@@ -1932,7 +1957,7 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
     </div>
   {#if completionItems.length}
     <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
@@ -1954,7 +1979,7 @@ onMount(() => {
   {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
   {#if browser && !pageUrl}<div class="empty"><p>{t("web.empty")}</p></div>{/if}
   <div class="content" hidden={browser}>
-  {#if folder?.available}
+  {#if ready || editing}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     {#if removed}
       {@const note = removed}
@@ -1998,7 +2023,7 @@ onMount(() => {
           <Button onclick={() => pinnedAction(pinnedRestore)}>{t("pinned.restore")}</Button>
         </div>
       {/if}
-      {#if intent === null && model.create !== null}
+      {#if ready && intent === null && model.create !== null}
         {@const text = model.create}
         <button tabindex="-1" aria-current={active === "create" || undefined} class="create" class:selected={active === "create"} onclick={() => create(text)}>
           {t("list.create", { text })}
@@ -2074,7 +2099,7 @@ onMount(() => {
         <button class="suggestion in-list" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
           {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
-      {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
+      {#if ready && !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}
@@ -2082,7 +2107,7 @@ onMount(() => {
           {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
     {/each}
     <div class="empty">
-      <p>{folder ? t("notes.unavailable") : t("notes.chooseHint")}</p>
+      <p>{folder ? t(folder.state === "missing" ? "notes.missing" : "notes.unavailable") : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <Button onclick={choose}>{t("notes.choose")}</Button>

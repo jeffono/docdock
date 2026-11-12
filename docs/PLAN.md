@@ -17,12 +17,12 @@ to a vault the user mounts, such as Cryptomator, which stays optional; see
 
 - [x] Record the decision above in `docs/decisions/`, including the rule that nothing derived from note
   content is stored outside the notes folder. `basic`
-- [ ] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
+- [x] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
   deleted folder; never create the notes folder or its parents, which would write plaintext under a
   vault's mount point (regression test); a failed save keeps the text in memory with a notice and
   writes nowhere else, then saves when the folder returns; note text and the search index are
   cleared from memory while the folder is unavailable. `advanced`
-- [ ] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
+- [x] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
   `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
   `standard`
 - [ ] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give

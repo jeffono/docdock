@@ -106,7 +106,12 @@ export const onWebVisible = (handler: (visible: boolean) => void) =>
 /** Ctrl+Tab typed while the page window had focus, filtered natively before the page sees it. */
 export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode", () => handler());
 
-export type NotesFolder = { path: string; available: boolean };
+/**
+ * `unavailable`: its drive, share or a folder above it is gone, as for a locked vault. `missing`: the
+ * folder above it is there but the folder is not. Neither is ever created.
+ */
+export type FolderState = "available" | "unavailable" | "missing";
+export type NotesFolder = { path: string; state: FolderState };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
 export type Note = { path: string; name: string; modified: number; created: number };
 export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");

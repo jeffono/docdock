@@ -47,6 +47,11 @@ let pasting: Promise<void> | undefined;
 let disposed = false;
 let deleted = $state(false);
 let updated = $state(false);
+/**
+ * The notes folder left (a locked vault, an unplugged drive): the text stays only here, saving fails
+ * without writing anywhere else, and `resume` saves it once the folder is back.
+ */
+let folderGone = $state<"unavailable" | "missing" | null>(null);
 let replacing = false;
 /** Text changed in this editor, rather than only reloaded from disk. */
 let typed = false;
@@ -77,8 +82,32 @@ export function missing() {
   if (saving.unsaved() !== null) void saving.flush();
 }
 export function unavailable(cause: unknown) {
-  error = errorText(cause);
+  error = failure(cause);
   revision++;
+}
+/** Text the folder does not hold yet: an edit not saved, or an image being pasted. */
+export function dirty() {
+  return saving.unsaved() !== null || pasting !== undefined;
+}
+export function folderLeft(state: "unavailable" | "missing") {
+  folderGone = state;
+  error = "";
+  revision++;
+}
+/** The folder is back: save what it does not hold yet, against the version read, so a change made
+ * meanwhile still conflicts. */
+export function resume() {
+  folderGone = null;
+  if (status === "error") void saving.flush();
+}
+/** The text for an error, or nothing when the folder left, which its own notice explains. */
+function failure(cause: unknown): string {
+  const code = typeof cause === "object" && cause !== null && "code" in cause ? cause.code : null;
+  if (code === "folderUnavailable" || code === "folderMissing") {
+    folderLeft(code === "folderMissing" ? "missing" : "unavailable");
+    return "";
+  }
+  return errorText(cause);
 }
 
 function paste(event: ClipboardEvent, editor: EditorView): boolean {
@@ -102,7 +131,7 @@ function paste(event: ClipboardEvent, editor: EditorView): boolean {
       editor.dispatch({ selection });
       editor.dispatch(editor.state.replaceSelection(`![](${attachment})`));
     } catch (e) {
-      if (!disposed) error = errorText(e);
+      if (!disposed) error = failure(e);
     } finally {
       pasting = undefined;
       if (!disposed) {
@@ -130,7 +159,8 @@ function autosave(version: string) {
       revision++;
       status = next;
       onstatus(next);
-      error = cause ? errorText(cause) : "";
+      if (next === "saved") folderGone = null;
+      error = cause ? failure(cause) : "";
     },
   });
 }
@@ -220,7 +250,7 @@ export async function finish(change?: (text: string) => string): Promise<OpenNot
     if (deleted) return { ...note, text: raw };
     return await notesOpen(path);
   } catch (e) {
-    error = errorText(e);
+    error = failure(e);
     return null;
   } finally {
     resolving = false;
@@ -266,7 +296,7 @@ async function resolve(keep: boolean) {
       await saving.flush();
     } else replace(disk);
   } catch (e) {
-    error = errorText(e);
+    error = failure(e);
   } finally {
     resolving = false;
   }
@@ -316,6 +346,16 @@ onMount(() => {
         <Button onclick={() => resolve(true)} disabled={resolving}>{t("editor.keep")}</Button>
         <button class="discard" onclick={() => resolve(false)} disabled={resolving}>{t("editor.discard")}</button>
       </div>
+    </div>
+  {/if}
+  {#if folderGone}
+    <div class="notice" role="status">
+      <p>{t(folderGone === "missing" ? "editor.folderMissing" : "editor.folderUnavailable")}</p>
+      {#if status !== "conflict"}
+        <div class="actions">
+          <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
+        </div>
+      {/if}
     </div>
   {/if}
   {#if error}
