@@ -312,7 +312,9 @@ General contains the folder path, folder picker, optional Vault file, note order
 "Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
-shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
+shows DuckDuckGo as read-only and a compact Allowed sites list, with a neutral Remove button per
+site. A short hint explains the subdomain scope and that WebView2 tracking prevention stays on.
+The empty list explains how to add an exception using the shield. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
 keys, deriving formatting keys from the editor bindings; the activation row shows the current
 combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
 neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
@@ -360,7 +362,11 @@ a 6-pixel handle along the inner edge resizes it (double-click restores the defa
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
-field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
+field and "+" action occupy the second bar in both modes. In Browser a quiet shield button sits
+immediately left of the address field, sharing its row without taking space from the top navigation.
+Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
+site and reloads the page, without a popover. The tooltip and accessible label name the site and
+current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 

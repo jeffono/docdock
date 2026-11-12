@@ -231,6 +231,14 @@ per-monitor DPI awareness (PMv2).
   `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
   still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
+- **Site exceptions:** `blocking::site_key` normalizes HTTP(S) URLs through Tauri's URL parser and
+  resolves eTLD+1 through the adblock engine's embedded PSL; IPs and local hosts stay exact.
+  `settings.json.allowed_sites` uses the existing locked atomic preferences writer. Startup loads
+  a memory copy; changes serialize separately and publish only after a successful save. Request
+  handlers check the top-level source against memory, never disk. Allowed documents skip cosmetic
+  passes as well as network filtering, including third-party requests. The shield left of the address
+  toggles directly; Preferences > Browser removes exceptions. Changes cancel current cosmetic
+  passes and reload the page when its site matches. Profile-wide WebView2 tracking prevention stays on.
 - **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
   `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`;
   if it is missing or unreadable (corrupt, another `adblock` version), it rebuilds from the cached

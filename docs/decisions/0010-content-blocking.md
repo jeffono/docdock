@@ -41,3 +41,10 @@ and the app's UI must never be filtered.
   already applied. Each pass briefly enables `Runtime`, which a page can notice, as with page
   selection reads.
 - Requests from every frame are checked against the main frame's URL for third-party rules.
+
+- The shield beside the address toggles an exception for the registrable domain (eTLD+1), using
+  the engine's embedded public suffix list, including private suffixes. IP addresses and local names
+  use the exact host; ports and HTTP/HTTPS share the exception. Changes reload the current site.
+- Exceptions disable network and cosmetic rules for the allowed top-level document, including its
+  third-party requests. They live in app preferences, outside the notes folder. WebView2's strict
+  tracking prevention is profile-wide and stays enabled even on allowed sites.

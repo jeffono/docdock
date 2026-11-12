@@ -269,3 +269,10 @@ export const notesSetGrouping = (grouping: Grouping) =>
   invoke<void>("notes_set_grouping", { grouping });
 export const pinnedMove = (target: string, to: string, base: string) =>
   invoke<Pinned>("pinned_move", { target, to, base });
+
+export type BlockingStatus = { site: string; allowed: boolean };
+export const blockingStatus = (url: string) =>
+  invoke<BlockingStatus | null>("blocking_status", { url });
+export const blockingSites = () => invoke<string[]>("blocking_sites");
+export const blockingSetAllowed = (url: string, allowed: boolean) =>
+  invoke<void>("blocking_set_allowed", { url, allowed });

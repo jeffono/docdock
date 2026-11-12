@@ -399,3 +399,16 @@ pub fn pinned_move(
 ) -> Result<crate::notes::Pinned, Error> {
     crate::notes::move_pinned(&app, &target, &to, &base)
 }
+
+#[tauri::command]
+pub fn blocking_status(url: String) -> Option<crate::blocking::SiteStatus> {
+    crate::blocking::status(&url)
+}
+#[tauri::command]
+pub fn blocking_sites() -> Vec<String> {
+    crate::blocking::allowed_sites()
+}
+#[tauri::command(async)]
+pub fn blocking_set_allowed(app: AppHandle, url: String, allowed: bool) -> Result<(), Error> {
+    crate::blocking::set_allowed(&app, &url, allowed)
+}

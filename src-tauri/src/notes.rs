@@ -39,6 +39,8 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
+    #[serde(default, deserialize_with = "sites_or_default")]
+    allowed_sites: Vec<String>,
     #[serde(default, deserialize_with = "theme_or_default")]
     theme: Theme,
     #[serde(default)]
@@ -104,6 +106,25 @@ impl Theme {
 }
 fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
     Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, D::Error> {
+    let entries =
+        Vec::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default();
+    let mut sites = Vec::new();
+    for entry in entries {
+        if let Some(site) = crate::blocking::site_key(&format!("https://{entry}/")) {
+            crate::blocking::change_allowed(&mut sites, &site, true);
+        }
+    }
+    Ok(sites)
+}
+pub fn allowed_sites(app: &AppHandle) -> Vec<String> {
+    config(app)
+        .map(|p| load(&p).allowed_sites)
+        .unwrap_or_default()
+}
+pub fn set_allowed_sites(app: &AppHandle, sites: Vec<String>) -> Result<(), Error> {
+    update(app, |settings| settings.allowed_sites = sites)
 }
 pub fn theme(app: &AppHandle) -> Theme {
     config(app).map(|p| load(&p).theme).unwrap_or_default()
@@ -2325,6 +2346,16 @@ mod tests {
             .success()
     }
     // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
+    #[test]
+    fn invalid_site_exceptions_do_not_discard_other_preferences() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"allowed_sites":42,"folder":"notes","theme":"dark"}"#)
+                .unwrap();
+        assert!(settings.allowed_sites.is_empty());
+        assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        assert_eq!(settings.theme, Theme::Dark);
+    }
+
     #[test]
     fn vault_refuses_other_extensions() {
         let t = Temp::new();

@@ -55,6 +55,7 @@ import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import Reader from "../web/Reader.svelte";
+import Shield from "../web/Shield.svelte";
 import {
   barDefault,
   downOpensHistory,
@@ -2031,6 +2032,7 @@ onMount(() => {
 
 <section hidden={inactive} aria-label={t("notes.label")}>
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
+      {#if browser}<Shield url={pageUrl} onerror={(message) => { error = message; }} />{/if}
       <TextField
         value={inputQuery}
         oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}

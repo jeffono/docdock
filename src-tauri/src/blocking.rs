@@ -54,6 +54,78 @@ fn set_engine(engine: Engine) {
     *ENGINE.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(engine));
 }
 
+/// Canonical site boundary from the engine's embedded public suffix list.
+pub fn site_key(raw: &str) -> Option<String> {
+    let mut url = Url::parse(raw).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = url.host_str()?.trim_end_matches('.').to_owned();
+    url.set_host(Some(&host)).ok()?;
+    if host.starts_with('[') || host.parse::<std::net::IpAddr>().is_ok() {
+        return Some(host);
+    }
+    adblock::url_parser::parse_url(url.as_str()).map(|url| url.domain().to_owned())
+}
+
+pub fn change_allowed(sites: &mut Vec<String>, site: &str, allowed: bool) {
+    sites.retain(|entry| entry != site);
+    if allowed {
+        sites.push(site.to_owned());
+    }
+    sites.sort();
+    sites.dedup();
+}
+
+fn allowed(sites: &[String], source: &str) -> bool {
+    site_key(source).is_some_and(|site| sites.contains(&site))
+}
+
+static ALLOWED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+// Serialize changes without holding the request-path lock during I/O.
+static CHANGING: Mutex<()> = Mutex::new(());
+
+pub fn allowed_sites() -> Vec<String> {
+    ALLOWED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+#[derive(serde::Serialize)]
+pub struct SiteStatus {
+    site: String,
+    allowed: bool,
+}
+
+pub fn status(url: &str) -> Option<SiteStatus> {
+    let site = site_key(url)?;
+    let allowed = ALLOWED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(&site);
+    Some(SiteStatus { site, allowed })
+}
+
+pub fn set_allowed(app: &AppHandle, url: &str, enabled: bool) -> Result<(), crate::error::Error> {
+    let site = site_key(url).ok_or_else(|| crate::error::Error::unexpected("not a web site"))?;
+    let _change = CHANGING.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut sites = allowed_sites();
+    change_allowed(&mut sites, &site, enabled);
+    crate::notes::set_allowed_sites(app, sites.clone())?;
+    *ALLOWED.lock().unwrap_or_else(PoisonError::into_inner) = sites;
+    if let Some(window) = app.get_webview_window("web")
+        && window
+            .url()
+            .ok()
+            .is_some_and(|url| site_key(url.as_str()).as_ref() == Some(&site))
+    {
+        DOCUMENT.fetch_add(1, Ordering::SeqCst);
+        window.reload()?;
+    }
+    Ok(())
+}
+
 /// A list is due when missing, at least `REFRESH` old, or dated in the future by a clock change.
 fn due(now: SystemTime, saved: Option<SystemTime>) -> bool {
     saved.is_none_or(|saved| {
@@ -160,6 +232,7 @@ fn save(dir: &Path, engine: &Engine) {
 
 /// Loads the cached engine, then keeps the lists fresh, on its own thread for the app's lifetime.
 pub fn start(app: &AppHandle) {
+    *ALLOWED.lock().unwrap_or_else(PoisonError::into_inner) = crate::notes::allowed_sites(app);
     let Ok(dir) = app.path().app_local_data_dir() else {
         return;
     };
@@ -195,15 +268,22 @@ pub fn start(app: &AppHandle) {
 
 /// The page the user asked for always loads; only what it pulls in is filtered. URLs the engine
 /// cannot parse, such as `data:` and `blob:`, pass.
-fn blocks(engine: &Engine, request: &blocker::Request) -> bool {
-    request.kind != "document"
+fn blocks(engine: &Engine, sites: &[String], request: &blocker::Request) -> bool {
+    !allowed(sites, request.source)
+        && request.kind != "document"
         && adblock::request::Request::new(request.url, request.source, request.kind, request.method)
             .is_ok_and(|request| engine.check_network_request(&request).should_block())
 }
 
 /// Runs on the WebView2 UI thread for every request of the page window.
 pub fn blocked(request: &blocker::Request) -> bool {
-    engine().is_some_and(|engine| blocks(&engine, request))
+    engine().is_some_and(|engine| {
+        blocks(
+            &engine,
+            &ALLOWED.lock().unwrap_or_else(PoisonError::into_inner),
+            request,
+        )
+    })
 }
 
 /// A selector goes into `<selector>{display:none!important}`: braces would let a list add other
@@ -314,6 +394,12 @@ static DOCUMENT: AtomicU64 = AtomicU64::new(0);
 /// Called on the WebView2 UI thread when a main-frame document commits; the passes run elsewhere.
 pub fn committed(app: &AppHandle, url: String) {
     let document = DOCUMENT.fetch_add(1, Ordering::SeqCst) + 1;
+    if allowed(
+        &ALLOWED.lock().unwrap_or_else(PoisonError::into_inner),
+        &url,
+    ) {
+        return;
+    }
     let Some(engine) = engine() else {
         return;
     };
@@ -368,6 +454,70 @@ mod tests {
     }
 
     #[test]
+    fn exceptions_use_registrable_domains_not_suffix_matches() {
+        let sites = vec!["example.com".into(), "example.co.uk".into()];
+        assert!(allowed(&sites, "https://news.example.co.uk/a"));
+        assert!(allowed(&sites, "https://NEWS.Example.com.:8443/a"));
+        assert!(!allowed(&sites, "https://evil-example.com/"));
+        assert!(!allowed(&sites, "https://example.com.evil.net/"));
+    }
+
+    #[test]
+    fn local_hosts_and_ip_addresses_are_exact_sites() {
+        for (url, site) in [
+            ("http://localhost:3000/a", "localhost"),
+            ("http://127.0.0.1:8080/", "127.0.0.1"),
+            ("http://[::1]:8080/", "[::1]"),
+        ] {
+            assert_eq!(site_key(url).as_deref(), Some(site));
+        }
+        assert!(!allowed(&["localhost".into()], "http://other.localhost/"));
+        assert!(site_key("file:///example.com").is_none());
+        assert!(site_key("about:blank").is_none());
+    }
+
+    #[test]
+    fn private_suffix_tenants_do_not_share_exceptions() {
+        assert!(!allowed(
+            &["alice.github.io".into()],
+            "https://bob.github.io/"
+        ));
+        assert_eq!(
+            site_key("https://www.alice.github.io/").as_deref(),
+            Some("alice.github.io")
+        );
+    }
+
+    #[test]
+    fn exception_changes_are_deduplicated_and_removable() {
+        let mut sites = Vec::new();
+        change_allowed(&mut sites, "example.com", true);
+        change_allowed(&mut sites, "example.com", true);
+        assert_eq!(sites, ["example.com"]);
+        change_allowed(&mut sites, "example.com", false);
+        assert!(sites.is_empty());
+    }
+
+    #[test]
+    fn third_party_requests_follow_the_top_level_site() {
+        let sites = vec!["example.com".into()];
+        let request = blocker::Request {
+            url: "https://ads.other.net/ad.js",
+            source: "https://news.example.com/",
+            kind: "script",
+            method: "GET",
+        };
+        let engine = build(vec![list("||ads.other.net^")]).unwrap();
+        assert!(blocks(&engine, &[], &request));
+        assert!(!blocks(&engine, &sites, &request));
+        let request = blocker::Request {
+            source: "https://unrelated.net/",
+            ..request
+        };
+        assert!(blocks(&engine, &sites, &request));
+    }
+
+    #[test]
     fn a_missing_list_is_due() {
         assert!(due(SystemTime::now(), None));
     }
@@ -403,7 +553,7 @@ mod tests {
             kind: "script",
             method: "GET",
         };
-        assert!(blocks(&engine, &request));
+        assert!(blocks(&engine, &[], &request));
     }
 
     #[test]
@@ -420,7 +570,7 @@ mod tests {
             kind: "document",
             method: "GET",
         };
-        assert!(!blocks(&engine, &request));
+        assert!(!blocks(&engine, &[], &request));
     }
 
     #[test]
