@@ -1062,6 +1062,50 @@ let warning = $state("");
 let deletingPath = "";
 /** Counts panel hides: a delete that ends after one offers no Undo, which Rust no longer keeps. */
 let panelSession = 0;
+
+/**
+ * The delete notice leaves after 10 seconds in sight, as snackbars do. Time stops while the pointer
+ * or focus is on it, so it can be read and used, and while the panel is hidden, so a delete just
+ * before closing is still announced on the next open.
+ */
+const NOTICE_MS = 10_000;
+let noticeTimer = 0;
+let noticeLeft = NOTICE_MS;
+let noticeSince = 0;
+let noticeHovered = false;
+let noticeFocused = false;
+let noticeAway = false;
+
+function noticeRun() {
+  noticePause();
+  if (!removed || noticeHovered || noticeFocused || noticeAway) return;
+  noticeSince = Date.now();
+  noticeTimer = window.setTimeout(() => {
+    removed = null;
+  }, noticeLeft);
+}
+
+function noticePause() {
+  if (!noticeTimer) return;
+  window.clearTimeout(noticeTimer);
+  noticeTimer = 0;
+  noticeLeft -= Date.now() - noticeSince;
+}
+
+$effect(() => {
+  if (!removed) return;
+  noticeLeft = NOTICE_MS;
+  noticeHovered = noticeFocused = false;
+  noticeRun();
+  return noticePause;
+});
+
+/** Back in sight: the pointer moved or focus arrived while the panel was hidden. */
+function noticeBack() {
+  if (!noticeAway) return;
+  noticeAway = false;
+  noticeRun();
+}
 /** A delete's answer, also when only its pinned items could not follow; `problem` says so. */
 async function removal(work: Promise<Removal>): Promise<Removal & { problem: string }> {
   try {
@@ -1880,6 +1924,8 @@ onMount(() => {
     shortcutSheet.close();
     // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
     if (!removed?.trash) removed = null;
+    noticeAway = true;
+    noticePause();
     warning = "";
     panelSession++;
     stopScrolling();
@@ -1915,7 +1961,7 @@ onMount(() => {
 });
 </script>
 
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
+<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
@@ -2002,6 +2048,9 @@ onMount(() => {
     {#if removed}
       {@const item = removed}
       {#key item}
+        <!-- Hovering only pauses the notice timer: no interaction of its own. -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="notice-hold" onpointerenter={() => { noticeHovered = true; noticePause(); }} onpointerleave={() => { noticeHovered = false; noticeRun(); }} onfocusin={() => { noticeFocused = true; noticePause(); }} onfocusout={(event) => { if (event.currentTarget.contains(event.relatedTarget as Node | null)) return; noticeFocused = false; noticeRun(); }}>
         <Notice icon="trash" attention={item.trash !== null || item.undo}>
           {item.trash
             ? t("delete.trashed", { title: item.title })
@@ -2011,6 +2060,7 @@ onMount(() => {
             <IconButton quiet icon="x" label={t("search.close")} onclick={() => { removed = null; }} />
           {/snippet}
         </Notice>
+        </div>
       {/key}
     {/if}
     {#if warning}
@@ -2208,6 +2258,7 @@ onMount(() => {
     overflow-y: auto;
   }
 
+  .notice-hold { display: contents; }
   .list:focus-visible {
     outline: none;
   }
