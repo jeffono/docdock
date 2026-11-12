@@ -299,13 +299,22 @@ pub mod tests {
     #[test]
     fn a_long_name_is_cut_to_fit_without_splitting_a_character() {
         // Two UTF-16 units each, so a cut at an odd place would split one.
-        let long: String = std::iter::repeat_n('😀', 125).collect();
+        // The cut falls exactly between the halves of the first emoji.
+        let room = platform::MAX_NAME - entry_name(&me(), 7, NOW, 0, OsStr::new("")).len();
+        let long = format!("{}{}", "a".repeat(room - 1), "😀".repeat(3));
         let name = entry_name(&me(), 7, NOW, 0, OsStr::new(&long));
         assert!(name.encode_wide().count() <= platform::MAX_NAME);
-        assert!(name.to_str().is_some(), "a surrogate pair was split");
-        let dotted = format!("{}. .md", "a".repeat(222));
+        assert!(
+            name.to_string_lossy().ends_with('a'),
+            "a surrogate pair was split"
+        );
+    }
+    #[test]
+    fn a_cut_name_drops_the_dots_and_spaces_it_ends_with() {
+        let room = platform::MAX_NAME - entry_name(&me(), 7, NOW, 0, OsStr::new("")).len();
+        let dotted = format!("{}. .md", "a".repeat(room - 3));
         let cut = entry_name(&me(), 7, NOW, 0, OsStr::new(&dotted));
-        assert!(!cut.to_string_lossy().ends_with(['.', ' ']), "{cut:?}");
+        assert!(cut.to_string_lossy().ends_with('a'), "{cut:?}");
     }
     #[test]
     fn this_runs_entries_go_only_once_their_session_has_ended() {
