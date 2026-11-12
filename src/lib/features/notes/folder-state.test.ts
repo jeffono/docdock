@@ -6,6 +6,7 @@ describe("folderAction", () => {
     expect(folderAction("available", "unavailable", true, true)).toBe("keep");
     expect(folderAction("available", "missing", true, true)).toBe("keep");
     expect(folderAction("unavailable", "unavailable", true, true)).toBe("keep");
+    expect(folderAction("available", "unrecognized", true, true)).toBe("keep");
   });
 
   it("forgets everything when the folder leaves with nothing unsaved", () => {

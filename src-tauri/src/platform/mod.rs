@@ -17,7 +17,7 @@ pub use self::capture::exclude_from_capture;
 pub use self::clipboard::write_private_text;
 pub use self::files::{
     MAX_NAME, delete_on_close, fit_name, hold_ancestry, hold_directory, move_new, open_exclusive,
-    open_folder, paste_timestamp, replace_file, volume_of,
+    open_folder, paste_timestamp, replace_file,
 };
 pub use self::guard::guard;
 pub use self::recycle::recycle;

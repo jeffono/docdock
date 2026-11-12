@@ -108,9 +108,11 @@ export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode",
 
 /**
  * `unavailable`: its drive, share or a folder above it is gone, as for a locked vault. `missing`: the
- * folder above it is there but the folder is not. Neither is ever created.
+ * folder above it is there but the folder is not. Neither is ever created. `unrecognized`: a folder is
+ * there but its identity marker is not the chosen one's, as for the empty folder a locked vault can
+ * leave at its mount point; it is never written to.
  */
-export type FolderState = "available" | "unavailable" | "missing";
+export type FolderState = "available" | "unavailable" | "missing" | "unrecognized";
 export type NotesFolder = { path: string; state: FolderState };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
 export type Note = { path: string; name: string; modified: number; created: number };

@@ -4,13 +4,14 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
 import { privateCut } from "../../clipboard";
-import { errorText, t } from "../../i18n";
+import { errorText, type MessageKey, t } from "../../i18n";
 import { clipboardWrite, notesOpen, notesPasteImage, notesSave, type OpenNote } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
 import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
+import type { FolderGone } from "./folder-state";
 import { notePath } from "./live-formatting";
 import { diskReload, rawHistory, rawText } from "./reload";
 
@@ -51,7 +52,18 @@ let updated = $state(false);
  * The notes folder left (a locked vault, an unplugged drive): the text stays only here, saving fails
  * without writing anywhere else, and `resume` saves it once the folder is back.
  */
-let folderGone = $state<"unavailable" | "missing" | null>(null);
+let folderGone = $state<FolderGone | null>(null);
+const goneText: Record<FolderGone, MessageKey> = {
+  unavailable: "editor.folderUnavailable",
+  missing: "editor.folderMissing",
+  unrecognized: "editor.folderUnrecognized",
+};
+/** The errors that say the folder left, and the state each means. */
+const goneCodes: Record<string, FolderGone> = {
+  folderUnavailable: "unavailable",
+  folderMissing: "missing",
+  folderUnrecognized: "unrecognized",
+};
 let replacing = false;
 /** Text changed in this editor, rather than only reloaded from disk. */
 let typed = false;
@@ -89,7 +101,7 @@ export function unavailable(cause: unknown) {
 export function dirty() {
   return saving.unsaved() !== null || pasting !== undefined;
 }
-export function folderLeft(state: "unavailable" | "missing") {
+export function folderLeft(state: FolderGone) {
   folderGone = state;
   error = "";
   revision++;
@@ -103,8 +115,9 @@ export function resume() {
 /** The text for an error, or nothing when the folder left, which its own notice explains. */
 function failure(cause: unknown): string {
   const code = typeof cause === "object" && cause !== null && "code" in cause ? cause.code : null;
-  if (code === "folderUnavailable" || code === "folderMissing") {
-    folderLeft(code === "folderMissing" ? "missing" : "unavailable");
+  const gone = Object.hasOwn(goneCodes, String(code)) ? goneCodes[String(code)] : undefined;
+  if (gone) {
+    folderLeft(gone);
     return "";
   }
   return errorText(cause);
@@ -350,7 +363,7 @@ onMount(() => {
   {/if}
   {#if folderGone}
     <div class="notice" role="status">
-      <p>{t(folderGone === "missing" ? "editor.folderMissing" : "editor.folderUnavailable")}</p>
+      <p>{t(goneText[folderGone])}</p>
       <!-- Always offered, also after a conflict: leaving must never need the folder. -->
       <div class="actions">
         <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>

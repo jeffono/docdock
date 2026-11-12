@@ -116,6 +116,8 @@ const en = {
     "The notes folder is unavailable, as on a locked vault, an unplugged drive or an offline share. It opens again when it is back.",
   "notes.missing":
     "The notes folder was not found. It opens again if it comes back; if it was moved or renamed, choose it again.",
+  "notes.unrecognized":
+    "The folder at this path is not the notes folder you chose, so nothing is written to it. If it belongs to a locked vault, it opens again once the vault is unlocked; if you moved your notes here, choose the folder again.",
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
   "vault.label": "Vault file",
@@ -188,6 +190,8 @@ const en = {
     "The notes folder is unavailable. Your text stays here and is saved when the folder is back.",
   "editor.folderMissing":
     "The notes folder was not found. Your text stays here and is saved if the folder comes back.",
+  "editor.folderUnrecognized":
+    "The folder at this path is not the notes folder you chose. Your text stays here and is saved when that folder is back.",
   "editor.toggle": "Edit (Ctrl+E)",
   "editor.saving": "Saving…",
   "editor.saved": "Saved",
@@ -233,6 +237,7 @@ const en = {
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is unavailable.",
   "error.folderMissing": "The notes folder was not found.",
+  "error.folderUnrecognized": "The folder at this path is not the notes folder you chose.",
   "error.invalidPath": "Invalid file path.",
   "error.folderNameTaken": "A file named “{name}” is already there; choose another folder name.",
   "error.invalidFolderName":
@@ -391,6 +396,8 @@ const ptBR: Record<MessageKey, string> = {
     "A pasta de notas está indisponível, como num cofre trancado, num disco desconectado ou numa rede offline. Ela abre de novo quando voltar.",
   "notes.missing":
     "A pasta de notas não foi encontrada. Ela abre de novo se voltar; se foi movida ou renomeada, escolha-a de novo.",
+  "notes.unrecognized":
+    "A pasta neste caminho não é a pasta de notas que você escolheu, então nada é gravado nela. Se ela for de um cofre trancado, abre de novo quando o cofre for destrancado; se você moveu suas notas para cá, escolha a pasta de novo.",
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
   "vault.label": "Arquivo do cofre",
@@ -464,6 +471,8 @@ const ptBR: Record<MessageKey, string> = {
     "A pasta de notas está indisponível. Seu texto fica aqui e é salvo quando a pasta voltar.",
   "editor.folderMissing":
     "A pasta de notas não foi encontrada. Seu texto fica aqui e é salvo se a pasta voltar.",
+  "editor.folderUnrecognized":
+    "A pasta neste caminho não é a pasta de notas que você escolheu. Seu texto fica aqui e é salvo quando aquela pasta voltar.",
   "editor.toggle": "Editar (Ctrl+E)",
   "editor.saving": "Salvando…",
   "editor.saved": "Salvo",
@@ -510,6 +519,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas está indisponível.",
   "error.folderMissing": "A pasta de notas não foi encontrada.",
+  "error.folderUnrecognized": "A pasta neste caminho não é a pasta de notas que você escolheu.",
   "error.invalidPath": "Caminho de arquivo inválido.",
   "error.folderNameTaken":
     "Já existe um arquivo chamado “{name}” ali; escolha outro nome de pasta.",

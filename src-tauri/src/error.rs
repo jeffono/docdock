@@ -19,6 +19,8 @@ pub enum Error {
     FolderUnavailable,
     /// The folder above the notes folder is there, but the notes folder is not.
     FolderMissing,
+    /// A folder is at the path but it is not the one chosen: its identity marker is absent or another.
+    FolderUnrecognized,
     InvalidPath,
     InvalidVaultFile,
     VaultFileMissing,

@@ -16,6 +16,7 @@ import {
 } from "../../ipc";
 import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
+import { folderNotice } from "../notes/folder-state";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import ShortcutList from "../notes/ShortcutList.svelte";
@@ -103,7 +104,7 @@ onMount(() => {
       <div class="setting">
         <h3>{t("preferences.folder")}</h3>
         <p class="path">{folder?.path ?? t("notes.chooseHint")}</p>
-        {#if folder && folder.state !== "available"}<p role="alert">{t(folder.state === "missing" ? "notes.missing" : "notes.unavailable")}</p>{/if}
+        {#if folder && folder.state !== "available"}<p role="alert">{t(folderNotice(folder.state))}</p>{/if}
         {#if folder && folder.state !== "available"}<UnlockVault />{/if}
         <Button variant="neutral" disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
       </div>
