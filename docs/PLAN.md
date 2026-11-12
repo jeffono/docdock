@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- Publish release 0.1.0-beta.1, then validate the update with 0.1.0-beta.2.
+- Release 0.1.0-beta.2 with M6, then validate the automatic update from the installed 0.1.0-beta.1.
 
 ## M7 — Versatile search
 
