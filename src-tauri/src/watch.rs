@@ -11,6 +11,8 @@ use notify::event::{ModifyKind, RenameMode};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter};
 
+use crate::notes::Availability;
+
 #[derive(Clone, Default, serde::Serialize)]
 struct Changes {
     renames: Vec<(String, String)>,
@@ -22,6 +24,9 @@ pub const EVENT: &str = "notes-changed";
 const QUIET: Duration = Duration::from_millis(200);
 /// A folder that never goes quiet still sends a notice this often.
 const MAX_WAIT: Duration = Duration::from_secs(1);
+/// How often the folder's availability is checked: a vault that locks or a drive that leaves may send
+/// no event, and one that returns sends none to a watch that ended.
+const POLL: Duration = Duration::from_secs(2);
 
 /// The folder being watched. Dropping the watcher closes its channel, which ends its thread.
 static WATCHING: Mutex<Option<(PathBuf, RecommendedWatcher)>> = Mutex::new(None);
@@ -35,7 +40,15 @@ pub fn ensure(app: &AppHandle, root: &Path) {
     *watching = None;
     match start(app.clone(), root) {
         Ok(watcher) => *watching = Some((root.to_owned(), watcher)),
-        Err(error) => eprintln!("[watch] failed to watch {}: {error}", root.display()),
+        // Watcher errors can carry paths; keep note names out of diagnostics.
+        Err(_) => eprintln!("[watch] failed to watch the notes folder"),
+    }
+}
+
+/// Tells the UI that the app itself changed the folder, as the watcher would.
+pub fn notify(app: &AppHandle) {
+    if let Err(error) = app.emit_to("main", EVENT, Changes::default()) {
+        eprintln!("[watch] failed to notify the UI: {error}");
     }
 }
 
@@ -43,6 +56,34 @@ pub fn ensure(app: &AppHandle, root: &Path) {
 /// and came back needs a new watch.
 pub fn stop() {
     *WATCHING.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Tells the UI when the folder in use leaves or returns, so it forgets the notes or reopens them. On
+/// leaving, the watch stops, so the next listing starts a new one, and the deleted notes kept for Undo
+/// are forgotten. A different folder is the picker's change, which the UI already follows.
+pub fn monitor(app: AppHandle) {
+    thread::spawn(move || {
+        let mut last = crate::notes::folder_state(&app);
+        loop {
+            thread::sleep(POLL);
+            let now = crate::notes::folder_state(&app);
+            let left_or_returned = matches!((&last, &now), (Some((a, was)), Some((b, is)))
+                if a == b && was != is);
+            if left_or_returned {
+                if now
+                    .as_ref()
+                    .is_some_and(|(_, state)| *state != Availability::Available)
+                {
+                    stop();
+                    crate::notes::forget_unavailable();
+                }
+                if let Err(error) = app.emit_to("main", EVENT, Changes::default()) {
+                    eprintln!("[watch] failed to notify the UI: {error}");
+                }
+            }
+            last = now;
+        }
+    });
 }
 
 fn start(app: AppHandle, root: &Path) -> notify::Result<RecommendedWatcher> {

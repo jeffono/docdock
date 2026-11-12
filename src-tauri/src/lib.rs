@@ -10,6 +10,7 @@ pub mod panel;
 mod pinned;
 mod platform;
 mod shortcut;
+mod trash;
 mod tray;
 mod updates;
 mod watch;
@@ -23,6 +24,10 @@ use tauri::Manager;
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::app_version,
+        commands::vault_file,
+        commands::vault_choose,
+        commands::vault_clear,
+        commands::vault_unlock,
         updates::exit_ready,
         commands::app_locale,
         commands::app_theme,
@@ -45,6 +50,7 @@ pub fn run() {
         commands::web_overlay,
         commands::notes_folder,
         commands::notes_choose,
+        commands::notes_trust,
         commands::notes_list,
         commands::notes_order,
         commands::notes_set_order,
@@ -64,6 +70,9 @@ pub fn run() {
         commands::notes_delete,
         commands::notes_delete_folder,
         commands::notes_undo_delete,
+        commands::notes_trash,
+        commands::notes_trash_restore,
+        commands::notes_trash_empty,
         commands::notes_paste_image,
         commands::notes_leftovers,
         commands::notes_restore,
@@ -73,6 +82,7 @@ pub fn run() {
         commands::pinned_set_collapsed,
         commands::pinned_restore,
         commands::open_external,
+        commands::clipboard_write,
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
@@ -95,7 +105,9 @@ pub fn run() {
             let (requests, receiver) = mpsc::channel();
             tray::setup(app, locale, side, requests.clone())?;
             app.manage(locale);
+            notes::purge_trash(app.handle());
             updates::start(app.handle());
+            watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
             app.manage(requests);
             dock::start(

@@ -39,15 +39,15 @@ Identity chosen by the user: a neutral, compact system utility. Values live in
 
 Use `src/lib/ui/` before creating anything. Create a component only if nothing existing works.
 
-| Component       | Use                                                                |
-| --------------- | ------------------------------------------------------------------ |
-| `Button`        | Primary action (at most one per area), or neutral secondary action |
-| `IconButton`    | Secondary action, always labeled; toggles on and off               |
-| `TextField`     | Single-line input; Esc leaves the field                            |
-| `Menu`          | In-panel menu of items with optional check and shortcut            |
-| `ConfirmDialog` | In-panel question before a costly action, focus on Cancel          |
-| `Notice`        | Amber-tinted message with an icon and actions, for attention       |
-| `Icon`          | Lucide stroke, text color, width 2                                 |
+| Component       | Use                                                                                           |
+| --------------- | --------------------------------------------------------------------------------------------- |
+| `Button`        | Primary action (at most one per area), neutral secondary action, or danger (deletes for good) |
+| `IconButton`    | Secondary action, always labeled; toggles on and off                                          |
+| `TextField`     | Single-line input; Esc leaves the field                                                       |
+| `Menu`          | In-panel menu of items with optional check and shortcut                                       |
+| `ConfirmDialog` | In-panel question before a costly action, focus on Cancel                                     |
+| `Notice`        | Amber-tinted message with an icon and actions; `attention` for Undo                           |
+| `Icon`          | Lucide stroke, text color, width 2                                                            |
 
 ## States
 
@@ -60,7 +60,8 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 ## Motion
 
 - Panel slides in 150 ms, defined in `dock.rs`. Hover uses `--duration`.
-- Nothing animates for decoration or delays access.
+- Nothing animates for decoration or delays access. The one exception that calls for attention is the
+  delete notice's entrance and Undo pulse, described under Deleting.
 
 ## Text
 
@@ -96,6 +97,17 @@ pinned and unpinned notes differ only in section and starting state.
   one saved choice: name (display title), modified or created, ascending or descending. The default is
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
+- **Folder away:** a notes folder the app cannot reach replaces the list with the empty state: one
+  sentence, the folder path in muted text and Choose folder. "Unavailable" names the usual causes (a
+  locked vault, an unplugged drive, an offline share) and says the folder opens again when it is back;
+  "not found" (the folder above it is there) adds that a moved or renamed folder is chosen again;
+  "not the folder you chose" (a folder is at the path but its identity marker is not the chosen one's)
+  says nothing is written to it, a locked vault's folder opens again once unlocked, and notes moved
+  there are accepted with "Use this folder" or by choosing the folder again. "Use this folder" appears
+  in both the list empty state and the editor notice for an unrecognized folder. The
+  list, previews, pinned items and tag suggestions disappear with it. An editor holding unsaved text
+  stays as the only card, with a notice at the top of its body that the text stays there and is saved
+  when the folder is back, and Discard my changes; Preferences shows the same sentence under the path.
 - **Order menu:** six single-choice items show a check on the current order; a separator precedes
   the checkable "Group by date" and "Group by folder" items; checking one clears the other. Enter/Space and arrows open and navigate it; Esc, selection and
   outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
@@ -122,12 +134,11 @@ pinned and unpinned notes differ only in section and starting state.
   (accent when selected) and transitions
   over `--duration` (ease-out for the inset and triangle). Reduced motion removes transitions.
   Date labels and the unlabelled root keep their existing appearance. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
-  item without a shortcut. Empty folders are removed immediately. Any entry (including hidden files
-  and attachments) requires the same nearby confirmation dialog, focused on Cancel, naming the folder
-  and its recursive counts of notes and other files, each with the correct singular or plural in English
-  and pt-BR (for example, "3 notes and 2 other files"). "Move to Recycle Bin" recycles all content; the text explains that
-  restoration is through the Recycle Bin, with no DocDock Undo. Root has no deletion label. Folders
-  left empty by moves or note deletion stay.
+  item without a shortcut. It deletes at once, without asking: an empty folder is removed, any
+  other goes whole (hidden files and attachments included) to the Recycle Bin, or to the trash inside
+  the notes folder where the Recycle Bin refuses it. A folder with notes then shows the deletion notice:
+  "Folder “name” moved to the Recycle Bin." with only a close button, since it is restored there, or
+  the trash text with Undo, as for a note. Root has no deletion label. Folders left empty by moves or note deletion stay.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
   the whole card follows the pointer; a dashed gap marks its pending position while the other cards
   stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
@@ -223,17 +234,21 @@ pinned and unpinned notes differ only in section and starting state.
   folder does nothing. The note keeps its file name, or " 2" and so on where it is taken, and stays
   selected; an edited note stays in its editor. Folders a move leaves empty stay.
 - **Deleting:** Delete in the card menu, or Ctrl+Delete on the selected card from the list (not in
-  the search bar or the editor, where it deletes the next word), asks in an in-panel dialog without
-  shadow, over a light scrim: the note title as the question, one muted sentence, then the neutral
-  Cancel, which has the focus, and the primary "Move to Recycle Bin". It spans the panel width less
-  its margins and opens just below the card header, or above it near the bottom, always inside the
-  panel. Esc cancels and focus returns. An edited note leaves editing first, which saves. Then a
-  `Notice` under the search bar, on the amber tint with a trash icon, says the note went to the
-  Recycle Bin, with a neutral Undo button, until the panel closes or another note is deleted. Undo
-  brings the note and its pinned items back and selects it. The selection otherwise moves to the
-  next item. Where the folder has no Recycle Bin, nothing is deleted and an error says so. A note over
-  the 2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is
-  too large to keep a copy for Undo and to delete it in File Explorer.
+  the search bar or the editor, where it deletes the next word), deletes at once, without asking. An
+  edited note leaves editing first, which saves. Then a `Notice` under the search bar, on the amber
+  tint with a trash icon, says where the note went, with a neutral Undo button and a quiet close
+  button: "“title” moved to the Recycle Bin." (Undo until the panel closes), or, where the Recycle Bin
+  refuses it (an encrypted vault, a network folder), "Deleted “title”. It stays in the trash for 30
+  days (Preferences)." (Undo while the item is in the trash, also after the panel closes). It leaves
+  after 10 seconds in sight, or when closed, undone or replaced by another delete; time stops while the
+  pointer or focus is on it and while the panel is hidden or Preferences or a page covers the
+  notes. So that an undoable delete is noticed even by a distracted
+  user, the notice slides down and fades in over two `--duration`, then the Undo button pulses twice
+  (an accent outline with the selected background and accent text, five `--duration` each); with
+  reduced motion it appears at once and Undo keeps that selected look. Undo brings the note and its
+  pinned items back and selects it. The selection otherwise moves to the next item. A note over the
+  2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is too
+  large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
   another app, Esc from the search bar, or the shortcut from the search bar. A pinned panel only
   closes by unpinning: Esc or the shortcut from its search bar returns focus to the previous app and it
@@ -275,7 +290,7 @@ pinned and unpinned notes differ only in section and starting state.
 | → / ←                     | Open / close one level: line, preview, expanded                                                        |
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item                       |
 | Delete                    | Remove the selected missing pinned item                                                                |
-| Ctrl+Delete               | Move the selected note to the Recycle Bin, after confirming; outside text fields                       |
+| Ctrl+Delete               | Delete the selected note; outside text fields                                                          |
 | Ctrl+M                    | Move the selected note to a folder; from the search bar or the list                                    |
 | Shift+F10 / Menu          | Open the selected note or folder menu                                                                  |
 | Ctrl+Enter                | Create a note with the exact typed text                                                                |
@@ -290,10 +305,10 @@ pinned and unpinned notes differ only in section and starting state.
 
 ## Preferences
 
-The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
-and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
+The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser,
+Shortcuts and Trash section buttons, wrapping when the panel is narrow. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order, date grouping, relative dates, panel side and a
+General contains the folder path, folder picker, optional Vault file, note order, date grouping, relative dates, panel side and a
 "Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
@@ -316,6 +331,26 @@ computer; it also shows the panel width, how to resize it and a reset. Folder ch
 use neutral buttons. The active section has an accessible name without repeating the tab
 label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors.
 Opening a page preserves the Notes query.
+
+Vault file shows its path (wrapping when necessary), or a short optional hint, with neutral Choose file
+and Clear buttons. The native picker filters `.cryptomator` files. With a configured vault and a
+notes folder that is not available, the list's empty state, the editor's folder-away notice (including
+missing and unrecognized folders) and the folder setting show Unlock. In the list and Preferences it
+sits beside the neutral Choose folder action. Unlock opens the saved file in its associated app; Cryptomator
+handles authentication, including Windows Hello when configured. A missing vault file shows a nearby
+error asking to choose it again. The existing folder poll restores the list without another action.
+
+Trash explains in one muted paragraph that items the Recycle Bin cannot take stay there 30 days, inside
+the notes folder (encrypted in a vault) and synced with it. Then one row per item, newest first,
+between lines: the name (a note's title without `.md`) and, muted below it, its original folder
+("Notes folder" for the root) and the relative deletion date, with the full date on hover; a neutral
+Restore button on the right. Restoring says "Restored as path." below, since a taken name gives a free
+one such as "name (2)". Under the list, the danger "Empty trash" button asks in the confirmation dialog
+with the item count, confirmed by the danger "Delete for good": the only permanent action, so the
+only question. Empty: "The trash is empty."; while the folder is away, a sentence that the trash
+appears when it is back. An entry whose item cannot be told, as after a sync conflict, shows
+"Unrecognized item" with its place in the trash and no Restore; Empty removes it. The trash is never
+shown in the notes list.
 
 ## Panel navigation
 
@@ -442,3 +477,8 @@ task list and quote, insert a link, or add a frontmatter property. Labels and sh
 come from the command bindings, in the interface language. The bar uses the surface, line and control
 tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
 sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.
+
+Copy and cut in the panel (editor, reading views, search bar and other fields) put plain text on the
+clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.
+Pasting elsewhere keeps the text, not formatting or images. The panel's context menu has no Copy link
+or Copy image. The web page copies as any browser does.

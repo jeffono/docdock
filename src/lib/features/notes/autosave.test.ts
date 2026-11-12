@@ -121,6 +121,34 @@ describe("autosave", () => {
     expect(autosave.unsaved()).toBeNull();
   });
 
+  it("sends again a save in flight that fails after a retry", async () => {
+    const { autosave, calls, state } = setup();
+    autosave.edit("a");
+    await wait(100);
+    autosave.retry();
+    calls[0].reject({ code: "folderUnavailable" });
+    await wait();
+    expect(calls[1]).toMatchObject({ content: "a", base: "v0" });
+    calls[1].resolve({ status: "saved", version: "v1" });
+    await wait();
+    expect(state()).toBe("saved");
+    expect(autosave.unsaved()).toBeNull();
+  });
+
+  it("retries a failed save at once", async () => {
+    const { autosave, calls, state } = setup();
+    autosave.edit("a");
+    await wait(100);
+    calls[0].reject({ code: "folderUnavailable" });
+    await wait();
+    autosave.retry();
+    await wait();
+    expect(calls[1]).toMatchObject({ content: "a", base: "v0" });
+    calls[1].resolve({ status: "saved", version: "v1" });
+    await wait();
+    expect(state()).toBe("saved");
+  });
+
   it("never saves edits after stop, even with a save in flight", async () => {
     const { autosave, calls } = setup();
     autosave.edit("a");

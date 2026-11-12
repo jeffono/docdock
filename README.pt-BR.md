@@ -23,6 +23,20 @@ Abra o DocDock e escolha uma pasta para suas notas. Mantenha o ponteiro na borda
 
 As notas são armazenadas localmente na pasta escolhida. O DocDock não tem telemetria. A cada inicialização, ele consulta o GitHub para saber se há uma versão nova. A navegação e as sugestões de pesquisa acessam os sites e o provedor de busca usados por você.
 
+### Protegendo notas com Cryptomator
+
+Um cofre opcional do [Cryptomator](https://cryptomator.org) criptografa as notas para sincronização na nuvem e ajuda a protegê-las se o dispositivo for roubado enquanto o cofre estiver bloqueado. O DocDock não armazena conteúdo das notas fora da pasta de notas.
+
+1. No Cryptomator, crie um cofre dentro da pasta sincronizada com a nuvem e desbloqueie-o.
+2. No DocDock, escolha uma pasta **dentro do cofre montado** como pasta de notas.
+3. Opcionalmente, selecione o arquivo `vault.cryptomator` do cofre nas Preferências. A ação **Desbloquear** do painel abre esse arquivo no Cryptomator. O desbloqueio com Windows Hello é configurado no Cryptomator.
+
+Após atualizar, confirme a pasta de notas uma vez com **Usar esta pasta** (ou escolha-a novamente), se solicitado. **Desbloquear** também aparece ao lado de uma nota com texto não salvo.
+
+Enquanto o cofre está bloqueado, o DocDock mostra a pasta de notas como indisponível e nunca a recria. O texto não salvo fica na memória, com um aviso, e é salvo quando o cofre volta a ficar disponível; mantenha o DocDock aberto até o salvamento. Excluir num cofre, que não tem Lixeira do Windows, move a nota ou pasta para uma lixeira dentro da pasta de notas: ela fica lá, criptografada e sincronizada com o cofre, por 30 dias, e depois o DocDock a exclui. Restaure itens, ou esvazie a lixeira para removê-los de uma vez, em Preferências > Lixeira. O DocDock também solicita ao Windows que oculte o painel das capturas de tela (sem garantia em todos os casos) e mantém as cópias de notas fora do histórico e da sincronização da área de transferência.
+
+**Mover notas existentes para um cofre não remove versões anteriores sem criptografia do histórico de versões ou da lixeira do provedor de nuvem, nem dos backups.** Apague também essas cópias anteriores ou comece com notas novas no cofre.
+
 ## Desenvolvimento
 
 Instale Node 24, pnpm, Rust via rustup e as Ferramentas de Build C++ do Visual Studio. Em seguida, execute:

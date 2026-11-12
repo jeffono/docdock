@@ -9,7 +9,7 @@ import { placeNear } from "./place";
  */
 const id = $props.id();
 let dialog: HTMLDialogElement;
-let question = $state({ title: "", text: "", action: "" });
+let question = $state({ title: "", text: "", action: "", danger: false });
 let answer: ((confirmed: boolean) => void) | null = null;
 let previous: Element | null = null;
 
@@ -19,11 +19,18 @@ export function isOpen() {
 
 /**
  * `near`: what the question is about, such as a card header; the dialog opens just below it, or
- * above when there is no room, inside the panel. Without it, the dialog is centered.
+ * above when there is no room, inside the panel. Without it, the dialog is centered. `danger`: the
+ * action deletes for good.
  */
-export function ask(title: string, text: string, action: string, near?: DOMRect): Promise<boolean> {
+export function ask(
+  title: string,
+  text: string,
+  action: string,
+  near?: DOMRect,
+  danger = false,
+): Promise<boolean> {
   answer?.(false);
-  question = { title, text, action };
+  question = { title, text, action, danger };
   previous = document.activeElement;
   dialog.showModal();
   placeNear(dialog, near);
@@ -49,7 +56,7 @@ function done(confirmed: boolean) {
   <p id={`${id}-text`}>{question.text}</p>
   <div class="actions">
     <Button variant="neutral" onclick={() => done(false)}>{t("dialog.cancel")}</Button>
-    <Button onclick={() => done(true)}>{question.action}</Button>
+    <Button variant={question.danger ? "danger" : "primary"} onclick={() => done(true)}>{question.action}</Button>
   </div>
 </dialog>
 

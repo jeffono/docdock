@@ -14,6 +14,26 @@ pub fn app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+#[tauri::command(async)]
+pub fn vault_file(app: AppHandle) -> Result<Option<String>, Error> {
+    crate::notes::vault_file(&app)
+}
+#[tauri::command(async)]
+pub fn vault_choose(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+) -> Result<Option<String>, Error> {
+    crate::notes::choose_vault_file(&app, &requests)
+}
+#[tauri::command(async)]
+pub fn vault_clear(app: AppHandle) -> Result<(), Error> {
+    crate::notes::clear_vault_file(&app)
+}
+#[tauri::command(async)]
+pub fn vault_unlock(app: AppHandle) -> Result<(), Error> {
+    crate::notes::unlock_vault(&app)
+}
+
 #[tauri::command]
 pub fn app_locale(locale: State<'_, Locale>) -> Locale {
     *locale
@@ -114,7 +134,20 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
+/// Copy and cut in the UI write through here, never through the browser, so the text stays out of
+/// clipboard history and cloud clipboard. Off the main thread: opening the clipboard may wait for
+/// another app to close it.
 #[tauri::command]
+pub async fn clipboard_write(window: tauri::WebviewWindow, text: String) -> Result<(), Error> {
+    let owner = window.hwnd()?.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || crate::platform::write_private_text(owner, &text))
+        .await
+        .map_err(Error::unexpected)?
+        .map_err(Error::unexpected)
+}
+
+/// `async`: looking at an offline share can take seconds.
+#[tauri::command(async)]
 pub fn notes_folder(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::folder(&app)
 }
@@ -125,7 +158,11 @@ pub async fn notes_choose(
 ) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::choose(&app, &requests)
 }
-#[tauri::command]
+#[tauri::command(async)]
+pub fn notes_trust(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
+    crate::notes::trust(&app)
+}
+#[tauri::command(async)]
 pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
     crate::notes::list_for(&app)
 }
@@ -186,24 +223,37 @@ pub fn notes_folders(app: AppHandle) -> Result<Vec<crate::notes::FolderEntry>, E
 pub fn notes_create_folder(app: AppHandle, path: String) -> Result<(), Error> {
     crate::notes::create_folder(&app, &path)
 }
+/// Deletes a folder and everything in it at once, as `notes_delete` does a note.
 #[tauri::command(async)]
-pub fn notes_delete_folder(
-    app: AppHandle,
-    path: String,
-    confirmed: bool,
-) -> Result<Option<crate::notes::FolderCounts>, Error> {
-    crate::notes::delete_folder(&app, &path, confirmed)
+pub fn notes_delete_folder(app: AppHandle, path: String) -> Result<crate::notes::Removal, Error> {
+    crate::notes::delete_folder(&app, &path)
 }
-
-/// Moves a note to the Recycle Bin; answers whether `notes_undo_delete` can bring it back, which it
-/// can while the panel stays open.
+/// Moves a note to the Recycle Bin, or to the notes folder's own trash where the Recycle Bin cannot
+/// take it, and answers how it can come back.
 #[tauri::command(async)]
-pub fn notes_delete(app: AppHandle, path: String) -> Result<bool, Error> {
+pub fn notes_delete(app: AppHandle, path: String) -> Result<crate::notes::Removal, Error> {
     crate::notes::delete_note(&app, &path)
 }
 #[tauri::command(async)]
 pub fn notes_undo_delete(app: AppHandle, path: String) -> Result<(), Error> {
     crate::notes::undo_delete(&app, &path)
+}
+#[tauri::command(async)]
+pub fn notes_trash(app: AppHandle) -> Result<Vec<crate::trash::Item>, Error> {
+    crate::notes::trash_items(&app)
+}
+/// Answers the path the item took. The notes list hears of it as of any change.
+#[tauri::command(async)]
+pub fn notes_trash_restore(app: AppHandle, id: String, undo: bool) -> Result<String, Error> {
+    let restored = crate::notes::restore_trashed(&app, &id, undo);
+    if !matches!(restored, Err(Error::TrashItemMissing)) {
+        crate::watch::notify(&app);
+    }
+    restored
+}
+#[tauri::command(async)]
+pub fn notes_trash_empty(app: AppHandle, ids: Vec<String>) -> Result<(), Error> {
+    crate::notes::empty_trash(&app, &ids)
 }
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]

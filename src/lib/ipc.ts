@@ -106,11 +106,25 @@ export const onWebVisible = (handler: (visible: boolean) => void) =>
 /** Ctrl+Tab typed while the page window had focus, filtered natively before the page sees it. */
 export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode", () => handler());
 
-export type NotesFolder = { path: string; available: boolean };
+/**
+ * `unavailable`: its drive, share or a folder above it is gone, as for a locked vault. `missing`: the
+ * folder above it is there but the folder is not. Neither is ever created. `unrecognized`: a folder is
+ * there but its identity marker is not the chosen one's, as for the empty folder a locked vault can
+ * leave at its mount point; it is never written to.
+ */
+export type FolderState = "available" | "unavailable" | "missing" | "unrecognized";
+export type NotesFolder = { path: string; state: FolderState };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
 export type Note = { path: string; name: string; modified: number; created: number };
 export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
+/** Only the saved, validated Cryptomator file can be opened; no launch path comes from the UI. */
+export const vaultFile = () => invoke<string | null>("vault_file");
+export const vaultChoose = () => invoke<string | null>("vault_choose");
+export const vaultClear = () => invoke<void>("vault_clear");
+export const vaultUnlock = () => invoke<void>("vault_unlock");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
+/** Confirms the folder at the configured path, as choosing it again would; an open editor stays. */
+export const notesTrust = () => invoke<NotesFolder | null>("notes_trust");
 export const notesList = () => invoke<Note[]>("notes_list");
 /** `version` is opaque: pass it back to `notesSave` as `base`. */
 export type OpenNote = {
@@ -144,18 +158,43 @@ export const notesMove = (from: string, to: string, base: string) =>
 export const notesFolders = () => invoke<{ path: string; empty: boolean }[]>("notes_folders");
 /** Creates a folder, nested with `/`, keeping one that exists; `invalidFolderName` otherwise. */
 export const notesCreateFolder = (path: string) => invoke<void>("notes_create_folder", { path });
-/** Empty folders go at once; a note count asks for confirmation. null means deleted. */
-export const notesDeleteFolder = (path: string, confirmed = false) =>
-  invoke<{ notes: number; other: number } | null>("notes_delete_folder", { path, confirmed });
 /**
- * Moves a note to the Recycle Bin and removes its pinned items. Resolves to whether, until the panel
- * closes, `notesUndoDelete` can bring both back; meanwhile saves or renames to its path answer a
- * conflict. `notRecyclable`: the note stays where it is. `pinnedNotRemoved` (with `undo`): the note
- * was deleted all the same.
+ * Where a deleted note or folder went. `undo`: `notesUndoDelete` can bring the note back from the
+ * Recycle Bin until the panel closes. `trash`: the Recycle Bin could not take it, as on an encrypted
+ * vault or a network folder, so it went to the trash inside the notes folder for 30 days, as this
+ * entry, which `notesTrashRestore` brings back.
  */
-export const notesDelete = (path: string) => invoke<boolean>("notes_delete", { path });
+export type Removal = { undo: boolean; trash: string | null };
+/**
+ * Deletes a folder and everything in it at once. Its notes' pinned items are removed;
+ * `pinnedNotRemoved` (with the `Removal` fields): the folder was deleted all the same.
+ */
+export const notesDeleteFolder = (path: string) => invoke<Removal>("notes_delete_folder", { path });
+/**
+ * Deletes a note and removes its pinned items. While `notesUndoDelete` can bring it back, saves or
+ * renames to its path answer a conflict. `pinnedNotRemoved` (with the `Removal` fields): the note was
+ * deleted all the same.
+ */
+export const notesDelete = (path: string) => invoke<Removal>("notes_delete", { path });
 /** `restoreTaken`: a file took the name; nothing changed and undoing stays possible. */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
+/**
+ * An entry of the trash inside the notes folder; `deleted` is in ms since the Unix epoch. `path` is
+ * null when its item cannot be told, as when a sync conflict left two items in it: it can only be
+ * emptied.
+ */
+export type TrashItem = { id: string; path: string | null; folder: boolean; deleted: number };
+/** Newest first. */
+export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
+/**
+ * Moves an item back to its path, or a free name such as "name (2).md" when that is taken, and
+ * resolves to the path it took. `undo` also puts back the pinned items its delete removed.
+ * `trashItemMissing`: it is no longer in the trash.
+ */
+export const notesTrashRestore = (id: string, undo = false) =>
+  invoke<string>("notes_trash_restore", { id, undo });
+/** Deletes the entries `ids`, the ones listed, for good; anything synced in since stays. */
+export const notesTrashEmpty = (ids: string[]) => invoke<void>("notes_trash_empty", { ids });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },
@@ -184,6 +223,9 @@ export const pinnedSetCollapsed = (target: string, collapsed: boolean) =>
 export const pinnedRestore = () => invoke<Pinned>("pinned_restore");
 
 export const openExternal = (url: string) => invoke<void>("open_external", { url });
+
+/** Replaces the clipboard with text kept out of Windows clipboard history and cloud clipboard. */
+export const clipboardWrite = (text: string) => invoke<void>("clipboard_write", { text });
 
 /** Something in the notes folder changed outside the app, or a save landed. */
 export type NotesChanges = { renames: [string, string][] };

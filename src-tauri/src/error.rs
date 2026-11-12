@@ -15,8 +15,15 @@ pub enum Error {
         detail: String,
     },
     NoFolder,
+    /// The folder's volume, share or a folder above it is gone: a locked vault, an unplugged drive.
     FolderUnavailable,
+    /// The folder above the notes folder is there, but the notes folder is not.
+    FolderMissing,
+    /// A folder is at the path but it is not the one chosen: its identity marker is absent or another.
+    FolderUnrecognized,
     InvalidPath,
+    InvalidVaultFile,
+    VaultFileMissing,
     OutsideFolder,
     TooLarge {
         size_mb: u64,
@@ -66,19 +73,25 @@ pub enum Error {
     PinnedNotRenamed {
         path: String,
     },
-    /// The note's volume has no Recycle Bin, or it would not take the note; nothing was deleted.
-    NotRecyclable,
     DeleteFailed {
         detail: String,
     },
-    /// The note is in the Recycle Bin, but its pinned items still point at it. `undo`: Undo can bring
-    /// it back.
+    /// Emptying the trash stopped; what remains stays in the trash.
+    EmptyFailed {
+        detail: String,
+    },
+    /// The note or folder is deleted, but its pinned items still point at it. `undo` and `trash` as in
+    /// `notes::Removal`.
     PinnedNotRemoved {
         undo: bool,
+        trash: Option<String>,
     },
     /// The panel closed since the delete, or it was already undone.
     UndoUnavailable,
-    /// A file took the deleted note's name; the note stays in the Recycle Bin.
+    /// The item is no longer in the notes folder's own trash: restored, emptied or purged meanwhile,
+    /// perhaps on another computer.
+    TrashItemMissing,
+    /// A file took the deleted note's or folder's name; nothing moved and Undo stays possible.
     RestoreTaken {
         path: String,
     },

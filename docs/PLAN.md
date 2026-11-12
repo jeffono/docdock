@@ -5,33 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: M8 — Note privacy.
-
-## M8 — Note privacy
-
-Threats that matter: leaks through cloud sync and a stolen device with synced notes; screen sharing
-also matters for a panel that appears over other apps. Notes stay plain `.md`; encryption is delegated
-to a vault the user mounts, such as Cryptomator, which stays optional. The app's own encryption is in
-`docs/EXPLORATIONS.md`.
-
-- [ ] Record the decision above in `docs/decisions/`, including the rule that nothing derived from note
-  content is stored outside the notes folder. `basic`
-- [ ] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
-  deleted folder; never create the notes folder or its parents, which would write plaintext under a
-  vault's mount point (regression test); a failed save keeps the text in memory with a notice and
-  writes nowhere else, then saves when the folder returns; note text and the search index are
-  cleared from memory while the folder is unavailable. `advanced`
-- [ ] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
-  `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
-  `standard`
-- [ ] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give
-  such notes an Undo that keeps the copy inside the notes folder. `advanced`
-- [ ] Hide the panel from screen capture and sharing with `WDA_EXCLUDEFROMCAPTURE`. `standard`
-- [ ] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`
-- [ ] Optional vault file in Preferences: an Unlock action on the unavailable state opens
-  `vault.cryptomator`, which Cryptomator unlocks with Windows Hello. `standard`
-- [ ] README section in English and pt-BR: protecting notes with Cryptomator, including that moving notes
-  into a vault does not remove earlier plaintext from cloud history. `basic`
+- Next: M9 — Clean pages.
 
 ## M9 — Clean pages
 
@@ -80,6 +54,12 @@ another provider: they touch untrusted content.
 - M7 — Versatile search: optional relative dates, `#tag` and `date:` filters with completion, tags
   seeded on creation and web actions as a list section; see "Note list" in `docs/DESIGN.md` and
   "Notes" in `docs/ARCHITECTURE.md`. Frontend tests grew 32%, mostly pure parser and date-range cases.
+- M8 — Note privacy: decision 0009, vault-friendly unavailable folder with a `.docdock/folder-id`
+  marker, derived data inside the notes folder, a 30-day trash inside the folder where the Recycle Bin
+  refuses (Preferences > Trash), deletes without confirmation and an Undo notice that draws attention,
+  capture exclusion, private clipboard and an Unlock action for a Cryptomator vault file; see "Notes" in
+  `docs/ARCHITECTURE.md`. Rust tests grew 33%, on content loss and link safety around the folder marker,
+  the unavailable folder and the trash.
 
 ## Later
 
@@ -112,5 +92,3 @@ Defaults used until you decide otherwise.
 | Monitor                    | The outermost on the chosen side, whose edge holds the cursor               |
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
-| Panel in screen captures   | Always hidden, which also blanks the user's own screenshots of the panel    |
-| Clipboard from notes       | Kept out of history and cloud clipboard; not cleared after a delay          |

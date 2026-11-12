@@ -9,6 +9,7 @@ src/                     UI (Svelte 5 + Vite)
   App.svelte             Screen composition, no business rules
   lib/ipc.ts             Only entry point that calls Rust
   lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
+  lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
   lib/features/<name>/   Components, state and tests for each feature
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
@@ -23,9 +24,10 @@ src-tauri/src/           Backend (Rust)
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
+  trash.rs               The notes folder's own 30-day trash for deletes without a Recycle Bin
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
-  watch.rs               Tells the UI when the notes folder changes
+  watch.rs               Tells the UI when the notes folder changes, leaves or returns
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
@@ -85,6 +87,18 @@ changing the Windows language takes effect on the next start. Commands fail with
 already in its language. An unknown code shows as an unexpected error with its raw fields.
 
 ## Panel
+
+**Capture exclusion.** The panel and its owned web page window always request capture exclusion
+through `platform/capture.rs`: `SetWindowDisplayAffinity` targets each top-level Tauri HWND, which
+covers its WebView2 children and the app's DOM-rendered menus. It runs after creation while the window
+is still hidden, before note or page content is shown, including every recreation of the page window.
+`WDA_EXCLUDEFROMCAPTURE` is tried first; Windows before 10 2004 refuses it and gets `WDA_MONITOR`, a
+black window in captures. This is best effort: failures are only logged, and only capture APIs that
+honor display affinity respect it. There is no preference, so the user's own screenshots of the panel
+are blank too. System folder pickers and update dialogs show no note content and are left alone; new
+browser windows are denied. Known gap: Chromium-native popups, such as the default context menu (which
+can show selected text in "Search the web for") and page `<select>` lists, are separate windows in the
+WebView2 process that the app's affinity does not reach.
 
 `panel.rs` is a pure state machine, without Win32 access:
 
@@ -224,7 +238,8 @@ per-monitor DPI awareness (PMv2).
   editor gets Ctrl+J. The page keeps reload, zoom and back/forward; the UI keeps none, except
   DevTools in debug builds. Ctrl+Tab on the page is consumed natively and emitted to `main` as
   `panel-toggle-mode`; the page never sees it. Context menus keep only editing items, plus
-  back/forward/reload on the page; unknown or future items are dropped.
+  back/forward/reload on the page; unknown or future items are dropped. The UI's menu also drops Copy
+  link and Copy image, which bypass the copy event (see "Copy and cut" in Notes).
 - **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
   or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
   `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
@@ -373,38 +388,91 @@ leaving the editor waits for it; otherwise it goes through `notes_rewrite`, a sa
 just read that never recreates a missing note, so a change, deletion or rename made meanwhile wins
 and the links stay (`move.linksKept`). Renames stay in their folder and need no rewrite.
 
-**Deleting folders.** `notes_delete_folder(path, confirmed)` validates a non-root, non-hidden,
-non-internal relative folder with `hold_folder`, refusing junctions and symlinks at every level and
-short-name aliases.
-Under the save lock, no entries means non-recursive `remove_dir`; a concurrent new entry makes that
-fail safely. Otherwise an unconfirmed call returns the recursive listed-note count; a confirmed call
-uses the same permanent-deletion-refusing Recycle Bin operation as notes. Parent handles remain held
-while deletion runs; the target handle is released to permit deletion. Pins within that path are
-removed with the existing conflict-aware pinned helpers; failures report `pinnedNotRemoved` without
-Undo. Descendant paths stay reserved until the panel hides, and note Undo copies inside the folder
-are discarded. The UI leaves an affected editor through its save guard before deleting, cancels
-pending opens, and blocks new opens while deletion runs. Folder labels also include empty folders,
-using `notes_folders` on listing/reload; moves and note deletes never remove their empty parents.
+**Deleting folders.** `notes_delete_folder(path)` deletes at once, without asking. It validates a
+non-root, non-hidden, non-internal relative folder with `hold_folder`, refusing junctions and symlinks
+at every level and short-name aliases. Under the save lock, no entries means non-recursive
+`remove_dir`; a concurrent new entry makes that fail safely and the folder then goes whole, like one
+with content, to the Recycle Bin, or to the notes folder's own trash where the Recycle Bin cannot take
+it (below). Parent handles remain held while deletion runs; the target handle is released to permit
+deletion. Pins within that path are removed with the existing conflict-aware pinned helpers; failures
+report `pinnedNotRemoved`. Note Undo copies inside the folder are discarded. A folder sent to the
+Recycle Bin has no Undo in the app; one sent to the trash does, as any trash item. The UI leaves an
+affected editor through its save guard before deleting, cancels pending opens, and blocks new opens
+while deletion runs. Folder labels also include empty folders, using `notes_folders` on
+listing/reload; moves and note deletes never remove their empty parents.
 
-**Deleting.** `notes_delete(path)` moves a note to the Recycle Bin under the save lock, with its folders
-held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
+**Deleting.** `notes_delete(path)` deletes a note at once, without asking, under the save lock, with its
+folders held, and answers a `Removal`: `undo` for a Recycle Bin Undo, `trash` for the trash entry.
+`platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
 cancels the delete when `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`, so where the shell would
-delete for good (no Recycle Bin on the volume, as on a network share) the note stays and the answer is
-`notRecyclable`. The sink also reports where the file landed in the Recycle Bin; its bytes are read
-from there, so Undo keeps exactly what was recycled even if another app swapped the path, and kept in
-memory with the path until the panel hides (`forget_deleted`, from `dock.rs`). Hides count as
-sessions: a delete that ends after one keeps nothing and answers that Undo is not possible, and the UI
-drops the notice the same way. Meanwhile the path is reserved: saves and renames to it answer a conflict, so a late save
-of an editor cannot recreate the note and a new note takes the next name. Undo (`notes_undo_delete`)
-writes the copy back with the empty-base recreation, never over a file that took the name
-(`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy. Restoring from the Recycle
-Bin itself was not used: finding the item depends on the bin's internal layout. Pinned items are
-removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands); Undo puts back the
-exact previous `_pinned.md` if it did not change since, else pins the items again at the end
-(`pinned::repin`), and leaves a deleted `_pinned.md` to its own restore. The UI leaves the note's editor
-first, the guarded way, so its text is saved and nothing writes after the delete; a conflict there
-stops the delete. While the delete runs, the note cannot open in the editor and an open already in
-flight is dropped.
+delete for good (no Recycle Bin on the volume, as on a network share, a file over the bin's limit or a
+bin set to remove files at once) the note stays and recycling answers `Unsupported`; the shell also
+cannot parse a vault path mounted by WinFsp, which answers the same. The note then goes to the trash.
+Without the sink, `FOF_ALLOWUNDO` with `FOF_NO_UI` (which includes `FOF_NOCONFIRMATION`) deletes such a
+file for good without asking, verified on a Cryptomator vault mounted through WinFsp.
+`SHQueryRecycleBinW` is not used to decide: it says nothing about the bin's size limit or the "remove
+files immediately" setting, and the sink sees the shell's own decision for each item. The sink also
+reports where the file landed in the Recycle Bin; its bytes are read from there, so Undo keeps exactly
+what was recycled even if another app swapped the path, and kept in memory with the path until the
+panel hides (`forget_deleted`, from `dock.rs`). Hides count as sessions: a delete that ends after one
+keeps nothing and answers that Undo is not possible. Meanwhile the path is reserved: saves and renames
+to it answer a conflict, so a late save of an editor cannot recreate the note and a new note takes the
+next name. Undo (`notes_undo_delete`) writes the copy back with the empty-base recreation, never over
+a file that took the name (`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy.
+Restoring from the Recycle Bin itself was not used: finding the item depends on the bin's internal
+layout. A note over 2 MB is refused where the Recycle Bin would take it, since it is too large for
+that copy: `platform::recyclable` asks the shell first, cancelling the operation before its first item,
+and a note the bin would refuse goes to the trash, which needs no copy. Pinned
+items are removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands); Undo puts
+back the exact previous `_pinned.md` if it did not change since, else pins the items again at the end
+(`pinned::repin`), and leaves a deleted `_pinned.md` to its own restore. The UI leaves the note's
+editor first, the guarded way, so its text is saved and nothing writes after the delete; a conflict
+there stops the delete. While the delete runs, the note cannot open in the editor and an open already
+in flight is dropped.
+
+**The notes folder's own trash.** Where the Recycle Bin cannot take an item, `trash.rs` moves it with
+`move_new` into `.docdock/trash` inside the notes folder, a rename on the same volume, so nothing
+leaves the folder or the vault and the move is whole or not at all. Ordinary folders keep using the
+Recycle Bin. Each item is one entry, a folder named `<deleted>-<n>-<random>-<depth>` in lowercase
+base36: the deletion time in ms, a counter, a random value against collisions between computers syncing
+one folder, and how many folders lie above the item. The entry holds the item at its original relative
+path (`a/b/note.md` becomes `<entry>/a/b/note.md`), so the date and the path need no index file and
+the original name is never cut. A path nested deeper than 128 folders is refused and the item stays
+where it was. Listing (`notes_trash`, newest first) walks the entries: each level holds one real
+folder, then one file or folder, ignoring files beside the chain and shell or sync noise
+(`desktop.ini`, `Thumbs.db`, `.DS_Store`). An entry whose item cannot be told that way (two
+candidates, such as after a sync conflict, a link, or a name that is not Unicode) is still listed,
+without a path, so it can be seen and emptied, but not restored from the app. Restoring
+(`notes_trash_restore(id, undo)`) refuses an internal path, `_pinned.md`, a file that is not a note,
+and a final name Windows would not keep as written (a device name such as `con.md`, a trailing dot
+or space); it moves the item back under the save lock, creating only the missing parent folders, each
+under the folder creation rules, while existing ones are used as they are, holding both sides, and
+takes a free name such as
+`name (2).md` or `folder (2)` rather than overwrite (a name a Recycle Bin Undo reserves counts as
+taken); the emptied entry folders are then removed without recursion. With `undo`, from the delete
+notice, it also puts back the pinned items the delete removed, when the item returns under its own
+name. Those are kept in memory only while the folder stays available: when it goes away, such as a
+vault locking, `forget_unavailable` drops them with everything else derived from notes, and the item
+then comes back without its pinned items; from Preferences it does not. The notice's Undo works beyond the
+panel session for as long as the entry exists, and `trashItemMissing` answers once it does not (restored,
+emptied or purged, perhaps on another computer). The command also tells the UI that the folder
+changed, as the watcher would.
+
+Items stay 30 days (`trash::KEEP_MS`; exactly 30 days still stays, and a time ahead of the clock is
+not old) from the later of their deletion time, by the deleting computer's clock, and their entry
+folder's last change, by this computer's, from when it was made or synced here; so a computer whose
+clock ran late cannot have its entries purged early elsewhere. Then the purge removes them: at startup, on choosing a folder and when
+the panel hides (`purge_trash`), on a thread of its own, only in the folder that `root` accepts by its
+marker, so never while it is unavailable. "Empty trash" in Preferences (`notes_trash_empty(ids)`)
+removes the entries that were listed and confirmed, not one synced in since. Listing failures that
+are not a link tell the folder is unavailable, as while a vault locks. Every walk inside the trash (listing, restoring, emptying, purging) holds each folder, without following links, before reading it and until done with it, and every folder the trash or a restore creates is made while the one above it is held and then held itself, so no folder can be swapped for a link meanwhile. Both remove links inside without following them, refuse a trash that is a link (it is
+held with its ancestry, as for writing), and walk the tree themselves: `fs::remove_dir_all` fails on a
+vault mounted by WinFsp. What cannot be removed now, such as while the vault locks, goes next time.
+Names DocDock did not make are left to Empty. Being under `.docdock`, the trash is skipped by listing,
+search, tags, folder labels and the watcher, which reports the move as a deletion; paths into it are
+internal and refused. Attachments stay beside a deleted note, as with the Recycle Bin; a deleted
+folder takes its own along. A synced notes folder syncs the trash too: in a vault, encrypted like the
+rest.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
@@ -509,6 +577,26 @@ it before leaving. Reloads are refused during that wait; insertion then creates 
 Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
 The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
 
+**Copy and cut.** Text copied in `main` stays out of Windows clipboard history and cloud clipboard,
+and is not cleared later. Every route (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete, the context menu)
+fires a `copy` or `cut` event, so `lib/clipboard.ts` intercepts the events, not keys: a window
+listener, the last to see each event, cancels the browser's write and sends the text to
+`clipboard_write`. The text is what a handler such as CodeMirror's copy left in the event, else the
+field's selected text, else `getSelection()` with non-breaking spaces as spaces. Plain text only: the
+browser's HTML would carry `note-asset` image addresses that resolve nowhere else; a selection without
+text copies nothing. Cut deletes only after the write succeeds, and only if nothing changed meanwhile:
+fields through `execCommand("delete")`, which keeps their undo, and the editor through `privateCut`,
+which runs CodeMirror's own copy and cut handlers on synthetic events, so several cursors and
+whole-line copies behave as in CodeMirror (verified in headless Chromium). `platform/clipboard.rs`
+opens the clipboard as the main window, retrying for about 100 ms while another app holds it, and in
+one transaction sets `CF_UNICODETEXT` with CR-LF line ends plus the registered formats of [Cloud
+Clipboard and Clipboard History Formats](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard-formats):
+`ExcludeClipboardContentFromMonitorProcessing`, and `CanIncludeInClipboardHistory` and
+`CanUploadToCloudClipboard` as DWORD 0. Writes run one at a time in event order, so a copy still
+retrying cannot land after a later cut; a failed write shows a notice, since the clipboard still holds
+the earlier item. Not covered: drag and drop, and the page window, which shows
+sites rather than notes and has no script or channel of ours by design.
+
 CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
 `CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
 tag. External CSS links load `content.css` (also imported by the reading view) and editor chrome inside
@@ -541,6 +629,80 @@ disk version before writing.
 mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
 `(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
 the user compares the copies and removes the extra one.
+
+**Optional vault.** `vault_file` in `settings.json` is a preference, independent of note-derived data,
+updated under the existing settings mutex and atomic replacement. `vault_choose` owns a filtered native
+file picker with the same dialog guard as folder choice; cancellation preserves the setting and
+`vault_clear` removes it. `vault_unlock` takes no path from the UI: it reads the saved path and validates
+an absolute, existing regular file with a `.cryptomator` extension (also on its canonical target), then
+uses `platform::external` and the existing opener plugin to launch the associated app. Other file types
+are refused; missing files get a translated error. Cryptomator handles unlocking and Windows Hello;
+the folder monitor below detects the mounted folder's return. Preferences follows `notes-changed` too,
+so its unavailable state clears when the folder returns.
+
+**Folder away.** A locked vault, an unplugged drive or an offline share takes the notes folder away;
+creating it again would write plaintext under the vault's mount point. `notes_folder` reports a
+`state`: `available`, `unavailable` or `missing`. A folder is available only if it lists: an ACL that
+allows reading attributes but refuses listing makes it `unavailable`. The pure `availability` rule in
+`notes.rs` calls it `missing` only when its parent lists, without an entry of that name; a name the
+parent lists that does not open (a link or mount point whose target left), a parent that is gone or
+unreadable, a volume root or share that left, and anything it cannot tell are `unavailable`. A vault
+mounted directly at the notes folder that leaves no folder behind therefore reads as `missing`: both
+states behave the same, only the text differs.
+
+**Identity marker.** A locked vault can also leave an empty local folder at its mount point, which
+lists, and another vault or drive can take the same path. So the notes folder carries an identity
+marker, `.docdock/folder-id`: a random 128-bit id in hex, written atomically, never derived from notes.
+`settings.json` records the id expected (`folder_id`). Choosing a folder in Preferences is the trusted
+moment: an existing marker is adopted, otherwise one is created, only if the folder is available (the
+folder itself is never created; an unavailable choice is recorded without an id). The marker syncs with
+the folder, so every computer shares it, and each records it when choosing the folder. A folder at the
+path whose marker is absent or holds another id is `unrecognized`: never written to, never marked
+automatically; the UI says it is not the folder chosen, that a locked vault's folder opens again once
+unlocked, and that notes moved there are accepted by choosing the folder again. "Use this folder", in
+the list and in an editor waiting to save, does the same for the configured path without the picker or
+leaving the editor (`notes_trust`). No volume API is used,
+so a folder on an SMB share is checked like any other.
+
+Settings written before markers existed have a folder and no id. An existing marker (another computer
+marked the folder) is adopted; otherwise the folder stays `unrecognized` until the user confirms it once.
+Notes in it prove nothing: a local folder with old plaintext notes can sit at a locked vault's mount
+point. The rule is the pure
+`identity` in `notes.rs`; marking and recording run under the settings lock and decide again there.
+
+Every command starts from `root`, which opens the folder through links, on the volume that really
+holds it (`platform::open_folder`), reads the marker and keeps the handle open until the command ends.
+The folder then cannot be renamed or deleted meanwhile, and a vault asks before locking under it. The
+availability poll and `notes_folder` apply the same check. `root` answers `folderUnavailable`,
+`folderMissing` or `folderUnrecognized` without touching the disk further, and no write path creates
+the folder or its parents (saves, recreation, pinned edits and restore, folder creation, pasted images,
+leftovers, moves); a regression test runs them against a missing folder under a missing parent.
+`notes_folder` and `notes_list` run off the main thread, since an offline share can take seconds to
+answer.
+
+Writes still go by path, checked once per command as it starts. Two gaps remain: a forced unmount in
+the instant between the check and a write, and a junction on the path redirected after the check,
+which can send a write to its new target. Both need a local process acting in that instant, outside
+the threats of decision 0009 (cloud sync leaks, a stolen device, screen sharing); handle-relative
+writes would close them at a cost not justified today.
+
+`watch::monitor` checks the folder's state every 2 s on its own thread: an event may never come from a
+volume that left, and a watch that ended sees no return. When the state of the same folder changes, it
+emits `notes-changed`; on leaving it also stops the watch, so the next listing starts a new one, and
+forgets the deleted notes kept for Undo. A change of folder is the picker's, which the UI follows. The
+UI's reread asks the pure `folderAction` (`features/notes/folder-state.ts`) what to do. Leaving with no
+unsaved text closes any editor and forgets every note's text, name and tag: list, previews, pinned
+items, search index and its tag suggestions, and what the card and folder menus, the selection and a
+pin drag point at (the card menu also forgets its card on closing); nothing is read while away. Leaving
+while the editor holds unsaved text (an edit not saved or an image being pasted) forgets everything
+else but keeps that editor as the only card: the note's text and history stay in memory until it is
+saved or discarded, the accepted exception to "nothing in memory". Its saves fail with no fallback copy
+anywhere; leaving editing refuses, as for any failed save. Its notice always offers Discard my changes,
+which needs no folder, also after a conflict, whose own actions read the disk and hide while the folder
+is away. On return the editor calls autosave's `retry`: a failed save is sent again, and a save still in
+flight from before the return (a slow share) is sent again if it fails. It saves against the version it
+read, so a change made meanwhile conflicts as usual, and the list, index, pinned items and leftovers are
+read again; without an editor, it starts over as on choosing the folder.
 
 ## Note list
 
@@ -664,15 +826,34 @@ version at drag start; keyboard movement uses the currently displayed version. A
 no longer resolves to a note inside the
 folder is reported `missing`. Targets are the keys: `pinned_*` commands (`pinned_list`, `_add`, `_remove`,
 `_move`, `_set_collapsed`, `_restore`) all answer with the state after the change. Which items are
-collapsed to one line is a set of targets in `settings.json`, per computer, changed under the same lock as
-the folder and side; removing an item forgets its entry.
+collapsed to one line is a set of targets in `.docdock/collapsed.json` inside the notes folder,
+shared with that folder and changed under its own lock; removing an item forgets its entry.
 
-**Restore.** Each time `_pinned.md` is read, its text is kept in `pinned-copy.json` in `app_config_dir`,
-with the folder it came from (one slot, following the folder in use); reading and updating the copy run
+**Restore.** Each time `_pinned.md` is read, its text is kept in `.docdock/pinned-copy.json` inside
+the notes folder, with the folder it came from; reading and updating the copy run
 under one lock, so a slower read never replaces the copy of a newer one. If the file is gone and the copy
 for this folder has content, the state says `restorable`; restoring recreates the file through the empty
 base of `save_note_in`, which never replaces an existing file. Pinning something instead creates a new file
 holding only that item, and the next read replaces the copy.
+
+**Private derived state.** `.docdock/` is a hidden directory, excluded by the existing listing,
+search and watcher rules. State writes use synced sibling temporary files and atomic rename, holding
+ancestry handles against junctions and mount replacement; they never create the notes root or its
+parents. `_pinned.md` remains ordinary, human-readable markdown.
+
+On first access to the chosen folder, once its marker matches the recorded id, legacy AppData
+`pinned-copy.json` migrates only if its recorded folder matches. The destination is written before
+removing the old file. A copy for an earlier folder remains until that folder is selected and
+available again. Legacy `settings.json.collapsed` migrates to `collapsed.json`, then only that field is
+removed through an atomic settings rewrite preserving other fields. Existing destination state wins
+on retries after a crash; invalid destinations fail without removing the source. Old settings still
+load, but normal preference reads ignore the legacy field. An unavailable, missing or unrecognized
+folder causes no migration reads or writes; preference changes retain the legacy field until migration is possible.
+Changing folders discards pending collapsed UI state rather than attributing paths to a new folder.
+Migration failures are logged and retry on next access, without blocking ordinary notes/preferences.
+A valid destination restoration copy follows the folder across computers and mount paths; its old
+absolute folder field is ignored (only the legacy AppData source needs a matching folder).
+Deletion removes the live legacy file, not cloud history, backups or recoverable disk sectors.
 
 **External changes.** `_pinned.md` is a note in the folder, so the existing `notes-changed` event covers
 it (no new watcher); the UI rereads with `pinned_list` then.
@@ -695,3 +876,35 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   local origin, where only the `main` label and capability rejected `invoke`. Main-frame links and
   `location`, and `window.open`, stayed blocked by `on_navigation` and `on_new_window`; Chromium blocked
   `file:` iframes and cross-origin `top.location` without a gesture.
+
+### WebView2 note-storage audit
+
+The `main` window uses Tauri's `incognito(true)`; the separate website window retains its normal
+browsing profile. In the locked dependencies, Tauri 2.12.5 forwards this to Wry 0.57.1, which calls
+`ICoreWebView2ControllerOptions::SetIsInPrivateModeEnabled`. Wry falls back to the old controller API
+if Environment10 is unavailable, so InPrivate is defense in depth, not the sole content safeguard.
+Neither window overrides `data_directory`; Tauri's manager defaults it to `app_local_data_dir()`:
+`%LOCALAPPDATA%/com.jeffono.docdock` on Windows, with WebView2 profile data below `EBWebView`.
+
+Source audit: note text arrives through IPC and becomes DOM nodes, not a navigated note document.
+`note-asset` serves local image bytes only to `main` and already sends `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`. The response-header regression test covers these. HTTP caching must
+therefore not persist these responses. `rg` found no frontend use of `localStorage`, `sessionStorage`,
+`indexedDB`, `serviceWorker` or `caches.*`; there is no application path persisting note names/text
+through those stores. Code Cache concerns shipped JavaScript, not the note DOM. Website browsing
+cache belongs to remote pages, which cannot load note assets or invoke note commands.
+
+These are source-level findings, not a forensic guarantee for WebView2: GPU/shader caches and crash
+artifacts are runtime-controlled, and no disk inspection was performed while implementing this task.
+InPrivate and no-store do not prove the absence of every transient disk write, OS paging or older
+cache entries; the app does not delete the shared profile (which would erase website sessions).
+Manual verification: with a disposable notes folder, open a uniquely named/text-marked note and PNG,
+inspect the image response headers and DevTools Application stores, close the app and wait for its
+WebView2 processes to exit, then search the UDF's HTTP cache, Code Cache, IndexedDB, Service Worker,
+GPUCache, Local Storage and session storage for the markers and image bytes. Repeat across restart
+and with the vault unavailable; inspect earlier profile data separately. No app instance was started
+for this audit.
+
+References: [Microsoft: user data folders](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/user-data-folder),
+[Microsoft: controller options](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controlleroptions),
+and [Tauri: WebviewWindowBuilder](https://docs.rs/tauri/2.12.5/tauri/webview/struct.WebviewWindowBuilder.html).

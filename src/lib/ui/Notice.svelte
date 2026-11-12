@@ -2,12 +2,20 @@
 import type { Snippet } from "svelte";
 import Icon, { type IconName } from "./Icon.svelte";
 
-/** A tinted notice in the panel column: an icon, a message and its actions on one surface. */
-let { icon, children, actions }: { icon: IconName; children: Snippet; actions?: Snippet } =
-  $props();
+/**
+ * A tinted notice in the panel column: an icon, a message and its actions on one surface.
+ * `attention`: something just happened that its first action undoes; the notice slides in and that
+ * action pulses twice, or, with reduced motion, stays highlighted.
+ */
+let {
+  icon,
+  children,
+  actions,
+  attention = false,
+}: { icon: IconName; children: Snippet; actions?: Snippet; attention?: boolean } = $props();
 </script>
 
-<div class="notice" role="status">
+<div class="notice" class:attention role="status">
   <span class="icon"><Icon name={icon} /></span>
   <p>{@render children()}</p>
   {#if actions}<div class="actions">{@render actions()}</div>{/if}
@@ -46,5 +54,42 @@ let { icon, children, actions }: { icon: IconName; children: Snippet; actions?: 
     flex: none;
     gap: var(--space-1);
     align-items: center;
+  }
+
+  .attention {
+    animation: enter calc(var(--duration) * 2) ease-out;
+  }
+
+  .attention .actions > :global(button:first-child) {
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    animation: pulse calc(var(--duration) * 5) ease-in-out calc(var(--duration) * 2) 2;
+  }
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(calc(var(--space-2) * -1));
+    }
+  }
+
+  @keyframes pulse {
+    50% {
+      outline-color: var(--color-accent);
+      background: var(--color-selected);
+      color: var(--color-accent);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .attention,
+    .attention .actions > :global(button:first-child) {
+      animation: none;
+    }
+
+    .attention .actions > :global(button:first-child) {
+      background: var(--color-selected);
+      color: var(--color-accent);
+    }
   }
 </style>

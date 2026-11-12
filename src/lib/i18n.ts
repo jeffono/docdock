@@ -40,6 +40,20 @@ const en = {
     "Drag the panel's inner edge to resize it; double-click the edge to restore the default.",
   "preferences.widthReset": "Restore default width",
   "preferences.shortcuts": "Shortcuts",
+  "preferences.trash": "Trash",
+  "trash.about":
+    "When the Recycle Bin cannot take a deleted note or folder, as in an encrypted vault or a network folder, it stays here for 30 days. The trash is inside the notes folder, encrypted when the folder is in a vault, and syncs with it.",
+  "trash.empty": "The trash is empty.",
+  "trash.unavailable": "The trash appears when the notes folder is available.",
+  "trash.root": "Notes folder",
+  "trash.unrecognized": "Unrecognized item",
+  "trash.restore": "Restore",
+  "trash.restored": "Restored as {path}.",
+  "trash.emptyAction": "Empty trash",
+  "trash.emptyTitle": "Empty the trash?",
+  "trash.emptyOne": "1 item will be deleted for good. This cannot be undone.",
+  "trash.emptyMany": "{count} items will be deleted for good. This cannot be undone.",
+  "trash.emptyConfirm": "Delete for good",
   "preferences.folder": "Notes folder",
   "preferences.side": "Panel side",
   "preferences.autostart": "Start with Windows",
@@ -71,7 +85,7 @@ const en = {
   "shortcut.level": "Open / close one level",
   "shortcut.enter": "Open selected item or create note",
   "shortcut.delete": "Remove missing pinned item",
-  "shortcut.deleteNote": "Move selected note to the Recycle Bin, outside text fields",
+  "shortcut.deleteNote": "Delete selected note, outside text fields",
   "shortcut.move": "Move selected note to a folder, outside the editor",
   "shortcut.menu": "Open the selected note's menu",
   "shortcut.create": "Create note from typed text",
@@ -112,9 +126,22 @@ const en = {
   "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
-  "notes.unavailable": "The notes folder is not available.",
+  "notes.unavailable":
+    "The notes folder is unavailable, as on a locked vault, an unplugged drive or an offline share. It opens again when it is back.",
+  "notes.missing":
+    "The notes folder was not found. It opens again if it comes back; if it was moved or renamed, choose it again.",
+  "notes.unrecognized":
+    "The folder at this path is not the notes folder you chose, so nothing is written to it. If it belongs to a locked vault, it opens again once the vault is unlocked; if you moved your notes here, choose the folder again.",
   "notes.chooseHint": "Choose a folder to browse your notes.",
   "notes.choose": "Choose folder",
+  "notes.trust": "Use this folder",
+  "vault.label": "Vault file",
+  "vault.optional": "Optional: choose a vault.cryptomator file to unlock your notes.",
+  "vault.choose": "Choose file",
+  "vault.clear": "Clear",
+  "vault.unlock": "Unlock",
+  "error.invalidVaultFile": "Choose an existing .cryptomator file in Preferences.",
+  "error.vaultFileMissing": "The vault file is missing. Choose it again in Preferences.",
   "notes.gone": "This note was moved or deleted outside the app.",
   "list.pinned": "Pinned",
   "list.notes": "Notes",
@@ -145,19 +172,10 @@ const en = {
   "move.linksKept":
     "The note moved, but it changed meanwhile, so its links still point from the old folder.",
   "dialog.cancel": "Cancel",
-  "deleteFolder.note": "{count} note",
-  "deleteFolder.notes": "{count} notes",
-  "deleteFolder.other": "{count} other file",
-  "deleteFolder.others": "{count} other files",
-  "deleteFolder.join": "{notes} and {other}",
   "deleteFolder.menu": "Delete folder",
-  "deleteFolder.title": "Delete folder “{folder}”?",
-  "deleteFolder.text":
-    "This folder contains {counts}. The folder and all its content move to the Recycle Bin. Restore it there; there is no Undo in DocDock.",
-  "delete.title": "Delete “{title}”?",
-  "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
-  "delete.confirm": "Move to Recycle Bin",
   "delete.done": "“{title}” moved to the Recycle Bin.",
+  "deleteFolder.done": "Folder “{title}” moved to the Recycle Bin.",
+  "delete.trashed": "Deleted “{title}”. It stays in the trash for 30 days (Preferences).",
   "delete.tooLarge":
     "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
@@ -165,6 +183,12 @@ const en = {
   "editor.updated": "Updated from disk",
   "editor.undo": "Undo",
   "editor.deleted": "Deleted outside the app; your next edit recreates it.",
+  "editor.folderUnavailable":
+    "The notes folder is unavailable. Your text stays here and is saved when the folder is back.",
+  "editor.folderMissing":
+    "The notes folder was not found. Your text stays here and is saved if the folder comes back.",
+  "editor.folderUnrecognized":
+    "The folder at this path is not the notes folder you chose. Your text stays here and is saved when that folder is back.",
   "editor.toggle": "Edit (Ctrl+E)",
   "editor.saving": "Saving…",
   "editor.saved": "Saved",
@@ -206,8 +230,11 @@ const en = {
   "web.back": "Back",
   "web.forward": "Forward",
   "error.unexpected": "Something went wrong: {detail}",
+  "error.clipboard": "Could not copy: another app is using the clipboard. Try again.",
   "error.noFolder": "Choose a notes folder.",
-  "error.folderUnavailable": "The notes folder is not available.",
+  "error.folderUnavailable": "The notes folder is unavailable.",
+  "error.folderMissing": "The notes folder was not found.",
+  "error.folderUnrecognized": "The folder at this path is not the notes folder you chose.",
   "error.invalidPath": "Invalid file path.",
   "error.folderNameTaken": "A file named “{name}” is already there; choose another folder name.",
   "error.invalidFolderName":
@@ -232,13 +259,14 @@ const en = {
     "The pinned list changed outside the app while it was being updated; try again.",
   "error.pinnedNotRenamed":
     "The note is now at {path}, but the pinned list could not follow it; pin it again.",
-  "error.notRecyclable": "This folder has no Recycle Bin for the note, so nothing was deleted.",
-  "error.deleteFailed": "Could not delete the note: {detail}",
+  "error.deleteFailed": "Could not delete: {detail}",
+  "error.emptyFailed": "Could not empty the trash: {detail}. What remains stays in the trash.",
   "error.pinnedNotRemoved":
-    "The note moved to the Recycle Bin, but the pinned list could not follow; remove its item.",
+    "The note was deleted, but the pinned list could not follow; remove its item.",
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
-  "error.restoreTaken":
-    "Another file now uses the name {path}. Rename it and undo again; the note is still in the Recycle Bin.",
+  "error.restoreTaken": "Another file now uses the name {path}. Rename it and undo again.",
+  "error.trashItemMissing":
+    "This item is no longer in the trash: it was restored or deleted, perhaps on another computer.",
   "error.pinnedNotRestored":
     "The note was restored, but the pinned list could not follow; pin it again.",
   "error.invalidUrl": "Invalid address: {detail}",
@@ -291,6 +319,20 @@ const ptBR: Record<MessageKey, string> = {
     "Arraste a borda interna do painel para redimensioná-lo; clique duas vezes na borda para restaurar o padrão.",
   "preferences.widthReset": "Restaurar largura padrão",
   "preferences.shortcuts": "Atalhos",
+  "preferences.trash": "Lixeira",
+  "trash.about":
+    "Quando a Lixeira do Windows não pode receber uma nota ou pasta excluída, como num cofre criptografado ou numa pasta de rede, ela fica aqui por 30 dias. A lixeira fica dentro da pasta de notas, criptografada quando a pasta está num cofre, e é sincronizada com ela.",
+  "trash.empty": "A lixeira está vazia.",
+  "trash.unavailable": "A lixeira aparece quando a pasta de notas está disponível.",
+  "trash.root": "Pasta de notas",
+  "trash.unrecognized": "Item não reconhecido",
+  "trash.restore": "Restaurar",
+  "trash.restored": "Restaurado como {path}.",
+  "trash.emptyAction": "Esvaziar lixeira",
+  "trash.emptyTitle": "Esvaziar a lixeira?",
+  "trash.emptyOne": "1 item será excluído definitivamente. Isso não pode ser desfeito.",
+  "trash.emptyMany": "{count} itens serão excluídos definitivamente. Isso não pode ser desfeito.",
+  "trash.emptyConfirm": "Excluir definitivamente",
   "preferences.folder": "Pasta de notas",
   "preferences.side": "Lado do painel",
   "preferences.autostart": "Iniciar com o Windows",
@@ -322,7 +364,7 @@ const ptBR: Record<MessageKey, string> = {
   "shortcut.level": "Abrir / fechar um nível",
   "shortcut.enter": "Abrir item selecionado ou criar nota",
   "shortcut.delete": "Remover item fixado ausente",
-  "shortcut.deleteNote": "Mover a nota selecionada para a Lixeira, fora de campos de texto",
+  "shortcut.deleteNote": "Excluir a nota selecionada, fora de campos de texto",
   "shortcut.move": "Mover a nota selecionada para uma pasta, fora do editor",
   "shortcut.menu": "Abrir o menu da nota selecionada",
   "shortcut.create": "Criar nota com o texto digitado",
@@ -363,9 +405,23 @@ const ptBR: Record<MessageKey, string> = {
   "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
-  "notes.unavailable": "A pasta de notas não está disponível.",
+  "notes.unavailable":
+    "A pasta de notas está indisponível, como num cofre trancado, num disco desconectado ou numa rede offline. Ela abre de novo quando voltar.",
+  "notes.missing":
+    "A pasta de notas não foi encontrada. Ela abre de novo se voltar; se foi movida ou renomeada, escolha-a de novo.",
+  "notes.unrecognized":
+    "A pasta neste caminho não é a pasta de notas que você escolheu, então nada é gravado nela. Se ela for de um cofre trancado, abre de novo quando o cofre for destrancado; se você moveu suas notas para cá, escolha a pasta de novo.",
   "notes.chooseHint": "Escolha uma pasta para consultar suas notas.",
   "notes.choose": "Escolher pasta",
+  "notes.trust": "Usar esta pasta",
+  "vault.label": "Arquivo do cofre",
+  "vault.optional": "Opcional: escolha um arquivo vault.cryptomator para desbloquear suas notas.",
+  "vault.choose": "Escolher arquivo",
+  "vault.clear": "Limpar",
+  "vault.unlock": "Desbloquear",
+  "error.invalidVaultFile": "Escolha um arquivo .cryptomator existente nas Preferências.",
+  "error.vaultFileMissing":
+    "O arquivo do cofre não foi encontrado. Escolha-o novamente nas Preferências.",
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
   "list.pinned": "Fixados",
   "list.notes": "Notas",
@@ -396,19 +452,10 @@ const ptBR: Record<MessageKey, string> = {
   "move.linksKept":
     "A nota foi movida, mas mudou nesse meio-tempo; seus links ainda partem da pasta antiga.",
   "dialog.cancel": "Cancelar",
-  "deleteFolder.note": "{count} nota",
-  "deleteFolder.notes": "{count} notas",
-  "deleteFolder.other": "{count} outro arquivo",
-  "deleteFolder.others": "{count} outros arquivos",
-  "deleteFolder.join": "{notes} e {other}",
   "deleteFolder.menu": "Excluir pasta",
-  "deleteFolder.title": "Excluir a pasta “{folder}”?",
-  "deleteFolder.text":
-    "Esta pasta contém {counts}. A pasta e todo o conteúdo vão para a Lixeira. Restaure por lá; não há Desfazer no DocDock.",
-  "delete.title": "Excluir “{title}”?",
-  "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
-  "delete.confirm": "Mover para a Lixeira",
   "delete.done": "“{title}” foi para a Lixeira.",
+  "deleteFolder.done": "A pasta “{title}” foi para a Lixeira.",
+  "delete.trashed": "“{title}” excluída. Fica 30 dias na lixeira (Preferências).",
   "delete.tooLarge":
     "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
@@ -416,6 +463,12 @@ const ptBR: Record<MessageKey, string> = {
   "editor.updated": "Atualizada do disco",
   "editor.undo": "Desfazer",
   "editor.deleted": "Apagada fora do app; sua próxima edição a recria.",
+  "editor.folderUnavailable":
+    "A pasta de notas está indisponível. Seu texto fica aqui e é salvo quando a pasta voltar.",
+  "editor.folderMissing":
+    "A pasta de notas não foi encontrada. Seu texto fica aqui e é salvo se a pasta voltar.",
+  "editor.folderUnrecognized":
+    "A pasta neste caminho não é a pasta de notas que você escolheu. Seu texto fica aqui e é salvo quando aquela pasta voltar.",
   "editor.toggle": "Editar (Ctrl+E)",
   "editor.saving": "Salvando…",
   "editor.saved": "Salvo",
@@ -457,8 +510,12 @@ const ptBR: Record<MessageKey, string> = {
   "web.back": "Voltar",
   "web.forward": "Avançar",
   "error.unexpected": "Algo deu errado: {detail}",
+  "error.clipboard":
+    "Não foi possível copiar: outro app está usando a área de transferência. Tente de novo.",
   "error.noFolder": "Escolha uma pasta de notas.",
-  "error.folderUnavailable": "A pasta de notas não está disponível.",
+  "error.folderUnavailable": "A pasta de notas está indisponível.",
+  "error.folderMissing": "A pasta de notas não foi encontrada.",
+  "error.folderUnrecognized": "A pasta neste caminho não é a pasta de notas que você escolheu.",
   "error.invalidPath": "Caminho de arquivo inválido.",
   "error.folderNameTaken":
     "Já existe um arquivo chamado “{name}” ali; escolha outro nome de pasta.",
@@ -483,13 +540,15 @@ const ptBR: Record<MessageKey, string> = {
     "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
   "error.pinnedNotRenamed":
     "A nota agora está em {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
-  "error.notRecyclable": "Esta pasta não tem Lixeira para a nota; nada foi excluído.",
-  "error.deleteFailed": "Não foi possível excluir a nota: {detail}",
+  "error.deleteFailed": "Não foi possível excluir: {detail}",
+  "error.emptyFailed":
+    "Não foi possível esvaziar a lixeira: {detail}. O que restou continua na lixeira.",
   "error.pinnedNotRemoved":
-    "A nota foi para a Lixeira, mas a lista de fixados não acompanhou; remova o item dela.",
+    "A nota foi excluída, mas a lista de fixados não acompanhou; remova o item dela.",
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
-  "error.restoreTaken":
-    "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo; a nota continua na Lixeira.",
+  "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo.",
+  "error.trashItemMissing":
+    "Este item não está mais na lixeira: foi restaurado ou excluído, talvez em outro computador.",
   "error.pinnedNotRestored":
     "A nota foi restaurada, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
@@ -538,17 +597,5 @@ export function dateTime(ms: number): string {
   return new Date(ms).toLocaleString(document.documentElement.lang || "en", {
     dateStyle: "short",
     timeStyle: "short",
-  });
-}
-
-/** Confirmation describes every file, with plural forms for each count. */
-export function folderCountText(counts: { notes: number; other: number }): string {
-  return t("deleteFolder.join", {
-    notes: t(counts.notes === 1 ? "deleteFolder.note" : "deleteFolder.notes", {
-      count: counts.notes,
-    }),
-    other: t(counts.other === 1 ? "deleteFolder.other" : "deleteFolder.others", {
-      count: counts.other,
-    }),
   });
 }

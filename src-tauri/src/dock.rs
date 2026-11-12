@@ -523,6 +523,7 @@ impl Dock {
                 // The UI folds its expanded card back to a preview while nobody sees it, and a
                 // deleted note can no longer be undone.
                 crate::notes::forget_deleted();
+                crate::notes::purge_trash(&self.app);
                 crate::shortcut::end_recording(&self.app);
                 let _ = self.app.emit_to("main", "panel-hidden", ());
             }
