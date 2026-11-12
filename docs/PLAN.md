@@ -5,7 +5,9 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: publish release 0.1.0-beta.1 and validate the update with 0.1.0-beta.2.
+- M6: `search-persist`, `panel-shortcuts`, `start-with-windows` and `activation-shortcut` in parallel;
+  `pinned-focus` starts after `search-persist`, which changes the Esc layers.
+- After M6: publish release 0.1.0-beta.1 and validate the update with 0.1.0-beta.2.
 
 ## M6 — Panel adjustments
 
