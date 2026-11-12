@@ -54,12 +54,29 @@ pub fn open_folder(path: &Path) -> io::Result<File> {
 
 /// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
 pub fn hold_ancestry(dir: &Path) -> io::Result<Vec<File>> {
-    dir.ancestors()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .map(hold_directory)
-        .collect()
+    hold_from_top(dir, hold_directory)
+}
+
+/// Some network file systems, such as a Cryptomator vault mounted through WinFsp, expose a share whose
+/// top levels cannot be opened (`\\cryptomator-vault\<id>\` fails with ERROR_BAD_NETPATH). Those levels
+/// are skipped: no local process can rename a network share root. Only the topmost levels may be
+/// skipped, and never `dir` itself.
+fn hold_from_top<T>(dir: &Path, hold: impl Fn(&Path) -> io::Result<T>) -> io::Result<Vec<T>> {
+    use windows::Win32::Foundation::{ERROR_BAD_NET_NAME, ERROR_BAD_NETPATH};
+    let mut held = Vec::new();
+    for folder in dir.ancestors().collect::<Vec<_>>().into_iter().rev() {
+        match hold(folder) {
+            Ok(handle) => held.push(handle),
+            Err(error)
+                if held.is_empty()
+                    && folder != dir
+                    && [ERROR_BAD_NETPATH.0, ERROR_BAD_NET_NAME.0]
+                        .map(|code| Some(code as i32))
+                        .contains(&error.raw_os_error()) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(held)
 }
 
 /// The longest file name Windows accepts, in UTF-16 units.
@@ -133,4 +150,55 @@ pub fn delete_on_close(file: &File) -> io::Result<()> {
         )
     }
     .map_err(os_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VAULT: &str = r"\\?\UNC\cryptomator-vault\id\vault\Notes";
+
+    fn holding(unreachable: &'static [&'static str]) -> impl Fn(&Path) -> io::Result<String> {
+        move |path| {
+            let path = path.to_string_lossy().into_owned();
+            match unreachable.contains(&path.as_str()) {
+                true => Err(io::Error::from_raw_os_error(53)),
+                false => Ok(path),
+            }
+        }
+    }
+
+    #[test]
+    fn an_unreachable_share_root_is_skipped() {
+        let held = hold_from_top(
+            Path::new(VAULT),
+            holding(&[r"\\?\UNC\cryptomator-vault\id\"]),
+        );
+        assert_eq!(
+            held.unwrap(),
+            [r"\\?\UNC\cryptomator-vault\id\vault", VAULT]
+        );
+    }
+
+    #[test]
+    fn an_unreachable_folder_below_a_held_one_fails() {
+        let held = hold_from_top(
+            Path::new(VAULT),
+            holding(&[r"\\?\UNC\cryptomator-vault\id\vault"]),
+        );
+        assert!(held.is_err());
+    }
+
+    #[test]
+    fn an_unreachable_folder_itself_fails() {
+        let held = hold_from_top(
+            Path::new(VAULT),
+            holding(&[
+                r"\\?\UNC\cryptomator-vault\id\",
+                r"\\?\UNC\cryptomator-vault\id\vault",
+                VAULT,
+            ]),
+        );
+        assert!(held.is_err());
+    }
 }
