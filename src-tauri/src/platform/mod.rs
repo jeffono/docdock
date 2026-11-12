@@ -5,6 +5,7 @@ pub mod browser;
 pub mod edge;
 mod files;
 mod guard;
+pub mod keyboard;
 mod recycle;
 mod windows;
 

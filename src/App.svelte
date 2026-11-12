@@ -5,6 +5,7 @@ import {
   activation,
   dismissActivationNotice,
   loadActivation,
+  watchActivation,
 } from "./lib/features/preferences/activation.svelte";
 import Preferences from "./lib/features/preferences/Preferences.svelte";
 import { errorText, t } from "./lib/i18n";
@@ -48,6 +49,7 @@ async function action(work: Promise<void>) {
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
 
 onMount(() => {
+  const activationChanged = watchActivation();
   void action(loadActivation());
   let exiting = false;
   const cancelled = onExitCancelled(() => {
@@ -123,7 +125,16 @@ onMount(() => {
   window.addEventListener("keydown", shortcut, true);
   return () => {
     window.removeEventListener("keydown", shortcut, true);
-    for (const listener of [stop, state, visible, toggle, search, exit, cancelled])
+    for (const listener of [
+      stop,
+      state,
+      visible,
+      toggle,
+      search,
+      exit,
+      cancelled,
+      activationChanged,
+    ])
       void listener.then((unlisten) => unlisten());
   };
 });

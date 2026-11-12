@@ -6,9 +6,11 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::mpsc::Sender;
+use std::thread;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_global_shortcut::{
     Builder, Code, GlobalShortcut, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
 };
@@ -18,7 +20,12 @@ use crate::error::Error;
 
 pub const DEFAULT: &str = "Ctrl+Alt+Space";
 
-/// A key combination: the modifiers held and the physical key as a W3C `code`, such as `KeyA`.
+/// A recording nobody ends, such as after the UI reloads, gives the shortcut back after this long.
+const RECORDING_LIMIT: Duration = Duration::from_secs(30);
+
+/// A key combination: the modifiers held and the key as a W3C `code`, such as `KeyA`. Registration
+/// reads `KeyA` as the virtual key A, which follows the layout; `on_layout` translates a recorded
+/// physical position to it.
 #[derive(Debug, PartialEq, Clone, Deserialize)]
 pub struct Combination {
     ctrl: bool,
@@ -75,7 +82,74 @@ fn code(name: &str) -> String {
     }
 }
 
+/// Scan codes of the keys whose virtual key depends on the layout, named by their US position.
+const LAYOUT_KEYS: [(&str, u32); 49] = [
+    ("Digit1", 0x02),
+    ("Digit2", 0x03),
+    ("Digit3", 0x04),
+    ("Digit4", 0x05),
+    ("Digit5", 0x06),
+    ("Digit6", 0x07),
+    ("Digit7", 0x08),
+    ("Digit8", 0x09),
+    ("Digit9", 0x0A),
+    ("Digit0", 0x0B),
+    ("Minus", 0x0C),
+    ("Equal", 0x0D),
+    ("KeyQ", 0x10),
+    ("KeyW", 0x11),
+    ("KeyE", 0x12),
+    ("KeyR", 0x13),
+    ("KeyT", 0x14),
+    ("KeyY", 0x15),
+    ("KeyU", 0x16),
+    ("KeyI", 0x17),
+    ("KeyO", 0x18),
+    ("KeyP", 0x19),
+    ("BracketLeft", 0x1A),
+    ("BracketRight", 0x1B),
+    ("KeyA", 0x1E),
+    ("KeyS", 0x1F),
+    ("KeyD", 0x20),
+    ("KeyF", 0x21),
+    ("KeyG", 0x22),
+    ("KeyH", 0x23),
+    ("KeyJ", 0x24),
+    ("KeyK", 0x25),
+    ("KeyL", 0x26),
+    ("Semicolon", 0x27),
+    ("Quote", 0x28),
+    ("Backquote", 0x29),
+    ("Backslash", 0x2B),
+    ("KeyZ", 0x2C),
+    ("KeyX", 0x2D),
+    ("KeyC", 0x2E),
+    ("KeyV", 0x2F),
+    ("KeyB", 0x30),
+    ("KeyN", 0x31),
+    ("KeyM", 0x32),
+    ("Comma", 0x33),
+    ("Period", 0x34),
+    ("Slash", 0x35),
+    ("IntlBackslash", 0x56),
+    ("IntlRo", 0x73),
+];
+
 impl Combination {
+    /// Translates a physical position to the key the layout gives it, so the combination shown and
+    /// registered is the one pressed: on AZERTY the `KeyQ` position is A. A position whose virtual
+    /// key is not a letter or digit becomes unsupported. `virtual_key` maps a scan code to it.
+    pub fn on_layout(mut self, virtual_key: impl Fn(u32) -> u32) -> Self {
+        if let Some(&(_, scan)) = LAYOUT_KEYS.iter().find(|(code, _)| *code == self.code) {
+            self.code = match char::from_u32(virtual_key(scan)) {
+                Some(c @ 'A'..='Z') => format!("Key{c}"),
+                Some(c @ '0'..='9') => format!("Digit{c}"),
+                _ => "Unidentified".to_owned(),
+            };
+        }
+        self
+    }
+
     /// Refuses what would take over typing: a key without Ctrl, Alt or Win, and Ctrl+Alt with a
     /// character key, which is AltGr on layouts such as ABNT2.
     pub fn validate(self) -> Result<Self, Error> {
@@ -156,11 +230,14 @@ trait Hotkeys {
 }
 
 /// The activation shortcut, `failed` being a saved or previous one that could not be registered.
+/// `session` counts recordings, so a timer only ends the one it was started for.
 #[derive(Default)]
 struct State {
     current: Option<Combination>,
     registered: bool,
     failed: Option<String>,
+    recording: bool,
+    session: u64,
 }
 
 impl State {
@@ -183,6 +260,7 @@ impl State {
         new: Result<Combination, Error>,
         keys: &mut impl Hotkeys,
     ) -> Result<(), Error> {
+        self.recording = false;
         let result = new.and_then(|new| {
             self.release(keys);
             if keys.register(&new) {
@@ -207,7 +285,27 @@ impl State {
         }
     }
 
-    /// Unregisters while recording, so pressing the current combination reaches the panel.
+    /// Releases the current combination so pressing it reaches the panel; returns the session.
+    fn start_recording(&mut self, keys: &mut impl Hotkeys) -> u64 {
+        self.release(keys);
+        self.recording = true;
+        self.session += 1;
+        self.session
+    }
+
+    /// Registers the current combination again, recording or not; answers whether it was.
+    fn stop_recording(&mut self, keys: &mut impl Hotkeys) -> bool {
+        let was = self.recording;
+        self.recording = false;
+        self.resume(keys);
+        was
+    }
+
+    /// Ends an abandoned recording, unless another one started since.
+    fn expire(&mut self, session: u64, keys: &mut impl Hotkeys) -> bool {
+        self.recording && self.session == session && self.stop_recording(keys)
+    }
+
     fn release(&mut self, keys: &mut impl Hotkeys) {
         if let Some(current) = self.current.as_ref().filter(|_| self.registered) {
             keys.unregister(current);
@@ -232,15 +330,18 @@ impl State {
         Status {
             shortcut: self.current.as_ref().map(Combination::to_string),
             failed: self.failed.clone(),
+            recording: self.recording,
         }
     }
 }
 
-/// What the UI shows: the active combination, if any, and one that could not be registered.
-#[derive(Serialize)]
+/// What the UI shows: the active combination, if any, one that could not be registered, and
+/// whether a recording holds it released.
+#[derive(Serialize, Clone)]
 pub struct Status {
     shortcut: Option<String>,
     failed: Option<String>,
+    recording: bool,
 }
 
 struct Activation(Mutex<State>);
@@ -294,24 +395,59 @@ fn with_state<T>(app: &AppHandle, work: impl FnOnce(&mut State, &mut Global) -> 
     work(&mut state, &mut Global(app))
 }
 
-pub fn status(app: &AppHandle) -> Status {
-    with_state(app, |state, _| state.status())
+/// While recording, the current combination is released so the panel receives it. Rust ends a
+/// recording the UI abandons: when the panel loses focus or hides, and after `RECORDING_LIMIT`.
+/// Stopping also serves to read the state: a reloaded UI was not recording.
+pub fn record(app: &AppHandle, recording: bool) -> Status {
+    let (status, session) = with_state(app, |state, keys| {
+        let session = if recording {
+            Some(state.start_recording(keys))
+        } else {
+            state.stop_recording(keys);
+            None
+        };
+        (state.status(), session)
+    });
+    if let Some(session) = session {
+        let app = app.clone();
+        thread::spawn(move || {
+            thread::sleep(RECORDING_LIMIT);
+            on_main_thread(&app, move |state, keys| state.expire(session, keys));
+        });
+    }
+    status
 }
 
-/// While recording, the current combination is released so the panel receives it.
-pub fn record(app: &AppHandle, recording: bool) -> Status {
-    with_state(app, |state, keys| {
-        if recording {
-            state.release(keys);
-        } else {
-            state.resume(keys);
+/// Ends any recording; callable from any thread, such as the panel's.
+pub fn end_recording(app: &AppHandle) {
+    on_main_thread(app, |state, keys| state.stop_recording(keys));
+}
+
+/// Hotkeys register on the main thread, which also runs the commands, so the state is only
+/// touched there. Tells the UI when `work` ended a recording.
+fn on_main_thread(
+    app: &AppHandle,
+    work: impl FnOnce(&mut State, &mut Global) -> bool + Send + 'static,
+) {
+    let handle = app.clone();
+    let result = app.run_on_main_thread(move || {
+        if handle.try_state::<Activation>().is_none() {
+            return;
         }
-        state.status()
-    })
+        let (ended, status) =
+            with_state(&handle, |state, keys| (work(state, keys), state.status()));
+        if ended {
+            let _ = handle.emit_to("main", "activation", status);
+        }
+    });
+    if let Err(error) = result {
+        eprintln!("[shortcut] failed to reach the main thread: {error}");
+    }
 }
 
 /// Ends recording with `pressed`. A failed save keeps the new combination for this session.
 pub fn change(app: &AppHandle, pressed: Combination) -> Result<Status, Error> {
+    let pressed = pressed.on_layout(crate::platform::keyboard::virtual_key);
     let status = with_state(app, |state, keys| {
         state.change(pressed.validate(), keys)?;
         Ok::<_, Error>(state.status())
@@ -388,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn keys_whose_name_depends_on_the_layout_are_unsupported() {
+    fn other_keys_are_unsupported() {
         for code in [
             "Semicolon",
             "Backquote",
@@ -422,6 +558,68 @@ mod tests {
         }
         assert!(Combination::parse("Hyper+K").is_err());
         assert!(Combination::parse("").is_err());
+    }
+
+    /// AZERTY: A and Q swap, the `Semicolon` position is M, `KeyM` is a comma and digits stay.
+    fn azerty(scan: u32) -> u32 {
+        match scan {
+            0x10 => 'A' as u32,
+            0x1E => 'Q' as u32,
+            0x27 => 'M' as u32,
+            0x32 => 0xBC,
+            0x03 => '2' as u32,
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn letters_and_digits_follow_the_layout() {
+        for (code, key) in [
+            ("KeyQ", "KeyA"),
+            ("KeyA", "KeyQ"),
+            ("Semicolon", "KeyM"),
+            ("Digit2", "Digit2"),
+            ("F5", "F5"),
+            ("Space", "Space"),
+        ] {
+            assert_eq!(pressed("cs", code).on_layout(azerty).code, key);
+        }
+        assert_eq!(
+            pressed("cs", "KeyM").on_layout(azerty).validate(),
+            Err(Error::ShortcutKeyUnsupported)
+        );
+    }
+
+    #[test]
+    fn the_altgr_rule_applies_to_the_key_the_layout_gives() {
+        for code in ["Semicolon", "Digit2"] {
+            assert_eq!(
+                pressed("ca", code).on_layout(azerty).validate(),
+                Err(Error::ShortcutAltGr)
+            );
+        }
+    }
+
+    #[test]
+    fn an_abandoned_recording_registers_the_previous_shortcut_when_it_expires() {
+        let mut keys = Fake::default();
+        let mut state = State::start(None, &mut keys);
+        let session = state.start_recording(&mut keys);
+        assert!(keys.registered.is_empty());
+        assert!(state.expire(session, &mut keys));
+        assert_eq!(keys.registered, [DEFAULT]);
+        assert!(!state.status().recording);
+    }
+
+    #[test]
+    fn an_earlier_timer_leaves_a_later_recording_alone() {
+        let mut keys = Fake::default();
+        let mut state = State::start(None, &mut keys);
+        let first = state.start_recording(&mut keys);
+        state.stop_recording(&mut keys);
+        state.start_recording(&mut keys);
+        assert!(!state.expire(first, &mut keys));
+        assert!(keys.registered.is_empty());
     }
 
     #[test]

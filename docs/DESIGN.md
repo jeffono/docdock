@@ -288,9 +288,10 @@ keys, deriving formatting keys from the editor bindings; the activation row show
 combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
 neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
 button becomes Cancel, the current global shortcut and panel shortcuts stand aside, and the next
-non-modifier key ends recording. Esc, Tab or leaving the panel cancels. A refused combination (no Ctrl,
-Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts such as ABNT2; a key whose name
-depends on the layout) or one taken by another app keeps the previous shortcut and explains why in the
+non-modifier key ends recording; the key shown is the one the layout gives, such as A for the AZERTY
+key at QWERTY's Q. Esc, Tab, leaving or hiding the panel, or 30 seconds without a key cancels. A refused combination (no Ctrl,
+Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts such as ABNT2; a key that is not a
+letter, digit, F1–F24, arrow, Space or navigation key on the current layout) or one taken by another app keeps the previous shortcut and explains why in the
 danger color below the hint. If the saved combination cannot be registered at startup, the default is
 used and a dismissible warning notice under the top bar names both. From anywhere in Notes (including search and editing), Ctrl+/ opens
 a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow

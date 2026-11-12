@@ -405,6 +405,10 @@ impl Dock {
         };
         if self.reported != Some(report) {
             self.reported = Some(report);
+            // A recording the UI abandons must not leave the activation shortcut released.
+            if !report.focused {
+                crate::shortcut::end_recording(&self.app);
+            }
             let _ = self.app.emit_to("main", "panel-focus", report);
         }
     }
@@ -513,6 +517,7 @@ impl Dock {
                 // The UI folds its expanded card back to a preview while nobody sees it, and a
                 // deleted note can no longer be undone.
                 crate::notes::forget_deleted();
+                crate::shortcut::end_recording(&self.app);
                 let _ = self.app.emit_to("main", "panel-hidden", ());
             }
         }

@@ -19,9 +19,16 @@ export type Theme = "system" | "light" | "dark";
 export const appTheme = () => invoke<Theme>("app_theme");
 export const appSetTheme = (theme: Theme) => invoke<void>("app_set_theme", { theme });
 
-/** The activation shortcut as shown, such as `Ctrl+Alt+Space`; `failed` could not be registered. */
-export type ActivationStatus = { shortcut: string | null; failed: string | null };
-/** `code` is the physical key, as `KeyboardEvent.code`. */
+/**
+ * The activation shortcut as shown, such as `Ctrl+Alt+Space`; `failed` could not be registered;
+ * `recording`: released while the panel records a new one.
+ */
+export type ActivationStatus = {
+  shortcut: string | null;
+  failed: string | null;
+  recording: boolean;
+};
+/** `code` is the physical key, as `KeyboardEvent.code`; Rust reads it through the layout. */
 export type Combination = {
   ctrl: boolean;
   alt: boolean;
@@ -29,13 +36,18 @@ export type Combination = {
   win: boolean;
   code: string;
 };
-export const shortcutActivation = () => invoke<ActivationStatus>("shortcut_activation");
-/** While recording, the current shortcut is released so the panel receives its keys. */
+/**
+ * While recording, the current shortcut is released so the panel receives its keys. `false` also
+ * reads the state. Rust ends a recording itself when the panel loses focus or hides, or after a
+ * timeout, and then emits `onActivation`.
+ */
 export const shortcutRecord = (recording: boolean) =>
   invoke<ActivationStatus>("shortcut_record", { recording });
 /** Ends recording. If `combination` is refused or taken, the previous shortcut stays. */
 export const shortcutSet = (combination: Combination) =>
   invoke<ActivationStatus>("shortcut_set", { combination });
+export const onActivation = (handler: (status: ActivationStatus) => void) =>
+  listen<ActivationStatus>("activation", (event) => handler(event.payload));
 
 export function panelActivate(): Promise<void> {
   return invoke("panel_activate");

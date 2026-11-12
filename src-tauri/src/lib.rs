@@ -27,7 +27,6 @@ pub fn run() {
         commands::app_locale,
         commands::app_theme,
         commands::app_set_theme,
-        commands::shortcut_activation,
         commands::shortcut_record,
         commands::shortcut_set,
         commands::panel_activate,

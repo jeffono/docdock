@@ -28,10 +28,6 @@ pub fn app_set_theme(app: AppHandle, theme: crate::notes::Theme) -> Result<(), E
     crate::notes::set_theme(&app, theme)
 }
 
-#[tauri::command]
-pub fn shortcut_activation(app: AppHandle) -> crate::shortcut::Status {
-    crate::shortcut::status(&app)
-}
 /// Synchronous on purpose: registering hotkeys runs on the main thread.
 #[tauri::command]
 pub fn shortcut_record(app: AppHandle, recording: bool) -> crate::shortcut::Status {

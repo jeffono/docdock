@@ -1,7 +1,7 @@
 import {
   type ActivationStatus,
   type Combination,
-  shortcutActivation,
+  onActivation,
   shortcutRecord,
   shortcutSet,
 } from "../../ipc";
@@ -10,7 +10,7 @@ import {
  * The activation shortcut, shared by Preferences, the shortcut sheet and the panel's notice. While
  * `recording`, panel shortcuts stand aside so the recorder receives every key.
  */
-export const activation = $state<ActivationStatus & { recording: boolean }>({
+export const activation = $state<ActivationStatus>({
   shortcut: null,
   failed: null,
   recording: false,
@@ -19,11 +19,16 @@ export const activation = $state<ActivationStatus & { recording: boolean }>({
 function apply(status: ActivationStatus) {
   activation.shortcut = status.shortcut;
   activation.failed = status.failed;
+  activation.recording = status.recording;
 }
 
+/** A (re)loaded UI is not recording, so loading ends any recording a previous page left. */
 export async function loadActivation() {
-  apply(await shortcutActivation());
+  apply(await shortcutRecord(false));
 }
+
+/** Rust ends recordings the UI abandons and reports it here. */
+export const watchActivation = () => onActivation(apply);
 
 /** Set first, so a blur during the call still ends recording and registers the shortcut again. */
 export async function startRecording() {
