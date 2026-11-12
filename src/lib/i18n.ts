@@ -3,6 +3,7 @@ import type { Locale } from "./ipc";
 
 const en = {
   "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
+  "preferences.relativeDates": "Use relative dates",
   "group.label": "Group by date",
   "group.hint": "Available when ordering by modified or created date. Your choice is kept.",
   "group.scope":
@@ -247,6 +248,7 @@ export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
   "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
+  "preferences.relativeDates": "Usar datas relativas",
   "group.label": "Agrupar por data",
   "group.hint": "Disponível ao ordenar por modificação ou criação. Sua escolha é mantida.",
   "group.scope":

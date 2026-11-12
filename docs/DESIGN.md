@@ -100,6 +100,11 @@ pinned and unpinned notes differ only in section and starting state.
   the checkable "Group by date" and "Group by folder" items; checking one clears the other. Enter/Space and arrows open and navigate it; Esc, selection and
   outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
   stays within the panel, flipping above its button near the bottom. No native popup takes focus.
+- **Note dates:** modified dates on cards and rows are absolute by default. General Preferences
+  offers "Use relative dates", remembered on this computer. Relative text uses the app locale: now,
+  minutes and hours within today; calendar days across midnight, then weeks from 7 days, months
+  from 30 days and years from 365 days. One shared 30-second tick refreshes dates and date groups.
+  Hovering a note date shows the full local date and time with either display option.
 - **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
   by modified or created date. Name order keeps the choice but disables the item with a visible hint.
   Quiet, regular-weight labels keep sentence case below the stronger section titles:
@@ -287,7 +292,7 @@ pinned and unpinned notes differ only in section and starting state.
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order, date grouping, panel side and a
+General contains the folder path, folder picker, note order, date grouping, relative dates, panel side and a
 "Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser

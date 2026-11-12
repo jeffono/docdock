@@ -14,6 +14,7 @@ import {
 import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
 import NoteOrder from "../notes/NoteOrder.svelte";
+import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import ShortcutList from "../notes/ShortcutList.svelte";
 import ActivationShortcut from "./ActivationShortcut.svelte";
 
@@ -92,6 +93,9 @@ onMount(() => {
         <Button variant="neutral" disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
       </div>
       <div class="setting"><h3>{t("order.label")}</h3><NoteOrder preferences /><p>{t("order.search")}</p></div>
+      <div class="setting">
+        <label><input type="checkbox" checked={$relativeDates} disabled={busy || $noteOrderBusy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $relativeDates; void action(() => setRelativeDates(enabled)); }} />{t("preferences.relativeDates")}</label>
+      </div>
       <fieldset disabled={busy}>
         <legend>{t("preferences.side")}</legend>
         {#each ["left", "right"] as value}

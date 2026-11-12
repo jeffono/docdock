@@ -48,6 +48,8 @@ pub fn run() {
         commands::notes_list,
         commands::notes_order,
         commands::notes_set_order,
+        commands::notes_relative_dates,
+        commands::notes_set_relative_dates,
         commands::notes_grouping,
         commands::notes_set_grouping,
         commands::pinned_move,

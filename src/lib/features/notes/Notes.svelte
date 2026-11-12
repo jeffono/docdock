@@ -1941,6 +1941,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
+            now={groupingDate.getTime()}
             folder={showFolder || card.pinned}
             drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
