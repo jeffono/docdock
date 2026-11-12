@@ -232,9 +232,11 @@ per-monitor DPI awareness (PMv2).
   still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
 - **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
-  `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`;
-  if it is missing or unreadable (corrupt, another `adblock` version), it rebuilds from the cached
-  lists there and rewrites the cache, and without lists nothing is blocked. Every 15 minutes it
+  `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`,
+  which starts with a fingerprint of the lists it was built from; if it is missing, unreadable
+  (corrupt, another `adblock` version) or built from other lists (a crash or failed write after the
+  lists were replaced), it rebuilds from the cached lists there and rewrites the cache, and without
+  lists nothing is blocked. Every 15 minutes it
   downloads each list older than four days (HTTPS only, 60 s, 16 MiB, no cookies), keeps the old copy
   when a download fails or is not an Adblock Plus list, writes lists atomically, then rebuilds and
   swaps the engine (`Arc` behind a mutex held only to clone or replace it). `web::open` installs
