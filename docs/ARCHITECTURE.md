@@ -23,6 +23,7 @@ src-tauri/src/           Backend (Rust)
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
+  trash.rs               The notes folder's own trash for deletes without a Recycle Bin, and its purge
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes
@@ -423,15 +424,25 @@ skipped by listing, search, tags, folder labels and the watcher, which reports t
 deletion. Attachments stay beside a deleted note, as with the Recycle Bin; a deleted folder takes its
 own along.
 
-Entries are named `<install>-<run>-<session>-<created>-<n> <name>`: a random installation id kept in
-`settings.json` (created at startup; not derived from notes), a random id of the run, the panel
-session, the creation time in ms and a counter. A purge removes this run's entries only once their
-session has ended, an earlier run's entries of this installation at once (one instance per computer),
-and another installation's only when their creation time is over 7 days old, since that computer's
-panel may still offer their Undo in a synced folder. Names in no such form are not DocDock's and
-stay. The trade-off: another computer's deleted items linger up to 7 days in the synced folder
-(encrypted in a vault), and an item whose Undo stays offered longer than that on another computer
-can go. When the panel hides, `forget_deleted` purges on a thread of its own each notes folder whose
+Entries are named `<install>-<run>-<session>-<created>-<n> <name>`, each field in lowercase base36
+(about 30 characters): a random 40-bit installation id kept in `trash-id` in the local app data (not
+in `settings.json`, which a roaming profile carries to other computers; not derived from notes), a
+random id of the run, the panel session, the creation time in ms and a counter. A name that would pass
+the 255-unit limit is cut, never inside a surrogate pair and without a trailing dot or space; Undo
+never reads the entry name, it keeps the original path (and a note's bytes) in memory. A temporary
+file of a recreation is cut the same way, so a note named near the limit comes back too; backups are
+not, since recovering one reads the note's name from it, so saving such a note still fails as before.
+
+A purge removes this run's entries only once their session has ended. Each run holds a `Global\`
+named mutex, `DocDock-trash-<install>-<run>` (`platform/presence.rs`), for as long as it runs, and
+makes no entry without it; another run of this installation, such as one in another Windows session
+of the same user, is purged only once its mutex is gone. Another installation's entries, and those of
+a run whose state cannot be told, go only when their creation time is over 30 days old, since that
+computer's panel may still offer their Undo in a synced folder. Names in no such form are not
+DocDock's and stay. The trade-offs: another computer's deleted items linger up to 30 days in the
+synced folder (encrypted in a vault); an Undo left offered longer than that on another computer can
+lose its item; and a computer whose clock runs more than 30 days ahead can take a fresh entry from
+another for old (a clock behind only delays the purge). When the panel hides, `forget_deleted` purges on a thread of its own each notes folder whose
 trash took something during the run; startup (`start_trash`) and choosing a folder purge the current
 one. The purge reads the live session again for each entry, under the deleted-items lock: a session
 that has ended never offers Undo again (hiding clears it, and a delete records Undo only if its

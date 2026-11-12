@@ -1,7 +1,9 @@
 //! Thin Win32 file layer for replacing notes without losing a concurrent external write.
 
+use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
@@ -44,6 +46,19 @@ pub fn hold_ancestry(dir: &Path) -> io::Result<Vec<File>> {
         .rev()
         .map(hold_directory)
         .collect()
+}
+
+/// The longest file name Windows accepts, in UTF-16 units.
+pub const MAX_NAME: usize = 255;
+
+/// `name` cut to at most `units` UTF-16 units, never between the halves of a surrogate pair.
+pub fn fit_name(name: &OsStr, units: usize) -> OsString {
+    let mut wide: Vec<u16> = name.encode_wide().collect();
+    if wide.len() > units {
+        let low = (0xDC00..0xE000).contains(&wide[units]);
+        wide.truncate(if low && units > 0 { units - 1 } else { units });
+    }
+    OsString::from_wide(&wide)
 }
 
 pub fn paste_timestamp() -> String {

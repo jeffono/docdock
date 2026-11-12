@@ -73,14 +73,6 @@ struct Settings {
     /// Pinned targets shown as one line on this computer; the rest start as previews.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     collapsed: BTreeSet<String>,
-    /// Random id of this installation, naming its entries in the notes folder's own trash so another
-    /// computer syncing the folder leaves them alone (`trash.rs`).
-    #[serde(
-        default,
-        deserialize_with = "text_or_default",
-        skip_serializing_if = "Option::is_none"
-    )]
-    install_id: Option<String>,
 }
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -290,13 +282,20 @@ fn exists(path: &Path) -> bool {
 /// processes.
 static NEXT_SIBLING: AtomicU64 = AtomicU64::new(0);
 /// An unused name next to `path`: `<name>.<pid>-<n>.<suffix>`. Leftovers of a crash are skipped, never
-/// reused or deleted: they may hold the only copy of a version.
+/// reused or deleted: they may hold the only copy of a version. A temporary file's `<name>` is cut to
+/// keep the whole within the name limit, so a note named near it can still be recreated; a backup's
+/// is not, since recovering it reads the note's name from it.
 fn sibling(path: &Path, suffix: &str) -> io::Result<PathBuf> {
     let name = path.file_name().ok_or(io::ErrorKind::InvalidInput)?;
     loop {
         let n = NEXT_SIBLING.fetch_add(1, Ordering::Relaxed);
-        let mut unique = name.to_os_string();
-        unique.push(format!(".{}-{n}.{suffix}", std::process::id()));
+        let tail = format!(".{}-{n}.{suffix}", std::process::id());
+        let mut unique = if suffix == TEMP_SUFFIX {
+            platform::fit_name(name, platform::MAX_NAME.saturating_sub(tail.len()))
+        } else {
+            name.to_os_string()
+        };
+        unique.push(tail);
         let candidate = path.with_file_name(unique);
         match fs::symlink_metadata(&candidate) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(candidate),
@@ -1291,22 +1290,33 @@ pub fn purge_trash(app: &AppHandle) {
     let Ok(root) = root(app) else { return };
     std::thread::spawn(move || trash::purge(&root, live_session));
 }
-/// At startup: names this installation for the trash, creating its id once, then purges.
+/// At startup: names this installation for the trash, creating its id once, then purges. The id
+/// lives in the local app data, which a roaming profile does not carry to another computer, unlike
+/// `settings.json`: two computers with one id would take each other's entries for their own.
 pub fn start_trash(app: &AppHandle) {
-    let mut id = config(app)
+    let file = app
+        .path()
+        .app_local_data_dir()
+        .map(|dir| dir.join("trash-id"));
+    let saved = file
+        .as_ref()
         .ok()
-        .and_then(|path| load(&path).install_id)
+        .and_then(|file| fs::read_to_string(file).ok())
+        .map(|id| id.trim().to_owned())
         .filter(|id| trash::valid_install_id(id));
-    if id.is_none() {
-        let new = trash::new_install_id();
-        // Unsaved, the id lasts this run: entries left behind then go after the foreign age.
-        let saved = update(app, |settings| settings.install_id = Some(new.clone()));
-        if let Err(error) = saved {
+    let id = saved.unwrap_or_else(|| {
+        let id = trash::new_install_id();
+        // Unsaved, the id lasts this run: what it leaves behind then goes by age.
+        let written = file.map_err(Error::from).and_then(|file| {
+            fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
+            Ok(write_atomic(&file, id.as_bytes())?)
+        });
+        if let Err(error) = written {
             eprintln!("[trash] installation id not saved: {error:?}");
         }
-        id = Some(new);
-    }
-    trash::set_install(id.unwrap_or_default());
+        id
+    });
+    trash::set_install(id);
     purge_trash(app);
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
@@ -2600,6 +2610,32 @@ mod tests {
         assert_eq!(listed, ["b.md"]);
         assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
         assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "secret");
+    }
+    #[test]
+    fn a_note_with_a_name_near_the_limit_is_deleted_and_comes_back_under_its_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let name = format!("{}.md", "n".repeat(247));
+        fs::write(t.0.join(&name), "long").unwrap();
+        assert_eq!(delete_note_in(&t.0, &name, |p| to_trash(&t.0, p)), Ok(true));
+        assert!(!exists(&t.0.join(&name)));
+        assert_eq!(undo_delete_in(&t.0, &name), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join(&name)).unwrap(), "long");
+    }
+    #[test]
+    fn a_folder_with_a_name_near_the_limit_comes_back_under_its_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let folder = "f".repeat(250);
+        fs::create_dir(t.0.join(&folder)).unwrap();
+        fs::write(t.0.join(&folder).join("a.md"), "a").unwrap();
+        delete_folder_in(&t.0, &folder, true, |p| to_trash(&t.0, p)).unwrap();
+        assert!(!exists(&t.0.join(&folder)));
+        assert_eq!(undo_delete_folder_in(&t.0, &folder), Ok(()));
+        assert_eq!(
+            fs::read_to_string(t.0.join(&folder).join("a.md")).unwrap(),
+            "a"
+        );
     }
     #[test]
     fn hiding_the_panel_purges_the_binless_trash() {
