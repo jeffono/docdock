@@ -55,8 +55,12 @@ fn recycle_in(path: &HSTRING) -> io::Result<Option<PathBuf>> {
     let progress: IFileOperationProgressSink = sink.to_interface();
     let operation: IFileOperation =
         unsafe { CoCreateInstance(&FileOperation, None, CLSCTX_ALL) }.map_err(io::Error::other)?;
-    let item: IShellItem =
-        unsafe { SHCreateItemFromParsingName(path, None) }.map_err(io::Error::other)?;
+    // A path the shell cannot address has no Recycle Bin to reach, such as a vault mounted by WinFsp
+    // (`\\cryptomator-vault\<id>\<vault>` fails with E_INVALIDARG).
+    let item: IShellItem = unsafe { SHCreateItemFromParsingName(path, None) }.map_err(|error| {
+        eprintln!("[recycle] the shell cannot address the path: {error}");
+        io::Error::new(io::ErrorKind::Unsupported, error)
+    })?;
     unsafe {
         operation.SetOperationFlags(FOF_ALLOWUNDO | FOF_NO_UI)?;
         operation.DeleteItem(&item, &progress)?;
