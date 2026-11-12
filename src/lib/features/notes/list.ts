@@ -6,6 +6,15 @@ import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
 export type Level = "line" | "preview" | "expanded";
+
+/** Esc leaves one Notes layer at a time, independently of the search text. */
+export function escapeAction(
+  editing: boolean,
+  inBar: boolean,
+): "leaveEditor" | "focusSearch" | "close" {
+  if (editing) return "leaveEditor";
+  return inBar ? "close" : "focusSearch";
+}
 export type Card = {
   hit: Hit;
   /** Web cards stay one line and open this URL instead of expanding. */

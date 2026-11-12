@@ -7,6 +7,7 @@ import {
   deeper,
   defaultKey,
   enter,
+  escapeAction,
   fileLabel,
   folderLabels,
   isMissing,
@@ -43,6 +44,20 @@ const base = {
 };
 const paths = (entries: (Card | { target: string })[]) =>
   entries.map((e) => ("target" in e ? e.target : e.hit.path));
+
+describe("Escape layers", () => {
+  it.each([false, true])("leaves editing first even when the bar is focused: %s", (inBar) => {
+    expect(escapeAction(true, inBar)).toBe("leaveEditor");
+  });
+
+  it("returns from reading to the search bar", () => {
+    expect(escapeAction(false, false)).toBe("focusSearch");
+  });
+
+  it("closes from the bar without a search-clearing layer", () => {
+    expect(escapeAction(false, true)).toBe("close");
+  });
+});
 
 describe("sections", () => {
   it("keeps pinned cards in file order and takes them out of Notes", () => {

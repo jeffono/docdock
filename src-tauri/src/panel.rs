@@ -86,7 +86,8 @@ pub enum Input {
     },
     /// Windows confirmed the focus requested by `Summon`.
     Activated,
-    /// The UI asked to close: Escape in the empty search bar, or the shortcut while already there.
+    /// The UI asked to close: Escape in the search bar, or the shortcut while already there. A pinned
+    /// panel only gives up focus.
     Close,
 }
 
@@ -98,6 +99,8 @@ pub enum Action {
     /// Shows the panel and gives it keyboard focus.
     Summon,
     Hide,
+    /// Returns keyboard focus to the previous app; the panel stays shown.
+    Release,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -133,6 +136,7 @@ impl Panel {
                 Action::Summon
             }
             (State::Open { .. } | State::Summoned { .. }, Input::Close) => self.dismiss(),
+            (State::Pinned, Input::Close) => Action::Release,
             (State::Dismissed, Input::Tick { zone, .. }) => {
                 if zone != CursorZone::Edge {
                     self.state = State::Hidden;
@@ -501,19 +505,26 @@ mod tests {
         );
     }
 
-    /// Bug caught: the shortcut or Escape unpins the panel by closing it.
+    /// Bug caught: the shortcut or Escape unpins the panel by closing it, or Escape keeps the
+    /// keyboard in a pinned panel the user wanted to leave.
     #[test]
-    fn pinned_panel_takes_focus_from_shortcut_but_never_closes() {
+    fn pinned_panel_releases_focus_on_close_and_stays_shown() {
         let t0 = Instant::now();
         let mut p = opened(t0);
         p.step(Input::Pin, t0);
         assert_eq!(shortcut(&mut p, t0), Action::Summon);
         p.step(Input::Activated, t0);
-        assert_eq!(p.step(Input::Close, t0), Action::None);
-        assert_eq!(
-            focus_tick(&mut p, Focus::Elsewhere, false, t0, 0),
-            Action::None
-        );
+        assert_eq!(p.step(Input::Close, t0), Action::Release);
+        // Focus back in the other app and the cursor away: still shown and pinned.
+        for ms in [0, 1000, 60_000] {
+            assert_eq!(
+                focus_tick(&mut p, Focus::Elsewhere, false, t0, ms),
+                Action::None
+            );
+        }
+        assert_eq!(p.state, State::Pinned);
+        // The shortcut takes focus back.
+        assert_eq!(shortcut(&mut p, t0), Action::Summon);
         assert_eq!(p.state, State::Pinned);
     }
 }
