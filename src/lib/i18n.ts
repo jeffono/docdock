@@ -103,6 +103,11 @@ const en = {
   "notes.label": "Notes",
   "notes.search": "Search or create a note",
   "notes.tagCompletion": "Folder tags",
+  "notes.dateCompletion": "Date filters",
+  "notes.dateToday": "Today",
+  "notes.date7d": "Last 7 days",
+  "notes.dateMonth": "This month",
+  "notes.dateLastMonth": "Last month",
   "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
@@ -347,6 +352,11 @@ const ptBR: Record<MessageKey, string> = {
   "notes.label": "Notas",
   "notes.search": "Buscar ou criar uma nota",
   "notes.tagCompletion": "Tags da pasta",
+  "notes.dateCompletion": "Filtros de data",
+  "notes.dateToday": "Hoje",
+  "notes.date7d": "Últimos 7 dias",
+  "notes.dateMonth": "Este mês",
+  "notes.dateLastMonth": "Mês passado",
   "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",

@@ -334,6 +334,15 @@ bar's text and typing replaces the whole query. Browser and `?` modes keep their
 Queries containing filters (or beginning with `#`) never offer automatic Create. Explicit Ctrl+Enter
 and "+" create from the free text only; a tag-only query creates an untitled note, without adding tags.
 
+
+Date filters share the tag completion list: `date:` offers Today (`date:today`), Last 7 days
+(`date:7d`, today and six preceding local days), This month (`date:month`) and Last month
+(`date:last-month`). Labels are localized; tokens are language-neutral. Typed years, months and days
+(`date:2026`, `date:2026-10`, `date:2026-10-03`) and inclusive ranges
+(`date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`) work without a calendar or chips.
+Invalid or reversed date tokens are ignored and excluded from free text and note names.
+All valid date filters, tag filters and free-text words apply together.
+
 ## Unified address bar
 
 In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching

@@ -272,3 +272,41 @@ test("folder completion follows note changes and excludes root pinned metadata",
   await syncIndex(index, [], reader([]));
   expect(folderTags(index, "")).toEqual([]);
 });
+
+test("date filters combine with all tags and free text", async () => {
+  const index = await indexOf([
+    {
+      path: "a.md",
+      text: '---\ncreated: "2026-10-31T23:59:59-03:00"\ntags: [work, review]\n---\nbudget',
+    },
+    { path: "b.md", text: "---\ndate: '2026-11-01'\ntags: [work, review]\n---\nbudget" },
+    { path: "c.md", text: "---\ndate: 2026-10-01\ntags: [work]\n---\nbudget" },
+  ]);
+  expect(paths(index, "budget #work #review date:2026-10")).toEqual(["a.md"]);
+});
+test("valid created metadata takes precedence over date and modified time", async () => {
+  const index = await indexOf([
+    {
+      path: "a.md",
+      text: "---\ncreated: 2026-10-03\ndate: 2025-01-01\n---",
+      modified: +new Date(2024, 0, 1),
+    },
+  ]);
+  expect(paths(index, "date:2026-10")).toEqual(["a.md"]);
+});
+test("invalid created metadata uses date then modified time", async () => {
+  const index = await indexOf([
+    { path: "a.md", text: "---\ncreated: invalid\ndate: 2026-10-03\n---" },
+    {
+      path: "b.md",
+      text: "---\ncreated: 2026-02-30\ndate: bad\n---",
+      modified: +new Date(2026, 9, 4),
+    },
+  ]);
+  expect(paths(index, "date:2026-10").sort()).toEqual(["a.md", "b.md"]);
+});
+test("multiple date filters intersect and invalid date tokens are ignored", async () => {
+  const index = await indexOf([{ path: "a.md", text: "---\ndate: 2026-10-03\n---" }]);
+  expect(paths(index, "date:2026 date:2026-10 date:bad")).toEqual(["a.md"]);
+  expect(paths(index, "date:2026-10 date:2026-11")).toEqual([]);
+});

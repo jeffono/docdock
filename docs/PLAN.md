@@ -14,7 +14,7 @@ detail each stage when it is next.
   hover, as an option in Preferences. `basic`
 - [x] `#tag` filters with completion from the folder's tags; several tags all apply, combined with free
   text. Query parsing is a pure function. `standard`
-- [ ] `date:` filters: completion offers presets (today, last 7 days, this month, last month) that insert
+- [x] `date:` filters: completion offers presets (today, last 7 days, this month, last month) that insert
   tokens such as `date:7d`; typed ISO dates and ranges (`date:2026-10..2026-11`) also work. The date is
   the frontmatter `created` or `date` when present, else the modified time. No calendar or chips yet.
   `standard`

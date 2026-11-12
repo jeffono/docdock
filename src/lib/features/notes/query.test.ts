@@ -51,3 +51,12 @@ test("explicit creation uses free text and never names a note after filters", ()
   expect(filterQuery("budget #work")).toBe(true);
   expect(filterQuery("plain title")).toBe(false);
 });
+
+test("date completion replaces only its token alongside tags", () => {
+  const query = "budget date:7 #work";
+  const context = queryCompletion(query, 13);
+  expect(context?.kind).toBe("date");
+  if (!context) throw new Error("Missing completion");
+  expect(applyCompletion(query, context, "7d").text).toBe("budget date:7d #work");
+  expect(creationText("budget date:today #work")).toBe("budget");
+});

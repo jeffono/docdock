@@ -602,6 +602,15 @@ update on a change; Tauri forwards Windows theme changes to WebView2, including 
 `prefers-color-scheme`. Sites can still choose their own colors. The native blank/loading background
 is WebView2's default and is not overridden by the app's CSS tokens.
 
+
+Date tokens extend the same `query.ts` parser and completion ranges. Pure `query-date.ts` takes an
+explicit `now`, resolves presets and partial ISO ranges to local calendar boundaries, and uses an
+exclusive upper bound after the entire final day/month/year. Invalid and reversed tokens are ignored.
+The search index derives its filter date from valid frontmatter `created`, then `date`, else modified
+time; the existing scalar parser handles single/double quotes. Full ISO timestamps preserve offsets;
+date-only values use local midnight. This does not change date display, filesystem creation dates,
+ordering or grouping. Searches refresh on the existing 30-second grouping clock.
+
 ## Note order
 
 The UI's `order.ts` sorts only unfiltered hits before `buildList`: displayed title, modified or

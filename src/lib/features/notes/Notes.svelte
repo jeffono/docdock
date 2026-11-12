@@ -97,6 +97,7 @@ import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
 import { applyCompletion, creationText, queryCompletion, tagToken } from "./query";
+import { datePresets } from "./query-date";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
 import { FolderIndex, folderTags, isPinnedList, search } from "./search";
@@ -129,7 +130,19 @@ function updateCompletion(event: Event) {
   completionSelection = 0;
   completionDismissed = false;
 }
-async function acceptTag(tag: string) {
+function dateLabel(value: string): string {
+  switch (value) {
+    case "today":
+      return t("notes.dateToday");
+    case "7d":
+      return t("notes.date7d");
+    case "month":
+      return t("notes.dateMonth");
+    default:
+      return t("notes.dateLastMonth");
+  }
+}
+async function acceptCompletion(tag: string) {
   if (!completionContext) return;
   const result = applyCompletion(query, completionContext, tag);
   query = result.text;
@@ -349,10 +362,12 @@ const completionContext = $derived(
     ? queryCompletion(query, completionCaret)
     : null,
 );
-const tagItems = $derived.by(() => {
+const completionItems = $derived.by(() => {
   void indexVersion;
   return folder?.available && completionContext
-    ? folderTags(folderIndex.index, completionContext.prefix)
+    ? completionContext.kind === "date"
+      ? datePresets.filter((preset) => preset.startsWith(completionContext.prefix))
+      : folderTags(folderIndex.index, completionContext.prefix)
     : [];
 });
 
@@ -363,7 +378,7 @@ async function sync(list: Note[]): Promise<void> {
 
 const results = $derived.by(() => {
   void indexVersion;
-  return search(folderIndex.index, query);
+  return search(folderIndex.index, query, groupingDate);
 });
 const kept = $derived.by(() => {
   void indexVersion;
@@ -1632,17 +1647,23 @@ function caretAtEnd(event: KeyboardEvent): boolean {
 /** The search bar's keys. Runs in capture, before the field's own Esc. */
 function barKey(event: KeyboardEvent) {
   if (!(event.target instanceof HTMLInputElement) || event.isComposing) return;
-  if (tagItems.length && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+  if (
+    completionItems.length &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    !event.shiftKey
+  ) {
     if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) {
       event.preventDefault();
       event.stopPropagation();
       if (event.key === "Escape") completionDismissed = true;
       else if (event.key === "Enter" || event.key === "Tab")
-        void acceptTag(tagItems[completionSelection] ?? tagItems[0]);
+        void acceptCompletion(completionItems[completionSelection] ?? completionItems[0]);
       else
         completionSelection =
-          (completionSelection + (event.key === "ArrowDown" ? 1 : -1) + tagItems.length) %
-          tagItems.length;
+          (completionSelection + (event.key === "ArrowDown" ? 1 : -1) + completionItems.length) %
+          completionItems.length;
       return;
     }
   }
@@ -1881,21 +1902,21 @@ onMount(() => {
         onclick={updateCompletion}
         onfocus={updateCompletion}
         onblur={() => { completionCaret = null; }}
-        aria-controls={tagItems.length ? "tag-completion" : "note-list"}
-        aria-expanded={tagItems.length > 0}
+        aria-controls={completionItems.length ? "query-completion" : "note-list"}
+        aria-expanded={completionItems.length > 0}
         aria-autocomplete="list"
         role="combobox"
-        aria-activedescendant={tagItems.length ? "tag-option-" + completionSelection : undefined}
+        aria-activedescendant={completionItems.length ? "query-option-" + completionSelection : undefined}
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
       <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query), "", true)} />
     </div>
-  {#if tagItems.length}
-    <div class="web-suggestions" id="tag-completion" role="listbox" aria-label={t("notes.tagCompletion")}>
-      {#each tagItems as tag, index (tag)}
-        <button id={"tag-option-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptTag(tag)}
-          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{tagToken(tag)}</span></button>
+  {#if completionItems.length}
+    <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
+      {#each completionItems as tag, index (tag)}
+        <button id={"query-option-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptCompletion(tag)}
+          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{completionContext?.kind === "date" ? dateLabel(tag) : tagToken(tag)}</span></button>
       {/each}
     </div>
   {/if}
