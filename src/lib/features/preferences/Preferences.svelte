@@ -56,13 +56,16 @@ async function loadTrash() {
   }
 }
 /** The item's name as the notes list shows it. */
-function trashName(item: TrashItem) {
-  const name = item.path.slice(item.path.lastIndexOf("/") + 1);
-  return item.folder ? name : name.replace(/\.md$/i, "");
+function trashName({ path, folder }: TrashItem) {
+  if (path === null) return t("trash.unrecognized");
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  return folder ? name : name.replace(/\.md$/i, "");
 }
-function trashFolder(item: TrashItem) {
-  const at = item.path.lastIndexOf("/");
-  return at < 0 ? t("trash.root") : item.path.slice(0, at);
+/** Where it was; for an entry whose item cannot be told, where it is, to look at in File Explorer. */
+function trashFolder({ id, path }: TrashItem) {
+  if (path === null) return `.docdock/trash/${id}`;
+  const at = path.lastIndexOf("/");
+  return at < 0 ? t("trash.root") : path.slice(0, at);
 }
 async function restore(item: TrashItem) {
   restored = "";
@@ -75,14 +78,15 @@ async function restore(item: TrashItem) {
   });
 }
 async function emptyTrash() {
-  const count = trash?.length ?? 0;
+  const ids = trash?.map((item) => item.id) ?? [];
+  const count = ids.length;
   const text = count === 1 ? t("trash.emptyOne") : t("trash.emptyMany", { count });
   if (!(await confirm.ask(t("trash.emptyTitle"), text, t("trash.emptyConfirm"), undefined, true)))
     return;
   restored = "";
   await action(async () => {
     try {
-      await notesTrashEmpty();
+      await notesTrashEmpty(ids);
     } finally {
       await loadTrash();
     }
@@ -219,7 +223,7 @@ onMount(() => {
                   <span class="name">{trashName(item)}</span>
                   <small>{trashFolder(item)} · <span title={dateTime(item.deleted)}>{relativeDate(item.deleted, Date.now(), document.documentElement.lang || "en")}</span></small>
                 </div>
-                <Button variant="neutral" disabled={busy} onclick={() => restore(item)}>{t("trash.restore")}</Button>
+                {#if item.path !== null}<Button variant="neutral" disabled={busy} onclick={() => restore(item)}>{t("trash.restore")}</Button>{/if}
               </li>
             {/each}
           </ul>

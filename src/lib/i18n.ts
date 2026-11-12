@@ -46,6 +46,7 @@ const en = {
   "trash.empty": "The trash is empty.",
   "trash.unavailable": "The trash appears when the notes folder is available.",
   "trash.root": "Notes folder",
+  "trash.unrecognized": "Unrecognized item",
   "trash.restore": "Restore",
   "trash.restored": "Restored as {path}.",
   "trash.emptyAction": "Empty trash",
@@ -258,7 +259,8 @@ const en = {
     "The pinned list changed outside the app while it was being updated; try again.",
   "error.pinnedNotRenamed":
     "The note is now at {path}, but the pinned list could not follow it; pin it again.",
-  "error.deleteFailed": "Could not delete the note: {detail}",
+  "error.deleteFailed": "Could not delete: {detail}",
+  "error.emptyFailed": "Could not empty the trash: {detail}. What remains stays in the trash.",
   "error.pinnedNotRemoved":
     "The note was deleted, but the pinned list could not follow; remove its item.",
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
@@ -323,6 +325,7 @@ const ptBR: Record<MessageKey, string> = {
   "trash.empty": "A lixeira está vazia.",
   "trash.unavailable": "A lixeira aparece quando a pasta de notas está disponível.",
   "trash.root": "Pasta de notas",
+  "trash.unrecognized": "Item não reconhecido",
   "trash.restore": "Restaurar",
   "trash.restored": "Restaurado como {path}.",
   "trash.emptyAction": "Esvaziar lixeira",
@@ -537,7 +540,9 @@ const ptBR: Record<MessageKey, string> = {
     "A lista de fixados mudou fora do app durante a atualização; tente de novo.",
   "error.pinnedNotRenamed":
     "A nota agora está em {path}, mas a lista de fixados não acompanhou; fixe-a de novo.",
-  "error.deleteFailed": "Não foi possível excluir a nota: {detail}",
+  "error.deleteFailed": "Não foi possível excluir: {detail}",
+  "error.emptyFailed":
+    "Não foi possível esvaziar a lixeira: {detail}. O que restou continua na lixeira.",
   "error.pinnedNotRemoved":
     "A nota foi excluída, mas a lista de fixados não acompanhou; remova o item dela.",
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",

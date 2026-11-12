@@ -346,7 +346,9 @@ Restore button on the right. Restoring says "Restored as path." below, since a t
 one such as "name (2)". Under the list, the danger "Empty trash" button asks in the confirmation dialog
 with the item count, confirmed by the danger "Delete for good": the only permanent action, so the
 only question. Empty: "The trash is empty."; while the folder is away, a sentence that the trash
-appears when it is back. The trash is never shown in the notes list.
+appears when it is back. An entry whose item cannot be told, as after a sync conflict, shows
+"Unrecognized item" with its place in the trash and no Restore; Empty removes it. The trash is never
+shown in the notes list.
 
 ## Panel navigation
 

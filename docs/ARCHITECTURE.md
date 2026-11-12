@@ -420,7 +420,9 @@ to it answer a conflict, so a late save of an editor cannot recreate the note an
 next name. Undo (`notes_undo_delete`) writes the copy back with the empty-base recreation, never over
 a file that took the name (`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy.
 Restoring from the Recycle Bin itself was not used: finding the item depends on the bin's internal
-layout. A note over 2 MB is refused before any of this, since it is too large for that copy. Pinned
+layout. A note over 2 MB is refused where the Recycle Bin would take it, since it is too large for
+that copy: `platform::recyclable` asks the shell first, cancelling the operation before its first item,
+and a note the bin would refuse goes to the trash, which needs no copy. Pinned
 items are removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands); Undo puts
 back the exact previous `_pinned.md` if it did not change since, else pins the items again at the end
 (`pinned::repin`), and leaves a deleted `_pinned.md` to its own restore. The UI leaves the note's
@@ -435,23 +437,35 @@ Recycle Bin. Each item is one entry, a folder named `<deleted>-<n>-<random>-<dep
 base36: the deletion time in ms, a counter, a random value against collisions between computers syncing
 one folder, and how many folders lie above the item. The entry holds the item at its original relative
 path (`a/b/note.md` becomes `<entry>/a/b/note.md`), so the date and the path need no index file and
-the original name is never cut. Listing (`notes_trash`, newest first) walks the entries; an entry
-that is not one chain of real folders down to one file or folder is not listed. Restoring
-(`notes_trash_restore(id, undo)`) moves the item back under the save lock, recreating missing parent
-folders through the folder creation rules and holding both sides, and takes a free name such as
+the original name is never cut. A path nested deeper than 128 folders is refused and the item stays
+where it was. Listing (`notes_trash`, newest first) walks the entries: each level holds one real
+folder, then one file or folder, ignoring files beside the chain and shell or sync noise
+(`desktop.ini`, `Thumbs.db`, `.DS_Store`). An entry whose item cannot be told that way (two
+candidates, such as after a sync conflict, a link, or a name that is not Unicode) is still listed,
+without a path, so it can be seen and emptied, but not restored from the app. Restoring
+(`notes_trash_restore(id, undo)`) refuses an internal path, `_pinned.md`, a file that is not a note,
+and a final name Windows would not keep as written (a device name such as `con.md`, a trailing dot
+or space); it moves the item back under the save lock, creating only the missing parent folders, each
+under the folder creation rules, while existing ones are used as they are, holding both sides, and
+takes a free name such as
 `name (2).md` or `folder (2)` rather than overwrite (a name a Recycle Bin Undo reserves counts as
 taken); the emptied entry folders are then removed without recursion. With `undo`, from the delete
-notice, it also puts back the pinned items the delete removed, kept in memory for the run, when the
-item returns under its own name; from Preferences it does not. The notice's Undo works beyond the
+notice, it also puts back the pinned items the delete removed, when the item returns under its own
+name. Those are kept in memory only while the folder stays available: when it goes away, such as a
+vault locking, `forget_unavailable` drops them with everything else derived from notes, and the item
+then comes back without its pinned items; from Preferences it does not. The notice's Undo works beyond the
 panel session for as long as the entry exists, and `trashItemMissing` answers once it does not (restored,
 emptied or purged, perhaps on another computer). The command also tells the UI that the folder
 changed, as the watcher would.
 
-Items stay 30 days from their deletion time (`trash::KEEP_MS`; exactly 30 days still stays, and a time
-ahead of the clock is not old), then the purge removes them: at startup, on choosing a folder and when
+Items stay 30 days (`trash::KEEP_MS`; exactly 30 days still stays, and a time ahead of the clock is
+not old) from the later of their deletion time, by the deleting computer's clock, and their entry
+folder's last change, by this computer's, from when it was made or synced here; so a computer whose
+clock ran late cannot have its entries purged early elsewhere. Then the purge removes them: at startup, on choosing a folder and when
 the panel hides (`purge_trash`), on a thread of its own, only in the folder that `root` accepts by its
-marker, so never while it is unavailable. "Empty trash" in Preferences (`notes_trash_empty`) removes
-everything. Both remove links inside without following them, refuse a trash that is a link (it is
+marker, so never while it is unavailable. "Empty trash" in Preferences (`notes_trash_empty(ids)`)
+removes the entries that were listed and confirmed, not one synced in since. Listing failures that
+are not a link tell the folder is unavailable, as while a vault locks. Both remove links inside without following them, refuse a trash that is a link (it is
 held with its ancestry, as for writing), and walk the tree themselves: `fs::remove_dir_all` fails on a
 vault mounted by WinFsp. What cannot be removed now, such as while the vault locks, goes next time.
 Names DocDock did not make are left to Empty. Being under `.docdock`, the trash is skipped by listing,

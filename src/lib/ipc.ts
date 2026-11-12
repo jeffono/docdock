@@ -178,8 +178,12 @@ export const notesDeleteFolder = (path: string) => invoke<Removal>("notes_delete
 export const notesDelete = (path: string) => invoke<Removal>("notes_delete", { path });
 /** `restoreTaken`: a file took the name; nothing changed and undoing stays possible. */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
-/** An item in the trash inside the notes folder; `deleted` is in ms since the Unix epoch. */
-export type TrashItem = { id: string; path: string; folder: boolean; deleted: number };
+/**
+ * An entry of the trash inside the notes folder; `deleted` is in ms since the Unix epoch. `path` is
+ * null when its item cannot be told, as when a sync conflict left two items in it: it can only be
+ * emptied.
+ */
+export type TrashItem = { id: string; path: string | null; folder: boolean; deleted: number };
 /** Newest first. */
 export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
 /**
@@ -189,8 +193,8 @@ export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
  */
 export const notesTrashRestore = (id: string, undo = false) =>
   invoke<string>("notes_trash_restore", { id, undo });
-/** Deletes everything in the trash for good. */
-export const notesTrashEmpty = () => invoke<void>("notes_trash_empty");
+/** Deletes the entries `ids`, the ones listed, for good; anything synced in since stays. */
+export const notesTrashEmpty = (ids: string[]) => invoke<void>("notes_trash_empty", { ids });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },
