@@ -1,5 +1,14 @@
 import { describe, expect, test } from "vitest";
-import { FolderIndex, type Listed, type Read, type SearchIndex, search, syncIndex } from "./search";
+import { creationContent, queryCompletion } from "./query";
+import {
+  FolderIndex,
+  folderTags,
+  type Listed,
+  type Read,
+  type SearchIndex,
+  search,
+  syncIndex,
+} from "./search";
 
 type Note = { path: string; text: string; modified?: number };
 
@@ -241,4 +250,111 @@ describe("FolderIndex", () => {
     expect(paths(folder.index, "alpha")).toEqual([]);
     expect(paths(folder.index, "beta")).toEqual(["a.md"]);
   });
+});
+
+test("tag filters require every complete frontmatter tag along with free text", async () => {
+  const index = await indexOf([
+    { path: "a.md", text: "---\ntags: [Work, revisão]\n---\nbudget" },
+    { path: "b.md", text: "---\ntags: [workshop, revisão]\n---\nbudget" },
+    { path: "c.md", text: "---\ntags: [work]\n---\nbudget #revisão" },
+  ]);
+  expect(paths(index, "budget #WORK #revisao")).toEqual(["a.md"]);
+  expect(paths(index, "#work #work")).toEqual(["c.md", "a.md"]);
+  expect(paths(index, "missing #work")).toEqual([]);
+});
+test("folder completion excludes root pinned metadata", async () => {
+  const notes = [
+    { path: "a.md", text: "---\ntags: [Work, work, revisão]\n---" },
+    { path: "_pinned.md", text: "---\ntags: [wrong]\n---" },
+  ];
+  const index = await indexOf(notes);
+  expect(folderTags(index, "W")).toEqual(["Work"]);
+});
+
+test("folder completion follows note removal", async () => {
+  const index = await indexOf([{ path: "a.md", text: "---\ntags: work\n---" }]);
+  await syncIndex(index, [], reader([]));
+  expect(folderTags(index, "")).toEqual([]);
+});
+
+test("date filters combine with all tags and free text", async () => {
+  const index = await indexOf([
+    {
+      path: "a.md",
+      text: '---\ncreated: "2026-10-31T23:59:59-03:00"\ntags: [work, review]\n---\nbudget',
+    },
+    { path: "b.md", text: "---\ndate: '2026-11-01'\ntags: [work, review]\n---\nbudget" },
+    { path: "c.md", text: "---\ndate: 2026-10-01\ntags: [work]\n---\nbudget" },
+  ]);
+  expect(paths(index, "budget #work #review date:2026-10")).toEqual(["a.md"]);
+});
+test("valid created metadata takes precedence over date and modified time", async () => {
+  const index = await indexOf([
+    {
+      path: "a.md",
+      text: "---\ncreated: 2026-10-03\ndate: 2025-01-01\n---",
+      modified: +new Date(2024, 0, 1),
+    },
+  ]);
+  expect(paths(index, "date:2026-10")).toEqual(["a.md"]);
+});
+test("invalid created metadata uses date then modified time", async () => {
+  const index = await indexOf([
+    { path: "a.md", text: "---\ncreated: invalid\ndate: 2026-10-03\n---" },
+    {
+      path: "b.md",
+      text: "---\ncreated: 2026-02-30\ndate: bad\n---",
+      modified: +new Date(2026, 9, 4),
+    },
+  ]);
+  expect(paths(index, "date:2026-10").sort()).toEqual(["a.md", "b.md"]);
+});
+test("multiple date filters intersect and invalid date tokens are ignored", async () => {
+  const index = await indexOf([{ path: "a.md", text: "---\ndate: 2026-10-03\n---" }]);
+  expect(paths(index, "date:2026 date:2026-10 date:bad")).toEqual(["a.md"]);
+  expect(paths(index, "date:2026-10 date:2026-11")).toEqual([]);
+});
+
+test.each(["budget #work", "#work", '#"two words" #review date:today'])(
+  "creation from %s remains searchable by its tags",
+  async (query) => {
+    const content = creationContent(query);
+    const index = await indexOf([{ path: "budget.md", text: content }]);
+    const tags = query
+      .split("date:")[0]
+      .replace(/^budget /, "")
+      .trim();
+    expect(paths(index, tags)).toEqual(["budget.md"]);
+  },
+);
+test("created tag scalars cannot inject extra frontmatter keys", async () => {
+  const content = creationContent('#"work\\ncreated: 2000-01-01"');
+  const index = await indexOf([{ path: "a.md", text: content, modified: +new Date(2026, 9, 1) }]);
+  expect(paths(index, "date:2026-10")).toEqual(["a.md"]);
+});
+test("only the tag with open completion is ignored while typing", async () => {
+  const index = await indexOf([
+    { path: "a.md", text: "---\ntags: [work, review]\n---\nbudget" },
+    { path: "b.md", text: "---\ntags: work\n---\nbudget" },
+  ]);
+  const query = "budget #review #wor";
+  expect(
+    search(index, query, new Date(), queryCompletion(query, query.length)).hits.map(
+      (hit) => hit.path,
+    ),
+  ).toEqual(["a.md"]);
+  expect(paths(index, query)).toEqual([]);
+});
+test("folder completion folds accents and case", async () => {
+  const index = await indexOf([{ path: "a.md", text: "---\ntags: revisão\n---" }]);
+  expect(folderTags(index, "REVI")).toEqual(["revisão"]);
+});
+test("folder completion is capped at fifty distinct suggestions", async () => {
+  const index = await indexOf([
+    {
+      path: "a.md",
+      text: `---\ntags: [${Array.from({ length: 100 }, (_, i) => `tag${i}`).join(",")}]\n---`,
+    },
+  ]);
+  expect(folderTags(index, "tag")).toHaveLength(50);
 });

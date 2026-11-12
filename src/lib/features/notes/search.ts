@@ -1,6 +1,8 @@
 // In-memory note search: pure functions, no IPC. The caller supplies the listing and a reader for
 // note texts, and renders the results; snippets are plain text plus offsets, never HTML.
 import { frontmatter } from "./markdown";
+import { parseQuery, type QueryCompletion } from "./query";
+import { dateRange, metadataDate } from "./query-date";
 
 /** What the listing says about a note. */
 export type Listed = { path: string; name: string; modified: number };
@@ -13,6 +15,7 @@ type Entry = {
   tags: string[];
   url?: string | null;
   modified: number;
+  filterDate: number;
   /** The text after the frontmatter. */
   body: string;
   /** Folded forms, for matching. */
@@ -71,7 +74,8 @@ function build(listed: Listed, read: Read | null): Entry {
   let title = listed.name,
     url: string | null = null,
     tags: string[] = [],
-    body = "";
+    body = "",
+    filterDate = read?.modified ?? listed.modified;
   if (read) {
     const lines = read.text.replace(/\r\n?/g, "\n").split("\n");
     const meta = frontmatter((n) => lines[n - 1], lines.length);
@@ -80,6 +84,7 @@ function build(listed: Listed, read: Read | null): Entry {
       title = meta.title ?? title;
       tags = meta.tags;
       url = meta.url;
+      filterDate = metadataDate(meta.created) ?? metadataDate(meta.date) ?? filterDate;
     }
   }
   return {
@@ -89,6 +94,7 @@ function build(listed: Listed, read: Read | null): Entry {
     url,
     modified: read?.modified ?? listed.modified,
     body,
+    filterDate,
     titleKey: collapse(title),
     folderKey: fold(listed.path.replace(/\\/g, "/").replace(/(^|\/)[^/]*$/, "")),
     tagKeys: tags.map(fold),
@@ -229,18 +235,45 @@ function snippet(entry: Entry, terms: string[]): Snippet | null {
 }
 
 /**
- * Every word of `query` must appear in the title (frontmatter title, else the file name), the tags or
+ * Every parsed tag must equal a frontmatter tag, except the token with an open completion.
+ * Every free-text word must appear in the title (frontmatter title, else the file name), the tags or
  * the body or folder, ignoring case and accents. Order: exact title, title starting with the query, a word in
  * the title, a word in a tag, body only; then newest first. An empty query lists every note by
  * modified time.
  */
-export function search(index: SearchIndex, query: string): Results {
-  const terms = words(query);
+export function search(
+  index: SearchIndex,
+  query: string,
+  now: Date = new Date(),
+  completing: QueryCompletion | null = null,
+): Results {
+  const parsed = parseQuery(query);
+  const terms = words(parsed.text);
+  const tags = parsed.tokens
+    .filter(
+      (token) =>
+        token.kind === "tag" &&
+        !(
+          completing?.kind === "tag" &&
+          token.from === completing.from &&
+          token.to === completing.to
+        ),
+    )
+    .map((token) => fold(token.value));
+  const dates = parsed.tokens
+    .filter((token) => token.kind === "date")
+    .flatMap((token) => {
+      const range = dateRange(token.value, now);
+      return range ? [range] : [];
+    });
   const whole = terms.join(" ");
   const ranked: { entry: Entry; tier: number }[] = [];
   let exactTitle = false;
   for (const entry of index.values()) {
     if (isPinnedList(entry.path)) continue;
+    if (!dates.every((range) => entry.filterDate >= range.from && entry.filterDate < range.until))
+      continue;
+    if (!tags.every((tag) => entry.tagKeys.includes(tag))) continue;
     if (terms.length && entry.titleKey === whole) exactTitle = true;
     const inTitle = terms.map((term) => entry.titleKey.includes(term));
     const inTags = terms.map((term) => entry.tagKeys.some((tag) => tag.includes(term)));
@@ -281,4 +314,19 @@ export function search(index: SearchIndex, query: string): Results {
       snippet: terms.length ? snippet(entry, terms) : null,
     })),
   };
+}
+
+/** Suggestions are derived only from the current folder's note frontmatter. */
+export function folderTags(index: SearchIndex, prefix: string): string[] {
+  const tags = new Map<string, string>();
+  const prefixKey = fold(prefix);
+  for (const entry of index.values()) {
+    if (isPinnedList(entry.path)) continue;
+    for (let i = 0; i < entry.tags.length; i++) {
+      const key = entry.tagKeys[i];
+      if (key.startsWith(prefixKey) && !tags.has(key)) tags.set(key, entry.tags[i]);
+      if (tags.size >= 50) return [...tags.values()].sort((a, b) => a.localeCompare(b));
+    }
+  }
+  return [...tags.values()].sort((a, b) => a.localeCompare(b));
 }

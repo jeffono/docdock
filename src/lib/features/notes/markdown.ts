@@ -411,7 +411,14 @@ export function pageUrl(value: string | null): string | null {
   }
 }
 
-export type Frontmatter = { end: number; title: string | null; tags: string[]; url: string | null };
+export type Frontmatter = {
+  end: number;
+  title: string | null;
+  tags: string[];
+  url: string | null;
+  created?: string | null;
+  date?: string | null;
+};
 
 /**
  * A `---` block closed on a later `---` line, at the very start. Reads title, url and tag scalar and
@@ -419,13 +426,14 @@ export type Frontmatter = { end: number; title: string | null; tags: string[]; u
  */
 export function frontmatter(line: (n: number) => string, lines: number): Frontmatter | null {
   if (lines < 2 || line(1) !== "---") return null;
+  const dates: { created?: string | null; date?: string | null } = {};
   let title: string | null = null,
     url: string | null = null,
     tags: string[] = [],
     inTags = false;
   for (let n = 2; n <= lines; n++) {
     const text = line(n);
-    if (text === "---") return { end: n, title, tags, url };
+    if (text === "---") return { end: n, title, tags, url, ...dates };
     if (/^\s/.test(text)) {
       const item = text.trim().match(/^- (.*)/);
       if (inTags && item) {
@@ -435,9 +443,10 @@ export function frontmatter(line: (n: number) => string, lines: number): Frontma
       continue;
     }
     inTags = false;
-    const match = text.match(/^(title|url|tags?):\s*(.*)$/);
+    const match = text.match(/^(title|url|tags?|created|date):\s*(.*)$/);
     if (!match) continue;
-    if (match[1] === "title") title = scalar(match[2]);
+    if (match[1] === "created" || match[1] === "date") dates[match[1]] = scalar(match[2]);
+    else if (match[1] === "title") title = scalar(match[2]);
     else if (match[1] === "url") url = pageUrl(scalar(match[2]));
     else {
       inTags = !match[2];

@@ -328,6 +328,30 @@ field and "+" action occupy the second bar in both modes. Browser starts with a 
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 
+Tag filters in Notes use whitespace-delimited `#tag` tokens. All tags must match a complete
+frontmatter tag, ignoring case and accents, alongside the existing free-text search. Inline body
+hashtags are ordinary text. A lone `#`, headings like `# Title`, and hashes inside words or URLs stay
+literal. Tags containing spaces or quotes use a JSON-quoted token, such as `#"two words"`.
+While the caret is in a tag token, the folder's matching tags appear below the bar in the existing
+suggestion style. Up/Down select, Enter or Tab inserts the whole token and a space, and clicking also
+accepts. Esc dismisses completion first, then follows the existing focus/close layers. Selecting the
+bar's text and typing replaces the whole query. Browser and `?` modes keep their web suggestions.
+Queries containing filters (or beginning with `#`) never offer automatic Create. Explicit Ctrl+Enter
+and "+" create from the free text only; a tags-only query creates an untitled note. Creation seeds
+all tag filters in frontmatter so the note remains in the results; date filters are ignored for
+creation, and the new note is dated now.
+While completion is open, its partial tag token is ignored for filtering; accepting it applies the
+complete tag. A sole suggestion identical to the complete token leaves list navigation available.
+Keyboard caret movement updates completion; leaving the token dismisses it.
+
+Date filters share the tag completion list: `date:` offers Today (`date:today`), Last 7 days
+(`date:7d`, today and six preceding local days), This month (`date:month`) and Last month
+(`date:last-month`). Labels are localized; tokens are language-neutral. Typed years, months and days
+(`date:2026`, `date:2026-10`, `date:2026-10-03`) and inclusive ranges
+(`date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`) work without a calendar or chips.
+Invalid or reversed date tokens are ignored and excluded from free text and note names.
+All valid date filters, tag filters and free-text words apply together.
+
 ## Unified address bar
 
 In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
