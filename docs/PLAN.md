@@ -10,7 +10,7 @@ detail each stage when it is next.
 
 ## M7 — Versatile search
 
-- [ ] Relative dates ("2 hours ago", "yesterday") through `Intl.RelativeTimeFormat`, with the full date on
+- [x] Relative dates ("2 hours ago", "yesterday") through `Intl.RelativeTimeFormat`, with the full date on
   hover, as an option in Preferences. `basic`
 - [ ] `#tag` filters with completion from the folder's tags; several tags all apply, combined with free
   text. Query parsing is a pure function. `standard`
