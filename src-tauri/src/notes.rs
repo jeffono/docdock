@@ -300,7 +300,7 @@ fn stamp(root: &Path) -> Result<String, Error> {
     if let Some(id) = read_marker(root)? {
         return Ok(id);
     }
-    let dir = derived_dir(root)?;
+    let (dir, _held) = held_derived_dir(root)?;
     let id = new_folder_id();
     write_atomic(&dir.join(MARKER), id.as_bytes())?;
     Ok(id)
@@ -1802,15 +1802,14 @@ struct PinnedCopy {
     folder: PathBuf,
     text: String,
 }
-fn copy_path(app: &AppHandle) -> Result<PathBuf, Error> {
-    Ok(derived_dir(&root(app)?)?.join("pinned-copy.json"))
+/// The pinned list's copy in `root`, with its folder held until the handles drop.
+fn copy_path(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
+    let (dir, held) = held_derived_dir(root)?;
+    Ok((dir.join("pinned-copy.json"), held))
 }
-/// Hidden from listing, search and watcher; never creates the notes root or follows a link.
-fn derived_dir(root: &Path) -> Result<PathBuf, Error> {
-    held_derived_dir(root).map(|(dir, _)| dir)
-}
-/// As `derived_dir`, created while `root` is held, and held with every folder above it until the
-/// handles drop, so a folder made inside it cannot land elsewhere.
+/// The derived-data folder, hidden from listing, search and watcher; never creates the notes root or
+/// follows a link. It is created while `root` is held, and held with every folder above it until the
+/// handles drop: callers keep them until their writes end, so nothing lands elsewhere.
 fn held_derived_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
     let mut held = hold_ancestry(root)?;
     let dir = root.join(DERIVED);
@@ -1836,8 +1835,7 @@ fn update_collapsed(
 ) -> Result<(), Error> {
     let root = root(app)?;
     let _guard = COLLAPSED.lock().unwrap_or_else(|e| e.into_inner());
-    let dir = derived_dir(&root)?;
-    let _held = hold_ancestry(&dir)?;
+    let (dir, _held) = held_derived_dir(&root)?;
     let mut collapsed = read_collapsed(&dir)?;
     change(&mut collapsed);
     write_atomic(
@@ -1870,8 +1868,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
             read_copy(&legacy).ok_or_else(|| Error::unexpected("invalid legacy pinned copy"))?;
         // A copy for an earlier folder stays until that folder is selected and available again.
         if copy.folder == root {
-            let dir = derived_dir(root)?;
-            let _held = hold_ancestry(&dir)?;
+            let (dir, _held) = held_derived_dir(root)?;
             let dest = dir.join("pinned-copy.json");
             if !dest.try_exists()? {
                 write_atomic(
@@ -1888,8 +1885,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
     };
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(Error::unexpected)?;
     if let Some(old) = value.get("collapsed") {
-        let dir = derived_dir(root)?;
-        let _held = hold_ancestry(&dir)?;
+        let (dir, _held) = held_derived_dir(root)?;
         let dest = dir.join("collapsed.json");
         let targets: BTreeSet<String> =
             serde_json::from_value(old.clone()).map_err(Error::unexpected)?;
@@ -1998,12 +1994,13 @@ fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
     Ok(())
 }
 fn collapsed(app: &AppHandle) -> Result<BTreeSet<String>, Error> {
-    let dir = derived_dir(&root(app)?)?;
-    let _held = hold_ancestry(&dir)?;
+    let (dir, _held) = held_derived_dir(&root(app)?)?;
     read_collapsed(&dir)
 }
 pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
-    pinned_state(&root(app)?, &copy_path(app)?, &collapsed(app)?)
+    let root = root(app)?;
+    let (store, _held) = copy_path(&root)?;
+    pinned_state(&root, &store, &collapsed(app)?)
 }
 /// `target` is a note's path (it must exist) or an http(s) URL. `title` is the link text.
 pub fn pin(app: &AppHandle, target: &str, title: &str) -> Result<Pinned, Error> {
@@ -2074,7 +2071,11 @@ pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<P
     pinned(app)
 }
 pub fn restore_pinned(app: &AppHandle) -> Result<Pinned, Error> {
-    restore_pinned_in(&root(app)?, &copy_path(app)?)?;
+    {
+        let root = root(app)?;
+        let (store, _held) = copy_path(&root)?;
+        restore_pinned_in(&root, &store)?;
+    }
     pinned(app)
 }
 /// Bound IPC writes and disk use for accidental large clipboard images (10 MiB).
@@ -2896,7 +2897,7 @@ mod tests {
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
         let root = t.0.join("notes");
         fs::create_dir(&root).unwrap();
-        let store = derived_dir(&root).unwrap().join("pinned-copy.json");
+        let store = held_derived_dir(&root).unwrap().0.join("pinned-copy.json");
         (root, store)
     }
     fn no_collapsed() -> BTreeSet<String> {
@@ -4162,7 +4163,7 @@ mod tests {
         assert!(
             !pinned_state(
                 &other,
-                &derived_dir(&other).unwrap().join("pinned-copy.json"),
+                &held_derived_dir(&other).unwrap().0.join("pinned-copy.json"),
                 &no_collapsed()
             )
             .unwrap()
@@ -4170,7 +4171,7 @@ mod tests {
         );
         restore_pinned_in(
             &other,
-            &derived_dir(&other).unwrap().join("pinned-copy.json"),
+            &held_derived_dir(&other).unwrap().0.join("pinned-copy.json"),
         )
         .unwrap();
         assert!(!other.join(PINNED).exists());
