@@ -5,29 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M6: `search-persist`, `panel-shortcuts`, `start-with-windows` and `activation-shortcut` in parallel;
-  `pinned-focus` starts after `search-persist`, which changes the Esc layers.
-- After M6: publish release 0.1.0-beta.1 and validate the update with 0.1.0-beta.2.
-
-## M6 — Panel adjustments
-
-Quick fixes first: the search tasks in M7 build on the new Esc and search behavior.
-
-- [x] Search and expanded note persist: only the user empties the search (typing over the selected text
-  or deleting it). Esc layers become: leave editing, then return to the bar, then close; no layer clears
-  the search. The expanded note stays expanded until collapsed or another note expands, and the list
-  keeps its scroll until the user scrolls; hiding the panel or losing focus changes neither.
-  `standard`
-- [x] A pinned panel releases focus: Esc or the global shortcut from the search bar returns focus to the
-  previous app, as when unpinned, and the panel stays shown. `advanced`
-- [x] Panel shortcuts: Ctrl+, opens and closes Preferences; Ctrl+Shift+D pins and unpins the panel (Ctrl+D
-  already pins a card). Add them to tooltips and the shortcut sheet. `basic`
-- [x] "Start with Windows" in Preferences > General, through `platform/autostart.rs` and mirrored with the
-  tray item. `standard`
-- [x] Custom activation shortcut in Preferences: record the pressed combination, re-register it at
-  runtime and keep the previous one with a notice if registration fails (taken by another app). Refuse
-  Ctrl+Alt with a character key, which is AltGr on layouts such as ABNT2. Other shortcuts stay fixed.
-  `advanced`
+- Publish release 0.1.0-beta.1, then validate the update with 0.1.0-beta.2.
 
 ## M7 — Versatile search
 
@@ -106,6 +84,9 @@ another provider: they touch untrusted content.
 - M5 — Distribute: README in English and pt-BR, MIT license, per-user NSIS installer, signed automatic
   updates from GitHub Releases, release workflow and quoted autostart path; see
   `docs/decisions/0008-distribution.md`.
+- M6 — Panel adjustments: search and expanded note persist, pinned panel releases focus, Ctrl+, and
+  Ctrl+Shift+D, Start with Windows and a custom activation shortcut; see "Note list", "Preferences"
+  and "Panel navigation" in `docs/DESIGN.md`.
 
 ## Later
 
@@ -140,5 +121,3 @@ Defaults used until you decide otherwise.
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Panel in screen captures   | Always hidden, which also blanks the user's own screenshots of the panel    |
 | Clipboard from notes       | Kept out of history and cloud clipboard; not cleared after a delay          |
-| Clearing the search        | Typing over the selected text or deleting it; no clear button               |
-| Pin panel shortcut         | Ctrl+Shift+D                                                                |
