@@ -309,8 +309,9 @@ per-monitor DPI awareness (PMv2).
   `noArticle`. The UI keeps the article in `App.svelte`, hides the page window and renders it with
   `renderNote` and no note path, so no `note-asset` image resolves. A `web-visible` false is ignored
   while an article is shown; a page shown again (the bar, a link, back/forward, leaving the view),
-  a tab change or a destroyed page window ends the view. "Save page as note" saves the shown
-  article.
+  a tab change or a destroyed page window ends the view. A result that arrives after any of those,
+  a URL change or, in Rust, a navigation started or committed during the read (a reload or A → B → A
+  included) is dropped. "Save page as note" saves the shown article.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.

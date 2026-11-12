@@ -95,7 +95,7 @@ pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
 }
 
 /// Main-frame navigations of the page window, so a result can be tied to one document even across
-/// a same-URL reload or A → B → A. Only the WebView2 UI thread touches it, and there is a single
+/// a same-URL reload or A → B → A. Only the WebView2 UI thread changes it, and there is a single
 /// page window.
 #[derive(Default)]
 struct Navigations {
@@ -137,6 +137,12 @@ static NAVIGATIONS: Mutex<Navigations> = Mutex::new(Navigations {
 
 fn navigations() -> std::sync::MutexGuard<'static, Navigations> {
     NAVIGATIONS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Changes when a main-frame navigation of the page window starts or commits, including a reload.
+/// Same-document navigations, such as a route change, keep it.
+pub fn navigation() -> u64 {
+    navigations().changes
 }
 
 #[derive(Clone, serde::Serialize)]

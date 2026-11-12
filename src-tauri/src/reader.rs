@@ -64,8 +64,10 @@ pub struct Article {
     markdown: String,
 }
 
-/// The shown page's article. None without an http(s) page.
+/// The shown page's article. None without an http(s) page, or when a navigation started while it
+/// was read: the article would cover the page the user went to.
 pub fn read(app: &tauri::AppHandle) -> Result<Option<Article>, Error> {
+    let navigation = crate::platform::browser::navigation();
     let Some((url, json)) = crate::web::read_page(app, READER_SCRIPT, READER_TIMEOUT)? else {
         return Ok(None);
     };
@@ -73,6 +75,9 @@ pub fn read(app: &tauri::AppHandle) -> Result<Option<Article>, Error> {
         .and_then(|json| crate::web::two_strings(&json, READER_MAX_JSON))
         .ok_or(Error::PageNotRead)?;
     let (title, markdown) = extract(&html, &url, &title).ok_or(Error::NoArticle)?;
+    if crate::platform::browser::navigation() != navigation {
+        return Ok(None);
+    }
     Ok(Some(Article {
         url,
         title,
