@@ -103,6 +103,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     };
     *ready = false;
     let window = build()?;
+    crate::platform::exclude_from_capture(&window);
     let setup = crate::platform::guard(&window, frame_allowed)
         .and_then(|()| edge::filter(&window, edge::Owner::Page))
         .and_then(|()| crate::platform::browser::mobile(&window))
