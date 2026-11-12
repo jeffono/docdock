@@ -244,23 +244,31 @@ pub fn purge(root: &Path, live: impl Fn() -> u64) {
             if !purgeable(&entry.file_name(), owner(), live(), now_ms(), running) {
                 continue;
             }
-            let path = entry.path();
-            let removed = match fs::symlink_metadata(&path) {
-                Ok(m) if m.is_dir() => fs::remove_dir_all(&path),
-                // A link to a folder is itself a directory entry on Windows.
-                Ok(m) if m.is_symlink() => {
-                    fs::remove_file(&path).or_else(|_| fs::remove_dir(&path))
-                }
-                Ok(_) => fs::remove_file(&path),
-                Err(error) => Err(error),
-            };
-            if let Err(error) = removed {
+            if let Err(error) = remove(&entry.path()) {
                 eprintln!("[trash] purge failed: {:?}", error.kind());
             }
         }
     }
     // Not recursive: an entry that stays keeps it.
     let _ = fs::remove_dir(&trash);
+}
+
+/// Deletes `path` and everything below it, removing links without following them. Walks the tree
+/// itself: `fs::remove_dir_all` asks for POSIX delete semantics, which a vault mounted by WinFsp
+/// refuses with ERROR_INVALID_PARAMETER after deleting the first file.
+fn remove(path: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_symlink() {
+        // A link to a folder is itself a directory entry on Windows.
+        return fs::remove_file(path).or_else(|_| fs::remove_dir(path));
+    }
+    if !metadata.is_dir() {
+        return fs::remove_file(path);
+    }
+    for entry in fs::read_dir(path)? {
+        remove(&entry?.path())?;
+    }
+    fs::remove_dir(path)
 }
 
 #[cfg(test)]
