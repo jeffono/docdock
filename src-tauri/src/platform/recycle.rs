@@ -21,10 +21,28 @@ use windows::core::{ComObject, HRESULT, HSTRING, PCWSTR, Ref, Result, implement}
 /// On success, the path of the file inside the Recycle Bin, when the shell reports it: whatever was
 /// at `path` when the shell moved it, even if it was swapped since the caller last looked.
 pub fn recycle(path: &Path) -> io::Result<Option<PathBuf>> {
+    run(path, false)
+}
+
+/// Whether `recycle` would move `path` to the Recycle Bin, asked of the shell without deleting
+/// anything: the operation is cancelled before its first item. True when the shell does not say.
+pub fn recyclable(path: &Path) -> io::Result<bool> {
+    match run(path, true) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn run(path: &Path, probe: bool) -> io::Result<Option<PathBuf>> {
     let path = HSTRING::from(shell_path(path));
     // A thread of its own: COM needs an apartment, and the caller's thread may belong to a pool.
-    std::thread::scope(|scope| scope.spawn(|| in_apartment(|| recycle_in(&path))).join())
-        .unwrap_or_else(|_| Err(io::Error::other("recycling panicked")))
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| in_apartment(|| recycle_in(&path, probe)))
+            .join()
+    })
+    .unwrap_or_else(|_| Err(io::Error::other("recycling panicked")))
 }
 
 /// The shell parses ordinary paths only: a canonical path's `\\?\` prefix is removed, and
@@ -47,8 +65,9 @@ fn in_apartment<T>(work: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
     result
 }
 
-fn recycle_in(path: &HSTRING) -> io::Result<Option<PathBuf>> {
+fn recycle_in(path: &HSTRING, probe: bool) -> io::Result<Option<PathBuf>> {
     let sink = ComObject::new(Sink {
+        probe,
         permanent: Cell::new(false),
         recycled: RefCell::new(None),
     });
@@ -72,6 +91,10 @@ fn recycle_in(path: &HSTRING) -> io::Result<Option<PathBuf>> {
             "the Recycle Bin cannot take this file",
         ));
     }
+    if probe {
+        // Cancelled on purpose: nothing was deleted.
+        return Ok(None);
+    }
     performed.map_err(io::Error::other)?;
     if unsafe { operation.GetAnyOperationsAborted() }?.as_bool() {
         return Err(io::Error::from_raw_os_error(ERROR_CANCELLED.0 as i32));
@@ -83,6 +106,8 @@ fn recycle_in(path: &HSTRING) -> io::Result<Option<PathBuf>> {
 /// `TSF_DELETE_RECYCLE_IF_POSSIBLE` only when the item will be recycled.
 #[implement(IFileOperationProgressSink)]
 struct Sink {
+    /// Only asks: every item is cancelled.
+    probe: bool,
     permanent: Cell<bool>,
     /// Where the deleted item landed in the Recycle Bin.
     recycled: RefCell<Option<PathBuf>>,
@@ -93,6 +118,9 @@ impl IFileOperationProgressSink_Impl for Sink_Impl {
     fn PreDeleteItem(&self, flags: u32, _: Ref<IShellItem>) -> Result<()> {
         if flags & TSF_DELETE_RECYCLE_IF_POSSIBLE.0 as u32 == 0 {
             self.permanent.set(true);
+            return Err(E_ABORT.into());
+        }
+        if self.probe {
             return Err(E_ABORT.into());
         }
         Ok(())

@@ -252,8 +252,8 @@ pub fn notes_trash_restore(app: AppHandle, id: String, undo: bool) -> Result<Str
     restored
 }
 #[tauri::command(async)]
-pub fn notes_trash_empty(app: AppHandle) -> Result<(), Error> {
-    crate::notes::empty_trash(&app)
+pub fn notes_trash_empty(app: AppHandle, ids: Vec<String>) -> Result<(), Error> {
+    crate::notes::empty_trash(&app, &ids)
 }
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]

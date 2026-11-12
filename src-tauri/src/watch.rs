@@ -75,7 +75,7 @@ pub fn monitor(app: AppHandle) {
                     .is_some_and(|(_, state)| *state != Availability::Available)
                 {
                     stop();
-                    crate::notes::forget_deleted();
+                    crate::notes::forget_unavailable();
                 }
                 if let Err(error) = app.emit_to("main", EVENT, Changes::default()) {
                     eprintln!("[watch] failed to notify the UI: {error}");

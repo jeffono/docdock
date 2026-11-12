@@ -19,7 +19,7 @@ pub use self::files::{
     open_folder, paste_timestamp, replace_file,
 };
 pub use self::guard::guard;
-pub use self::recycle::recycle;
+pub use self::recycle::{recyclable, recycle};
 pub use self::windows::{
     Activation, Monitor, PanelWindow, Point, Rect, cursor_pos, escape_pressed, foreground_window,
     monitors, primary_button_down, restore_focus, slide_windows, ui_language, wait_frame,
