@@ -7,7 +7,38 @@ detail each stage when it is next.
 
 - Next: publish release 0.1.0-beta.1 and validate the update with 0.1.0-beta.2.
 
-## M6 — Note privacy
+## M6 — Panel adjustments
+
+Quick fixes first: the search tasks in M7 build on the new Esc and search behavior.
+
+- [ ] Search and expanded note persist: only the user empties the search (typing over the selected text
+  or deleting it). Esc layers become: leave editing, then return to the bar, then close; no layer clears
+  the search. The expanded note stays expanded until collapsed or another note expands, and the list
+  keeps its scroll until the user scrolls; hiding the panel or losing focus changes neither.
+  `standard`
+- [ ] A pinned panel releases focus: Esc or the global shortcut from the search bar returns focus to the
+  previous app, as when unpinned, and the panel stays shown. `advanced`
+- [ ] Panel shortcuts: Ctrl+, opens and closes Preferences; Ctrl+Shift+D pins and unpins the panel (Ctrl+D
+  already pins a card). Add them to tooltips and the shortcut sheet. `basic`
+- [ ] "Start with Windows" in Preferences > General, through `platform/autostart.rs` and mirrored with the
+  tray item. `standard`
+- [ ] Custom activation shortcut in Preferences: record the pressed combination, re-register it at
+  runtime and keep the previous one with a notice if registration fails (taken by another app). Refuse
+  Ctrl+Alt with a character key, which is AltGr on layouts such as ABNT2. Other shortcuts stay fixed.
+  `advanced`
+
+## M7 — Versatile search
+
+- [ ] Relative dates ("2 hours ago", "yesterday") through `Intl.RelativeTimeFormat`, with the full date on
+  hover, as an option in Preferences. `basic`
+- [ ] `#tag` filters with completion from the folder's tags; several tags all apply, combined with free
+  text. Query parsing is a pure function. `standard`
+- [ ] `date:` filters: completion offers presets (today, last 7 days, this month, last month) that insert
+  tokens such as `date:7d`; typed ISO dates and ranges (`date:2026-10..2026-11`) also work. The date is
+  the frontmatter `created` or `date` when present, else the modified time. No calendar or chips yet.
+  `standard`
+
+## M8 — Note privacy
 
 Threats that matter: leaks through cloud sync and a stolen device with synced notes; screen sharing
 also matters for a panel that appears over other apps. Notes stay plain `.md`; encryption is delegated
@@ -32,6 +63,20 @@ to a vault the user mounts, such as Cryptomator, which stays optional. The app's
   `vault.cryptomator`, which Cryptomator unlocks with Windows Hello. `standard`
 - [ ] README section in English and pt-BR: protecting notes with Cryptomator, including that moving notes
   into a vault does not remove earlier plaintext from cloud history. `basic`
+
+## M9 — Clean pages
+
+Space in the panel is small, so page clutter costs more than in a browser. These tasks need review by
+another provider: they touch untrusted content.
+
+- [ ] Strict tracking prevention on the page profile (`PreferredTrackingPreventionLevel`). `standard`
+- [ ] Content blocking with Brave's `adblock` crate (MPL-2.0): network rules through
+  `WebResourceRequested` and cosmetic rules hiding elements, which matter most in a narrow panel (cookie
+  banners, sticky bars). Lists downloaded and updated, not bundled; scriptlets off, since they run code in
+  the page; measure memory. Start with domain rules if the engine proves costly. `advanced`
+- [ ] Reader view: read the loaded page through CDP, extract the article in Rust with a Readability
+  port, convert it to Markdown and show it in the existing renderer; "Save page as note" can then save
+  the whole article. Text only at first if CSP blocks remote images. `advanced`
 
 ## Completed
 
@@ -93,3 +138,5 @@ Defaults used until you decide otherwise.
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Panel in screen captures   | Always hidden, which also blanks the user's own screenshots of the panel    |
 | Clipboard from notes       | Kept out of history and cloud clipboard; not cleared after a delay          |
+| Clearing the search        | Typing over the selected text or deleting it; no clear button               |
+| Pin panel shortcut         | Ctrl+Shift+D                                                                |
