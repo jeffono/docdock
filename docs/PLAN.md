@@ -5,7 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: M9 — Clean pages.
+- Release 0.1.0-beta.3 with M8 and validate the automatic update from 0.1.0-beta.2; then M9 — Clean
+  pages.
 
 ## M9 — Clean pages
 
