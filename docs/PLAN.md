@@ -5,16 +5,17 @@ detail each stage when it is next.
 
 ## In progress
 
-- Next: M8 — Note privacy.
+- M8: `unavailable-folder`, `recycle-fallback`, `capture-exclusion` and `clipboard-privacy` in parallel,
+  integrated in `m8`; then derived data, vault file and README.
 
 ## M8 — Note privacy
 
 Threats that matter: leaks through cloud sync and a stolen device with synced notes; screen sharing
 also matters for a panel that appears over other apps. Notes stay plain `.md`; encryption is delegated
-to a vault the user mounts, such as Cryptomator, which stays optional. The app's own encryption is in
-`docs/EXPLORATIONS.md`.
+to a vault the user mounts, such as Cryptomator, which stays optional; see
+`docs/decisions/0009-note-privacy.md`.
 
-- [ ] Record the decision above in `docs/decisions/`, including the rule that nothing derived from note
+- [x] Record the decision above in `docs/decisions/`, including the rule that nothing derived from note
   content is stored outside the notes folder. `basic`
 - [ ] Unavailable notes folder (locked vault, unplugged drive, offline share): a state distinct from a
   deleted folder; never create the notes folder or its parents, which would write plaintext under a
