@@ -24,7 +24,7 @@ to a vault the user mounts, such as Cryptomator, which stays optional. The app's
 - [ ] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
   `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
   `standard`
-- [ ] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give
+- [x] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give
   such notes an Undo that keeps the copy inside the notes folder. `advanced`
 - [ ] Hide the panel from screen capture and sharing with `WDA_EXCLUDEFROMCAPTURE`. `standard`
 - [ ] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`

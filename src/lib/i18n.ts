@@ -158,6 +158,15 @@ const en = {
   "delete.text": "The note moves to the Recycle Bin. You can undo this until the panel closes.",
   "delete.confirm": "Move to Recycle Bin",
   "delete.done": "“{title}” moved to the Recycle Bin.",
+  "delete.binlessTitle": "Delete “{title}” for good?",
+  "delete.binlessText":
+    "This folder has no Recycle Bin, as in an encrypted vault or a network folder. You can undo until the panel closes; then the note is deleted for good.",
+  "delete.binlessConfirm": "Delete for good",
+  "delete.binlessDone": "“{title}” will be deleted for good when the panel closes.",
+  "deleteFolder.binlessTitle": "Delete folder “{folder}” for good?",
+  "deleteFolder.binlessText":
+    "This folder has no Recycle Bin, as in an encrypted vault or a network folder. You can undo until the panel closes; then the folder and all its content are deleted for good.",
+  "deleteFolder.done": "Folder “{folder}” will be deleted for good when the panel closes.",
   "delete.tooLarge":
     "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
@@ -235,10 +244,9 @@ const en = {
   "error.notRecyclable": "This folder has no Recycle Bin for the note, so nothing was deleted.",
   "error.deleteFailed": "Could not delete the note: {detail}",
   "error.pinnedNotRemoved":
-    "The note moved to the Recycle Bin, but the pinned list could not follow; remove its item.",
+    "The note was deleted, but the pinned list could not follow; remove its item.",
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
-  "error.restoreTaken":
-    "Another file now uses the name {path}. Rename it and undo again; the note is still in the Recycle Bin.",
+  "error.restoreTaken": "Another file now uses the name {path}. Rename it and undo again.",
   "error.pinnedNotRestored":
     "The note was restored, but the pinned list could not follow; pin it again.",
   "error.invalidUrl": "Invalid address: {detail}",
@@ -409,6 +417,15 @@ const ptBR: Record<MessageKey, string> = {
   "delete.text": "A nota vai para a Lixeira. Dá para desfazer até o painel fechar.",
   "delete.confirm": "Mover para a Lixeira",
   "delete.done": "“{title}” foi para a Lixeira.",
+  "delete.binlessTitle": "Excluir “{title}” definitivamente?",
+  "delete.binlessText":
+    "Esta pasta não tem Lixeira, como num cofre criptografado ou numa pasta de rede. Dá para desfazer até o painel fechar; depois a nota é excluída definitivamente.",
+  "delete.binlessConfirm": "Excluir definitivamente",
+  "delete.binlessDone": "“{title}” será excluída definitivamente quando o painel fechar.",
+  "deleteFolder.binlessTitle": "Excluir a pasta “{folder}” definitivamente?",
+  "deleteFolder.binlessText":
+    "Esta pasta não tem Lixeira, como num cofre criptografado ou numa pasta de rede. Dá para desfazer até o painel fechar; depois a pasta e todo o conteúdo são excluídos definitivamente.",
+  "deleteFolder.done": "A pasta “{folder}” será excluída definitivamente quando o painel fechar.",
   "delete.tooLarge":
     "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
@@ -486,10 +503,9 @@ const ptBR: Record<MessageKey, string> = {
   "error.notRecyclable": "Esta pasta não tem Lixeira para a nota; nada foi excluído.",
   "error.deleteFailed": "Não foi possível excluir a nota: {detail}",
   "error.pinnedNotRemoved":
-    "A nota foi para a Lixeira, mas a lista de fixados não acompanhou; remova o item dela.",
+    "A nota foi excluída, mas a lista de fixados não acompanhou; remova o item dela.",
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
-  "error.restoreTaken":
-    "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo; a nota continua na Lixeira.",
+  "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo.",
   "error.pinnedNotRestored":
     "A nota foi restaurada, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",

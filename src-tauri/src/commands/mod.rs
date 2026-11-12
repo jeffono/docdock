@@ -191,15 +191,21 @@ pub fn notes_delete_folder(
     app: AppHandle,
     path: String,
     confirmed: bool,
+    binless: bool,
 ) -> Result<Option<crate::notes::FolderCounts>, Error> {
-    crate::notes::delete_folder(&app, &path, confirmed)
+    crate::notes::delete_folder(&app, &path, confirmed, binless)
+}
+#[tauri::command(async)]
+pub fn notes_undo_delete_folder(app: AppHandle, path: String) -> Result<(), Error> {
+    crate::notes::undo_delete_folder(&app, &path)
 }
 
-/// Moves a note to the Recycle Bin; answers whether `notes_undo_delete` can bring it back, which it
-/// can while the panel stays open.
+/// Moves a note to the Recycle Bin, or with `binless` to the notes folder's own trash until the panel
+/// closes; answers whether `notes_undo_delete` can bring it back, which it can while the panel stays
+/// open.
 #[tauri::command(async)]
-pub fn notes_delete(app: AppHandle, path: String) -> Result<bool, Error> {
-    crate::notes::delete_note(&app, &path)
+pub fn notes_delete(app: AppHandle, path: String, binless: bool) -> Result<bool, Error> {
+    crate::notes::delete_note(&app, &path, binless)
 }
 #[tauri::command(async)]
 pub fn notes_undo_delete(app: AppHandle, path: String) -> Result<(), Error> {

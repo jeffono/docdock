@@ -126,8 +126,10 @@ pinned and unpinned notes differ only in section and starting state.
   and attachments) requires the same nearby confirmation dialog, focused on Cancel, naming the folder
   and its recursive counts of notes and other files, each with the correct singular or plural in English
   and pt-BR (for example, "3 notes and 2 other files"). "Move to Recycle Bin" recycles all content; the text explains that
-  restoration is through the Recycle Bin, with no DocDock Undo. Root has no deletion label. Folders
-  left empty by moves or note deletion stay.
+  restoration is through the Recycle Bin, with no DocDock Undo. Where the Recycle Bin refuses the
+  folder, a second dialog of the same kind asks "Delete folder “name” for good?", explains that Undo
+  lasts until the panel closes, and confirms with "Delete for good"; the deletion notice then offers
+  Undo as for a note. Root has no deletion label. Folders left empty by moves or note deletion stay.
 - **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
   the whole card follows the pointer; a dashed gap marks its pending position while the other cards
   stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
@@ -231,7 +233,10 @@ pinned and unpinned notes differ only in section and starting state.
   `Notice` under the search bar, on the amber tint with a trash icon, says the note went to the
   Recycle Bin, with a neutral Undo button, until the panel closes or another note is deleted. Undo
   brings the note and its pinned items back and selects it. The selection otherwise moves to the
-  next item. Where the folder has no Recycle Bin, nothing is deleted and an error says so. A note over
+  next item. Where the Recycle Bin refuses the note (an encrypted vault, a network folder), nothing
+  is deleted yet: a second dialog of the same kind asks "Delete “title” for good?", says the folder has
+  no Recycle Bin and that Undo lasts until the panel closes, and confirms with the primary "Delete for
+  good". The notice then says the note will be deleted for good when the panel closes. A note over
   the 2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is
   too large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to

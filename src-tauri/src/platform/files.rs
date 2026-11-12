@@ -36,6 +36,16 @@ pub fn hold_directory(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
+pub fn hold_ancestry(dir: &Path) -> io::Result<Vec<File>> {
+    dir.ancestors()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(hold_directory)
+        .collect()
+}
+
 pub fn paste_timestamp() -> String {
     let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     format!(
