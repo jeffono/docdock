@@ -215,6 +215,9 @@ export const noteOrders = [
 export type NoteOrder = (typeof noteOrders)[number];
 export const notesOrder = () => invoke<NoteOrder>("notes_order");
 export const notesSetOrder = (order: NoteOrder) => invoke<void>("notes_set_order", { order });
+export const notesRelativeDates = () => invoke<boolean>("notes_relative_dates");
+export const notesSetRelativeDates = (enabled: boolean) =>
+  invoke<void>("notes_set_relative_dates", { enabled });
 export type Grouping = "none" | "date" | "folder";
 export const notesGrouping = () => invoke<Grouping>("notes_grouping");
 export const notesSetGrouping = (grouping: Grouping) =>

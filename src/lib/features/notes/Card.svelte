@@ -1,16 +1,19 @@
 <script lang="ts">
 import type { Snippet } from "svelte";
-import { date, t } from "../../i18n";
+import { date, dateTime, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
 import { folderOf } from "./grouping";
 import Highlight from "./Highlight.svelte";
 import { type Card, fileLabel, pageHost } from "./list";
+import { relativeDates } from "./order-store";
+import { relativeDate } from "./relative-date";
 import { renderNote } from "./render";
 import "./content.css";
 
 let {
   card,
+  now,
   drag,
   text,
   selected,
@@ -29,6 +32,7 @@ let {
   folder = false,
 }: {
   card: Card;
+  now: number;
   drag?: (element: HTMLElement) => () => void;
   /** Raw text of the note once read; the line state does not need it. */
   text: string | undefined;
@@ -151,7 +155,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
       {#if tags.length > 0}
         <small class="tag">{tags[0]}{#if tags.length > 1}<span class="more"> +{tags.length - 1}</span>{/if}</small>
       {/if}
-      {#if card.hit.modified}<small class="date">{date(card.hit.modified)}</small>{/if}
+      {#if card.hit.modified}<small class="date" title={dateTime(card.hit.modified)}>{$relativeDates ? relativeDate(card.hit.modified, now, document.documentElement.lang || "en") : date(card.hit.modified)}</small>{/if}
       </span>
     </button>
     {#if status}<small class="status" role="status">{status}</small>{/if}

@@ -100,6 +100,11 @@ pinned and unpinned notes differ only in section and starting state.
   the checkable "Group by date" and "Group by folder" items; checking one clears the other. Enter/Space and arrows open and navigate it; Esc, selection and
   outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
   stays within the panel, flipping above its button near the bottom. No native popup takes focus.
+- **Note dates:** modified dates on cards and rows are absolute by default. General Preferences
+  offers "Use relative dates", remembered on this computer. Relative text uses the app locale: now,
+  minutes and hours within today; calendar days across midnight, then weeks from 7 days, months
+  from 30 days and years from 365 days. One shared 30-second tick refreshes dates and date groups.
+  Hovering a note date shows the full local date and time with either display option.
 - **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
   by modified or created date. Name order keeps the choice but disables the item with a visible hint.
   Quiet, regular-weight labels keep sentence case below the stronger section titles:
@@ -253,7 +258,8 @@ pinned and unpinned notes differ only in section and starting state.
   work as from the search bar, and typing a character goes to the search bar. Enter acts on the
   selection even on a focused button; Space presses the button.
 - **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
-  expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's
+  expands it and Ctrl+Enter or ↑ reaches Create. Every way of creating opens the new note expanded and
+  editing, so typing goes into it. Pinning uses a bookmark icon, distinct from the header's
   thumbtack that keeps the panel open. Rows and lines show a snippet with the matches highlighted under
   the title; previews and expanded cards show the content. Reading cards hide the frontmatter title
   (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
@@ -287,7 +293,7 @@ pinned and unpinned notes differ only in section and starting state.
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order, date grouping, panel side and a
+General contains the folder path, folder picker, note order, date grouping, relative dates, panel side and a
 "Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
@@ -323,6 +329,31 @@ field and "+" action occupy the second bar in both modes. Browser starts with a 
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 
+Tag filters in Notes use whitespace-delimited `#tag` tokens. All tags must match a complete
+frontmatter tag, ignoring case and accents, alongside the existing free-text search. Inline body
+hashtags are ordinary text. A lone `#`, headings like `# Title`, and hashes inside words or URLs stay
+literal. Tags containing spaces or quotes use a JSON-quoted token, such as `#"two words"`.
+While the caret is in a tag token, the folder's matching tags appear below the bar in the existing
+suggestion style. Up/Down select, Enter or Tab inserts the whole token and a space, and clicking also
+accepts. Esc dismisses completion first, then follows the existing focus/close layers. Selecting the
+bar's text and typing replaces the whole query. Browser and `?` modes keep their web suggestions.
+Queries containing filters (or beginning with `#`) never offer automatic Create. Explicit Ctrl+Enter
+and "+" create from the free text only; a tags-only query creates an untitled note. Creation seeds
+all tag filters in frontmatter so the note remains in the results; date filters are ignored for
+creation, and the new note is dated now. Typing in such a note starts after its frontmatter. The web
+search row offers only the free text, and none for a filters-only query.
+While completion is open, its partial tag token is ignored for filtering; accepting it applies the
+complete tag. A sole suggestion identical to the complete token leaves list navigation available.
+Keyboard caret movement updates completion; leaving the token dismisses it.
+
+Date filters share the tag completion list: `date:` offers Today (`date:today`), Last 7 days
+(`date:7d`, today and six preceding local days), This month (`date:month`) and Last month
+(`date:last-month`). Labels are localized; tokens are language-neutral. Typed years, months and days
+(`date:2026`, `date:2026-10`, `date:2026-10-03`) and inclusive ranges
+(`date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`) work without a calendar or chips.
+Invalid or reversed date tokens are ignored and excluded from free text and note names.
+All valid date filters, tag filters and free-text words apply together.
+
 ## Unified address bar
 
 In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
@@ -342,7 +373,8 @@ In notes mode Enter always activates the selected entry. URL-like text offers an
 after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
 keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
 it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries remain
-local. Web actions use neutral icon rows; all untrusted suggestions appear as text.
+local. Web actions use neutral icon rows; all untrusted suggestions appear as text. In Notes they
+follow the notes as a last "Search the web" section, with note row geometry and selection.
 
 ## Note editor
 

@@ -141,6 +141,10 @@ describe("edited card", () => {
 });
 
 describe("create item", () => {
+  it("never offers automatic creation for tag filters or an unfinished leading hash", () => {
+    for (const query of ["#work", "budget #work", "#"])
+      expect(buildList({ ...base, query }).create).toBeNull();
+  });
   it("is offered for the trimmed query unless a title equals it", () => {
     expect(buildList({ ...base, query: "  new idea " }).create).toBe("new idea");
     expect(buildList({ ...base, query: "a", exactTitle: true }).create).toBeNull();

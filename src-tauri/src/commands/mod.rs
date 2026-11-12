@@ -316,6 +316,14 @@ pub fn notes_set_order(app: AppHandle, order: crate::notes::NoteOrder) -> Result
     crate::notes::set_note_order(&app, order)
 }
 #[tauri::command]
+pub fn notes_relative_dates(app: AppHandle) -> Result<bool, Error> {
+    crate::notes::relative_dates(&app)
+}
+#[tauri::command]
+pub fn notes_set_relative_dates(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::notes::set_relative_dates(&app, enabled)
+}
+#[tauri::command]
 pub fn notes_grouping(app: AppHandle) -> Result<crate::notes::Grouping, Error> {
     crate::notes::grouping(&app)
 }

@@ -96,9 +96,18 @@ import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
+import {
+  applyCompletion,
+  completionChoices,
+  completionToken,
+  creationContent,
+  creationText,
+  queryCompletion,
+} from "./query";
+import { datePresets } from "./query-date";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
-import { FolderIndex, isPinnedList, search } from "./search";
+import { FolderIndex, folderTags, isPinnedList, search } from "./search";
 
 let {
   browser = false,
@@ -118,6 +127,38 @@ let notes = $state<Note[]>([]);
 let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
+let completionCaret = $state<number | null>(null);
+let completionDismissed = $state(false);
+let completionSelection = $state(0);
+function updateCompletion(event: Event) {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  completionCaret = input.selectionStart === input.selectionEnd ? input.selectionStart : null;
+  completionSelection = 0;
+  completionDismissed = false;
+}
+function dateLabel(value: string): string {
+  switch (value) {
+    case "today":
+      return t("notes.dateToday");
+    case "7d":
+      return t("notes.date7d");
+    case "month":
+      return t("notes.dateMonth");
+    default:
+      return t("notes.dateLastMonth");
+  }
+}
+async function acceptCompletion(tag: string) {
+  if (!completionContext) return;
+  const result = applyCompletion(query, completionContext, tag);
+  query = result.text;
+  completionDismissed = true;
+  selection = "";
+  await tick();
+  bar()?.focus();
+  bar()?.setSelectionRange(result.caret, result.caret);
+}
 let address = $state("");
 let addressEditing = $state(false);
 let showingHistory = $state(false);
@@ -131,7 +172,15 @@ $effect(() => {
 });
 const inputQuery = $derived(browser ? address : query);
 const intent = $derived(webQuery(inputQuery, browser));
-const webItems = $derived(webEntries(inputQuery, browser, history, remote));
+// In Notes, `#tag` and `date:` filters are not web text: only free text is offered to the web.
+const webItems = $derived(
+  webEntries(
+    browser || intent !== null ? inputQuery : creationText(query),
+    browser,
+    history,
+    remote,
+  ),
+);
 $effect(() => {
   if (browser && !addressEditing) address = pageUrl;
 });
@@ -323,6 +372,22 @@ let generation = 0;
 // Search: the index follows the listing, one sync at a time, and starts over with each folder.
 const folderIndex = new FolderIndex(notesTexts);
 let indexVersion = $state(0);
+const completionContext = $derived(
+  !browser && !inactive && intent === null && !completionDismissed && completionCaret !== null
+    ? queryCompletion(query, completionCaret)
+    : null,
+);
+const completionItems = $derived.by(() => {
+  void indexVersion;
+  const values =
+    folder?.available && completionContext
+      ? completionContext.kind === "date"
+        ? datePresets.filter((preset) => preset.startsWith(completionContext.prefix))
+        : folderTags(folderIndex.index, completionContext.prefix)
+      : [];
+  return completionContext ? completionChoices(query, completionContext, values) : [];
+});
+
 async function sync(list: Note[]): Promise<void> {
   await folderIndex.sync(list);
   indexVersion++;
@@ -330,7 +395,12 @@ async function sync(list: Note[]): Promise<void> {
 
 const results = $derived.by(() => {
   void indexVersion;
-  return search(folderIndex.index, query);
+  return search(
+    folderIndex.index,
+    query,
+    groupingDate,
+    completionItems.length ? completionContext : null,
+  );
 });
 const kept = $derived.by(() => {
   void indexVersion;
@@ -550,14 +620,15 @@ export async function choose() {
   }
 }
 
-/** Creates the note for the typed text and opens it expanded. */
+/** Creates the note for the typed text and opens it expanded for editing. */
 let creating = false;
-async function create(text: string, content = "", annotate = false) {
+async function create(text: string, content = "") {
   if (creating) return;
   creating = true;
   try {
     error = "";
     if (!(await leaveEditor())) return;
+    if (!content && !browser) content = creationContent(query);
     const taken = notes.map((note) => note.path);
     // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -570,10 +641,8 @@ async function create(text: string, content = "", annotate = false) {
         await sync(list);
         expanded = name;
         selection = name;
-        if (annotate) {
-          await webSetVisible(false);
-          await edit(name);
-        }
+        await webSetVisible(false);
+        await edit(name);
         return;
       }
       taken.push(name);
@@ -602,7 +671,7 @@ async function savePage() {
     pageUnavailable = page === null;
     if (!page) return;
     const note = pageNote(page);
-    await create(note.name, note.text, true);
+    await create(note.name, note.text);
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -1381,7 +1450,8 @@ export function focusSearch() {
 }
 
 /** Typing searches: the edited card is left the guarded way and stays expanded, reading. */
-function typed() {
+function typed(event: Event) {
+  updateCompletion(event);
   showingHistory = false;
   if (browser) addressEditing = true;
   selection = "";
@@ -1526,7 +1596,7 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       event.preventDefault();
       if (event.ctrlKey) {
         if (!browser && intent === null && folder?.available && query.trim())
-          void create(query.trim());
+          void create(creationText(query));
         return;
       }
       const webEntry = shownWebItems.find((entry) => entry.key === active);
@@ -1598,6 +1668,26 @@ function caretAtEnd(event: KeyboardEvent): boolean {
 /** The search bar's keys. Runs in capture, before the field's own Esc. */
 function barKey(event: KeyboardEvent) {
   if (!(event.target instanceof HTMLInputElement) || event.isComposing) return;
+  if (
+    completionItems.length &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    !event.shiftKey
+  ) {
+    if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") completionDismissed = true;
+      else if (event.key === "Enter" || event.key === "Tab")
+        void acceptCompletion(completionItems[completionSelection] ?? completionItems[0]);
+      else
+        completionSelection =
+          (completionSelection + (event.key === "ArrowDown" ? 1 : -1) + completionItems.length) %
+          completionItems.length;
+      return;
+    }
+  }
   if (
     event.key === "ArrowDown" &&
     !event.ctrlKey &&
@@ -1829,12 +1919,29 @@ onMount(() => {
       <TextField
         value={inputQuery}
         oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}
-        aria-controls="note-list"
+        onkeyup={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateCompletion(event); }}
+        onselect={updateCompletion}
+        onclick={updateCompletion}
+        onfocus={updateCompletion}
+        onblur={() => { completionCaret = null; }}
+        aria-controls={completionItems.length ? "query-completion" : undefined}
+        aria-expanded={browser ? undefined : completionItems.length > 0}
+        aria-autocomplete={browser ? undefined : "list"}
+        role={browser ? undefined : "combobox"}
+        aria-activedescendant={completionItems.length ? "query-" + completionContext?.kind + "-" + completionSelection : undefined}
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(query.trim(), "", true)} />
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
     </div>
+  {#if completionItems.length}
+    <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
+      {#each completionItems as value, index (completionContext?.kind + ":" + value)}
+        <button id={"query-" + completionContext?.kind + "-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptCompletion(value)}
+          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{completionContext?.kind === "date" ? dateLabel(value) : completionToken("tag", value)}</span></button>
+      {/each}
+    </div>
+  {/if}
   {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
@@ -1941,6 +2048,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
+            now={groupingDate.getTime()}
             folder={showFolder || card.pinned}
             drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
@@ -1961,8 +2069,9 @@ onMount(() => {
         {/if}
         </div>
       {/each}
+      {#if shownWebItems.length}<div class="section-heading"><h2>{t("list.web")}</h2></div>{/if}
       {#each shownWebItems as entry (entry.key)}
-        <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
+        <button class="suggestion in-list" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
           {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
       {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
@@ -2108,6 +2217,17 @@ onMount(() => {
     text-align: left;
   }
   .suggestion.selected { background: var(--color-selected); }
+  /* Web actions after the notes read as one more list section, with note row geometry. */
+  .suggestion.in-list {
+    width: calc(100% - var(--panel-inset-left) - var(--panel-inset-right));
+    margin: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+  .suggestion.in-list:hover { background: var(--color-surface); }
+  .suggestion.in-list.selected { border-color: var(--color-accent); background: var(--color-selected); }
   .suggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .missing {

@@ -5,19 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M7: `relative-dates` and `search-tags` in parallel; `date-filters` starts after `search-tags`, whose
-  query parser it extends.
-
-## M7 — Versatile search
-
-- [ ] Relative dates ("2 hours ago", "yesterday") through `Intl.RelativeTimeFormat`, with the full date on
-  hover, as an option in Preferences. `basic`
-- [ ] `#tag` filters with completion from the folder's tags; several tags all apply, combined with free
-  text. Query parsing is a pure function. `standard`
-- [ ] `date:` filters: completion offers presets (today, last 7 days, this month, last month) that insert
-  tokens such as `date:7d`; typed ISO dates and ranges (`date:2026-10..2026-11`) also work. The date is
-  the frontmatter `created` or `date` when present, else the modified time. No calendar or chips yet.
-  `standard`
+- Next: M8 — Note privacy.
 
 ## M8 — Note privacy
 
@@ -89,6 +77,9 @@ another provider: they touch untrusted content.
   Ctrl+Shift+D, Start with Windows and a custom activation shortcut; see "Note list", "Preferences"
   and "Panel navigation" in `docs/DESIGN.md`.
 - Release 0.1.0-beta.2: automatic update from 0.1.0-beta.1 validated.
+- M7 — Versatile search: optional relative dates, `#tag` and `date:` filters with completion, tags
+  seeded on creation and web actions as a list section; see "Note list" in `docs/DESIGN.md` and
+  "Notes" in `docs/ARCHITECTURE.md`. Frontend tests grew 32%, mostly pure parser and date-range cases.
 
 ## Later
 

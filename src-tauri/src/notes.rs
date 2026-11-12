@@ -46,6 +46,8 @@ struct Settings {
     note_order: NoteOrder,
     #[serde(default, deserialize_with = "bool_or_default")]
     group_by_date: bool,
+    #[serde(default, deserialize_with = "bool_or_default")]
+    relative_dates: bool,
     /// Wins over `group_by_date`; two flags keep settings written before folder grouping valid.
     #[serde(default, deserialize_with = "bool_or_default")]
     group_by_folder: bool,
@@ -123,6 +125,12 @@ pub fn note_order(app: &AppHandle) -> Result<NoteOrder, Error> {
 }
 pub fn set_note_order(app: &AppHandle, order: NoteOrder) -> Result<(), Error> {
     update(app, |settings| settings.note_order = order)
+}
+pub fn relative_dates(app: &AppHandle) -> Result<bool, Error> {
+    Ok(load(&config(app)?).relative_dates)
+}
+pub fn set_relative_dates(app: &AppHandle, enabled: bool) -> Result<(), Error> {
+    update(app, |settings| settings.relative_dates = enabled)
 }
 fn bool_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
     Ok(bool::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
@@ -1981,6 +1989,21 @@ mod tests {
             .unwrap();
             assert_eq!(settings.grouping(), Grouping::None);
             assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
+            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        }
+    }
+    #[test]
+    fn older_settings_keep_absolute_dates() {
+        let settings: Settings = serde_json::from_str(r#"{"group_by_date":true}"#).unwrap();
+        assert!(!settings.relative_dates);
+    }
+    #[test]
+    fn invalid_relative_dates_does_not_discard_other_settings() {
+        for value in ["null", "42", "{}", "[]", "\"true\""] {
+            let settings: Settings =
+                serde_json::from_str(&format!(r#"{{"folder":"notes","relative_dates":{value}}}"#))
+                    .unwrap();
+            assert!(!settings.relative_dates);
             assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         }
     }

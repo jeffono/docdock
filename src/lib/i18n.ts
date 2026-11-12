@@ -3,6 +3,7 @@ import type { Locale } from "./ipc";
 
 const en = {
   "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
+  "preferences.relativeDates": "Use relative dates",
   "group.label": "Group by date",
   "group.hint": "Available when ordering by modified or created date. Your choice is kept.",
   "group.scope":
@@ -102,6 +103,12 @@ const en = {
   "app.resize": "Resize panel (double-click: default width)",
   "notes.label": "Notes",
   "notes.search": "Search or create a note",
+  "notes.tagCompletion": "Folder tags",
+  "notes.dateCompletion": "Date filters",
+  "notes.dateToday": "Today",
+  "notes.date7d": "Last 7 days",
+  "notes.dateMonth": "This month",
+  "notes.dateLastMonth": "Last month",
   "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
@@ -111,6 +118,7 @@ const en = {
   "notes.gone": "This note was moved or deleted outside the app.",
   "list.pinned": "Pinned",
   "list.notes": "Notes",
+  "list.web": "Search the web",
   "list.create": "Create “{text}”",
   "card.pin": "Pin (Ctrl+D)",
   "card.unpin": "Unpin (Ctrl+D)",
@@ -247,6 +255,7 @@ export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
   "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
+  "preferences.relativeDates": "Usar datas relativas",
   "group.label": "Agrupar por data",
   "group.hint": "Disponível ao ordenar por modificação ou criação. Sua escolha é mantida.",
   "group.scope":
@@ -345,6 +354,12 @@ const ptBR: Record<MessageKey, string> = {
   "app.resize": "Redimensionar painel (clique duplo: largura padrão)",
   "notes.label": "Notas",
   "notes.search": "Buscar ou criar uma nota",
+  "notes.tagCompletion": "Tags da pasta",
+  "notes.dateCompletion": "Filtros de data",
+  "notes.dateToday": "Hoje",
+  "notes.date7d": "Últimos 7 dias",
+  "notes.dateMonth": "Este mês",
+  "notes.dateLastMonth": "Mês passado",
   "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",
@@ -354,6 +369,7 @@ const ptBR: Record<MessageKey, string> = {
   "notes.gone": "Esta nota foi movida ou apagada fora do app.",
   "list.pinned": "Fixados",
   "list.notes": "Notas",
+  "list.web": "Buscar na web",
   "list.create": "Criar “{text}”",
   "card.pin": "Fixar (Ctrl+D)",
   "card.unpin": "Desafixar (Ctrl+D)",
