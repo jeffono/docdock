@@ -100,6 +100,10 @@ test("untrusted markup stays text and only safe destinations become links or ima
   );
 });
 
+test("content without a note path, such as a page article, never shows local images", () => {
+  expect(html(noteModel("![a](img/a.png) ![b](https://x.com/b.png)", null))).toBe("<p>a b</p>");
+});
+
 test("alerts follow the GFM rule and footnotes link only when defined", () => {
   const out = html(
     noteModel(

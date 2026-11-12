@@ -22,6 +22,7 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   blocking.rs            Content blocking in the page window: filter lists, engine and hiding passes
+  reader.rs              Reader view: the page's article as Markdown
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
@@ -296,6 +297,18 @@ per-monitor DPI awareness (PMv2).
   removed; both are trimmed and cut at their limits. Selections inside iframes are not read. Native
   URL and title are bounded by Chromium (2 MB URLs, 4,096-character titles), also in the
   `Target.getTargetInfo` response.
+- **Reader view:** decision in [0011](decisions/0011-reader-view.md). `web_reader` reads the shown
+  page through the same isolated-world evaluation, turns, navigation identity and response checks
+  as the selection (`web::read_page`), with a fixed script that copies the DOM into a document
+  without a browsing context and drops scripts, styles, media and embeds. `reader.rs` refuses
+  nesting deeper than 512, extracts the article with `dom_smoothie`, writes it as Markdown with
+  `dom_query` without images, keeps only http(s) and mailto link destinations, and cuts it at 1 MiB.
+  It answers `{ url, title, markdown }`, `pageNotRead` without a usable script result, or
+  `noArticle`. The UI keeps the article in `App.svelte`, hides the page window and renders it with
+  `renderNote` and no note path, so no `note-asset` image resolves. A `web-visible` false is ignored
+  while an article is shown; a page shown again (the bar, a link, back/forward, leaving the view),
+  a tab change or a destroyed page window ends the view. "Save page as note" saves the shown
+  article.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
@@ -776,7 +789,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   URL as double-quoted YAML scalars (escaping controls and line breaks), and prefixes every selected
   line with `> ` (blank lines with `>`); no selection leaves the body empty. The existing create flow
   uses a sanitized title, falling back to the host, and `noteFileName` at the folder root, with an empty
-  base and conflict retries. After saving it hides the page and expands the note in edit mode. An
+  base and conflict retries. In the reader view it saves the whole article instead (`articleNote`:
+  the same frontmatter, then the Markdown). After saving it leaves the reader view, hides the page
+  and expands the note in edit mode. An
   unavailable folder/page or pending capture disables the action; errors use the existing notice.
 - **Note page action:** the search index carries the parsed http(s) `url:` separately from web-pin
   card URLs, so notes keep their expand/edit behavior. Their header offers Open page through the same
@@ -888,6 +903,9 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
 
 - **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
 - **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
+- **Reader view:** page articles are Markdown extracted in Rust and rendered by the same model,
+  without a note path, so they never show local images; see
+  [0011](decisions/0011-reader-view.md).
 - **Rendered notes:** DOM nodes from an allowlisted model, never HTML. GitHub alerts become
   `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
   kind titles, and the editor uses text widgets and line decorations for the same kinds.

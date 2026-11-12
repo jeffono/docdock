@@ -104,6 +104,10 @@ pub enum Error {
         url: String,
     },
     LinkNotAllowed,
+    /// The page did not answer in time, was navigating or answered something unexpected.
+    PageNotRead,
+    /// The page has no article text to read.
+    NoArticle,
     /// A shortcut key needs Ctrl, Alt or Win.
     ShortcutModifierRequired,
     /// Ctrl+Alt with a character key is AltGr on layouts such as ABNT2.

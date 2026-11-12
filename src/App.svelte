@@ -18,12 +18,14 @@ import {
   onToggleMode,
   onWebState,
   onWebVisible,
+  type PageArticle,
   type PageState,
   type PanelFocus,
   panelActivate,
   panelResize,
   panelSetPinned,
   webHistory,
+  webReader,
   webSetVisible,
 } from "./lib/ipc";
 
@@ -36,6 +38,9 @@ let web = $state(false);
 let preferences = $state(false);
 let previousWeb = false;
 let page = $state<PageState | null>(null);
+/** The reader view's article: the page window stays hidden while it is shown. */
+let article = $state<PageArticle | null>(null);
+let extracting = $state(false);
 let error = $state("");
 async function action(work: Promise<void>) {
   try {
@@ -86,8 +91,14 @@ onMount(() => {
   });
   const state = onWebState((value) => {
     page = value;
+    // The page window is gone.
+    if (!value) article = null;
   });
   const visible = onWebVisible((value) => {
+    // Entering the reader view hides the page but stays in Browser.
+    if (!value && article) return;
+    // A page opened from the bar or a link replaces the reader view.
+    if (value) article = null;
     web = value;
     if (value) preferences = false;
   });
@@ -177,6 +188,7 @@ onMount(() => {
 
 async function switchMode(value: boolean) {
   if (!(await notes.leaveEditor())) return;
+  article = null;
   await webSetVisible(value);
   web = value;
   preferences = false;
@@ -186,9 +198,35 @@ async function togglePreferences() {
   if (preferences) return switchMode(previousWeb);
   if (!(await notes.leaveEditor())) return;
   previousWeb = web;
+  article = null;
   await webSetVisible(false);
   web = false;
   preferences = true;
+}
+/** Back and forward show the page they reach, leaving the reader view. */
+async function history(back: boolean) {
+  if (article) {
+    article = null;
+    await webSetVisible(true);
+  }
+  await webHistory(back);
+}
+async function toggleReader() {
+  if (article) {
+    article = null;
+    return webSetVisible(true);
+  }
+  if (extracting) return;
+  extracting = true;
+  try {
+    const found = await webReader();
+    // Left Browser while the page was read.
+    if (!found || !web) return;
+    article = found;
+    await webSetVisible(false);
+  } finally {
+    extracting = false;
+  }
 }
 /** Dragging the inner edge: the window moves under the pointer, so only screen positions count. */
 let drag: { x: number; width: number } | null = null;
@@ -263,8 +301,9 @@ function togglePin() {
       <button class:active={web} aria-pressed={web} title={t("web.browserShortcut")} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
     </nav>
     {#if web}
-      <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(webHistory(true))} />
-      <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
+      <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(history(true))} />
+      <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(history(false))} />
+      <IconButton quiet icon="reader" label={t("web.reader")} pressed={article !== null} disabled={!page?.url || extracting} onclick={() => action(toggleReader())} />
     {/if}
     <span class="spacer"></span>
     <IconButton quiet icon="settings" label={t("preferences.shortcutTooltip")} pressed={preferences} onclick={() => action(togglePreferences())} />
@@ -278,7 +317,7 @@ function togglePin() {
     </Notice>
   {/if}
   {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
-  <Notes bind:this={notes} browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
+  <Notes bind:this={notes} bind:article browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>

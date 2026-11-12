@@ -229,6 +229,7 @@ const en = {
   "web.openPage": "Open page",
   "web.back": "Back",
   "web.forward": "Forward",
+  "web.reader": "Reader view",
   "error.unexpected": "Something went wrong: {detail}",
   "error.clipboard": "Could not copy: another app is using the clipboard. Try again.",
   "error.noFolder": "Choose a notes folder.",
@@ -271,6 +272,8 @@ const en = {
     "The note was restored, but the pinned list could not follow; pin it again.",
   "error.invalidUrl": "Invalid address: {detail}",
   "error.urlNotAllowed": "Address not allowed: {url}",
+  "error.pageNotRead": "The page could not be read. Try again once it has loaded.",
+  "error.noArticle": "No article text was found on this page.",
   "error.linkNotAllowed": "Only web and email links open outside the app.",
   "error.shortcutModifierRequired": "Hold Ctrl, Alt or Win with the key.",
   "error.shortcutAltGr":
@@ -509,6 +512,7 @@ const ptBR: Record<MessageKey, string> = {
   "web.openPage": "Abrir página",
   "web.back": "Voltar",
   "web.forward": "Avançar",
+  "web.reader": "Modo leitura",
   "error.unexpected": "Algo deu errado: {detail}",
   "error.clipboard":
     "Não foi possível copiar: outro app está usando a área de transferência. Tente de novo.",
@@ -553,6 +557,9 @@ const ptBR: Record<MessageKey, string> = {
     "A nota foi restaurada, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
+  "error.pageNotRead":
+    "Não foi possível ler a página. Tente de novo quando ela terminar de carregar.",
+  "error.noArticle": "Nenhum texto de artigo foi encontrado nesta página.",
   "error.linkNotAllowed": "Só links da web e de e-mail abrem fora do app.",
   "error.shortcutModifierRequired": "Segure Ctrl, Alt ou Win com a tecla.",
   "error.shortcutAltGr":

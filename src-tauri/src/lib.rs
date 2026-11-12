@@ -10,6 +10,7 @@ mod notes;
 pub mod panel;
 mod pinned;
 mod platform;
+mod reader;
 mod shortcut;
 mod trash;
 mod tray;
@@ -46,6 +47,7 @@ pub fn run() {
         commands::web_set_visible,
         commands::web_history,
         commands::web_selection,
+        commands::web_reader,
         commands::web_suggestions,
         commands::web_addresses,
         commands::web_overlay,

@@ -1,4 +1,4 @@
-import type { PageSelection } from "../../ipc";
+import type { PageArticle, PageSelection } from "../../ipc";
 import { pageHost } from "./list";
 import { quoteYaml } from "./markdown";
 
@@ -13,12 +13,21 @@ export function blockquote(text: string): string {
     : "";
 }
 
-export function pageNote(page: PageSelection): { name: string; text: string } {
+function note(page: { url: string; title: string }, body: string) {
   const sanitized = Array.from(page.title, (c) => (c < " " || '<>:"/\\|?*'.includes(c) ? " " : c))
     .join("")
     .replace(/^[.\s]+|[.\s]+$/g, "");
   return {
     name: sanitized || pageHost(page.url),
-    text: `---\ntitle: ${quoteYaml(page.title)}\nurl: ${quoteYaml(page.url)}\n---\n\n${blockquote(page.selection)}`,
+    text: `---\ntitle: ${quoteYaml(page.title)}\nurl: ${quoteYaml(page.url)}\n---\n\n${body}`,
   };
+}
+
+export function pageNote(page: PageSelection): { name: string; text: string } {
+  return note(page, blockquote(page.selection));
+}
+
+/** The whole article, as the reader view shows it. */
+export function articleNote(article: PageArticle): { name: string; text: string } {
+  return note(article, article.markdown);
 }

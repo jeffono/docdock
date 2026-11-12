@@ -30,6 +30,7 @@ import {
   onPanelHidden,
   onPanelSearch,
   openExternal,
+  type PageArticle,
   type Pinned,
   panelClose,
   pinnedAdd,
@@ -53,6 +54,7 @@ import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
+import Reader from "../web/Reader.svelte";
 import {
   barDefault,
   downOpensHistory,
@@ -99,7 +101,7 @@ import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
-import { pageNote } from "./page";
+import { articleNote, pageNote } from "./page";
 import {
   applyCompletion,
   completionChoices,
@@ -117,7 +119,14 @@ let {
   browser = false,
   pageUrl = "",
   inactive = false,
-}: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
+  article = $bindable(null),
+}: {
+  browser?: boolean;
+  pageUrl?: string;
+  inactive?: boolean;
+  /** The reader view's article, shown instead of the page while set. */
+  article?: PageArticle | null;
+} = $props();
 
 let shortcutSheet: ShortcutSheet;
 let movePicker: MovePicker;
@@ -666,6 +675,8 @@ async function create(text: string, content = "") {
         await sync(list);
         expanded = name;
         selection = name;
+        // Leaving the reader view first, so hiding the page returns to Notes.
+        article = null;
         await webSetVisible(false);
         await edit(name);
         return;
@@ -692,6 +703,12 @@ async function savePage() {
   savingPage = true;
   try {
     error = "";
+    // In the reader view, the whole article it shows.
+    if (article) {
+      const note = articleNote(article);
+      await create(note.name, note.text);
+      return;
+    }
     const page = await webSelection();
     pageUnavailable = page === null;
     if (!page) return;
@@ -2051,6 +2068,7 @@ onMount(() => {
   <p class="announce" aria-live="polite">{announced}</p>
   {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
   {#if browser && !pageUrl}<div class="empty"><p>{t("web.empty")}</p></div>{/if}
+  {#if browser && article}<Reader {article} onlink={linkClick} />{/if}
   <div class="content" hidden={browser}>
   {#if ready || editing}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
