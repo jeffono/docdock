@@ -14,9 +14,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
     GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    IsWindow, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    IsIconic, IsWindow, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use windows::core::BOOL;
 
@@ -299,7 +299,9 @@ pub fn restore_focus(previous: Option<isize>) {
     unsafe {
         let hwnd = previous
             .map(|raw| HWND(raw as *mut _))
-            .filter(|&hwnd| IsWindow(Some(hwnd)).as_bool())
+            // A minimized window would take keystrokes while invisible, and restoring it would
+            // undo the user's choice, so the desktop takes focus instead, as for a closed window.
+            .filter(|&hwnd| IsWindow(Some(hwnd)).as_bool() && !IsIconic(hwnd).as_bool())
             .unwrap_or_else(|| GetShellWindow());
         let restored = SetForegroundWindow(hwnd).as_bool();
         eprintln!(

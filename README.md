@@ -17,7 +17,7 @@ The installer is not code-signed. If Windows SmartScreen displays “Windows pro
 
 ## Getting started
 
-Launch DocDock and choose a folder for your notes. Hold the pointer against the right edge of the screen to open the panel, or press **Ctrl+Alt+Space**. The tray menu lets you change the side, start DocDock with Windows, install an update or quit. Use the panel pin to keep it open and the gear to change preferences. Press **Ctrl+/** for shortcuts.
+Launch DocDock and choose a folder for your notes. Hold the pointer against the right edge of the screen to open the panel, or press **Ctrl+Alt+Space**, which you can change in Preferences > Shortcuts. The tray menu lets you change the side, start DocDock with Windows, install an update or quit. Use the panel pin to keep it open and the gear to change preferences. Press **Ctrl+/** for shortcuts.
 
 ## Privacy
 

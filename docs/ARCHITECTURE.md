@@ -43,7 +43,10 @@ the editor bindings.
 The tray also exits the app and controls Windows startup; a second instance simply
 exits. Startup is the `DocDock` value in the current user's `Run` key, written by
 `platform/autostart.rs` with the executable path quoted, so a path with spaces can neither break nor
-start `C:\Program.exe`. Turning it on or off from the tray clears Task Manager's choice in
+start `C:\Program.exe`. Preferences > General and the tray share the operation in `tray.rs`, which
+rereads the registry after a change, updates the tray check and emits `autostart-changed` to the main
+window. Preferences subscribes before its initial read and removes the listener on leaving; startup
+is never duplicated in `settings.json`. Turning it on or off from either control clears Task Manager's choice in
 `StartupApproved\Run`; a choice made later in Task Manager is respected. At startup, an entry left
 unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
 one; an entry for another existing copy is left alone.
@@ -108,21 +111,40 @@ per-monitor DPI awareness (PMv2).
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
   from scrollbars and maximized window buttons. Points outside that monitor are ignored.
-- **Shortcut:** `Ctrl+Alt+Space`, registered by Rust, without permission in the capability. If registration
-  fails, the failure is logged and the panel still opens by cursor. The machine never closes on it: hidden,
+- **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
+  The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
+  uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation
+  position to the layout's virtual key (`platform/keyboard.rs`, `MapVirtualKeyEx`): AZERTY's `KeyQ`
+  becomes A, and a position whose virtual key is not a letter or digit is unsupported. Validation is a
+  pure function on the result (Ctrl, Alt or Win required; Ctrl+Alt with a letter or digit refused as
+  AltGr; otherwise only F1–F24, arrows, Space and navigation keys). A small state machine behind a
+  `Hotkeys` seam follows: recording unregisters the current combination so the panel receives it, a
+  new one replaces it only once registered, and otherwise the previous one is registered again. Rust
+  guarantees a recording ends: the panel thread ends it when the panel loses foreground or hides, a
+  30-second timer ends that recording if still running, and a (re)loaded UI ends any by reading the
+  state with `shortcut_record(false)`. Recording state is touched only on the main thread, where
+  hotkeys register, and an ending the UI did not ask for is emitted as `activation`. The
+  shown form, such as `Ctrl+Shift+K`, is saved as `activation_shortcut` in `settings.json`. A saved
+  combination that fails at startup falls back to the default for the session, keeps the saved value
+  and is reported as `failed` for a notice; if the default also fails, the panel still opens by cursor.
+  The machine never closes on it: hidden,
   opened by cursor or summoned, the panel opens at once if needed, takes focus and becomes summoned; pinned,
   it takes focus and stays pinned. Rust then emits `panel-search` with `toggle`, whether the panel window
   was already foreground before the press. The UI focuses the search bar and selects its text, or, with
-  `toggle` and the bar already focused, asks to close (`panel_close`), which a pinned panel ignores.
+  `toggle` and the bar already focused, asks to close (`panel_close`); a pinned panel stays shown and only
+  returns focus to the previous app, like Esc in its search bar.
   Deciding in the UI avoids mirroring the bar's focus in Rust; reading `toggle` before activating keeps a
   bar that kept DOM focus in a hidden or hover-opened panel from counting. With the native picker open,
   it does nothing: the picker is modal and would re-enable the hidden panel window.
 - **Summoned (focus governs):** by the shortcut, or once a cursor-opened panel or its page becomes
   foreground (a click). Focus governs, not the cursor. It closes when the UI asks (`panel_close`: Esc in
-  the empty search bar, or the shortcut there) or when focus moves to another app. A focused page counts as
+  the search bar, or the shortcut there) or when focus moves to another app. A focused page counts as
   panel focus, and the native picker keeps it open. Null focus, common during system transitions, is
   ignored. After closing this way, the edge only takes effect again once the cursor leaves it. Without
   focus (hover only), the panel never takes it and closes when the cursor leaves.
+- **Pinned:** neither the cursor nor focus closes it. A close request from the UI returns focus to the
+  previous app, as closing does, but the panel stays shown; the previous app is the last foreground window
+  outside the panel, tracked at each poll. Being foreground, the panel may hand focus over.
 - **Shortcut activation:** the key gives the process the right to use `SetForegroundWindow`, provided the
   window is already enabled. If activation fails, with no focus to lose, the panel follows the cursor rule
   and does not get stuck over other windows.
@@ -142,7 +164,7 @@ per-monitor DPI awareness (PMv2).
 - **Focus:** the window uses `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW` and opens without activation by
   cursor. UI `pointerdown` requests activation, which makes the panel summoned at the next poll. At each cursor poll, the panel remembers the last foreground
   app outside itself and the native picker; on close, focus returns to that app unless the user is already
-  in another. If it no longer exists, focus goes to the desktop.
+  in another. If it no longer exists or is minimized, focus goes to the desktop.
 - **Web page:** its own window (`web.rs`), owned by the panel, below the header and unified bar. The panel thread positions
   and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
   because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
@@ -513,7 +535,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   `_pinned.md` appear in file order as one-line cards with the link label and host; no preview or
   network fetch is needed. Click or Enter opens the page through the save guard, and the bookmark
   removes it. Web cards ignore collapsed state and participate in the same selection model.
-- **State:** one `expanded` path (not remembered: `panel-hidden` clears it once editing is left);
+- **State:** one `expanded` path, kept in memory until collapsed or another card expands;
+  `panel-hidden` leaves editing through its save guard without resetting expansion, query or scroll.
+  Only user input empties the query, including after note creation or opening a page.
   `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
   query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
   collapsed card also opens it.
@@ -521,9 +545,11 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   window listener for keys typed anywhere else except a text field or the editor (found through
   `composedPath`, since the editor sits in a shadow root). → and ← in the bar act on the selected card only
   with the caret at the end of the text. Esc goes in layers: while editing, it leaves editing (from the
-  editor through its keymap, or from a button) and the card header takes the focus; next, it clears the
-  search and focuses the bar; from the empty bar it leaves editing the guarded way and then calls
-  `panel_close`. A missing pinned item is selectable; Enter or Delete removes it. Ctrl+D ignores key
+  editor through its keymap, or from a button) and the list takes focus; next, it focuses the bar and
+  selects its text without scrolling or clearing the query; from the bar it calls `panel_close`.
+  `escapeAction` in `list.ts` decides these layers independently of the query. Selection changes
+  reveal cards from Notes rather than on card mount, keeping scroll when leaving editing remounts
+  the reading card. A missing pinned item is selectable; Enter or Delete removes it. Ctrl+D ignores key
   repeat and a toggle in flight. Outside a field, a printable key
   other than Space focuses the bar, which then receives it; Ctrl+F focuses the bar and selects its text
   from anywhere but a field. ↑ and ↓ on an expanded selected card ask `arrowScroll` (pure, in `list.ts`)

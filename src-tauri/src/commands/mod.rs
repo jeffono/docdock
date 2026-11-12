@@ -28,6 +28,29 @@ pub fn app_set_theme(app: AppHandle, theme: crate::notes::Theme) -> Result<(), E
     crate::notes::set_theme(&app, theme)
 }
 
+#[tauri::command]
+pub fn app_autostart() -> Result<bool, Error> {
+    crate::tray::autostart_enabled()
+}
+
+#[tauri::command]
+pub fn app_set_autostart(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::tray::select_autostart(&app, enabled)
+}
+
+/// Synchronous on purpose: registering hotkeys runs on the main thread.
+#[tauri::command]
+pub fn shortcut_record(app: AppHandle, recording: bool) -> crate::shortcut::Status {
+    crate::shortcut::record(&app, recording)
+}
+#[tauri::command]
+pub fn shortcut_set(
+    app: AppHandle,
+    combination: crate::shortcut::Combination,
+) -> Result<crate::shortcut::Status, Error> {
+    crate::shortcut::change(&app, combination)
+}
+
 fn send(requests: State<'_, Sender<Request>>, request: Request) {
     // This only fails if the panel thread has stopped, in which case the UI cannot help.
     let _ = requests.send(request);

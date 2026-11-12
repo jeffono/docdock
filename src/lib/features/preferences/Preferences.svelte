@@ -2,8 +2,11 @@
 import { onMount } from "svelte";
 import { errorText, type MessageKey, t } from "../../i18n";
 import {
+  appAutostart,
+  appSetAutostart,
   type NotesFolder,
   notesFolder,
+  onAutostartChanged,
   type PanelFocus,
   panelResize,
   panelSetSide,
@@ -12,6 +15,7 @@ import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import ShortcutList from "../notes/ShortcutList.svelte";
+import ActivationShortcut from "./ActivationShortcut.svelte";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
@@ -23,6 +27,7 @@ let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
 let error = $state("");
 let busy = $state(false);
+let autostart = $state<boolean | null>(null);
 async function action(work: () => Promise<void>) {
   busy = true;
   error = "";
@@ -44,6 +49,27 @@ async function refreshFolder() {
 }
 onMount(() => {
   void action(refreshFolder);
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  void (async () => {
+    const stop = await onAutostartChanged((enabled) => {
+      autostart = enabled;
+    });
+    if (disposed) {
+      stop();
+      return;
+    }
+    unlisten = stop;
+    const initial = await appAutostart();
+    // A change reported while this read was in flight is newer.
+    if (autostart === null) autostart = initial;
+  })().catch((e) => {
+    if (!disposed) error = errorText(e);
+  });
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
 });
 </script>
 
@@ -72,6 +98,9 @@ onMount(() => {
           <label><input type="radio" name="side" checked={side === value} onchange={() => action(() => panelSetSide(value as PanelFocus["side"]))} />{t(`preferences.${value}` as MessageKey)}</label>
         {/each}
       </fieldset>
+      <div class="setting">
+        <label><input type="checkbox" checked={autostart === true} disabled={busy || autostart === null} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = autostart === true; void action(() => appSetAutostart(enabled)); }} />{t("preferences.autostart")}</label>
+      </div>
     {:else if section === "appearance"}
       <fieldset disabled={busy}>
         <legend>{t("preferences.theme")}</legend>
@@ -88,6 +117,7 @@ onMount(() => {
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
     {:else}
+      <ActivationShortcut />
       <ShortcutList />
     {/if}
   </section>

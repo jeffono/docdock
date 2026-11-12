@@ -141,8 +141,11 @@ pinned and unpinned notes differ only in section and starting state.
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
-  editing (expanded, with the editor). Only line versus open is remembered, per computer; expanded and
-  editing return to preview when the panel closes.
+  editing (expanded, with the editor). Only line versus open is remembered across app restarts, per
+  computer. Hiding the panel leaves editing through its save guard, keeping the card expanded.
+  The expanded card and list scroll survive hiding and focus loss; only collapsing the card or
+  expanding another changes the expanded note. Selection navigation and explicit opening may reveal
+  a card, but returning to the search bar does not scroll the list.
 - **Expanded:** no height limit and no inner scroll. While scrolling inside the card, its header
   (title and actions) sticks to the top. Only one card is expanded: expanding another returns
   the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
@@ -227,8 +230,9 @@ pinned and unpinned notes differ only in section and starting state.
   the 2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is
   too large to keep a copy for Undo and to delete it in File Explorer.
 - **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
-  another app, Esc from the empty search bar, or the shortcut from the search bar. A pinned panel only
-  closes by unpinning. Without focus (hover only), it closes when the cursor leaves. While the panel or its
+  another app, Esc from the search bar, or the shortcut from the search bar. A pinned panel only
+  closes by unpinning: Esc or the shortcut from its search bar returns focus to the previous app and it
+  stays shown; the shortcut then takes focus back. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
@@ -270,38 +274,51 @@ pinned and unpinned notes differ only in section and starting state.
 | Shift+F10 / Menu          | Open the selected note or folder menu                                                                  |
 | Ctrl+Enter                | Create a note with the exact typed text                                                                |
 | Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below                      |
+| Ctrl+Shift+D              | Toggle the panel pin                                                                                   |
+| Ctrl+,                    | Open / close Preferences                                                                               |
 | Ctrl+/                    | Open / close the shortcut sheet                                                                        |
 | Ctrl+E                    | Toggle editing on the selected card                                                                    |
 | Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
-| Esc                       | Leave editing; next, clear the search and return to the bar; from the empty bar, close                 |
-| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close                       |
+| Esc                       | Leave editing; next, return to the bar and select its text; from the bar, close                        |
+| Ctrl+Alt+Space (default)  | Open and go to the search bar with its text selected; from the search bar, close                       |
 
 ## Preferences
 
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order, date grouping and panel side; side changes
-mirror the tray. Browser
+General contains the folder path, folder picker, note order, date grouping, panel side and a
+"Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
+from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
+the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
 shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
-keys, deriving formatting keys from the editor bindings. From anywhere in Notes (including search and editing), Ctrl+/ opens
+keys, deriving formatting keys from the editor bindings; the activation row shows the current
+combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
+neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
+button becomes Cancel, the current global shortcut and panel shortcuts stand aside, and the next
+non-modifier key ends recording; the key shown is the one the layout gives, such as A for the AZERTY
+key at QWERTY's Q. Esc, Tab, leaving or hiding the panel, or 30 seconds without a key cancels. A refused combination (no Ctrl,
+Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts such as ABNT2; a key that is not a
+letter, digit, F1–F24, arrow, Space or navigation key on the current layout) or one taken by another app keeps the previous shortcut and explains why in the
+danger color below the hint. If the saved combination cannot be registered at startup, the default is
+used and a dismissible warning notice under the top bar names both. From anywhere in Notes (including search and editing), Ctrl+/ opens
 a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
 or dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
 previous focus, including the editor cursor. No native popup takes panel focus. Appearance offers
 System (default), Light and Dark theme radio buttons, applied immediately and remembered on this
 computer; it also shows the panel width, how to resize it and a reset. Folder choice and width reset
 use neutral buttons. The active section has an accessible name without repeating the tab
-label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Opening a page clears the
-Notes query so returning to Notes starts with an empty search.
+label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors.
+Opening a page preserves the Notes query.
 
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the Preferences gear and panel pin. The panel is 460 logical pixels wide by default;
+controls, then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
 a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
-Button tooltips include their working shortcuts. There is no app name or page title. The same search
+Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
 field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
@@ -316,6 +333,10 @@ suggestions; typing resumes the normal suggestion rules.
 Suggestions float below the bar on one solid surface, with icons for search, history and Open;
 only the selected row is highlighted. The native page is clipped behind them without moving or resizing. Esc restores
 the current URL and dismisses suggestions before the next Esc closes the panel.
+
+In notes mode the search persists until the user replaces or deletes its text; Esc, note creation,
+opening a page, hiding the panel and focus loss never clear it. Returning to the bar with Esc or the
+activation shortcut selects its text so typing replaces the previous search.
 
 In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
 after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,

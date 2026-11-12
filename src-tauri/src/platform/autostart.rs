@@ -31,7 +31,7 @@ pub fn set_enabled(enabled: bool) -> io::Result<()> {
     } else {
         delete(RUN)?;
     }
-    // A choice made in the tray overrides an earlier one in Task Manager. Without this value,
+    // A choice made in the app overrides an earlier one in Task Manager. Without this value,
     // Windows treats the entry as on.
     delete(APPROVED)
 }

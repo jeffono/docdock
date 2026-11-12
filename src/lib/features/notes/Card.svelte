@@ -59,14 +59,8 @@ let {
 
 const open = $derived(card.level !== "line");
 const row = $derived(!card.pinned && card.level === "line");
-let root = $state<HTMLElement>();
 let body = $state<HTMLElement>();
 let clipped = $state(false);
-
-// A card that comes into the selection by keyboard scrolls into view.
-$effect(() => {
-  if (selected) root?.scrollIntoView({ block: "nearest" });
-});
 
 // The fade at the bottom of a preview only makes sense when something is cut off.
 $effect(() => {
@@ -124,7 +118,6 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   role="group"
   aria-label={card.hit.title}
   aria-current={selected || undefined}
-  bind:this={root}
   class:current={selected}
   class:selected={selected && !editing}
   class:line={!open}

@@ -1,10 +1,11 @@
 <script lang="ts">
 import { t } from "../../i18n";
+import { activation } from "../preferences/activation.svelte";
 import { editorShortcuts, panelShortcuts } from "./shortcuts";
 </script>
 
 <h3>{t("preferences.panelKeys")}</h3>
-<dl>{#each panelShortcuts as [key, description]}<div><dt>{key}</dt><dd>{t(description)}</dd></div>{/each}</dl>
+<dl><div><dt>{activation.shortcut ?? t("preferences.activationNone")}</dt><dd>{t("shortcut.global")}</dd></div>{#each panelShortcuts as [key, description]}<div><dt>{key}</dt><dd>{t(description)}</dd></div>{/each}</dl>
 <h3>{t("preferences.editorKeys")}</h3>
 <dl>{#each editorShortcuts as { key, description, level }}<div><dt>{key}</dt><dd>{t(description, { level })}</dd></div>{/each}</dl>
 
