@@ -21,7 +21,7 @@ to a vault the user mounts, such as Cryptomator, which stays optional. The app's
   vault's mount point (regression test); a failed save keeps the text in memory with a notice and
   writes nowhere else, then saves when the folder returns; note text and the search index are
   cleared from memory while the folder is unavailable. `advanced`
-- [ ] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
+- [x] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
   `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
   `standard`
 - [ ] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give

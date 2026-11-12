@@ -14,8 +14,8 @@ The list must follow the folder between computers, work outside the app and avoi
   The app never rewrites the entire file, so handwritten headings and comments remain.
 - **Pin position:** a new line goes after the last item, or at the end of the file if there is none; it
   uses the file's first line terminator.
-- **Collapsed state:** which cards are collapsed to one line is stored in `settings.json`, per computer.
-- **Restore:** the app stores the last version read in `app_config_dir`. If `_pinned.md` disappears, it
+- **Collapsed state:** which cards are collapsed to one line is stored in `.docdock/collapsed.json` inside the notes folder.
+- **Restore:** the app stores the last version read in `.docdock/pinned-copy.json` inside the notes folder. If `_pinned.md` disappears, it
   offers "Restore pinned items"; pinning something without restoring creates the file again.
 
 **Consequences:**
@@ -26,3 +26,6 @@ The list must follow the folder between computers, work outside the app and avoi
 - Reordering from a displayed list requires its last-read version. External changes reject the move
   with a warning instead of silently reapplying stale positional intent.
 - The file is user content: M2's atomic writes apply.
+
+M8 privacy amendment: derived state moved inside the notes folder to follow decision 0009. Legacy
+AppData state migrates after the folder becomes available; the markdown format is unchanged.

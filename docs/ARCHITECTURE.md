@@ -690,15 +690,34 @@ version at drag start; keyboard movement uses the currently displayed version. A
 no longer resolves to a note inside the
 folder is reported `missing`. Targets are the keys: `pinned_*` commands (`pinned_list`, `_add`, `_remove`,
 `_move`, `_set_collapsed`, `_restore`) all answer with the state after the change. Which items are
-collapsed to one line is a set of targets in `settings.json`, per computer, changed under the same lock as
-the folder and side; removing an item forgets its entry.
+collapsed to one line is a set of targets in `.docdock/collapsed.json` inside the notes folder,
+shared with that folder and changed under its own lock; removing an item forgets its entry.
 
-**Restore.** Each time `_pinned.md` is read, its text is kept in `pinned-copy.json` in `app_config_dir`,
-with the folder it came from (one slot, following the folder in use); reading and updating the copy run
+**Restore.** Each time `_pinned.md` is read, its text is kept in `.docdock/pinned-copy.json` inside
+the notes folder, with the folder it came from; reading and updating the copy run
 under one lock, so a slower read never replaces the copy of a newer one. If the file is gone and the copy
 for this folder has content, the state says `restorable`; restoring recreates the file through the empty
 base of `save_note_in`, which never replaces an existing file. Pinning something instead creates a new file
 holding only that item, and the next read replaces the copy.
+
+**Private derived state.** `.docdock/` is a hidden directory, excluded by the existing listing,
+search and watcher rules. State writes use synced sibling temporary files and atomic rename, holding
+ancestry handles against junctions and mount replacement; they never create the notes root or its
+parents. `_pinned.md` remains ordinary, human-readable markdown.
+
+On first access to an available folder (also before preference changes), legacy AppData
+`pinned-copy.json` migrates only if its recorded folder matches. The destination is written before
+removing the old file. A copy for an earlier folder remains until that folder is selected and
+available again. Legacy `settings.json.collapsed` migrates to `collapsed.json`, then only that field is
+removed through an atomic settings rewrite preserving other fields. Existing destination state wins
+on retries after a crash; invalid destinations fail without removing the source. Old settings still
+load, but normal preference reads ignore the legacy field. An unavailable/missing folder causes no
+migration reads or writes; preference changes retain the legacy field until migration is possible.
+Changing folders discards pending collapsed UI state rather than attributing paths to a new folder.
+Migration failures are logged and retry on next access, without blocking ordinary notes/preferences.
+A valid destination restoration copy follows the folder across computers and mount paths; its old
+absolute folder field is ignored (only the legacy AppData source needs a matching folder).
+Deletion removes the live legacy file, not cloud history, backups or recoverable disk sectors.
 
 **External changes.** `_pinned.md` is a note in the folder, so the existing `notes-changed` event covers
 it (no new watcher); the UI rereads with `pinned_list` then.
@@ -721,3 +740,35 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   local origin, where only the `main` label and capability rejected `invoke`. Main-frame links and
   `location`, and `window.open`, stayed blocked by `on_navigation` and `on_new_window`; Chromium blocked
   `file:` iframes and cross-origin `top.location` without a gesture.
+
+### WebView2 note-storage audit
+
+The `main` window uses Tauri's `incognito(true)`; the separate website window retains its normal
+browsing profile. In the locked dependencies, Tauri 2.12.5 forwards this to Wry 0.57.1, which calls
+`ICoreWebView2ControllerOptions::SetIsInPrivateModeEnabled`. Wry falls back to the old controller API
+if Environment10 is unavailable, so InPrivate is defense in depth, not the sole content safeguard.
+Neither window overrides `data_directory`; Tauri's manager defaults it to `app_local_data_dir()`:
+`%LOCALAPPDATA%/com.jeffono.docdock` on Windows, with WebView2 profile data below `EBWebView`.
+
+Source audit: note text arrives through IPC and becomes DOM nodes, not a navigated note document.
+`note-asset` serves local image bytes only to `main` and already sends `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`. The response-header regression test covers these. HTTP caching must
+therefore not persist these responses. `rg` found no frontend use of `localStorage`, `sessionStorage`,
+`indexedDB`, `serviceWorker` or `caches.*`; there is no application path persisting note names/text
+through those stores. Code Cache concerns shipped JavaScript, not the note DOM. Website browsing
+cache belongs to remote pages, which cannot load note assets or invoke note commands.
+
+These are source-level findings, not a forensic guarantee for WebView2: GPU/shader caches and crash
+artifacts are runtime-controlled, and no disk inspection was performed while implementing this task.
+InPrivate and no-store do not prove the absence of every transient disk write, OS paging or older
+cache entries; the app does not delete the shared profile (which would erase website sessions).
+Manual verification: with a disposable notes folder, open a uniquely named/text-marked note and PNG,
+inspect the image response headers and DevTools Application stores, close the app and wait for its
+WebView2 processes to exit, then search the UDF's HTTP cache, Code Cache, IndexedDB, Service Worker,
+GPUCache, Local Storage and session storage for the markers and image bytes. Repeat across restart
+and with the vault unavailable; inspect earlier profile data separately. No app instance was started
+for this audit.
+
+References: [Microsoft: user data folders](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/user-data-folder),
+[Microsoft: controller options](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controlleroptions),
+and [Tauri: WebviewWindowBuilder](https://docs.rs/tauri/2.12.5/tauri/webview/struct.WebviewWindowBuilder.html).
