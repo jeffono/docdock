@@ -3,6 +3,7 @@
 pub mod autostart;
 pub mod browser;
 mod capture;
+mod clipboard;
 pub mod edge;
 mod files;
 mod guard;
@@ -11,6 +12,7 @@ mod recycle;
 mod windows;
 
 pub use self::capture::exclude_from_capture;
+pub use self::clipboard::write_private_text;
 pub use self::files::{
     delete_on_close, hold_directory, move_new, open_exclusive, paste_timestamp, replace_file,
 };

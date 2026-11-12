@@ -3,8 +3,9 @@ import { undo } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, untrack } from "svelte";
+import { privateCut } from "../../clipboard";
 import { errorText, t } from "../../i18n";
-import { notesOpen, notesPasteImage, notesSave, type OpenNote } from "../../ipc";
+import { clipboardWrite, notesOpen, notesPasteImage, notesSave, type OpenNote } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
@@ -149,6 +150,7 @@ const extensions = () => [
   editable.of(EditorState.readOnly.of(false)),
   location.of(notePath.of(path)),
   EditorView.domEventHandlers({ paste }),
+  privateCut(clipboardWrite),
   ...editorExtensions(
     onleave,
     (focused) => {

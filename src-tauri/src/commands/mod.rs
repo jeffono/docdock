@@ -114,6 +114,18 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
+/// Copy and cut in the UI write through here, never through the browser, so the text stays out of
+/// clipboard history and cloud clipboard. Off the main thread: opening the clipboard may wait for
+/// another app to close it.
+#[tauri::command]
+pub async fn clipboard_write(window: tauri::WebviewWindow, text: String) -> Result<(), Error> {
+    let owner = window.hwnd()?.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || crate::platform::write_private_text(owner, &text))
+        .await
+        .map_err(Error::unexpected)?
+        .map_err(Error::unexpected)
+}
+
 #[tauri::command]
 pub fn notes_folder(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::folder(&app)

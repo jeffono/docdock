@@ -442,3 +442,8 @@ task list and quote, insert a link, or add a frontmatter property. Labels and sh
 come from the command bindings, in the interface language. The bar uses the surface, line and control
 tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
 sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.
+
+Copy and cut in the panel (editor, reading views, search bar and other fields) put plain text on the
+clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.
+Pasting elsewhere keeps the text, not formatting or images. The panel's context menu has no Copy link
+or Copy image. The web page copies as any browser does.

@@ -206,6 +206,7 @@ const en = {
   "web.back": "Back",
   "web.forward": "Forward",
   "error.unexpected": "Something went wrong: {detail}",
+  "error.clipboard": "Could not copy: another app is using the clipboard. Try again.",
   "error.noFolder": "Choose a notes folder.",
   "error.folderUnavailable": "The notes folder is not available.",
   "error.invalidPath": "Invalid file path.",
@@ -457,6 +458,8 @@ const ptBR: Record<MessageKey, string> = {
   "web.back": "Voltar",
   "web.forward": "Avançar",
   "error.unexpected": "Algo deu errado: {detail}",
+  "error.clipboard":
+    "Não foi possível copiar: outro app está usando a área de transferência. Tente de novo.",
   "error.noFolder": "Escolha uma pasta de notas.",
   "error.folderUnavailable": "A pasta de notas não está disponível.",
   "error.invalidPath": "Caminho de arquivo inválido.",

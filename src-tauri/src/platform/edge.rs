@@ -110,11 +110,15 @@ const EDIT_MENU: [&str; 9] = [
     "copyImage",
 ];
 
+/// Copies the browser makes itself, with no copy event: in the UI they would put note links and
+/// images in clipboard history, which the UI's own copy keeps out (see `clipboard.rs`).
+const BROWSER_COPY: [&str; 2] = ["copyLinkLocation", "copyImage"];
+
 /// Indices to remove, highest first so earlier removals keep later indices valid. `None` is a
 /// separator: kept only between two kept items.
 fn menu_removals(owner: Owner, items: &[Option<String>]) -> Vec<usize> {
     let kept = |name: &str| {
-        EDIT_MENU.contains(&name)
+        (EDIT_MENU.contains(&name) && !(owner == Owner::Ui && BROWSER_COPY.contains(&name)))
             || match owner {
                 Owner::Page => PAGE_MENU.contains(&name),
                 // DevTools stay reachable while developing the UI.
@@ -323,6 +327,15 @@ mod tests {
         let items =
             [Some("back"), Some("reload"), None, Some("copy")].map(|item| item.map(String::from));
         assert_eq!(menu_removals(Owner::Ui, &items), [2, 1, 0]);
+    }
+
+    // Catches a note link or image reaching clipboard history through the browser's own copy.
+    #[test]
+    fn the_ui_menu_has_no_copy_outside_the_copy_event() {
+        let items = [Some("copy"), Some("copyLinkLocation"), Some("copyImage")]
+            .map(|item| item.map(String::from));
+        assert_eq!(menu_removals(Owner::Ui, &items), [2, 1]);
+        assert!(menu_removals(Owner::Page, &items).is_empty());
     }
 
     #[test]
