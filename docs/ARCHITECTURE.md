@@ -604,12 +604,14 @@ invalidating other settings. Both order controls use one shared store, updated a
 The optional `group_by_date` and `group_by_folder` booleans default off and use the same locked atomic
 update; folder wins, and IPC exposes them as one `grouping` choice (none, date or folder), so settings
 written before folder grouping stay valid. Malformed values default independently, preserving other
-settings. The existing order store loads and saves both
-choices, sharing a busy state between the list and Preferences. Pure `grouping.ts` moves each folder's notes together for folder groups, and derives folder or date
+settings. The optional `relative_dates` boolean follows the same rules. The existing order store
+loads and saves the order, grouping and relative dates, sharing a busy state between the list and
+Preferences. Pure `grouping.ts` moves each folder's notes together for folder groups, and derives folder or date
 headers from already ordered unpinned cards only, using the selected date and local calendar days
 (rather than elapsed hours across DST). Recent ranges take priority over month/year labels. Month
 names use `Intl.DateTimeFormat` with the user's locale. A 30-second clock refreshes local-day boundaries,
-including after resume. `rows` inserts headers into the existing flat keyed block; card/editor keys
+including after resume, and is the `now` of relative dates (pure `relative-date.ts`), which show a time
+up to five minutes ahead of it as now, so a note saved since the last tick never reads as future. `rows` inserts headers into the existing flat keyed block; card/editor keys
 and `navKeys` stay unchanged, so headers never become arrow targets. Search and name order suppress
 headers without changing the saved choice.
 The main window disables Tauri's native file-drop interception so HTML header dragging works on Windows.

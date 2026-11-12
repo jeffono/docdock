@@ -1,5 +1,10 @@
+const formats = new Map<string, Intl.RelativeTimeFormat>();
+/** `now` lags by up to one refresh tick, so a note saved since then is not shown as future. */
+const LAG = 5 * 60_000;
+
 /** Calendar days take priority over elapsed hours, including midnight and DST boundaries. */
-export function relativeDate(ms: number, now: number, locale: string): string {
+export function relativeDate(time: number, now: number, locale: string): string {
+  const ms = time > now && time - now < LAG ? now : time;
   const date = new Date(ms);
   const today = new Date(now);
   const civilDay = (value: Date) =>
@@ -19,5 +24,10 @@ export function relativeDate(ms: number, now: number, locale: string): string {
     unit = size === 0 ? "second" : size === 60_000 ? "minute" : "hour";
     value = size === 0 ? 0 : Math.trunc(elapsed / size);
   }
-  return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(value, unit);
+  let format = formats.get(locale);
+  if (!format) {
+    format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    formats.set(locale, format);
+  }
+  return format.format(value, unit);
 }

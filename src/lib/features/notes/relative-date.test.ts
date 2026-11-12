@@ -36,3 +36,8 @@ test("formats in the app locale", () => {
 test("handles a future calendar date", () => {
   expect(relativeDate(new Date(2026, 10, 13, 0, 5).getTime(), now, "en")).toBe("tomorrow");
 });
+
+test("shows a note saved after the last refresh tick as now, even past midnight", () => {
+  const tick = new Date(2026, 10, 11, 23, 59, 50).getTime();
+  expect(relativeDate(new Date(2026, 10, 12, 0, 0, 10).getTime(), tick, "en")).toBe("now");
+});

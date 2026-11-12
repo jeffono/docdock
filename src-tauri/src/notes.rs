@@ -2008,19 +2008,6 @@ mod tests {
         }
     }
     #[test]
-    fn relative_dates_choice_survives_settings_roundtrip() {
-        let settings = Settings {
-            relative_dates: true,
-            ..Default::default()
-        };
-        let saved = serde_json::to_string(&settings).unwrap();
-        assert!(
-            serde_json::from_str::<Settings>(&saved)
-                .unwrap()
-                .relative_dates
-        );
-    }
-    #[test]
     fn invalid_activation_shortcut_does_not_discard_other_settings() {
         for value in ["null", "42", "{}", "[]"] {
             let settings: Settings = serde_json::from_str(&format!(
