@@ -107,13 +107,15 @@ impl Theme {
 fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
     Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
+/// Keeps each valid entry on its own: one bad element must not erase the others on the next save,
+/// and an edited entry that is not already a site key would silently widen or move its scope.
 fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, D::Error> {
-    let entries =
-        Vec::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default();
+    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
+        .unwrap_or_default();
     let mut sites = Vec::new();
-    for entry in entries {
-        if let Some(site) = crate::blocking::site_key(&format!("https://{entry}/")) {
-            crate::blocking::change_allowed(&mut sites, &site, true);
+    for entry in entries.iter().filter_map(serde_json::Value::as_str) {
+        if crate::blocking::site_key(&format!("https://{entry}/")).as_deref() == Some(entry) {
+            crate::blocking::change_allowed(&mut sites, entry, true);
         }
     }
     Ok(sites)
@@ -2354,6 +2356,15 @@ mod tests {
         assert!(settings.allowed_sites.is_empty());
         assert_eq!(settings.folder, Some(PathBuf::from("notes")));
         assert_eq!(settings.theme, Theme::Dark);
+    }
+
+    #[test]
+    fn site_exceptions_keep_valid_entries_and_drop_widened_ones() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"allowed_sites":["example.com",5,"www.other.net","x.net#.example.com"]}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.allowed_sites, ["example.com"]);
     }
 
     #[test]

@@ -39,5 +39,5 @@ async function toggle() {
 }
 </script>
 {#if status}
-  <IconButton quiet icon={status.allowed ? "shieldOff" : "shield"} label={t(status.allowed ? "blocking.allowed" : "blocking.on", { site: status.site })} pressed={!status.allowed} disabled={busy} onclick={toggle} />
+  <IconButton quiet icon={status.allowed ? "shieldOff" : "shield"} label={t(status.allowed ? "blocking.allowed" : "blocking.on", { site: status.site })} disabled={busy} onclick={toggle} />
 {/if}

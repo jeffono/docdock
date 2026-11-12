@@ -78,7 +78,7 @@ pub fn change_allowed(sites: &mut Vec<String>, site: &str, allowed: bool) {
 }
 
 fn allowed(sites: &[String], source: &str) -> bool {
-    site_key(source).is_some_and(|site| sites.contains(&site))
+    !sites.is_empty() && site_key(source).is_some_and(|site| sites.contains(&site))
 }
 
 static ALLOWED: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -269,10 +269,11 @@ pub fn start(app: &AppHandle) {
 /// The page the user asked for always loads; only what it pulls in is filtered. URLs the engine
 /// cannot parse, such as `data:` and `blob:`, pass.
 fn blocks(engine: &Engine, sites: &[String], request: &blocker::Request) -> bool {
-    !allowed(sites, request.source)
-        && request.kind != "document"
+    // The engine decides first: parsing the page's site is only needed when it would block.
+    request.kind != "document"
         && adblock::request::Request::new(request.url, request.source, request.kind, request.method)
             .is_ok_and(|request| engine.check_network_request(&request).should_block())
+        && !allowed(sites, request.source)
 }
 
 /// Runs on the WebView2 UI thread for every request of the page window.
@@ -460,6 +461,7 @@ mod tests {
         assert!(allowed(&sites, "https://NEWS.Example.com.:8443/a"));
         assert!(!allowed(&sites, "https://evil-example.com/"));
         assert!(!allowed(&sites, "https://example.com.evil.net/"));
+        assert!(!allowed(&sites, "https://example.com@evil.net/"));
     }
 
     #[test]
