@@ -42,7 +42,7 @@ static OWNER: OnceLock<Owner> = OnceLock::new();
 static PRESENCE: OnceLock<Result<OwnedHandle, String>> = OnceLock::new();
 
 /// A random 64-bit value: `RandomState` is seeded by the system's random source.
-fn random() -> u64 {
+pub(crate) fn random() -> u64 {
     use std::hash::{BuildHasher, Hasher};
     let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
     hasher.write_u128(now_ms().into());

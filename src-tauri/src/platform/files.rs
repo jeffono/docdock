@@ -52,27 +52,6 @@ pub fn open_folder(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
-/// The serial number and file system name (`NTFS`, or the name a vault's driver gives) of the volume
-/// holding `file`.
-pub fn volume_of(file: &File) -> io::Result<(u32, String)> {
-    use windows::Win32::Storage::FileSystem::GetVolumeInformationByHandleW;
-    let mut serial = 0u32;
-    let mut name = [0u16; 261];
-    unsafe {
-        GetVolumeInformationByHandleW(
-            HANDLE(file.as_raw_handle()),
-            None,
-            Some(&raw mut serial),
-            None,
-            None,
-            Some(&mut name),
-        )
-    }
-    .map_err(os_error)?;
-    let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
-    Ok((serial, String::from_utf16_lossy(&name[..end])))
-}
-
 /// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
 pub fn hold_ancestry(dir: &Path) -> io::Result<Vec<File>> {
     dir.ancestors()

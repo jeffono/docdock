@@ -50,6 +50,7 @@ pub fn run() {
         commands::web_overlay,
         commands::notes_folder,
         commands::notes_choose,
+        commands::notes_trust,
         commands::notes_list,
         commands::notes_order,
         commands::notes_set_order,

@@ -22,6 +22,7 @@ import {
   notesRewrite,
   notesSave,
   notesTexts,
+  notesTrust,
   notesUndoDelete,
   notesUndoDeleteFolder,
   type OpenNote,
@@ -66,7 +67,7 @@ import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
-import { folderAction } from "./folder-state";
+import { folderAction, folderNotice } from "./folder-state";
 import { dateHeadings } from "./grouping";
 import { movedLinks } from "./links";
 import {
@@ -621,6 +622,15 @@ async function restore(path: string) {
 
 /** While the folder picker is open no editor can open: its note would belong to the old folder. */
 let choosing = false;
+/** The folder at the configured path is the user's after all, such as one marked before an upgrade. */
+async function trust() {
+  try {
+    error = "";
+    await refresh(await notesTrust());
+  } catch (e) {
+    error = errorText(e);
+  }
+}
 export async function choose() {
   if (choosing || savingPage) return;
   choosing = true;
@@ -1399,7 +1409,7 @@ async function reload() {
       generation++;
       folder = value;
       forget();
-      editor?.folderLeft(value?.state === "missing" ? "missing" : "unavailable");
+      editor?.folderLeft(value && value.state !== "available" ? value.state : "unavailable");
       return;
     case "close":
       editing = false;
@@ -2167,9 +2177,10 @@ onMount(() => {
           {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
     {/each}
     <div class="empty">
-      <p>{folder ? t(folder.state === "missing" ? "notes.missing" : "notes.unavailable") : t("notes.chooseHint")}</p>
+      <p>{folder && folder.state !== "available" ? t(folderNotice(folder.state)) : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
       {#if folder}<UnlockVault />{/if}
+      {#if folder?.state === "unrecognized"}<Button variant="neutral" onclick={trust}>{t("notes.trust")}</Button>{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <Button variant="neutral" onclick={choose}>{t("notes.choose")}</Button>
     </div>

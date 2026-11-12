@@ -159,6 +159,10 @@ pub async fn notes_choose(
     crate::notes::choose(&app, &requests)
 }
 #[tauri::command(async)]
+pub fn notes_trust(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
+    crate::notes::trust(&app)
+}
+#[tauri::command(async)]
 pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
     crate::notes::list_for(&app)
 }

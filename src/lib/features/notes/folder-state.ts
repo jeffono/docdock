@@ -1,4 +1,13 @@
+import type { MessageKey } from "../../i18n";
 import type { FolderState } from "../../ipc";
+
+/** A state in which nothing is read from or written to the folder. */
+export type FolderGone = Exclude<FolderState, "available">;
+
+/** The list's explanation for a folder that is not available. */
+export function folderNotice(state: FolderGone): MessageKey {
+  return `notes.${state}`;
+}
 
 /**
  * What the list does when a reread finds the notes folder in a state:

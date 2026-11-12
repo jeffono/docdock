@@ -22,6 +22,9 @@ to a vault the user mounts, such as Cryptomator, which stays optional; see
   vault's mount point (regression test); a failed save keeps the text in memory with a notice and
   writes nowhere else, then saves when the folder returns; note text and the search index are
   cleared from memory while the folder is unavailable. `advanced`
+- [x] Identity marker `.docdock/folder-id` instead of the volume check: another folder at the chosen
+  path (a locked vault's empty mount point, another vault or drive) is never written to, settings from
+  before it trust only a folder holding notes, and shares work. `advanced`
 - [x] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
   `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
   `standard`

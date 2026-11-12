@@ -457,7 +457,8 @@ DocDock's and stay. The trade-offs: another computer's deleted items linger up t
 synced folder (encrypted in a vault); an Undo left offered longer than that on another computer can
 lose its item; and a computer whose clock runs more than 30 days ahead can take a fresh entry from
 another for old (a clock behind only delays the purge). When the panel hides, `forget_deleted` purges on a thread of its own each notes folder whose
-trash took something during the run; startup (`start_trash`) and choosing a folder purge the current
+trash took something during the run, if the folder at that path still has the marker it had then;
+startup (`start_trash`) and choosing a folder purge the current
 one. The purge reads the live session again for each entry, under the deleted-items lock: a session
 that has ended never offers Undo again (hiding clears it, and a delete records Undo only if its
 session is still live after the move), so a purge that started long ago cannot remove a newer
@@ -642,25 +643,41 @@ unreadable, a volume root or share that left, and anything it cannot tell are `u
 mounted directly at the notes folder that leaves no folder behind therefore reads as `missing`: both
 states behave the same, only the text differs.
 
-**Place.** A locked vault can also leave an empty local folder at its mount point, which lists. So
-choosing a folder records its place in `settings.json`: the file system name of the volume holding it
-and whether that volume differs from the volume at the root of its path (`mounted`, as for a vault or
-drive mounted in a folder). Only that, never a note's name. Serial numbers are compared but not stored,
-since a vault's can change on every unlock. A folder at another place behind the same path is
-`unavailable`. Settings written before places existed record the place the first time the folder is
-used. Moving the notes folder on purpose to another place under the same path (another file system, or
-in or out of a mounted volume) also reads as unavailable until it is chosen again in Preferences, which
-records the new place; no prompt offers to accept it, since a locked vault looks the same.
+**Identity marker.** A locked vault can also leave an empty local folder at its mount point, which
+lists, and another vault or drive can take the same path. So the notes folder carries an identity
+marker, `.docdock/folder-id`: a random 128-bit id in hex, written atomically, never derived from notes.
+`settings.json` records the id expected (`folder_id`). Choosing a folder in Preferences is the trusted
+moment: an existing marker is adopted, otherwise one is created, only if the folder is available (the
+folder itself is never created; an unavailable choice is recorded without an id). The marker syncs with
+the folder, so every computer shares it, and each records it when choosing the folder. A folder at the
+path whose marker is absent or holds another id is `unrecognized`: never written to, never marked
+automatically; the UI says it is not the folder chosen, that a locked vault's folder opens again once
+unlocked, and that notes moved there are accepted by choosing the folder again. "Use this folder", in
+the list and in an editor waiting to save, does the same for the configured path without the picker or
+leaving the editor (`notes_trust`). No volume API is used,
+so a folder on an SMB share is checked like any other.
+
+Settings written before markers existed have a folder and no id. An existing marker (another computer
+marked the folder) is adopted; otherwise the folder stays `unrecognized` until the user confirms it once.
+Notes in it prove nothing: a local folder with old plaintext notes can sit at a locked vault's mount
+point. The rule is the pure
+`identity` in `notes.rs`; marking and recording run under the settings lock and decide again there.
 
 Every command starts from `root`, which opens the folder through links, on the volume that really
-holds it (`platform::open_folder`), checks the place on that handle (`platform::volume_of`) and keeps
-the handle open until the command ends. The folder then cannot be renamed or deleted meanwhile, and a
-vault asks before locking under it. Writes still go by path: a forced unmount in the instant between
-the check and a write is the remaining gap. `root` answers `folderUnavailable` or `folderMissing`
-without touching the disk further, and no write path creates the folder or its parents (saves,
-recreation, pinned edits and restore, folder creation, pasted images, leftovers, moves); a regression
-test runs them against a missing folder under a missing parent. `notes_folder` and `notes_list` run off
-the main thread, since an offline share can take seconds to answer.
+holds it (`platform::open_folder`), reads the marker and keeps the handle open until the command ends.
+The folder then cannot be renamed or deleted meanwhile, and a vault asks before locking under it. The
+availability poll and `notes_folder` apply the same check. `root` answers `folderUnavailable`,
+`folderMissing` or `folderUnrecognized` without touching the disk further, and no write path creates
+the folder or its parents (saves, recreation, pinned edits and restore, folder creation, pasted images,
+leftovers, moves); a regression test runs them against a missing folder under a missing parent.
+`notes_folder` and `notes_list` run off the main thread, since an offline share can take seconds to
+answer.
+
+Writes still go by path, checked once per command as it starts. Two gaps remain: a forced unmount in
+the instant between the check and a write, and a junction on the path redirected after the check,
+which can send a write to its new target. Both need a local process acting in that instant, outside
+the threats of decision 0009 (cloud sync leaks, a stolen device, screen sharing); handle-relative
+writes would close them at a cost not justified today.
 
 `watch::monitor` checks the folder's state every 2 s on its own thread: an event may never come from a
 volume that left, and a watch that ended sees no return. When the state of the same folder changes, it
@@ -817,14 +834,14 @@ search and watcher rules. State writes use synced sibling temporary files and at
 ancestry handles against junctions and mount replacement; they never create the notes root or its
 parents. `_pinned.md` remains ordinary, human-readable markdown.
 
-On first access to an available folder (also before preference changes), legacy AppData
+On first access to the chosen folder, once its marker matches the recorded id, legacy AppData
 `pinned-copy.json` migrates only if its recorded folder matches. The destination is written before
 removing the old file. A copy for an earlier folder remains until that folder is selected and
 available again. Legacy `settings.json.collapsed` migrates to `collapsed.json`, then only that field is
 removed through an atomic settings rewrite preserving other fields. Existing destination state wins
 on retries after a crash; invalid destinations fail without removing the source. Old settings still
-load, but normal preference reads ignore the legacy field. An unavailable/missing folder causes no
-migration reads or writes; preference changes retain the legacy field until migration is possible.
+load, but normal preference reads ignore the legacy field. An unavailable, missing or unrecognized
+folder causes no migration reads or writes; preference changes retain the legacy field until migration is possible.
 Changing folders discards pending collapsed UI state rather than attributing paths to a new folder.
 Migration failures are logged and retry on next access, without blocking ordinary notes/preferences.
 A valid destination restoration copy follows the folder across computers and mount paths; its old

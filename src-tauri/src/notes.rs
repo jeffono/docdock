@@ -77,12 +77,13 @@ struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     activation_shortcut: Option<String>,
+    /// The id in the notes folder's marker (`MARKER`), recorded when it was chosen.
     #[serde(
         default,
-        deserialize_with = "place_or_default",
+        deserialize_with = "text_or_default",
         skip_serializing_if = "Option::is_none"
     )]
-    folder_place: Option<Place>,
+    folder_id: Option<String>,
 }
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -181,9 +182,6 @@ fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error
 fn width_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<u32>, D::Error> {
     Ok(Option::<u32>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
-fn place_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<Place>, D::Error> {
-    Ok(Option::<Place>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
 fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
     Ok(Option::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
@@ -204,6 +202,9 @@ pub enum Availability {
     /// The folder above it is there but the folder is not: deleted, moved, or itself the mount point
     /// of a locked vault, which cannot be told apart.
     Missing,
+    /// A folder is there but it is not the one chosen: its marker is absent or holds another id, as
+    /// for the empty folder a locked vault can leave at its mount point.
+    Unrecognized,
 }
 /// What looking at a path found.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -260,44 +261,113 @@ fn folder_availability(path: &Path) -> Availability {
         }
     }
 }
-/// Where the notes folder lives: the file system of its volume and whether that volume is another one
-/// than the root of its path, as for a vault or drive mounted in a folder. Recorded when the folder is
-/// chosen, so a different place behind the same path, such as the empty local folder a locked vault
-/// can leave at its mount point, is never written to. Names no note.
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-struct Place {
-    file_system: String,
-    mounted: bool,
+/// Derived data lives in this hidden folder of the notes folder, which listing, search and the
+/// watcher skip.
+const DERIVED: &str = ".docdock";
+/// The notes folder's identity marker in `DERIVED`: a random id, created when the folder is chosen and
+/// recorded in `settings.json`. It syncs with the folder, so every computer sees the same one. A
+/// folder behind the same path without it, such as the empty local folder a locked vault can leave at
+/// its mount point, or another vault or drive, is never written to. Names no note.
+const MARKER: &str = "folder-id";
+fn new_folder_id() -> String {
+    format!("{:016x}{:016x}", trash::random(), trash::random())
 }
-/// `folder` and `top` are the serial number and file system name of the volumes holding the folder and
-/// the root of its path. Serial numbers are only compared: a vault's can change on every unlock.
-fn place(folder: &(u32, String), top: &(u32, String)) -> Place {
-    Place {
-        file_system: folder.1.clone(),
-        mounted: folder != top,
+fn valid_folder_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+/// The id in `root`'s marker; `None` when there is none or it holds no valid id.
+fn read_marker(root: &Path) -> io::Result<Option<String>> {
+    let mut text = String::new();
+    match fs::File::open(root.join(DERIVED).join(MARKER)) {
+        // Any longer content is not an id; reading stops before a large file costs anything.
+        Ok(file) => {
+            if file.take(64).read_to_string(&mut text).is_err() {
+                return Ok(None);
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    let id = text.trim();
+    Ok(valid_folder_id(id).then(|| id.to_owned()))
+}
+/// `root`'s marker id, created if it has none or holds no valid one. Only for a folder the user
+/// chose, or one `identity` trusts. Never creates `root`.
+fn stamp(root: &Path) -> Result<String, Error> {
+    if let Some(id) = read_marker(root)? {
+        return Ok(id);
+    }
+    let dir = derived_dir(root)?;
+    let id = new_folder_id();
+    write_atomic(&dir.join(MARKER), id.as_bytes())?;
+    Ok(id)
+}
+/// What an available folder is, from the id the settings expect and the one its marker holds.
+#[derive(Debug, PartialEq)]
+enum Identity {
+    /// The folder chosen.
+    Chosen,
+    /// Chosen before markers existed, and marked since, as by another computer: record its id.
+    Adopt(String),
+    /// Another folder, or, chosen before markers existed and unmarked, one that cannot be told from
+    /// the folder a locked vault's mount point shows, which may even hold old plaintext notes.
+    Foreign,
+}
+fn identity(expected: Option<&str>, marker: Option<&str>) -> Identity {
+    match (expected, marker) {
+        (Some(expected), Some(marker)) if expected == marker => Identity::Chosen,
+        (Some(_), _) => Identity::Foreign,
+        (None, Some(marker)) => Identity::Adopt(marker.to_owned()),
+        (None, None) => Identity::Foreign,
     }
 }
-/// The folder opened on the volume that really holds it, and its place.
-fn open_place(path: &Path) -> io::Result<(fs::File, Place)> {
-    let held = platform::open_folder(path)?;
-    let top = path.ancestors().last().unwrap_or(path);
-    let folder = platform::volume_of(&held)?;
-    let top = platform::volume_of(&platform::open_folder(top)?)?;
-    Ok((held, place(&folder, &top)))
-}
-/// The notes folder, opened, if it is available at the place `expected` (`None` takes any place).
-fn open_root(path: &Path, expected: Option<&Place>) -> Result<(fs::File, Place), Availability> {
+/// The notes folder at `path`, opened, if it is available and the one chosen (`expected`, the id in
+/// `config`). Settings written before markers existed record one here, under `identity`'s rule.
+fn open_chosen(
+    config: &Path,
+    path: &Path,
+    expected: Option<&str>,
+) -> Result<fs::File, Availability> {
     match folder_availability(path) {
         Availability::Available => {}
         state => return Err(state),
     }
-    let (held, now) = open_place(path).map_err(|_| Availability::Unavailable)?;
-    if expected.is_some_and(|place| *place != now) {
-        return Err(Availability::Unavailable);
+    // Opened through links, on the volume that really holds the folder, before its marker is read.
+    let held = platform::open_folder(path).map_err(|_| Availability::Unavailable)?;
+    let marker = read_marker(path).map_err(|_| Availability::Unavailable)?;
+    let id = match identity(expected, marker.as_deref()) {
+        Identity::Chosen => return Ok(held),
+        Identity::Foreign => return Err(Availability::Unrecognized),
+        Identity::Adopt(id) => id,
+    };
+    // Decided again under the lock: another command may have recorded the id, or the folder changed.
+    let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = load(config);
+    if settings.folder.as_deref() != Some(path) {
+        return Err(Availability::Unrecognized);
     }
-    Ok((held, now))
+    if let Some(recorded) = &settings.folder_id {
+        let marker = read_marker(path).map_err(|_| Availability::Unavailable)?;
+        return match marker {
+            Some(marker) if marker == *recorded => Ok(held),
+            _ => Err(Availability::Unrecognized),
+        };
+    }
+    settings.folder_id = Some(id);
+    save(config, &settings).map_err(|_| Availability::Unavailable)?;
+    Ok(held)
 }
-/// The notes folder for one command. Its handle, opened where the place was checked, stays open until
+/// The configured notes folder and, if it is available and the one chosen, its handle.
+fn open_configured(config: &Path) -> Option<(PathBuf, Result<fs::File, Availability>)> {
+    let settings = load(config);
+    let path = settings.folder?;
+    let opened = open_chosen(config, &path, settings.folder_id.as_deref());
+    Some((path, opened))
+}
+/// The notes folder for one command. Its handle, opened where the marker was checked, stays open until
 /// the command ends: the folder cannot be renamed or deleted meanwhile, and a vault asks before
 /// locking under it.
 struct Root {
@@ -385,21 +455,22 @@ pub fn activation_shortcut(app: &AppHandle) -> Option<String> {
 pub fn set_activation_shortcut(app: &AppHandle, shortcut: Option<String>) -> Result<(), Error> {
     update(app, |settings| settings.activation_shortcut = shortcut)
 }
-fn folder_in(settings: &Settings) -> Option<(PathBuf, Availability)> {
-    let path = settings.folder.clone()?;
-    let state = open_root(&path, settings.folder_place.as_ref())
-        .map_or_else(|state| state, |_| Availability::Available);
-    Some((path, state))
+fn folder_in(config: &Path) -> Option<(PathBuf, Availability)> {
+    let (path, opened) = open_configured(config)?;
+    Some((
+        path,
+        opened.map_or_else(|state| state, |_| Availability::Available),
+    ))
 }
 pub fn folder(app: &AppHandle) -> Result<Option<Folder>, Error> {
-    Ok(folder_in(&load(&config(app)?)).map(|(path, state)| Folder {
+    Ok(folder_in(&config(app)?).map(|(path, state)| Folder {
         path: path.to_string_lossy().into_owned(),
         state,
     }))
 }
 /// The folder in use and whether it is available, for the watch that notices it leave and return.
 pub fn folder_state(app: &AppHandle) -> Option<(PathBuf, Availability)> {
-    folder_in(&load(&config(app).ok()?))
+    folder_in(&config(app).ok()?)
 }
 fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
     let parent = path
@@ -551,39 +622,57 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     let dialog = app.dialog().file().set_parent(&window);
     if let Some(path) = dialog.blocking_pick_folder() {
         let path = path.into_path().map_err(Error::unexpected)?;
-        // Choosing again is how a folder moved to another place behind the same path is accepted.
-        let place = open_place(&path).ok().map(|(_, place)| place);
-        update(app, |settings| {
-            settings.folder = Some(path);
-            settings.folder_place = place;
-        })?;
+        choose_in(&config(app)?, path)?;
         crate::watch::stop();
         purge_trash(app);
     }
     folder(app)
 }
-fn root(app: &AppHandle) -> Result<Root, Error> {
-    let settings = load(&config(app)?);
-    let path = settings.folder.ok_or(Error::NoFolder)?;
-    let (held, place) =
-        open_root(&path, settings.folder_place.as_ref()).map_err(|state| match state {
-            Availability::Missing => Error::FolderMissing,
-            _ => Error::FolderUnavailable,
-        })?;
-    if settings.folder_place.is_none() {
-        // Chosen before places were recorded: the place seen now is the one expected from here on.
-        let _ = update(app, |settings| {
-            if settings.folder.as_deref() == Some(&*path) && settings.folder_place.is_none() {
-                settings.folder_place = Some(place);
-            }
-        });
+/// Choosing is the trusted moment: the folder's marker is adopted, or created if it has none, and its
+/// id recorded. Choosing again is how a folder whose marker changed, or a new folder at the same path,
+/// is accepted. An unavailable folder is recorded without an id, and is never created.
+/// The user confirms that the folder at the configured path is the notes folder, as choosing it again
+/// would, without leaving an editor whose text waits for it.
+pub fn trust(app: &AppHandle) -> Result<Option<Folder>, Error> {
+    trust_in(&config(app)?)?;
+    folder(app)
+}
+fn trust_in(config: &Path) -> Result<(), Error> {
+    let path = load(config).folder.ok_or(Error::NoFolder)?;
+    match folder_availability(&path) {
+        Availability::Available => choose_in(config, path),
+        Availability::Missing => Err(Error::FolderMissing),
+        _ => Err(Error::FolderUnavailable),
     }
-    // Legacy derived data moves in once the folder is confirmed in its place.
+}
+fn choose_in(config: &Path, path: PathBuf) -> Result<(), Error> {
+    let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let id = match folder_availability(&path) {
+        Availability::Available => Some(stamp(&path)?),
+        _ => None,
+    };
+    let mut settings = load(config);
+    settings.folder = Some(path);
+    settings.folder_id = id;
+    save(config, &settings)
+}
+/// The notes folder for a command, checked against its marker as each command starts. Legacy derived
+/// data moves in once the folder is known to be the one chosen.
+fn root_in(config: &Path) -> Result<Root, Error> {
+    let (path, opened) = open_configured(config).ok_or(Error::NoFolder)?;
+    let held = opened.map_err(|state| match state {
+        Availability::Missing => Error::FolderMissing,
+        Availability::Unrecognized => Error::FolderUnrecognized,
+        _ => Error::FolderUnavailable,
+    })?;
     {
         let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
-        try_migrate_derived(&path, &config(app)?);
+        try_migrate_derived(&path, config);
     }
     Ok(Root { path, _held: held })
+}
+fn root(app: &AppHandle) -> Result<Root, Error> {
+    root_in(&config(app)?)
 }
 fn markdown(path: &Path) -> bool {
     path.extension()
@@ -1334,10 +1423,11 @@ pub fn undo_delete_folder(app: &AppHandle, path: &str) -> Result<(), Error> {
 /// Moves `target` to the notes folder's own trash, named after the current panel session; called
 /// under the save lock, as the Recycle Bin is.
 fn to_trash(root: &Path, target: &Path) -> io::Result<Option<PathBuf>> {
+    let marker = read_marker(root).ok().flatten();
     let session = {
         let mut trash = deleted();
-        if !trash.roots.iter().any(|r| r == root) {
-            trash.roots.push(root.to_owned());
+        if !trash.roots.iter().any(|(r, _)| r == root) {
+            trash.roots.push((root.to_owned(), marker));
         }
         trash.session
     };
@@ -1360,8 +1450,9 @@ struct Trash {
     session: u64,
     notes: Vec<Deleted>,
     folders: Vec<DeletedFolder>,
-    /// Every notes folder whose own trash took something in this run, purged when the panel hides.
-    roots: Vec<PathBuf>,
+    /// Every notes folder whose own trash took something in this run, with its marker id then, purged
+    /// when the panel hides only if the folder at that path still has that id.
+    roots: Vec<(PathBuf, Option<String>)>,
 }
 /// A folder moved to the notes folder's own trash (`trash.rs`); Undo moves it back from there.
 struct DeletedFolder {
@@ -1504,8 +1595,10 @@ pub fn forget_deleted() {
     trash.folders.clear();
     let roots = trash.roots.clone();
     std::thread::spawn(move || {
-        for root in roots {
-            trash::purge(&root, live_session);
+        for (root, marker) in roots {
+            if read_marker(&root).ok().flatten() == marker {
+                trash::purge(&root, live_session);
+            }
         }
     });
 }
@@ -1581,7 +1674,7 @@ fn copy_path(app: &AppHandle) -> Result<PathBuf, Error> {
 /// Hidden from listing, search and watcher; never creates the notes root or follows a link.
 fn derived_dir(root: &Path) -> Result<PathBuf, Error> {
     let _held = hold_ancestry(root)?;
-    let dir = root.join(".docdock");
+    let dir = root.join(DERIVED);
     match fs::create_dir(&dir) {
         Ok(()) => (),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
@@ -1623,13 +1716,14 @@ fn try_migrate_derived(root: &Path, settings: &Path) {
     }
 }
 fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
-    // Only into the folder in its recorded place: a locked vault's empty mount point must stay empty.
-    let expected = load(settings)
-        .folder_place
-        .filter(|_| load(settings).folder.as_deref() == Some(root));
-    let Ok((_root, _)) = open_root(root, expected.as_ref()) else {
+    // Only into the folder chosen: a locked vault's empty mount point must stay empty.
+    let chosen = load(settings);
+    let expected = chosen
+        .folder_id
+        .filter(|_| chosen.folder.as_deref() == Some(root));
+    if expected.is_none() || read_marker(root).ok().flatten() != expected {
         return Ok(());
-    };
+    }
     let _held = hold_ancestry(root)?;
     let legacy = settings.with_file_name("pinned-copy.json");
     if legacy.try_exists()? {
@@ -2598,6 +2692,43 @@ mod tests {
     fn no_collapsed() -> BTreeSet<String> {
         BTreeSet::new()
     }
+    /// `settings.json` in `t` after choosing `root`, with `extra` fields added.
+    fn chosen(t: &Temp, root: &Path, extra: serde_json::Value) -> PathBuf {
+        let settings = t.0.join("settings.json");
+        choose_in(&settings, root.to_owned()).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&settings).unwrap()).unwrap();
+        for (key, field) in extra.as_object().unwrap() {
+            value[key] = field.clone();
+        }
+        fs::write(&settings, serde_json::to_vec(&value).unwrap()).unwrap();
+        settings
+    }
+    fn load_value(settings: &Path) -> serde_json::Value {
+        serde_json::from_slice(&fs::read(settings).unwrap()).unwrap()
+    }
+    /// `settings.json` in `t` as written before markers existed: `fields` without an id.
+    fn earlier_settings(t: &Temp, fields: serde_json::Value) -> PathBuf {
+        let settings = t.0.join("settings.json");
+        fs::write(&settings, serde_json::to_vec(&fields).unwrap()).unwrap();
+        settings
+    }
+    /// Every path below `dir`, relative to it.
+    fn tree(dir: &Path) -> Vec<String> {
+        let mut found = Vec::new();
+        fn visit(root: &Path, dir: &Path, found: &mut Vec<String>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                found.push(relative(root, &path));
+                if path.is_dir() {
+                    visit(root, &path, found);
+                }
+            }
+        }
+        visit(dir, dir, &mut found);
+        found.sort();
+        found
+    }
     fn rename(root: &Path, from: &str, to: &str) -> Result<(), Error> {
         let base = version(&fs::read(root.join(from)).unwrap());
         rename_note_in(root, from, to, &base, ("A", "B"))
@@ -3404,15 +3535,11 @@ mod tests {
     fn legacy_derived_data_moves_before_sources_are_removed() {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
-        let settings = t.0.join("settings.json");
-        fs::write(
-            &settings,
-            serde_json::to_vec(&serde_json::json!({
-                "folder": root, "collapsed": ["secret.md"], "theme": "dark"
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+        let settings = chosen(
+            &t,
+            &root,
+            serde_json::json!({ "collapsed": ["secret.md"], "theme": "dark" }),
+        );
         let legacy = settings.with_file_name("pinned-copy.json");
         fs::write(
             &legacy,
@@ -3435,28 +3562,22 @@ mod tests {
         assert!(value.get("collapsed").is_none());
         assert_eq!(value["theme"], "dark");
     }
-    /// Regression: migrating into the empty local folder a locked vault leaves at its mount point
-    /// would write pinned names in plaintext outside the vault.
+    /// Regression: migrating into another folder at the chosen path, such as the empty local folder a
+    /// locked vault leaves at its mount point, wrote pinned names in plaintext outside the vault.
     #[test]
-    fn migration_skips_a_folder_at_another_place() {
+    fn migration_skips_a_folder_with_another_marker() {
         let t = Temp::new();
         let root = t.0.join("notes");
         fs::create_dir(&root).unwrap();
-        let settings = t.0.join("settings.json");
-        let vault = Place {
-            file_system: "cryptoFs".into(),
-            mounted: true,
-        };
-        fs::write(
-            &settings,
-            serde_json::to_vec(&serde_json::json!({
-                "folder": root, "folder_place": vault, "collapsed": ["secret.md"]
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+        let settings = chosen(&t, &root, serde_json::json!({ "collapsed": ["secret.md"] }));
+        let other = new_folder_id();
+        fs::write(root.join(DERIVED).join(MARKER), &other).unwrap();
         migrate_derived(&root, &settings).unwrap();
-        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        assert_eq!(tree(&root), [".docdock", ".docdock/folder-id"]);
+        assert_eq!(
+            load_value(&settings)["collapsed"],
+            serde_json::json!(["secret.md"])
+        );
     }
     #[test]
     fn unavailable_migration_keeps_sources_and_creates_nothing() {
@@ -3507,8 +3628,7 @@ mod tests {
     fn migration_retry_preserves_newer_destination_state() {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
-        let settings = t.0.join("settings.json");
-        fs::write(&settings, r#"{"collapsed":["old.md"]}"#).unwrap();
+        let settings = chosen(&t, &root, serde_json::json!({ "collapsed": ["old.md"] }));
         let dir = store.parent().unwrap();
         fs::write(dir.join("collapsed.json"), r#"["new.md"]"#).unwrap();
         migrate_derived(&root, &settings).unwrap();
@@ -3521,7 +3641,7 @@ mod tests {
     fn synced_copy_from_another_mount_wins_over_legacy_copy() {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
-        let settings = t.0.join("settings.json");
+        let settings = chosen(&t, &root, serde_json::json!({}));
         let legacy = settings.with_file_name("pinned-copy.json");
         fs::write(
             &legacy,
@@ -3549,7 +3669,7 @@ mod tests {
     fn failed_migration_keeps_legacy_copy() {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
-        let settings = t.0.join("settings.json");
+        let settings = chosen(&t, &root, serde_json::json!({}));
         let legacy = t.0.join("pinned-copy.json");
         fs::write(
             &legacy,
@@ -3762,41 +3882,90 @@ mod tests {
         assert_eq!(state, Availability::Unavailable);
     }
     #[test]
-    fn a_place_is_mounted_when_its_volume_is_not_the_path_root() {
-        let ntfs = (7, "NTFS".to_owned());
-        let vault = (9, "cryptoFs".to_owned());
-        assert_eq!(
-            place(&ntfs, &ntfs),
-            Place {
-                file_system: "NTFS".into(),
-                mounted: false
-            }
-        );
-        assert_eq!(
-            place(&vault, &ntfs),
-            Place {
-                file_system: "cryptoFs".into(),
-                mounted: true
-            }
-        );
-    }
-    /// Regression: a locked vault can leave an empty local folder at its mount point; saving there
-    /// wrote plaintext outside the vault.
-    #[test]
-    fn a_folder_at_another_place_than_chosen_is_unavailable() {
+    fn choosing_a_folder_adopts_its_marker() {
         let t = Temp::new();
-        let (_, here) = open_place(&t.0).unwrap();
-        assert!(!here.mounted);
-        assert!(open_root(&t.0, Some(&here)).is_ok());
-        assert!(open_root(&t.0, None).is_ok());
-        let vault = Place {
-            file_system: "cryptoFs".into(),
-            mounted: true,
-        };
-        assert_eq!(
-            open_root(&t.0, Some(&vault)).err(),
-            Some(Availability::Unavailable)
+        let id = new_folder_id();
+        fs::create_dir(t.0.join(DERIVED)).unwrap();
+        fs::write(t.0.join(DERIVED).join(MARKER), &id).unwrap();
+        let settings = t.0.join("config").join("settings.json");
+        choose_in(&settings, t.0.clone()).unwrap();
+        assert_eq!(load(&settings).folder_id, Some(id.clone()));
+        assert_eq!(read_marker(&t.0).unwrap(), Some(id));
+    }
+    #[test]
+    fn choosing_a_folder_that_is_not_there_creates_nothing() {
+        let t = Temp::new();
+        let settings = t.0.join("settings.json");
+        let root = t.0.join("vault").join("notes");
+        choose_in(&settings, root.clone()).unwrap();
+        assert_eq!(load(&settings).folder, Some(root));
+        assert_eq!(load(&settings).folder_id, None);
+        assert_eq!(tree(&t.0), ["settings.json"]);
+    }
+    /// Regression: another folder at the chosen path, such as the empty folder a locked vault leaves
+    /// at its mount point or another vault with the same file system, received plaintext.
+    #[test]
+    fn a_folder_with_another_marker_is_unrecognized_and_untouched() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.md"), "mine").unwrap();
+        let settings = chosen(&t, &root, serde_json::json!({ "collapsed": ["secret.md"] }));
+        fs::write(root.join(DERIVED).join(MARKER), new_folder_id()).unwrap();
+        let before = fs::read(&settings).unwrap();
+        assert_eq!(root_in(&settings).err(), Some(Error::FolderUnrecognized));
+        assert_eq!(folder_in(&settings).unwrap().1, Availability::Unrecognized);
+        assert_eq!(tree(&root), [".docdock", ".docdock/folder-id", "a.md"]);
+        assert_eq!(fs::read(&settings).unwrap(), before);
+    }
+    /// Regression: settings from before markers accepted any folder at the path, so the empty folder
+    /// a locked vault leaves at its mount point received the migrated pinned names in plaintext.
+    #[test]
+    fn an_empty_folder_from_earlier_settings_is_unrecognized_and_untouched() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        let settings = earlier_settings(
+            &t,
+            serde_json::json!({ "folder": root, "collapsed": ["secret.md"] }),
         );
+        let before = fs::read(&settings).unwrap();
+        assert_eq!(root_in(&settings).err(), Some(Error::FolderUnrecognized));
+        assert!(tree(&root).is_empty());
+        assert_eq!(fs::read(&settings).unwrap(), before);
+    }
+    /// Regression: a folder with old plaintext notes left at a locked vault's mount point was taken
+    /// for the vault and received new writes in plaintext.
+    #[test]
+    fn an_unmarked_folder_with_notes_from_earlier_settings_is_unrecognized() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.md"), "old").unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": root }));
+        assert_eq!(root_in(&settings).err(), Some(Error::FolderUnrecognized));
+        assert_eq!(tree(&root), ["a.md"]);
+    }
+    #[test]
+    fn a_folder_marked_elsewhere_is_adopted_from_earlier_settings() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir_all(root.join(DERIVED)).unwrap();
+        let id = new_folder_id();
+        fs::write(root.join(DERIVED).join(MARKER), &id).unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": root }));
+        assert!(root_in(&settings).is_ok());
+        assert_eq!(load(&settings).folder_id, Some(id));
+    }
+    #[test]
+    fn trusting_the_configured_folder_marks_it() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": root }));
+        trust_in(&settings).unwrap();
+        assert!(root_in(&settings).is_ok());
+        assert_eq!(load(&settings).folder_id, read_marker(&root).unwrap());
     }
     /// Regression: a folder created under a locked vault's mount point puts plaintext on the
     /// unencrypted disk, and the vault can no longer mount there.
