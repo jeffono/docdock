@@ -6,6 +6,8 @@ detail each stage when it is next.
 ## In progress
 
 - M8 integrated and reviewed in `m8`; awaiting manual verification, visual approval and merge.
+- `vault-trash` (from `m8`): persistent 30-day trash, deletes without confirmation and the Undo notice
+  emphasis; awaiting review by another provider, visual approval and manual verification on a vault.
 
 ## M8 — Note privacy
 
@@ -27,8 +29,9 @@ to a vault the user mounts, such as Cryptomator, which stays optional; see
 - [x] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
   `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
   `standard`
-- [x] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: verify, then give
-  such notes an Undo that keeps the copy inside the notes folder. `advanced`
+- [x] Deleting on volumes without a Recycle Bin, such as a mounted Cryptomator vault: a persistent
+  trash inside the notes folder, 30 days then purged, with Restore and Empty in Preferences; deletes
+  no longer ask, and the Undo notice draws attention. `advanced`
 - [x] Hide the panel from screen capture and sharing with `WDA_EXCLUDEFROMCAPTURE`. `standard`
 - [x] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`
 - [x] Optional vault file in Preferences: an Unlock action on the unavailable state opens

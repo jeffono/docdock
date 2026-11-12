@@ -22,5 +22,8 @@ clipboard. The app's own encryption is in `docs/EXPLORATIONS.md`.
   names; derived state that needs persistence lives inside the notes folder or is rebuilt from it.
 - Every write path must refuse to create a missing notes folder, and a missing folder must be told
   apart from a deleted one.
-- Deleting must not move notes out of the vault, including on volumes without a Recycle Bin.
+- Deleting must not move notes out of the vault, including on volumes without a Recycle Bin: there,
+  deleted notes and folders go to a trash inside the notes folder (`.docdock/trash`), stay 30 days
+  (encrypted in a vault and synced with it meanwhile), then are purged; Preferences restores them or
+  empties the trash at once.
 - The user's own screenshots of the panel are blank, and copies from notes do not appear in Win+V.
