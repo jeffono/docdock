@@ -3,6 +3,7 @@
 pub mod autostart;
 pub mod browser;
 pub mod edge;
+pub mod external;
 mod files;
 mod guard;
 pub mod keyboard;

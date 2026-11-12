@@ -20,6 +20,8 @@ pub enum Error {
     /// The folder above the notes folder is there, but the notes folder is not.
     FolderMissing,
     InvalidPath,
+    InvalidVaultFile,
+    VaultFileMissing,
     OutsideFolder,
     TooLarge {
         size_mb: u64,

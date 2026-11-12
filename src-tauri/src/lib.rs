@@ -23,6 +23,10 @@ use tauri::Manager;
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::app_version,
+        commands::vault_file,
+        commands::vault_choose,
+        commands::vault_clear,
+        commands::vault_unlock,
         updates::exit_ready,
         commands::app_locale,
         commands::app_theme,
