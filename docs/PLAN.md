@@ -5,9 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M8 integrated and reviewed in `m8`; awaiting manual verification, visual approval and merge.
-- `vault-trash` (from `m8`): persistent 30-day trash, deletes without confirmation and the Undo notice
-  emphasis; awaiting review by another provider, visual approval and manual verification on a vault.
+- M8 integrated in `m8`, including the persistent 30-day trash; awaiting review by another provider
+  (Codex unavailable), manual verification on a vault, visual approval and merge.
 
 ## M8 — Note privacy
 
