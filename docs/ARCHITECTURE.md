@@ -301,8 +301,9 @@ per-monitor DPI awareness (PMv2).
   `Target.getTargetInfo` response.
 - **Reader view:** decision in [0011](decisions/0011-reader-view.md). `web_reader` reads the shown
   page through the same isolated-world evaluation, turns, navigation identity and response checks
-  as the selection (`web::read_page`), with a fixed script that copies the DOM into a document
-  without a browsing context and drops scripts, styles, media and embeds. `reader.rs` refuses
+  as the selection (`web::read_page`), with a fixed script that copies the DOM node by node into a
+  document without a browsing context, skipping scripts, styles, media and embeds, and counts lengths
+  before copying: it ends at 100,000 elements or 1,500,000 UTF-16 units. `reader.rs` refuses
   nesting deeper than 512, extracts the article with `dom_smoothie`, writes it as Markdown with
   `dom_query` without images, keeps only http(s) and mailto link destinations, and cuts it at 1 MiB.
   It answers `{ url, title, markdown }`, `pageNotRead` without a usable script result, or
