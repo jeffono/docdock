@@ -1,10 +1,10 @@
-//! Tray, screen side and autostart control, without exposing commands to the UI.
+//! Shared tray, screen side and autostart control.
 
 use std::sync::mpsc::Sender;
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::dock::{Request, Side};
 use crate::i18n::Locale;
@@ -12,6 +12,7 @@ use crate::notes;
 use crate::platform::autostart;
 
 struct SideItems([(Side, CheckMenuItem<Wry>); 2]);
+struct AutostartItem(CheckMenuItem<Wry>);
 
 pub fn setup(
     app: &mut tauri::App,
@@ -44,6 +45,7 @@ pub fn setup(
         enabled,
         None::<&str>,
     )?;
+    app.manage(AutostartItem(autostart.clone()));
     let side_item = |id, label, value| {
         CheckMenuItem::with_id(app, id, label, true, side == value, None::<&str>)
             .map(|item| (value, item))
@@ -88,26 +90,48 @@ pub fn setup(
                 }
             }
             "autostart" => {
-                let result =
-                    autostart::is_enabled().and_then(|enabled| autostart::set_enabled(!enabled));
-                if let Err(error) = result {
-                    eprintln!("[tray] failed to change autostart: {error}");
-                }
-                match autostart::is_enabled() {
-                    Ok(enabled) => {
-                        if let Err(error) = autostart.set_checked(enabled) {
-                            eprintln!("[tray] failed to update check mark: {error}");
-                        }
-                    }
+                let result = match autostart::is_enabled() {
+                    Ok(enabled) => select_autostart(app, !enabled),
                     Err(error) => {
-                        eprintln!("[tray] failed to query autostart: {error}")
+                        // The menu already flipped its own check mark: put back the actual state.
+                        show_autostart(app);
+                        Err(crate::error::Error::unexpected(error))
                     }
+                };
+                if let Err(error) = result {
+                    eprintln!("[tray] failed to change autostart: {error:?}");
                 }
             }
             _ => {}
         })
         .build(app)?;
     Ok(())
+}
+
+pub fn autostart_enabled() -> Result<bool, crate::error::Error> {
+    autostart::is_enabled().map_err(crate::error::Error::unexpected)
+}
+
+pub fn select_autostart(app: &AppHandle, enabled: bool) -> Result<(), crate::error::Error> {
+    let saved = autostart::set_enabled(enabled).map_err(crate::error::Error::unexpected);
+    // Even a partial failure (for example clearing StartupApproved) must show the actual state.
+    show_autostart(app);
+    saved
+}
+
+/// Shows the registry state in the tray and in an open Preferences view. Failures here only affect
+/// what is displayed, so they are logged instead of failing the change.
+fn show_autostart(app: &AppHandle) {
+    let enabled = match autostart::is_enabled() {
+        Ok(enabled) => enabled,
+        Err(error) => return eprintln!("[tray] failed to query autostart: {error}"),
+    };
+    if let Err(error) = app.state::<AutostartItem>().0.set_checked(enabled) {
+        eprintln!("[tray] failed to update check mark: {error}");
+    }
+    if let Err(error) = app.emit_to("main", "autostart-changed", enabled) {
+        eprintln!("[tray] failed to report autostart: {error}");
+    }
 }
 
 /// Saves the side and moves the panel right away. A failed save still moves it for this session.

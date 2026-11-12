@@ -27,6 +27,8 @@ pub fn run() {
         commands::app_locale,
         commands::app_theme,
         commands::app_set_theme,
+        commands::app_autostart,
+        commands::app_set_autostart,
         commands::panel_activate,
         commands::panel_set_pinned,
         commands::panel_close,

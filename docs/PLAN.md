@@ -22,7 +22,7 @@ Quick fixes first: the search tasks in M7 build on the new Esc and search behavi
   previous app, as when unpinned, and the panel stays shown. `advanced`
 - [ ] Panel shortcuts: Ctrl+, opens and closes Preferences; Ctrl+Shift+D pins and unpins the panel (Ctrl+D
   already pins a card). Add them to tooltips and the shortcut sheet. `basic`
-- [ ] "Start with Windows" in Preferences > General, through `platform/autostart.rs` and mirrored with the
+- [x] "Start with Windows" in Preferences > General, through `platform/autostart.rs` and mirrored with the
   tray item. `standard`
 - [ ] Custom activation shortcut in Preferences: record the pressed combination, re-register it at
   runtime and keep the previous one with a notice if registration fails (taken by another app). Refuse

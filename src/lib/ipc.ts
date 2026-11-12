@@ -19,6 +19,12 @@ export type Theme = "system" | "light" | "dark";
 export const appTheme = () => invoke<Theme>("app_theme");
 export const appSetTheme = (theme: Theme) => invoke<void>("app_set_theme", { theme });
 
+/** Windows registry state, shared with the tray; never stored in settings.json. */
+export const appAutostart = () => invoke<boolean>("app_autostart");
+export const appSetAutostart = (enabled: boolean) => invoke<void>("app_set_autostart", { enabled });
+export const onAutostartChanged = (handler: (enabled: boolean) => void) =>
+  listen<boolean>("autostart-changed", (event) => handler(event.payload));
+
 export function panelActivate(): Promise<void> {
   return invoke("panel_activate");
 }

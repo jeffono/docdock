@@ -43,7 +43,10 @@ the editor bindings.
 The tray also exits the app and controls Windows startup; a second instance simply
 exits. Startup is the `DocDock` value in the current user's `Run` key, written by
 `platform/autostart.rs` with the executable path quoted, so a path with spaces can neither break nor
-start `C:\Program.exe`. Turning it on or off from the tray clears Task Manager's choice in
+start `C:\Program.exe`. Preferences > General and the tray share the operation in `tray.rs`, which
+rereads the registry after a change, updates the tray check and emits `autostart-changed` to the main
+window. Preferences subscribes before its initial read and removes the listener on leaving; startup
+is never duplicated in `settings.json`. Turning it on or off from either control clears Task Manager's choice in
 `StartupApproved\Run`; a choice made later in Task Manager is respected. At startup, an entry left
 unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
 one; an entry for another existing copy is left alone.

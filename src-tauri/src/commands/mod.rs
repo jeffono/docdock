@@ -28,6 +28,16 @@ pub fn app_set_theme(app: AppHandle, theme: crate::notes::Theme) -> Result<(), E
     crate::notes::set_theme(&app, theme)
 }
 
+#[tauri::command]
+pub fn app_autostart() -> Result<bool, Error> {
+    crate::tray::autostart_enabled()
+}
+
+#[tauri::command]
+pub fn app_set_autostart(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::tray::select_autostart(&app, enabled)
+}
+
 fn send(requests: State<'_, Sender<Request>>, request: Request) {
     // This only fails if the panel thread has stopped, in which case the UI cannot help.
     let _ = requests.send(request);
