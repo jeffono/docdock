@@ -71,19 +71,20 @@ pub enum Error {
     PinnedNotRenamed {
         path: String,
     },
-    /// The note's volume has no Recycle Bin, or it would not take the note; nothing was deleted.
+    /// The note's volume has no Recycle Bin, or it would not take the note; nothing was deleted. The
+    /// UI may ask to delete it for good once the panel closes (`binless`).
     NotRecyclable,
     DeleteFailed {
         detail: String,
     },
-    /// The note is in the Recycle Bin, but its pinned items still point at it. `undo`: Undo can bring
+    /// The note or folder is deleted, but its pinned items still point at it. `undo`: Undo can bring
     /// it back.
     PinnedNotRemoved {
         undo: bool,
     },
     /// The panel closed since the delete, or it was already undone.
     UndoUnavailable,
-    /// A file took the deleted note's name; the note stays in the Recycle Bin.
+    /// A file took the deleted note's or folder's name; nothing moved and Undo stays possible.
     RestoreTaken {
         path: String,
     },

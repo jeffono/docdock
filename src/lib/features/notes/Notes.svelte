@@ -23,6 +23,7 @@ import {
   notesSave,
   notesTexts,
   notesUndoDelete,
+  notesUndoDeleteFolder,
   type OpenNote,
   onNotesChanged,
   onPanelHidden,
@@ -1033,8 +1034,13 @@ async function pinnedAction(action: () => Promise<Pinned>) {
   }
 }
 
-/** The last note moved to the Recycle Bin, offered for Undo until the panel closes. */
-let removed = $state<{ path: string; title: string } | null>(null);
+/**
+ * The last note deleted, or folder deleted without a Recycle Bin, offered for Undo until the panel
+ * closes. `binless`: it waits in the notes folder's own trash and is deleted for good then.
+ */
+let removed = $state<{ path: string; title: string; folder?: boolean; binless?: boolean } | null>(
+  null,
+);
 let deleting = false;
 /** Why the app would not delete a note, until dismissed, the next delete or the panel hides. */
 let warning = $state("");
@@ -1075,15 +1081,30 @@ async function deleteNote(card: Card) {
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
     let problem = "";
     let undo: boolean;
+    let binless = false;
     try {
-      undo = await notesDelete(path);
+      try {
+        undo = await notesDelete(path);
+      } catch (e) {
+        if ((e as { code?: string }).code !== "notRecyclable") throw e;
+        // No Recycle Bin here, as on an encrypted vault: deleting means for good once the panel closes.
+        const agreed = await confirmDialog.ask(
+          t("delete.binlessTitle", { title }),
+          t("delete.binlessText"),
+          t("delete.binlessConfirm"),
+          header?.getBoundingClientRect(),
+        );
+        if (!agreed) return;
+        binless = true;
+        undo = await notesDelete(path, true);
+      }
     } catch (e) {
       const failed = e as { code?: string; undo?: boolean };
       if (failed.code !== "pinnedNotRemoved") throw e;
       problem = errorText(e);
       undo = failed.undo === true;
     }
-    removed = undo && session === panelSession ? { path, title } : null;
+    removed = undo && session === panelSession ? { path, title, binless } : null;
     renamedAway.add(path);
     delete contents[path];
     if (expanded === path) expanded = "";
@@ -1099,25 +1120,31 @@ async function deleteNote(card: Card) {
     deletingPath = "";
   }
 }
-/** Writes the deleted note back where it was, with its pinned items; it is a normal note again. */
+/**
+ * Puts the deleted note or folder back where it was, with its pinned items; it is a normal note or
+ * folder again.
+ */
 async function undoDelete() {
-  const note = removed;
-  if (!note) return;
+  const item = removed;
+  if (!item) return;
   error = "";
   try {
-    await notesUndoDelete(note.path);
+    await (item.folder ? notesUndoDeleteFolder(item.path) : notesUndoDelete(item.path));
   } catch (e) {
     const code = (e as { code?: string }).code;
     error = errorText(e);
     if (code === "undoUnavailable") removed = null;
-    // Only the pinned items failed: the note is back. Otherwise, a taken name keeps Undo to retry.
+    // Only the pinned items failed: the item is back. Otherwise, a taken name keeps Undo to retry.
     if (code !== "pinnedNotRestored") return;
   }
   removed = null;
-  renamedAway.delete(note.path);
+  const inside = `${item.path.toLowerCase()}/`;
+  for (const path of renamedAway)
+    if (path === item.path || (item.folder && path.toLowerCase().startsWith(inside)))
+      renamedAway.delete(path);
   // Focus first: an empty selection on focus would pick the first item.
   list?.focus({ preventScroll: true });
-  selection = note.path;
+  if (!item.folder) selection = item.path;
   changed({ renames: [] });
 }
 
@@ -1257,6 +1284,8 @@ async function deleteFolder() {
     if (editing && inDeletingFolder(selected) && !(await leaveEditor())) return;
     if (opening && inDeletingFolder(opening)) opening = null;
     let problem = "";
+    const session = panelSession;
+    let binless = false;
     try {
       let count = await notesDeleteFolder(path);
       while (count !== null) {
@@ -1269,13 +1298,29 @@ async function deleteFolder() {
           ))
         )
           return;
-        count = await notesDeleteFolder(path, true);
+        try {
+          count = await notesDeleteFolder(path, true, binless);
+        } catch (e) {
+          if (binless || (e as { code?: string }).code !== "notRecyclable") throw e;
+          const agreed = await confirmDialog.ask(
+            t("deleteFolder.binlessTitle", { folder: path }),
+            t("deleteFolder.binlessText"),
+            t("delete.binlessConfirm"),
+            folderTarget?.getBoundingClientRect(),
+          );
+          if (!agreed) return;
+          binless = true;
+          count = await notesDeleteFolder(path, true, true);
+        }
       }
     } catch (e) {
       if ((e as { code?: string }).code !== "pinnedNotRemoved") throw e;
       problem = errorText(e);
     }
     if (removed && inDeletingFolder(removed.path)) removed = null;
+    // Rust keeps a folder for Undo only from its own trash, and only within the panel session.
+    if (binless && session === panelSession)
+      removed = { path, title: path, folder: true, binless: true };
     for (const note of notes) {
       if (!inDeletingFolder(note.path)) continue;
       renamedAway.add(note.path);
@@ -1997,7 +2042,9 @@ onMount(() => {
     {#if removed}
       {@const note = removed}
       <Notice icon="trash">
-        {t("delete.done", { title: note.title })}
+        {note.folder
+          ? t("deleteFolder.done", { folder: note.title })
+          : t(note.binless ? "delete.binlessDone" : "delete.done", { title: note.title })}
         {#snippet actions()}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/snippet}
       </Notice>
     {/if}

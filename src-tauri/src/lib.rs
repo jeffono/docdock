@@ -10,6 +10,7 @@ pub mod panel;
 mod pinned;
 mod platform;
 mod shortcut;
+mod trash;
 mod tray;
 mod updates;
 mod watch;
@@ -68,6 +69,7 @@ pub fn run() {
         commands::notes_delete,
         commands::notes_delete_folder,
         commands::notes_undo_delete,
+        commands::notes_undo_delete_folder,
         commands::notes_paste_image,
         commands::notes_leftovers,
         commands::notes_restore,
@@ -100,6 +102,7 @@ pub fn run() {
             let (requests, receiver) = mpsc::channel();
             tray::setup(app, locale, side, requests.clone())?;
             app.manage(locale);
+            notes::start_trash(app.handle());
             updates::start(app.handle());
             watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());

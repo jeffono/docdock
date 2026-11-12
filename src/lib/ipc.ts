@@ -154,18 +154,31 @@ export const notesMove = (from: string, to: string, base: string) =>
 export const notesFolders = () => invoke<{ path: string; empty: boolean }[]>("notes_folders");
 /** Creates a folder, nested with `/`, keeping one that exists; `invalidFolderName` otherwise. */
 export const notesCreateFolder = (path: string) => invoke<void>("notes_create_folder", { path });
-/** Empty folders go at once; a note count asks for confirmation. null means deleted. */
-export const notesDeleteFolder = (path: string, confirmed = false) =>
-  invoke<{ notes: number; other: number } | null>("notes_delete_folder", { path, confirmed });
+/**
+ * Empty folders go at once; a note count asks for confirmation. null means deleted. `binless` as for
+ * `notesDelete`; only such a folder can come back, through `notesUndoDeleteFolder`.
+ */
+export const notesDeleteFolder = (path: string, confirmed = false, binless = false) =>
+  invoke<{ notes: number; other: number } | null>("notes_delete_folder", {
+    path,
+    confirmed,
+    binless,
+  });
 /**
  * Moves a note to the Recycle Bin and removes its pinned items. Resolves to whether, until the panel
  * closes, `notesUndoDelete` can bring both back; meanwhile saves or renames to its path answer a
- * conflict. `notRecyclable`: the note stays where it is. `pinnedNotRemoved` (with `undo`): the note
- * was deleted all the same.
+ * conflict. `notRecyclable`: the Recycle Bin would not take it, as on an encrypted vault or a network
+ * folder, and the note stays where it is. `binless`, once the user agreed to delete for good: the
+ * note waits in a hidden trash inside the notes folder, for Undo, until the panel closes.
+ * `pinnedNotRemoved` (with `undo`): the note was deleted all the same.
  */
-export const notesDelete = (path: string) => invoke<boolean>("notes_delete", { path });
+export const notesDelete = (path: string, binless = false) =>
+  invoke<boolean>("notes_delete", { path, binless });
 /** `restoreTaken`: a file took the name; nothing changed and undoing stays possible. */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
+/** As `notesUndoDelete`, for a folder deleted with `binless`. */
+export const notesUndoDeleteFolder = (path: string) =>
+  invoke<void>("notes_undo_delete_folder", { path });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },

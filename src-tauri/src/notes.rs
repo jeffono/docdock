@@ -3,7 +3,8 @@ use crate::dock::{Request, Side};
 use crate::error::Error;
 use crate::i18n::Locale;
 use crate::pinned::{self, Kind};
-use crate::platform;
+use crate::platform::{self, hold_ancestry};
+use crate::trash;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
@@ -433,13 +434,20 @@ fn exists(path: &Path) -> bool {
 /// processes.
 static NEXT_SIBLING: AtomicU64 = AtomicU64::new(0);
 /// An unused name next to `path`: `<name>.<pid>-<n>.<suffix>`. Leftovers of a crash are skipped, never
-/// reused or deleted: they may hold the only copy of a version.
+/// reused or deleted: they may hold the only copy of a version. A temporary file's `<name>` is cut to
+/// keep the whole within the name limit, so a note named near it can still be recreated; a backup's
+/// is not, since recovering it reads the note's name from it.
 fn sibling(path: &Path, suffix: &str) -> io::Result<PathBuf> {
     let name = path.file_name().ok_or(io::ErrorKind::InvalidInput)?;
     loop {
         let n = NEXT_SIBLING.fetch_add(1, Ordering::Relaxed);
-        let mut unique = name.to_os_string();
-        unique.push(format!(".{}-{n}.{suffix}", std::process::id()));
+        let tail = format!(".{}-{n}.{suffix}", std::process::id());
+        let mut unique = if suffix == TEMP_SUFFIX {
+            platform::fit_name(name, platform::MAX_NAME.saturating_sub(tail.len()))
+        } else {
+            name.to_os_string()
+        };
+        unique.push(tail);
         let candidate = path.with_file_name(unique);
         match fs::symlink_metadata(&candidate) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(candidate),
@@ -550,6 +558,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
             settings.folder_place = place;
         })?;
         crate::watch::stop();
+        purge_trash(app);
     }
     folder(app)
 }
@@ -802,15 +811,6 @@ fn recreate_note(root: &Path, relative: &str, content: &[u8]) -> Result<Saved, E
     };
     let _ = fs::remove_file(&temp);
     result
-}
-/// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
-fn hold_ancestry(dir: &Path) -> io::Result<Vec<fs::File>> {
-    dir.ancestors()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .map(platform::hold_directory)
-        .collect()
 }
 /// Replaces `target` with `content` through `ReplaceFileW`, which moves the replaced file to a backup:
 /// those are exactly the bytes that were overwritten, even if another app wrote after the check above.
@@ -1186,6 +1186,7 @@ fn delete_folder_in(
         return Err(Error::InvalidPath);
     }
     let path = checked(relative, |_| true)?;
+    let session = deleted().session;
     {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let (target, mut held) = hold_folder(root, path)?;
@@ -1204,38 +1205,143 @@ fn delete_folder_in(
                 return Ok(Some(counts));
             }
         } else {
-            recycle(&target).map_err(|error| match error.kind() {
+            let landed = recycle(&target).map_err(|error| match error.kind() {
                 io::ErrorKind::Unsupported => Error::NotRecyclable,
                 _ => Error::DeleteFailed {
                     detail: error.to_string(),
                 },
             })?;
+            let mut trash = deleted();
+            // Only the notes folder's own trash gives a folder back; the Recycle Bin restores it.
+            if let Some(trashed) = landed.filter(|landed| trash::holds(root, landed))
+                && trash.session == session
+            {
+                trash.folders.push(DeletedFolder {
+                    root: root.to_owned(),
+                    path: relative.to_owned(),
+                    trashed,
+                    pinned: None,
+                });
+            }
         }
         let mut trash = deleted();
         trash
             .notes
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
+        trash
+            .folders
+            .retain(|d| d.root != root || !inside_folder(&d.path, relative));
     }
+    let undo = deleted()
+        .folders
+        .iter()
+        .any(|d| d.root == root && d.path == relative);
+    let change = std::cell::RefCell::new(None);
     edit_pinned(root, |text| {
-        pinned::parse(text)
+        let edited = pinned::parse(text)
             .iter()
             .filter(|item| item.kind == Kind::Note && inside_folder(&item.target, relative))
             .fold(text.to_owned(), |text, item| {
                 pinned::unpin(&text, &item.target)
-            })
+            });
+        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
+        edited
     })
     .map_err(|error| {
         eprintln!("[delete folder] pinned items not removed: {error:?}");
-        Error::PinnedNotRemoved { undo: false }
+        Error::PinnedNotRemoved { undo }
     })?;
+    // One guard: the panel hiding meanwhile clears the folders.
+    if let Some(entry) = deleted()
+        .folders
+        .iter_mut()
+        .find(|d| d.root == root && d.path == relative)
+    {
+        entry.pinned = change.into_inner();
+    }
     Ok(None)
 }
+/// Moves a folder deleted to the notes folder's own trash back to its path, never over a file or
+/// folder that took the name since (`RestoreTaken`, and Undo stays possible). Its pinned items return
+/// as a note's do.
+fn undo_delete_folder_in(root: &Path, relative: &str) -> Result<(), Error> {
+    let pinned = {
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        let mut trash = deleted();
+        let at = trash
+            .folders
+            .iter()
+            .position(|d| d.root == root && d.path == relative)
+            .ok_or(Error::UndoUnavailable)?;
+        let path = checked(relative, |_| true)?;
+        let (parent, _held) = hold_folder(root, path.parent().ok_or(Error::InvalidPath)?)?;
+        let target = parent.join(path.file_name().ok_or(Error::InvalidPath)?);
+        let trashed = &trash.folders[at].trashed;
+        let _held_trash = hold_ancestry(trashed.parent().ok_or(Error::InvalidPath)?)?;
+        if let Err(error) = platform::move_new(trashed, &target) {
+            return Err(if exists(&target) {
+                Error::RestoreTaken {
+                    path: relative.to_owned(),
+                }
+            } else {
+                error.into()
+            });
+        }
+        trash.folders.remove(at).pinned
+    };
+    if let Some((before, after)) = pinned
+        && exists(&root.join(PINNED))
+    {
+        // Pinning a target again adds nothing: each comes back once.
+        let targets: Vec<String> = pinned::parse(&before)
+            .into_iter()
+            .filter(|item| item.kind == Kind::Note && inside_folder(&item.target, relative))
+            .map(|item| item.target)
+            .collect();
+        edit_pinned(root, |text| {
+            if text == after {
+                return before.clone();
+            }
+            targets.iter().fold(text.to_owned(), |text, target| {
+                pinned::repin(&text, &before, &after, target)
+            })
+        })
+        .map_err(|error| {
+            eprintln!("[undo folder] pinned items not restored: {error:?}");
+            Error::PinnedNotRestored
+        })?;
+    }
+    Ok(())
+}
+/// `binless`: the user agreed to delete for good what the Recycle Bin would not take, once the panel
+/// closes; until then it waits in the notes folder's own trash, where Undo finds it.
 pub fn delete_folder(
     app: &AppHandle,
     path: &str,
     confirmed: bool,
+    binless: bool,
 ) -> Result<Option<FolderCounts>, Error> {
-    delete_folder_in(&root(app)?, path, confirmed, platform::recycle)
+    let root = root(app)?;
+    if binless {
+        delete_folder_in(&root, path, confirmed, |target| to_trash(&root, target))
+    } else {
+        delete_folder_in(&root, path, confirmed, platform::recycle)
+    }
+}
+pub fn undo_delete_folder(app: &AppHandle, path: &str) -> Result<(), Error> {
+    undo_delete_folder_in(&root(app)?, path)
+}
+/// Moves `target` to the notes folder's own trash, named after the current panel session; called
+/// under the save lock, as the Recycle Bin is.
+fn to_trash(root: &Path, target: &Path) -> io::Result<Option<PathBuf>> {
+    let session = {
+        let mut trash = deleted();
+        if !trash.roots.iter().any(|r| r == root) {
+            trash.roots.push(root.to_owned());
+        }
+        trash.session
+    };
+    trash::put(root, target, session).map(Some)
 }
 /// A note moved to the Recycle Bin from the app, kept in memory until the panel closes so Undo can
 /// write it back without depending on the Recycle Bin's layout. Its path stays reserved meanwhile:
@@ -1253,10 +1359,23 @@ struct Deleted {
 struct Trash {
     session: u64,
     notes: Vec<Deleted>,
+    folders: Vec<DeletedFolder>,
+    /// Every notes folder whose own trash took something in this run, purged when the panel hides.
+    roots: Vec<PathBuf>,
+}
+/// A folder moved to the notes folder's own trash (`trash.rs`); Undo moves it back from there.
+struct DeletedFolder {
+    root: PathBuf,
+    path: String,
+    trashed: PathBuf,
+    /// `_pinned.md` before and after the folder's items were removed.
+    pinned: Option<(String, String)>,
 }
 static DELETED: Mutex<Trash> = Mutex::new(Trash {
     session: 0,
     notes: Vec::new(),
+    folders: Vec::new(),
+    roots: Vec::new(),
 });
 fn deleted() -> std::sync::MutexGuard<'static, Trash> {
     DELETED.lock().unwrap_or_else(|e| e.into_inner())
@@ -1364,17 +1483,70 @@ fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
     }
     Ok(())
 }
-pub fn delete_note(app: &AppHandle, path: &str) -> Result<bool, Error> {
-    delete_note_in(&root(app)?, path, platform::recycle)
+/// `binless`: as for `delete_folder`.
+pub fn delete_note(app: &AppHandle, path: &str, binless: bool) -> Result<bool, Error> {
+    let root = root(app)?;
+    if binless {
+        delete_note_in(&root, path, |target| to_trash(&root, target))
+    } else {
+        delete_note_in(&root, path, platform::recycle)
+    }
 }
 pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
     undo_delete_in(&root(app)?, path)
 }
-/// The panel closed: deleted notes stay in the Recycle Bin and their names are free again.
+/// The panel closed: deleted notes stay in the Recycle Bin and their names are free again. What the
+/// notes folders' own trash holds is deleted for good, away from the caller's thread.
 pub fn forget_deleted() {
     let mut trash = deleted();
     trash.session += 1;
     trash.notes.clear();
+    trash.folders.clear();
+    let roots = trash.roots.clone();
+    std::thread::spawn(move || {
+        for root in roots {
+            trash::purge(&root, live_session);
+        }
+    });
+}
+/// The live panel session, which the trash purge reads for each entry it judges.
+fn live_session() -> u64 {
+    deleted().session
+}
+/// Deletes for good what may go from the notes folder's own trash, such as what an earlier run left:
+/// on choosing a folder, and at startup through `start_trash`.
+pub fn purge_trash(app: &AppHandle) {
+    let Ok(root) = root(app) else { return };
+    std::thread::spawn(move || trash::purge(&root, live_session));
+}
+/// At startup: names this installation for the trash, creating its id once, then purges. The id
+/// lives in the local app data, which a roaming profile does not carry to another computer, unlike
+/// `settings.json`: two computers with one id would take each other's entries for their own.
+pub fn start_trash(app: &AppHandle) {
+    let file = app
+        .path()
+        .app_local_data_dir()
+        .map(|dir| dir.join("trash-id"));
+    let saved = file
+        .as_ref()
+        .ok()
+        .and_then(|file| fs::read_to_string(file).ok())
+        .map(|id| id.trim().to_owned())
+        .filter(|id| trash::valid_install_id(id));
+    let id = saved.unwrap_or_else(|| {
+        let id = trash::new_install_id();
+        // Unsaved, the id lasts this run: what it leaves behind then goes by age.
+        let written = file.map_err(Error::from).and_then(|file| {
+            fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
+            Ok(write_atomic(&file, id.as_bytes())?)
+        });
+        if let Err(error) = written {
+            eprintln!("[trash] installation id not saved: {error:?}");
+        }
+        id
+    });
+    trash::set_install(id);
+    purge_trash(app);
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -1880,6 +2052,7 @@ pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trash::tests::earlier_run_entry;
     use std::time::{SystemTime, UNIX_EPOCH};
     struct Temp(PathBuf);
     impl Temp {
@@ -2800,6 +2973,198 @@ mod tests {
             "- [A](a.md)\n"
         );
         assert_eq!(undo_delete_in(&t.0, "a.md"), Err(Error::UndoUnavailable));
+    }
+    /// The trash entries left in `root`'s own trash.
+    fn trashed(root: &Path) -> Vec<String> {
+        fs::read_dir(root.join(trash::DIR)).map_or(Vec::new(), |entries| {
+            entries
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+    }
+    #[test]
+    fn a_binless_delete_keeps_the_note_hidden_inside_the_folder_for_undo() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "secret").unwrap();
+        fs::write(t.0.join("b.md"), "b").unwrap();
+        assert_eq!(
+            delete_note_in(&t.0, "a.md", |p| to_trash(&t.0, p)),
+            Ok(true)
+        );
+        assert!(!exists(&t.0.join("a.md")));
+        let kept = trashed(&t.0);
+        assert!(kept.len() == 1 && kept[0].ends_with(" a.md"), "{kept:?}");
+        let listed: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        assert_eq!(listed, ["b.md"]);
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "secret");
+    }
+    #[test]
+    fn a_note_with_a_name_near_the_limit_is_deleted_and_comes_back_under_its_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let name = format!("{}.md", "n".repeat(247));
+        fs::write(t.0.join(&name), "long").unwrap();
+        assert_eq!(delete_note_in(&t.0, &name, |p| to_trash(&t.0, p)), Ok(true));
+        assert!(!exists(&t.0.join(&name)));
+        assert_eq!(undo_delete_in(&t.0, &name), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join(&name)).unwrap(), "long");
+    }
+    #[test]
+    fn a_folder_with_a_name_near_the_limit_comes_back_under_its_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let folder = "f".repeat(250);
+        fs::create_dir(t.0.join(&folder)).unwrap();
+        fs::write(t.0.join(&folder).join("a.md"), "a").unwrap();
+        delete_folder_in(&t.0, &folder, true, |p| to_trash(&t.0, p)).unwrap();
+        assert!(!exists(&t.0.join(&folder)));
+        assert_eq!(undo_delete_folder_in(&t.0, &folder), Ok(()));
+        assert_eq!(
+            fs::read_to_string(t.0.join(&folder).join("a.md")).unwrap(),
+            "a"
+        );
+    }
+    #[test]
+    fn hiding_the_panel_purges_the_binless_trash() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        assert_eq!(
+            delete_note_in(&t.0, "a.md", |p| to_trash(&t.0, p)),
+            Ok(true)
+        );
+        forget_deleted();
+        // The purge runs on a thread of its own.
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while exists(&t.0.join(trash::DIR)) && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!exists(&t.0.join(trash::DIR)));
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Err(Error::UndoUnavailable));
+    }
+    #[test]
+    fn a_binless_delete_refuses_a_trash_that_is_a_link() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let (root, outside) = (t.0.join("notes"), t.0.join("outside"));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        assert!(mklink(&["/J"], &root.join(trash::DIR), &outside));
+        fs::write(root.join("a.md"), "a").unwrap();
+        let deleted = delete_note_in(&root, "a.md", |p| to_trash(&root, p));
+        assert!(
+            matches!(deleted, Err(Error::DeleteFailed { .. })),
+            "{deleted:?}"
+        );
+        assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "a");
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        // Purging leaves a linked trash and what it points at alone.
+        fs::write(outside.join("other.md"), "keep").unwrap();
+        trash::purge(&root, || u64::MAX);
+        assert_eq!(
+            fs::read_to_string(outside.join("other.md")).unwrap(),
+            "keep"
+        );
+    }
+    #[test]
+    fn purging_removes_links_in_the_trash_without_following_them() {
+        let t = Temp::new();
+        let (root, outside) = (t.0.join("notes"), t.0.join("outside"));
+        let folder = root.join(trash::DIR).join(earlier_run_entry("folder"));
+        fs::create_dir_all(&folder).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("other.md"), "keep").unwrap();
+        let link = root.join(trash::DIR).join(earlier_run_entry("link"));
+        assert!(mklink(&["/J"], &link, &outside));
+        assert!(mklink(&["/J"], &folder.join("link"), &outside));
+        trash::purge(&root, || 0);
+        assert!(!exists(&root.join(trash::DIR)));
+        assert_eq!(
+            fs::read_to_string(outside.join("other.md")).unwrap(),
+            "keep"
+        );
+    }
+    #[test]
+    fn a_purge_never_takes_an_entry_of_the_live_session() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "only copy").unwrap();
+        // A purge scheduled when the panel last hid, still running in the next session.
+        let earlier = live_session();
+        forget_deleted();
+        delete_folder_in(&t.0, "folder", true, |p| to_trash(&t.0, p)).unwrap();
+        trash::purge(&t.0, || earlier);
+        trash::purge(&t.0, live_session);
+        assert_eq!(undo_delete_folder_in(&t.0, "folder"), Ok(()));
+        assert_eq!(
+            fs::read_to_string(t.0.join("folder/a.md")).unwrap(),
+            "only copy"
+        );
+    }
+    #[test]
+    fn undoing_a_binless_folder_delete_brings_back_its_content_and_pins() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::create_dir_all(root.join("folder/attachments")).unwrap();
+        fs::write(root.join("folder/a.md"), "a").unwrap();
+        fs::write(root.join("folder/attachments/image.png"), "png").unwrap();
+        let list = "- [A](folder/a.md)\n- [C](c.md)\n";
+        fs::write(root.join(PINNED), list).unwrap();
+        assert_eq!(
+            delete_folder_in(&root, "folder", true, |p| to_trash(&root, p)),
+            Ok(None)
+        );
+        assert!(!exists(&root.join("folder")));
+        assert_eq!(
+            fs::read_to_string(root.join(PINNED)).unwrap(),
+            "- [C](c.md)\n"
+        );
+        assert_eq!(undo_delete_folder_in(&root, "folder"), Ok(()));
+        assert_eq!(fs::read_to_string(root.join("folder/a.md")).unwrap(), "a");
+        assert!(exists(&root.join("folder/attachments/image.png")));
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), list);
+        assert!(trashed(&root).is_empty());
+    }
+    #[test]
+    fn undoing_a_folder_delete_never_merges_into_a_folder_that_took_the_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "deleted").unwrap();
+        delete_folder_in(&t.0, "folder", true, |p| to_trash(&t.0, p)).unwrap();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "new").unwrap();
+        assert_eq!(
+            undo_delete_folder_in(&t.0, "folder"),
+            Err(Error::RestoreTaken {
+                path: "folder".into()
+            })
+        );
+        assert_eq!(fs::read_to_string(t.0.join("folder/a.md")).unwrap(), "new");
+        fs::remove_dir_all(t.0.join("folder")).unwrap();
+        assert_eq!(undo_delete_folder_in(&t.0, "folder"), Ok(()));
+        assert_eq!(
+            fs::read_to_string(t.0.join("folder/a.md")).unwrap(),
+            "deleted"
+        );
+    }
+    #[test]
+    fn a_folder_in_the_recycle_bin_offers_no_undo() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir(t.0.join("folder")).unwrap();
+        fs::write(t.0.join("folder/a.md"), "a").unwrap();
+        let bin = t.0.join("bin");
+        delete_folder_in(&t.0, "folder", true, |p| to_bin(p, &bin)).unwrap();
+        assert_eq!(
+            undo_delete_folder_in(&t.0, "folder"),
+            Err(Error::UndoUnavailable)
+        );
+        assert!(exists(&bin.join("folder/a.md")));
     }
     #[test]
     fn renaming_only_the_case_keeps_the_same_file() {

@@ -24,6 +24,7 @@ src-tauri/src/           Backend (Rust)
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
+  trash.rs               The notes folder's own trash for deletes without a Recycle Bin, and its purge
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes, leaves or returns
@@ -394,9 +395,11 @@ Under the save lock, no entries means non-recursive `remove_dir`; a concurrent n
 fail safely. Otherwise an unconfirmed call returns the recursive listed-note count; a confirmed call
 uses the same permanent-deletion-refusing Recycle Bin operation as notes. Parent handles remain held
 while deletion runs; the target handle is released to permit deletion. Pins within that path are
-removed with the existing conflict-aware pinned helpers; failures report `pinnedNotRemoved` without
-Undo. Descendant paths stay reserved until the panel hides, and note Undo copies inside the folder
-are discarded. The UI leaves an affected editor through its save guard before deleting, cancels
+removed with the existing conflict-aware pinned helpers; failures report `pinnedNotRemoved`. Note
+and folder Undo copies inside the folder are discarded. A folder sent to the Recycle Bin has no Undo
+in the app; one sent to the notes folder's own trash (`binless`, below) does:
+`notes_undo_delete_folder` moves it back with `move_new` under the save lock, never over a file or
+folder that took the name (`restoreTaken`, Undo stays), and puts back its pinned items as a note's. The UI leaves an affected editor through its save guard before deleting, cancels
 pending opens, and blocks new opens while deletion runs. Folder labels also include empty folders,
 using `notes_folders` on listing/reload; moves and note deletes never remove their empty parents.
 
@@ -404,7 +407,12 @@ using `notes_folders` on listing/reload; moves and note deletes never remove the
 held. `platform/recycle.rs` uses the shell's `IFileOperation` on a thread of its own; its progress sink
 cancels the delete when `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`, so where the shell would
 delete for good (no Recycle Bin on the volume, as on a network share) the note stays and the answer is
-`notRecyclable`. The sink also reports where the file landed in the Recycle Bin; its bytes are read
+`notRecyclable`. Without the sink, `FOF_ALLOWUNDO` with `FOF_NO_UI` (which includes
+`FOF_NOCONFIRMATION`) deletes such a file for good without asking, verified on a Cryptomator vault
+mounted through WinFsp; the sink kept the file and the folder there. `SHQueryRecycleBinW` on that
+drive fails with `ERROR_PATH_NOT_FOUND`, but it is not used to decide: it says nothing about the
+bin's size limit or the "remove files immediately" setting, and the sink sees the shell's own decision
+for each item. The sink also reports where the file landed in the Recycle Bin; its bytes are read
 from there, so Undo keeps exactly what was recycled even if another app swapped the path, and kept in
 memory with the path until the panel hides (`forget_deleted`, from `dock.rs`). Hides count as
 sessions: a delete that ends after one keeps nothing and answers that Undo is not possible, and the UI
@@ -419,6 +427,44 @@ exact previous `_pinned.md` if it did not change since, else pins the items agai
 first, the guarded way, so its text is saved and nothing writes after the delete; a conflict there
 stops the delete. While the delete runs, the note cannot open in the editor and an open already in
 flight is dropped.
+
+**Deleting without a Recycle Bin.** On `notRecyclable` the UI asks to delete for good once the panel
+closes, then calls `notes_delete` or `notes_delete_folder` with `binless`. `trash.rs` moves the item
+with `move_new` into `.docdock-trash` at the root of the notes folder, a rename on the same volume, so
+nothing leaves the folder or the vault and the move is whole or not at all. The trash is created if
+needed and held with its ancestry, so a link planted under its name is refused. Everything else
+(Undo bytes, reservation, pinned items) works as for the Recycle Bin. Being hidden, the trash is
+skipped by listing, search, tags, folder labels and the watcher, which reports the move as a
+deletion. Attachments stay beside a deleted note, as with the Recycle Bin; a deleted folder takes its
+own along.
+
+Entries are named `<install>-<run>-<session>-<created>-<n> <name>`, each field in lowercase base36
+(about 30 characters): a random 40-bit installation id kept in `trash-id` in the local app data (not
+in `settings.json`, which a roaming profile carries to other computers; not derived from notes), a
+random id of the run, the panel session, the creation time in ms and a counter. A name that would pass
+the 255-unit limit is cut, never inside a surrogate pair and without a trailing dot or space; Undo
+never reads the entry name, it keeps the original path (and a note's bytes) in memory. A temporary
+file of a recreation is cut the same way, so a note named near the limit comes back too; backups are
+not, since recovering one reads the note's name from it, so saving such a note still fails as before.
+
+A purge removes this run's entries only once their session has ended. Each run holds a `Global\`
+named mutex, `DocDock-trash-<install>-<run>` (`platform/presence.rs`), for as long as it runs, and
+makes no entry without it; another run of this installation, such as one in another Windows session
+of the same user, is purged only once its mutex is gone. Another installation's entries, and those of
+a run whose state cannot be told, go only when their creation time is over 30 days old, since that
+computer's panel may still offer their Undo in a synced folder. Names in no such form are not
+DocDock's and stay. The trade-offs: another computer's deleted items linger up to 30 days in the
+synced folder (encrypted in a vault); an Undo left offered longer than that on another computer can
+lose its item; and a computer whose clock runs more than 30 days ahead can take a fresh entry from
+another for old (a clock behind only delays the purge). When the panel hides, `forget_deleted` purges on a thread of its own each notes folder whose
+trash took something during the run; startup (`start_trash`) and choosing a folder purge the current
+one. The purge reads the live session again for each entry, under the deleted-items lock: a session
+that has ended never offers Undo again (hiding clears it, and a delete records Undo only if its
+session is still live after the move), so a purge that started long ago cannot remove a newer
+session's entry, and folder Undo, which moves the entry back under the same lock, never races it.
+Purging removes links inside without following them, leaves a trash that is a link alone, and keeps
+what it cannot remove (a locked vault) for the next purge. A synced notes folder syncs the trash too
+until the purge: in a vault, encrypted like the rest.
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
