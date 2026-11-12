@@ -1,6 +1,12 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import Notes from "./lib/features/notes/Notes.svelte";
+import {
+  activation,
+  dismissActivationNotice,
+  loadActivation,
+  watchActivation,
+} from "./lib/features/preferences/activation.svelte";
 import Preferences from "./lib/features/preferences/Preferences.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
@@ -22,6 +28,7 @@ import {
 } from "./lib/ipc";
 
 import IconButton from "./lib/ui/IconButton.svelte";
+import Notice from "./lib/ui/Notice.svelte";
 
 let notes: Notes;
 let pinned = $state(false);
@@ -42,6 +49,8 @@ async function action(work: Promise<void>) {
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
 
 onMount(() => {
+  const activationChanged = watchActivation();
+  void action(loadActivation());
   let exiting = false;
   const cancelled = onExitCancelled(() => {
     exiting = false;
@@ -88,6 +97,7 @@ onMount(() => {
       );
   });
   const shortcut = (event: KeyboardEvent) => {
+    if (activation.recording) return;
     if (
       !event.isComposing &&
       event.ctrlKey &&
@@ -142,7 +152,16 @@ onMount(() => {
   window.addEventListener("keydown", shortcut, true);
   return () => {
     window.removeEventListener("keydown", shortcut, true);
-    for (const listener of [stop, state, visible, toggle, search, exit, cancelled])
+    for (const listener of [
+      stop,
+      state,
+      visible,
+      toggle,
+      search,
+      exit,
+      cancelled,
+      activationChanged,
+    ])
       void listener.then((unlisten) => unlisten());
   };
 });
@@ -243,6 +262,12 @@ function togglePin() {
     <IconButton quiet icon="pin" label={t(pinned ? "app.unpinShortcut" : "app.pinShortcut")} pressed={pinned} onclick={togglePin} />
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
+  {#if activation.failed}
+    <Notice icon="alert">
+      {t(activation.shortcut ? "notice.activationFailed" : "notice.activationNone", { failed: activation.failed, shortcut: activation.shortcut ?? "" })}
+      {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={dismissActivationNotice} />{/snippet}
+    </Notice>
+  {/if}
   {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
   <Notes bind:this={notes} browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>

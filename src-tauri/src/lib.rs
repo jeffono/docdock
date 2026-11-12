@@ -29,6 +29,8 @@ pub fn run() {
         commands::app_set_theme,
         commands::app_autostart,
         commands::app_set_autostart,
+        commands::shortcut_record,
+        commands::shortcut_set,
         commands::panel_activate,
         commands::panel_set_pinned,
         commands::panel_close,

@@ -280,7 +280,7 @@ pinned and unpinned notes differ only in section and starting state.
 | Ctrl+E                    | Toggle editing on the selected card                                                                    |
 | Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
 | Esc                       | Leave editing; next, return to the bar and select its text; from the bar, close                        |
-| Ctrl+Alt+Space            | Open and go to the search bar with its text selected; from the search bar, close                       |
+| Ctrl+Alt+Space (default)  | Open and go to the search bar with its text selected; from the search bar, close                       |
 
 ## Preferences
 
@@ -292,7 +292,16 @@ General contains the folder path, folder picker, note order, date grouping, pane
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
 shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
-keys, deriving formatting keys from the editor bindings. From anywhere in Notes (including search and editing), Ctrl+/ opens
+keys, deriving formatting keys from the editor bindings; the activation row shows the current
+combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
+neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
+button becomes Cancel, the current global shortcut and panel shortcuts stand aside, and the next
+non-modifier key ends recording; the key shown is the one the layout gives, such as A for the AZERTY
+key at QWERTY's Q. Esc, Tab, leaving or hiding the panel, or 30 seconds without a key cancels. A refused combination (no Ctrl,
+Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts such as ABNT2; a key that is not a
+letter, digit, F1–F24, arrow, Space or navigation key on the current layout) or one taken by another app keeps the previous shortcut and explains why in the
+danger color below the hint. If the saved combination cannot be registered at startup, the default is
+used and a dismissible warning notice under the top bar names both. From anywhere in Notes (including search and editing), Ctrl+/ opens
 a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
 or dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
 previous focus, including the editor cursor. No native popup takes panel focus. Appearance offers

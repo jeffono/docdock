@@ -24,7 +24,7 @@ Quick fixes first: the search tasks in M7 build on the new Esc and search behavi
   already pins a card). Add them to tooltips and the shortcut sheet. `basic`
 - [x] "Start with Windows" in Preferences > General, through `platform/autostart.rs` and mirrored with the
   tray item. `standard`
-- [ ] Custom activation shortcut in Preferences: record the pressed combination, re-register it at
+- [x] Custom activation shortcut in Preferences: record the pressed combination, re-register it at
   runtime and keep the previous one with a notice if registration fails (taken by another app). Refuse
   Ctrl+Alt with a character key, which is AltGr on layouts such as ABNT2. Other shortcuts stay fixed.
   `advanced`
