@@ -7,9 +7,12 @@ import {
   type NotesFolder,
   notesFolder,
   onAutostartChanged,
+  onNotesChanged,
   type PanelFocus,
   panelResize,
   panelSetSide,
+  vaultChoose,
+  vaultClear,
 } from "../../ipc";
 import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
@@ -17,6 +20,8 @@ import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import ShortcutList from "../notes/ShortcutList.svelte";
 import ActivationShortcut from "./ActivationShortcut.svelte";
+import UnlockVault from "./UnlockVault.svelte";
+import { loadVault, vaultPath } from "./vault-store";
 
 let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
   $props();
@@ -49,7 +54,15 @@ async function refreshFolder() {
   folder = await notesFolder();
 }
 onMount(() => {
-  void action(refreshFolder);
+  void action(async () => {
+    await refreshFolder();
+    await loadVault();
+  });
+  const notesChanged = onNotesChanged(() => {
+    void refreshFolder().catch((e) => {
+      error = errorText(e);
+    });
+  });
   let disposed = false;
   let unlisten: (() => void) | undefined;
   void (async () => {
@@ -70,6 +83,7 @@ onMount(() => {
   return () => {
     disposed = true;
     unlisten?.();
+    void notesChanged.then((stop) => stop());
   };
 });
 </script>
@@ -90,7 +104,14 @@ onMount(() => {
         <h3>{t("preferences.folder")}</h3>
         <p class="path">{folder?.path ?? t("notes.chooseHint")}</p>
         {#if folder && folder.state !== "available"}<p role="alert">{t(folder.state === "missing" ? "notes.missing" : "notes.unavailable")}</p>{/if}
+        {#if folder && folder.state !== "available"}<UnlockVault />{/if}
         <Button variant="neutral" disabled={busy} onclick={() => action(async () => { error = (await choose()) ?? ""; await refreshFolder(); })}>{t("notes.choose")}</Button>
+      </div>
+      <div class="setting">
+        <h3>{t("vault.label")}</h3>
+        <p class="path">{$vaultPath ?? t("vault.optional")}</p>
+        <Button variant="neutral" disabled={busy} onclick={() => action(async () => { vaultPath.set(await vaultChoose()); })}>{t("vault.choose")}</Button>
+        {#if $vaultPath}<Button variant="neutral" disabled={busy} onclick={() => action(async () => { await vaultClear(); vaultPath.set(null); })}>{t("vault.clear")}</Button>{/if}
       </div>
       <div class="setting"><h3>{t("order.label")}</h3><NoteOrder preferences /><p>{t("order.search")}</p></div>
       <div class="setting">

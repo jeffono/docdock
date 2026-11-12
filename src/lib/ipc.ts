@@ -115,6 +115,11 @@ export type NotesFolder = { path: string; state: FolderState };
 /** `modified` is in ms since the Unix epoch; 0 if unknown. */
 export type Note = { path: string; name: string; modified: number; created: number };
 export const notesFolder = () => invoke<NotesFolder | null>("notes_folder");
+/** Only the saved, validated Cryptomator file can be opened; no launch path comes from the UI. */
+export const vaultFile = () => invoke<string | null>("vault_file");
+export const vaultChoose = () => invoke<string | null>("vault_choose");
+export const vaultClear = () => invoke<void>("vault_clear");
+export const vaultUnlock = () => invoke<void>("vault_unlock");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
 export const notesList = () => invoke<Note[]>("notes_list");
 /** `version` is opaque: pass it back to `notesSave` as `base`. */

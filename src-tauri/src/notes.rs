@@ -53,6 +53,13 @@ struct Settings {
     group_by_folder: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
+    /// Optional Cryptomator entry point, a preference independent of note content.
+    #[serde(
+        default,
+        deserialize_with = "text_or_default",
+        skip_serializing_if = "Option::is_none"
+    )]
+    vault_file: Option<String>,
     #[serde(default, deserialize_with = "side_or_default")]
     side: Side,
     /// Panel width in logical pixels; absent for the default.
@@ -381,6 +388,64 @@ impl Drop for DialogGuard {
     fn drop(&mut self) {
         let _ = self.0.send(Request::SetDialog(false));
     }
+}
+pub fn vault_file(app: &AppHandle) -> Result<Option<String>, Error> {
+    Ok(load(&config(app)?).vault_file)
+}
+pub fn clear_vault_file(app: &AppHandle) -> Result<(), Error> {
+    update(app, |settings| settings.vault_file = None)
+}
+pub fn choose_vault_file(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+) -> Result<Option<String>, Error> {
+    requests
+        .send(Request::SetDialog(true))
+        .map_err(Error::unexpected)?;
+    let _guard = DialogGuard(requests.clone());
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| Error::unexpected("main window missing"))?;
+    if let Some(file) = app
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .add_filter("Cryptomator", &["cryptomator"])
+        .blocking_pick_file()
+    {
+        let path = file.into_path().map_err(Error::unexpected)?;
+        validate_vault_file(&path)?;
+        update(app, |settings| {
+            settings.vault_file = Some(path.to_string_lossy().into_owned())
+        })?;
+    }
+    vault_file(app)
+}
+/// Validate again at launch: the saved file can have been removed or replaced since selection.
+fn validate_vault_file(path: &Path) -> Result<PathBuf, Error> {
+    let extension = |path: &Path| {
+        path.extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("cryptomator"))
+    };
+    if !path.is_absolute() || !extension(path) {
+        return Err(Error::InvalidVaultFile);
+    }
+    let target = fs::canonicalize(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            Error::VaultFileMissing
+        } else {
+            Error::from(error)
+        }
+    })?;
+    if !extension(&target) || !target.is_file() {
+        return Err(Error::InvalidVaultFile);
+    }
+    Ok(target)
+}
+pub fn unlock_vault(app: &AppHandle) -> Result<(), Error> {
+    let file = vault_file(app)?.ok_or(Error::InvalidVaultFile)?;
+    let target = validate_vault_file(Path::new(&file))?;
+    platform::external::open_file(app, &target.to_string_lossy())
 }
 pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Folder>, Error> {
     requests
@@ -1745,6 +1810,64 @@ mod tests {
             .unwrap()
             .status
             .success()
+    }
+    // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
+    #[test]
+    fn vault_refuses_other_extensions() {
+        let t = Temp::new();
+        let file = t.0.join("vault.exe");
+        fs::write(&file, "").unwrap();
+        assert_eq!(validate_vault_file(&file), Err(Error::InvalidVaultFile));
+    }
+    #[test]
+    fn vault_refuses_relative_paths() {
+        assert_eq!(
+            validate_vault_file(Path::new("vault.cryptomator")),
+            Err(Error::InvalidVaultFile)
+        );
+    }
+    #[test]
+    fn vault_reports_removed_file() {
+        let t = Temp::new();
+        assert_eq!(
+            validate_vault_file(&t.0.join("vault.cryptomator")),
+            Err(Error::VaultFileMissing)
+        );
+    }
+    #[test]
+    fn vault_refuses_directory_with_matching_extension() {
+        let t = Temp::new();
+        let path = t.0.join("vault.cryptomator");
+        fs::create_dir(&path).unwrap();
+        assert_eq!(validate_vault_file(&path), Err(Error::InvalidVaultFile));
+    }
+    #[test]
+    fn vault_accepts_existing_file_case_insensitively() {
+        let t = Temp::new();
+        let file = t.0.join("vault.CRYPTOMATOR");
+        fs::write(&file, "").unwrap();
+        assert_eq!(
+            validate_vault_file(&file).unwrap(),
+            fs::canonicalize(file).unwrap()
+        );
+    }
+    #[test]
+    fn vault_refuses_link_to_another_file_type() {
+        let t = Temp::new();
+        let file = t.0.join("vault.exe");
+        let link = t.0.join("vault.cryptomator");
+        fs::write(&file, "").unwrap();
+        if !mklink(&[], &link, &file) {
+            return;
+        }
+        assert_eq!(validate_vault_file(&link), Err(Error::InvalidVaultFile));
+    }
+    #[test]
+    fn malformed_vault_preference_preserves_other_settings() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"vault_file":42,"relative_dates":true}"#).unwrap();
+        assert!(settings.vault_file.is_none());
+        assert!(settings.relative_dates);
     }
     #[test]
     fn list_filters_and_sorts() {

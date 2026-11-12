@@ -576,6 +576,16 @@ mistaken for one. Restoring renames the backup to the note name, or to `<stem> (
 `(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
 the user compares the copies and removes the extra one.
 
+**Optional vault.** `vault_file` in `settings.json` is a preference, independent of note-derived data,
+updated under the existing settings mutex and atomic replacement. `vault_choose` owns a filtered native
+file picker with the same dialog guard as folder choice; cancellation preserves the setting and
+`vault_clear` removes it. `vault_unlock` takes no path from the UI: it reads the saved path and validates
+an absolute, existing regular file with a `.cryptomator` extension (also on its canonical target), then
+uses `platform::external` and the existing opener plugin to launch the associated app. Other file types
+are refused; missing files get a translated error. Cryptomator handles unlocking and Windows Hello;
+the folder monitor below detects the mounted folder's return. Preferences follows `notes-changed` too,
+so its unavailable state clears when the folder returns.
+
 **Folder away.** A locked vault, an unplugged drive or an offline share takes the notes folder away;
 creating it again would write plaintext under the vault's mount point. `notes_folder` reports a
 `state`: `available`, `unavailable` or `missing`. The pure `availability` rule in `notes.rs` calls the

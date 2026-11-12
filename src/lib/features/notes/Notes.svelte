@@ -50,6 +50,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
+import UnlockVault from "../preferences/UnlockVault.svelte";
 import {
   barDefault,
   downOpensHistory,
@@ -2109,8 +2110,9 @@ onMount(() => {
     <div class="empty">
       <p>{folder ? t(folder.state === "missing" ? "notes.missing" : "notes.unavailable") : t("notes.chooseHint")}</p>
       {#if folder}<p class="path">{folder.path}</p>{/if}
+      {#if folder}<UnlockVault />{/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <Button onclick={choose}>{t("notes.choose")}</Button>
+      <Button variant="neutral" onclick={choose}>{t("notes.choose")}</Button>
     </div>
   {/if}
   </div>

@@ -29,7 +29,7 @@ to a vault the user mounts, such as Cryptomator, which stays optional; see
   such notes an Undo that keeps the copy inside the notes folder. `advanced`
 - [x] Hide the panel from screen capture and sharing with `WDA_EXCLUDEFROMCAPTURE`. `standard`
 - [x] Copying from the editor stays out of clipboard history and cloud clipboard. `advanced`
-- [ ] Optional vault file in Preferences: an Unlock action on the unavailable state opens
+- [x] Optional vault file in Preferences: an Unlock action on the unavailable state opens
   `vault.cryptomator`, which Cryptomator unlocks with Windows Hello. `standard`
 - [x] README section in English and pt-BR: protecting notes with Cryptomator, including that moving notes
   into a vault does not remove earlier plaintext from cloud history. `basic`

@@ -5,6 +5,7 @@ pub mod browser;
 mod capture;
 mod clipboard;
 pub mod edge;
+pub mod external;
 mod files;
 mod guard;
 pub mod keyboard;

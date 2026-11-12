@@ -300,7 +300,7 @@ pinned and unpinned notes differ only in section and starting state.
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser
 and Shortcuts section buttons. The page stays loaded but hidden. The gear or Esc returns to the previous
 Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, note order, date grouping, relative dates, panel side and a
+General contains the folder path, folder picker, optional Vault file, note order, date grouping, relative dates, panel side and a
 "Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
@@ -323,6 +323,13 @@ computer; it also shows the panel width, how to resize it and a reset. Folder ch
 use neutral buttons. The active section has an accessible name without repeating the tab
 label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors.
 Opening a page preserves the Notes query.
+
+Vault file shows its path (wrapping when necessary), or a short optional hint, with neutral Choose file
+and Clear buttons. The native picker filters `.cryptomator` files. With a configured vault and an
+unavailable or missing notes folder, both the list's empty state and the folder setting show Unlock
+beside the neutral Choose folder action. Unlock opens the saved file in its associated app; Cryptomator
+handles authentication, including Windows Hello when configured. A missing vault file shows a nearby
+error asking to choose it again. The existing folder poll restores the list without another action.
 
 ## Panel navigation
 

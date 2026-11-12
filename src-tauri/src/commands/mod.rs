@@ -14,6 +14,26 @@ pub fn app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+#[tauri::command(async)]
+pub fn vault_file(app: AppHandle) -> Result<Option<String>, Error> {
+    crate::notes::vault_file(&app)
+}
+#[tauri::command(async)]
+pub fn vault_choose(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+) -> Result<Option<String>, Error> {
+    crate::notes::choose_vault_file(&app, &requests)
+}
+#[tauri::command(async)]
+pub fn vault_clear(app: AppHandle) -> Result<(), Error> {
+    crate::notes::clear_vault_file(&app)
+}
+#[tauri::command(async)]
+pub fn vault_unlock(app: AppHandle) -> Result<(), Error> {
+    crate::notes::unlock_vault(&app)
+}
+
 #[tauri::command]
 pub fn app_locale(locale: State<'_, Locale>) -> Locale {
     *locale
