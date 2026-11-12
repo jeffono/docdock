@@ -258,7 +258,8 @@ pinned and unpinned notes differ only in section and starting state.
   work as from the search bar, and typing a character goes to the search bar. Enter acts on the
   selection even on a focused button; Space presses the button.
 - **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
-  expands it and Ctrl+Enter or ↑ reaches Create. Pinning uses a bookmark icon, distinct from the header's
+  expands it and Ctrl+Enter or ↑ reaches Create. Every way of creating opens the new note expanded and
+  editing, so typing goes into it. Pinning uses a bookmark icon, distinct from the header's
   thumbtack that keeps the panel open. Rows and lines show a snippet with the matches highlighted under
   the title; previews and expanded cards show the content. Reading cards hide the frontmatter title
   (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
@@ -372,7 +373,8 @@ In notes mode Enter always activates the selected entry. URL-like text offers an
 after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
 keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
 it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries remain
-local. Web actions use neutral icon rows; all untrusted suggestions appear as text.
+local. Web actions use neutral icon rows; all untrusted suggestions appear as text. In Notes they
+follow the notes as a last "Search the web" section, with note row geometry and selection.
 
 ## Note editor
 

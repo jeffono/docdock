@@ -620,9 +620,9 @@ export async function choose() {
   }
 }
 
-/** Creates the note for the typed text and opens it expanded. */
+/** Creates the note for the typed text and opens it expanded for editing. */
 let creating = false;
-async function create(text: string, content = "", annotate = false) {
+async function create(text: string, content = "") {
   if (creating) return;
   creating = true;
   try {
@@ -641,10 +641,8 @@ async function create(text: string, content = "", annotate = false) {
         await sync(list);
         expanded = name;
         selection = name;
-        if (annotate) {
-          await webSetVisible(false);
-          await edit(name);
-        }
+        await webSetVisible(false);
+        await edit(name);
         return;
       }
       taken.push(name);
@@ -673,7 +671,7 @@ async function savePage() {
     pageUnavailable = page === null;
     if (!page) return;
     const note = pageNote(page);
-    await create(note.name, note.text, true);
+    await create(note.name, note.text);
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -1934,7 +1932,7 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query), "", true)} />
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!folder?.available || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
     </div>
   {#if completionItems.length}
     <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
@@ -2071,8 +2069,9 @@ onMount(() => {
         {/if}
         </div>
       {/each}
+      {#if shownWebItems.length}<div class="section-heading"><h2>{t("list.web")}</h2></div>{/if}
       {#each shownWebItems as entry (entry.key)}
-        <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
+        <button class="suggestion in-list" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
           {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
       {/each}
       {#if !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
@@ -2218,6 +2217,17 @@ onMount(() => {
     text-align: left;
   }
   .suggestion.selected { background: var(--color-selected); }
+  /* Web actions after the notes read as one more list section, with note row geometry. */
+  .suggestion.in-list {
+    width: calc(100% - var(--panel-inset-left) - var(--panel-inset-right));
+    margin: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+  .suggestion.in-list:hover { background: var(--color-surface); }
+  .suggestion.in-list.selected { border-color: var(--color-accent); background: var(--color-selected); }
   .suggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .missing {
