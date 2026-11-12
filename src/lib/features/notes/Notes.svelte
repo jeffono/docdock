@@ -548,7 +548,10 @@ async function reloadContents(current: number) {
   );
 }
 
-/** Drops every note's text, name and tag from memory: the list, previews, index and pinned items. */
+/**
+ * Drops every note's text, name and tag from memory: the list, previews, index, pinned items, and
+ * what menus, selection and drags still point at.
+ */
 function forget() {
   notes = [];
   folders = [];
@@ -558,6 +561,14 @@ function forget() {
   pinned = { version: "", items: [], restorable: false };
   folderIndex.reset();
   indexVersion++;
+  cardMenu?.close();
+  folderMenu?.close();
+  menuCard = null;
+  menuFolder = "";
+  selection = "";
+  dragged = null;
+  dragOver = "";
+  renamedAway.clear();
 }
 
 async function refresh(value: NotesFolder | null) {
@@ -1902,10 +1913,11 @@ onMount(() => {
 <ShortcutSheet bind:this={shortcutSheet} />
 <ConfirmDialog bind:this={confirmDialog} />
 <MovePicker bind:this={movePicker} />
-<Menu bind:this={folderMenu} label={t("deleteFolder.menu")}>
+<Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
 </Menu>
-<Menu bind:this={cardMenu} label={t("menu.label")}>
+<!-- Closing forgets the card: it holds the note's title, tags and snippet. -->
+<Menu bind:this={cardMenu} label={t("menu.label")} ontoggle={(open) => { if (!open) menuCard = null; }}>
   {#if menuCard}
     {@const card = menuCard}
     <button role="menuitem" tabindex="-1" onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>

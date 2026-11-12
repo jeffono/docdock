@@ -544,29 +544,51 @@ the user compares the copies and removes the extra one.
 
 **Folder away.** A locked vault, an unplugged drive or an offline share takes the notes folder away;
 creating it again would write plaintext under the vault's mount point. `notes_folder` reports a
-`state`: `available`, `unavailable` or `missing`. The pure `availability` rule in `notes.rs` calls the
-folder `missing` only when its parent is a readable folder that shows it absent; a folder, volume root
-or share that cannot be read or is gone above it is `unavailable`, as is anything it cannot tell. A
-vault mounted directly at the notes folder therefore reads as `missing`: both states behave the same,
-only the text differs. Every command starts from `root`, which answers `folderUnavailable` or
-`folderMissing` without touching the disk further, and no write path creates the folder or its parents
-(saves, recreation, pinned edits and restore, folder creation, pasted images, leftovers, moves); a
-regression test runs them against a missing folder under a missing parent. `notes_folder` and
-`notes_list` run off the main thread, since an offline share can take seconds to answer.
+`state`: `available`, `unavailable` or `missing`. A folder is available only if it lists: an ACL that
+allows reading attributes but refuses listing makes it `unavailable`. The pure `availability` rule in
+`notes.rs` calls it `missing` only when its parent lists, without an entry of that name; a name the
+parent lists that does not open (a link or mount point whose target left), a parent that is gone or
+unreadable, a volume root or share that left, and anything it cannot tell are `unavailable`. A vault
+mounted directly at the notes folder that leaves no folder behind therefore reads as `missing`: both
+states behave the same, only the text differs.
+
+**Place.** A locked vault can also leave an empty local folder at its mount point, which lists. So
+choosing a folder records its place in `settings.json`: the file system name of the volume holding it
+and whether that volume differs from the volume at the root of its path (`mounted`, as for a vault or
+drive mounted in a folder). Only that, never a note's name. Serial numbers are compared but not stored,
+since a vault's can change on every unlock. A folder at another place behind the same path is
+`unavailable`. Settings written before places existed record the place the first time the folder is
+used. Moving the notes folder on purpose to another place under the same path (another file system, or
+in or out of a mounted volume) also reads as unavailable until it is chosen again in Preferences, which
+records the new place; no prompt offers to accept it, since a locked vault looks the same.
+
+Every command starts from `root`, which opens the folder through links, on the volume that really
+holds it (`platform::open_folder`), checks the place on that handle (`platform::volume_of`) and keeps
+the handle open until the command ends. The folder then cannot be renamed or deleted meanwhile, and a
+vault asks before locking under it. Writes still go by path: a forced unmount in the instant between
+the check and a write is the remaining gap. `root` answers `folderUnavailable` or `folderMissing`
+without touching the disk further, and no write path creates the folder or its parents (saves,
+recreation, pinned edits and restore, folder creation, pasted images, leftovers, moves); a regression
+test runs them against a missing folder under a missing parent. `notes_folder` and `notes_list` run off
+the main thread, since an offline share can take seconds to answer.
+
 `watch::monitor` checks the folder's state every 2 s on its own thread: an event may never come from a
 volume that left, and a watch that ended sees no return. When the state of the same folder changes, it
 emits `notes-changed`; on leaving it also stops the watch, so the next listing starts a new one, and
 forgets the deleted notes kept for Undo. A change of folder is the picker's, which the UI follows. The
 UI's reread asks the pure `folderAction` (`features/notes/folder-state.ts`) what to do. Leaving with no
 unsaved text closes any editor and forgets every note's text, name and tag: list, previews, pinned
-items, search index and its tag suggestions; nothing is read while away. Leaving while the editor holds
-unsaved text (an edit not saved or an image being pasted) forgets everything else but keeps that editor
-as the only card: the note's text and history stay in memory until it is saved or discarded, the
-accepted exception to "nothing in memory". Its saves fail with no fallback copy anywhere; leaving
-editing refuses, as for any failed save, so only Discard my changes or the folder's return ends it. On
-return the editor saves against the version it read, so a change made meanwhile conflicts as usual, and
-the list, index, pinned items and leftovers are read again; without an editor, it starts over as on
-choosing the folder.
+items, search index and its tag suggestions, and what the card and folder menus, the selection and a
+pin drag point at (the card menu also forgets its card on closing); nothing is read while away. Leaving
+while the editor holds unsaved text (an edit not saved or an image being pasted) forgets everything
+else but keeps that editor as the only card: the note's text and history stay in memory until it is
+saved or discarded, the accepted exception to "nothing in memory". Its saves fail with no fallback copy
+anywhere; leaving editing refuses, as for any failed save. Its notice always offers Discard my changes,
+which needs no folder, also after a conflict, whose own actions read the disk and hide while the folder
+is away. On return the editor calls autosave's `retry`: a failed save is sent again, and a save still in
+flight from before the return (a slow share) is sent again if it fails. It saves against the version it
+read, so a change made meanwhile conflicts as usual, and the list, index, pinned items and leftovers are
+read again; without an editor, it starts over as on choosing the folder.
 
 ## Note list
 

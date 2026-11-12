@@ -21,6 +21,11 @@ export type Autosave = {
   edit(content: string): void;
   /** Saves now and resolves once nothing is waiting, or saving stopped on a conflict or error. */
   flush(): Promise<AutosaveState>;
+  /**
+   * Saves what is not on disk after a failure, such as the notes folder coming back. A save in flight
+   * may have started before it came back: if that one fails, it is sent again at once.
+   */
+  retry(): void;
   /** Content not yet on disk, such as the edit kept after a conflict. */
   unsaved(): string | null;
   /** Drops what is not on disk and ignores later edits; a save in flight still completes. */
@@ -41,6 +46,10 @@ export function createAutosave({
   let inFlight: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
+  /** `retry` came while a save was in flight: a failure of that save sends it again. */
+  let retrying = false;
+  /** The save in flight failed after `retry`: start again once it is done. */
+  let again = false;
 
   function set(next: AutosaveState, error?: unknown) {
     state = next;
@@ -76,15 +85,20 @@ export function createAutosave({
       } catch (error) {
         if (stopped) return;
         pending ??= content;
-        set("error", error);
+        if (retrying) again = true;
+        else set("error", error);
       } finally {
         sending = null;
+        retrying = false;
       }
     })();
     // `then` runs after this assignment even if `save` throws synchronously.
     inFlight = saving.then(() => {
       inFlight = null;
-      if (state === "pending" && timer === undefined) schedule();
+      if (again) {
+        again = false;
+        if (pending !== null && !stopped) void start();
+      } else if (state === "pending" && timer === undefined) schedule();
     });
     return inFlight;
   }
@@ -110,6 +124,11 @@ export function createAutosave({
         await start();
         if (state === "error") return state;
       }
+    },
+    retry() {
+      if (stopped) return;
+      if (inFlight) retrying = true;
+      else if (state === "error") void this.flush();
     },
     unsaved: () => pending ?? sending,
     stop() {

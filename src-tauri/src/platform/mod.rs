@@ -10,7 +10,8 @@ mod recycle;
 mod windows;
 
 pub use self::files::{
-    delete_on_close, hold_directory, move_new, open_exclusive, paste_timestamp, replace_file,
+    delete_on_close, hold_directory, move_new, open_exclusive, open_folder, paste_timestamp,
+    replace_file, volume_of,
 };
 pub use self::guard::guard;
 pub use self::recycle::recycle;
