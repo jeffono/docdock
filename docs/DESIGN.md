@@ -241,7 +241,8 @@ pinned and unpinned notes differ only in section and starting state.
   refuses it (an encrypted vault, a network folder), "Deleted “title”. It stays in the trash for 30
   days (Preferences)." (Undo while the item is in the trash, also after the panel closes). It leaves
   after 10 seconds in sight, or when closed, undone or replaced by another delete; time stops while the
-  pointer or focus is on it and while the panel is hidden. So that an undoable delete is noticed even by a distracted
+  pointer or focus is on it and while the panel is hidden or Preferences or a page covers the
+  notes. So that an undoable delete is noticed even by a distracted
   user, the notice slides down and fades in over two `--duration`, then the Undo button pulses twice
   (an accent outline with the selected background and accent text, five `--duration` each); with
   reduced motion it appears at once and Undo keeps that selected look. Undo brings the note and its

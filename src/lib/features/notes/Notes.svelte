@@ -1075,10 +1075,12 @@ let noticeSince = 0;
 let noticeHovered = false;
 let noticeFocused = false;
 let noticeAway = false;
+/** Preferences or the page covers the notes. */
+let noticeCovered = false;
 
 function noticeRun() {
   noticePause();
-  if (!removed || noticeHovered || noticeFocused || noticeAway) return;
+  if (!removed || noticeHovered || noticeFocused || noticeAway || noticeCovered) return;
   noticeSince = Date.now();
   noticeTimer = window.setTimeout(() => {
     removed = null;
@@ -1098,6 +1100,13 @@ $effect(() => {
   noticeHovered = noticeFocused = false;
   noticeRun();
   return noticePause;
+});
+
+$effect(() => {
+  const covered = inactive || browser;
+  if (covered === noticeCovered) return;
+  noticeCovered = covered;
+  untrack(() => (covered ? noticePause() : noticeRun()));
 });
 
 /** Back in sight: the pointer moved or focus arrived while the panel was hidden. */

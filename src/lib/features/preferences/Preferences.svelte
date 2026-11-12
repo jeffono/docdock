@@ -47,13 +47,23 @@ let trash = $state<TrashItem[] | null>([]);
 /** Where the last restored item went. */
 let restored = $state("");
 const away = ["noFolder", "folderUnavailable", "folderMissing", "folderUnrecognized"];
+/** Bumped when the list is dropped, so an answer still on its way is ignored. */
+let trashLoads = 0;
 async function loadTrash() {
+  const load = ++trashLoads;
   try {
-    trash = await notesTrash();
+    const items = await notesTrash();
+    if (load === trashLoads) trash = items;
   } catch (e) {
     if (!away.includes((e as { code?: string }).code ?? "")) throw e;
-    trash = null;
+    if (load === trashLoads) trash = null;
   }
+}
+/** Note names stay out of memory outside the Trash section and while the folder is away (0009). */
+function forgetTrash(items: TrashItem[] | null) {
+  trashLoads++;
+  trash = items;
+  restored = "";
 }
 /** The item's name as the notes list shows it. */
 function trashName({ path, folder }: TrashItem) {
@@ -93,7 +103,7 @@ async function emptyTrash() {
   });
 }
 $effect(() => {
-  if (section !== "trash") return;
+  if (section !== "trash") return forgetTrash([]);
   restored = "";
   void action(loadTrash);
 });
@@ -123,7 +133,10 @@ onMount(() => {
   });
   const notesChanged = onNotesChanged(() => {
     void refreshFolder()
-      .then(() => (section === "trash" ? loadTrash() : undefined))
+      .then(() => {
+        if (folder?.state !== "available") forgetTrash(null);
+        else if (section === "trash") return loadTrash();
+      })
       .catch((e) => {
         error = errorText(e);
       });
