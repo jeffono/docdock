@@ -4,6 +4,7 @@
 //! Scriptlets and procedural rules stay off: they run code in the page.
 
 use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,8 +29,9 @@ const LISTS: [(&str, &str); 3] = [
         "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
     ),
 ];
-/// The compiled engine, so a start needs no parsing. Derived: rebuilt from the lists when missing,
-/// corrupt or written by another `adblock` version.
+/// The compiled engine, so a start needs no parsing, after the fingerprint of the lists it was built
+/// from. Derived: rebuilt from the lists when missing, corrupt, written by another `adblock` version
+/// or built from other lists.
 const ENGINE_FILE: &str = "engine.dat";
 /// EasyList and EasyPrivacy expire in four days; the cookie list in nine.
 const REFRESH: Duration = Duration::from_secs(4 * 24 * 60 * 60);
@@ -150,17 +152,34 @@ fn build(lists: Vec<String>) -> Option<Engine> {
     Some(Engine::new_with_filter_set(set))
 }
 
-/// The engine from its cache or, when the cache is missing or unreadable, rebuilt from the cached
-/// lists (`true`). None without any list.
-fn load(cache: Option<&[u8]>, lists: impl FnOnce() -> Vec<String>) -> Option<(Engine, bool)> {
-    if let Some(bytes) = cache {
-        let mut engine = Engine::default();
-        match engine.deserialize(bytes) {
-            Ok(()) => return Some((engine, false)),
-            Err(error) => eprintln!("[blocking] cache: {error:?}"),
+/// Identifies the lists an engine is built from. A mismatch only costs a rebuild, so the standard
+/// hasher, whose algorithm may change between Rust releases, is enough.
+fn fingerprint(lists: &[String]) -> [u8; 8] {
+    let mut hasher = DefaultHasher::new();
+    lists.hash(&mut hasher);
+    hasher.finish().to_le_bytes()
+}
+
+fn cache_bytes(key: &[u8; 8], engine: &Engine) -> Vec<u8> {
+    [key.as_slice(), &engine.serialize()].concat()
+}
+
+/// The engine from its cache when the cache was built from the lists with fingerprint `key`;
+/// otherwise rebuilt from `lists` (`true`). Lists are replaced before the cache, so a crash or a
+/// failed cache write in between leaves a cache that no longer matches. None without any list.
+fn load(cache: Option<&[u8]>, key: &[u8; 8], lists: Vec<String>) -> Option<(Engine, bool)> {
+    match cache.map(|bytes| bytes.strip_prefix(key.as_slice())) {
+        Some(Some(bytes)) => {
+            let mut engine = Engine::default();
+            match engine.deserialize(bytes) {
+                Ok(()) => return Some((engine, false)),
+                Err(error) => eprintln!("[blocking] cache: {error:?}"),
+            }
         }
+        Some(None) => eprintln!("[blocking] cache: built from other lists"),
+        None => {}
     }
-    build(lists()).map(|engine| (engine, true))
+    build(lists).map(|engine| (engine, true))
 }
 
 fn read_bounded(path: &Path, limit: u64) -> Option<Vec<u8>> {
@@ -224,10 +243,21 @@ fn refresh(dir: &Path) -> bool {
     changed
 }
 
-fn save(dir: &Path, engine: &Engine) {
-    if let Err(error) = crate::notes::write_atomic(&dir.join(ENGINE_FILE), &engine.serialize()) {
+/// Installs the engine for the cached lists: from `cache`, the engine file's bytes, when it matches
+/// them, otherwise built and saved. Keeps the current engine without any list.
+fn install(dir: &Path, cache: Option<&[u8]>) {
+    let lists = read_lists(dir);
+    let key = fingerprint(&lists);
+    let Some((engine, rebuilt)) = load(cache, &key, lists) else {
+        return;
+    };
+    if rebuilt
+        && let Err(error) =
+            crate::notes::write_atomic(&dir.join(ENGINE_FILE), &cache_bytes(&key, &engine))
+    {
         eprintln!("[blocking] save cache: {error}");
     }
+    set_engine(engine);
 }
 
 /// Loads the cached engine, then keeps the lists fresh, on its own thread for the app's lifetime.
@@ -241,22 +271,13 @@ pub fn start(app: &AppHandle) {
         .name("blocking".into())
         .spawn(move || {
             // The file's bytes go before the thread settles into its loop.
-            let loaded = {
-                let cache = read_bounded(&dir.join(ENGINE_FILE), ENGINE_MAX_BYTES);
-                load(cache.as_deref(), || read_lists(&dir))
-            };
-            if let Some((engine, rebuilt)) = loaded {
-                if rebuilt {
-                    save(&dir, &engine);
-                }
-                set_engine(engine);
-            }
+            install(
+                &dir,
+                read_bounded(&dir.join(ENGINE_FILE), ENGINE_MAX_BYTES).as_deref(),
+            );
             loop {
-                if refresh(&dir)
-                    && let Some(engine) = build(read_lists(&dir))
-                {
-                    save(&dir, &engine);
-                    set_engine(engine);
+                if refresh(&dir) {
+                    install(&dir, None);
                 }
                 std::thread::sleep(CHECK);
             }
@@ -545,22 +566,51 @@ mod tests {
         assert!(valid_list(&format!("\u{feff}{}", list("||ads.example^"))));
     }
 
-    #[test]
-    fn a_corrupt_cache_is_rebuilt_from_the_lists() {
-        let (engine, rebuilt) = load(Some(b"corrupt"), || vec![list("||ads.example^")]).unwrap();
-        assert!(rebuilt);
-        let request = blocker::Request {
-            url: "https://ads.example/a.js",
+    fn script(url: &str) -> blocker::Request<'_> {
+        blocker::Request {
+            url,
             source: "https://news.example/",
             kind: "script",
             method: "GET",
-        };
-        assert!(blocks(&engine, &[], &request));
+        }
+    }
+
+    /// The cache of an engine built from `lists`, and its own lists' fingerprint.
+    fn cached(lists: &[String]) -> Vec<u8> {
+        cache_bytes(&fingerprint(lists), &build(lists.to_vec()).unwrap())
+    }
+
+    #[test]
+    fn a_corrupt_cache_is_rebuilt_from_the_lists() {
+        let lists = vec![list("||ads.example^")];
+        let mut cache = fingerprint(&lists).to_vec();
+        cache.extend(b"corrupt");
+        let (engine, rebuilt) = load(Some(&cache), &fingerprint(&lists), lists).unwrap();
+        assert!(rebuilt);
+        assert!(blocks(&engine, &[], &script("https://ads.example/a.js")));
     }
 
     #[test]
     fn a_corrupt_cache_without_lists_blocks_nothing() {
-        assert!(load(Some(b"corrupt"), Vec::new).is_none());
+        assert!(load(Some(b"corrupt"), &fingerprint(&[]), Vec::new()).is_none());
+    }
+
+    /// Lists replaced before a crash or a failed cache write must not keep the old engine.
+    #[test]
+    fn a_cache_built_from_other_lists_is_rebuilt() {
+        let cache = cached(&[list("||old.example^")]);
+        let lists = vec![list("||new.example^")];
+        let (engine, rebuilt) = load(Some(&cache), &fingerprint(&lists), lists).unwrap();
+        assert!(rebuilt);
+        assert!(blocks(&engine, &[], &script("https://new.example/a.js")));
+    }
+
+    #[test]
+    fn a_cache_built_from_the_same_lists_is_used() {
+        let lists = vec![list("||ads.example^")];
+        let cache = cached(&lists);
+        let (_, rebuilt) = load(Some(&cache), &fingerprint(&lists), lists).unwrap();
+        assert!(!rebuilt);
     }
 
     #[test]
