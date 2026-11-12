@@ -47,7 +47,8 @@ let trash = $state<TrashItem[] | null>([]);
 /** Where the last restored item went. */
 let restored = $state("");
 const away = ["noFolder", "folderUnavailable", "folderMissing", "folderUnrecognized"];
-/** Bumped when the list is dropped, so an answer still on its way is ignored. */
+/** Bumped when the list is dropped, so an answer still on its way, or a restore or empty that
+ * started before, brings no names back. */
 let trashLoads = 0;
 async function loadTrash() {
   const load = ++trashLoads;
@@ -79,11 +80,13 @@ function trashFolder({ id, path }: TrashItem) {
 }
 async function restore(item: TrashItem) {
   restored = "";
+  const load = trashLoads;
   await action(async () => {
     try {
-      restored = await notesTrashRestore(item.id);
+      const path = await notesTrashRestore(item.id);
+      if (load === trashLoads) restored = path;
     } finally {
-      await loadTrash();
+      if (load === trashLoads) await loadTrash();
     }
   });
 }
@@ -94,11 +97,12 @@ async function emptyTrash() {
   if (!(await confirm.ask(t("trash.emptyTitle"), text, t("trash.emptyConfirm"), undefined, true)))
     return;
   restored = "";
+  const load = trashLoads;
   await action(async () => {
     try {
       await notesTrashEmpty(ids);
     } finally {
-      await loadTrash();
+      if (load === trashLoads) await loadTrash();
     }
   });
 }
