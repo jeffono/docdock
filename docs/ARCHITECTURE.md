@@ -868,6 +868,8 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
   kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.
+- **Page tracking prevention:** the page profile requests WebView2's strict level before its first navigation; the `main` profile is unchanged.
+  Unsupported runtimes or failed settings are logged without blocking pages.
 - **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
   scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its
   own `location` (also cross-origin and nested), meta refresh and an HTTP redirect. WebView2 raised only

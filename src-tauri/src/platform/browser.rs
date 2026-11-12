@@ -7,7 +7,10 @@ use std::sync::{Mutex, PoisonError};
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager, WebviewWindow};
-use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Settings2};
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT, ICoreWebView2, ICoreWebView2_13,
+    ICoreWebView2Profile3, ICoreWebView2Settings2,
+};
 use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, ContentLoadingEventHandler,
     DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
@@ -40,6 +43,18 @@ pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
     window.with_webview(move |view| unsafe {
         let prepare = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
+            // Only the page profile, before navigation; older runtimes may lack these interfaces.
+            let tracking = || -> windows::core::Result<()> {
+                page.cast::<ICoreWebView2_13>()?
+                    .Profile()?
+                    .cast::<ICoreWebView2Profile3>()?
+                    .SetPreferredTrackingPreventionLevel(
+                        COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT,
+                    )
+            };
+            if let Err(error) = tracking() {
+                eprintln!("[web] strict tracking prevention: {error}");
+            }
             let settings = page.Settings()?.cast::<ICoreWebView2Settings2>()?;
             let mut default = PWSTR::null();
             settings.UserAgent(&mut default)?;
