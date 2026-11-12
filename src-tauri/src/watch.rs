@@ -40,7 +40,8 @@ pub fn ensure(app: &AppHandle, root: &Path) {
     *watching = None;
     match start(app.clone(), root) {
         Ok(watcher) => *watching = Some((root.to_owned(), watcher)),
-        Err(error) => eprintln!("[watch] failed to watch {}: {error}", root.display()),
+        // Watcher errors can carry paths; keep note names out of diagnostics.
+        Err(_) => eprintln!("[watch] failed to watch the notes folder"),
     }
 }
 

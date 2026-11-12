@@ -5,8 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M8: `unavailable-folder`, `recycle-fallback`, `capture-exclusion` and `clipboard-privacy` in parallel,
-  integrated in `m8`; then derived data, vault file and README.
+- M8 integrated in `m8`; review fixes in `m8-fixes`, pending visual verification and final stage review.
 
 ## M8 — Note privacy
 
@@ -23,8 +22,8 @@ to a vault the user mounts, such as Cryptomator, which stays optional; see
   writes nowhere else, then saves when the folder returns; note text and the search index are
   cleared from memory while the folder is unavailable. `advanced`
 - [x] Identity marker `.docdock/folder-id` instead of the volume check: another folder at the chosen
-  path (a locked vault's empty mount point, another vault or drive) is never written to, settings from
-  before it trust only a folder holding notes, and shares work. `advanced`
+  path (a locked vault's empty mount point, another vault or drive) is never written to; earlier settings
+  require a recognized marker or explicit folder confirmation, and shares work. `advanced`
 - [x] Nothing derived outside the notes folder: `pinned-copy.json` and the collapsed pinned paths in
   `settings.json` hold note content and names; check whether the WebView2 cache keeps note images.
   `standard`

@@ -753,10 +753,18 @@ pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
     crate::watch::ensure(app, &root);
     list(&root)
 }
+fn internal_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        component.as_os_str().to_str().is_some_and(|name| {
+            name.eq_ignore_ascii_case(DERIVED) || name.eq_ignore_ascii_case(trash::DIR)
+        })
+    })
+}
 /// A path the UI sent, before it touches the disk: relative, with `/`, only plain names and `allowed`.
 fn checked(relative: &str, allowed: fn(&Path) -> bool) -> Result<&Path, Error> {
     let path = Path::new(relative);
-    if relative.contains(':')
+    if internal_path(path)
+        || relative.contains(':')
         || relative.contains('\\')
         || path
             .components()
@@ -775,6 +783,13 @@ fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<Pa
     let target = root.join(path).canonicalize()?;
     if !target.starts_with(&root) || !target.is_file() || !allowed(&target) {
         return Err(Error::OutsideFolder);
+    }
+    if internal_path(
+        target
+            .strip_prefix(&root)
+            .map_err(|_| Error::OutsideFolder)?,
+    ) {
+        return Err(Error::InvalidPath);
     }
     Ok(target)
 }
@@ -1076,8 +1091,8 @@ fn relocate(
         }
     }
     // The move happened: a failure here must say so, since `from` no longer exists to retry.
-    edit_pinned(root, |text| pinned::rename(text, from, to, title)).map_err(|error| {
-        eprintln!("[move] pinned items not moved: {error:?}");
+    edit_pinned(root, |text| pinned::rename(text, from, to, title)).map_err(|_| {
+        eprintln!("[move] pinned items not moved");
         Error::PinnedNotRenamed {
             path: to.to_owned(),
         }
@@ -1112,7 +1127,7 @@ pub fn move_note(app: &AppHandle, from: &str, to: &str, base: &str) -> Result<()
     follow(app, from, to, &moved);
     moved
 }
-/// Settings that name a moved note follow it.
+/// Collapsed pinned state inside the notes folder follows a moved note.
 fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
     if matches!(result, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
         // Best effort: the note has moved, and an error here would hide that from the editor, whose
@@ -1336,8 +1351,8 @@ fn delete_folder_in(
         *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
         edited
     })
-    .map_err(|error| {
-        eprintln!("[delete folder] pinned items not removed: {error:?}");
+    .map_err(|_| {
+        eprintln!("[delete folder] pinned items not removed");
         Error::PinnedNotRemoved { undo }
     })?;
     // One guard: the panel hiding meanwhile clears the folders.
@@ -1395,8 +1410,8 @@ fn undo_delete_folder_in(root: &Path, relative: &str) -> Result<(), Error> {
                 pinned::repin(&text, &before, &after, target)
             })
         })
-        .map_err(|error| {
-            eprintln!("[undo folder] pinned items not restored: {error:?}");
+        .map_err(|_| {
+            eprintln!("[undo folder] pinned items not restored");
             Error::PinnedNotRestored
         })?;
     }
@@ -1426,7 +1441,9 @@ fn to_trash(root: &Path, target: &Path) -> io::Result<Option<PathBuf>> {
     let marker = read_marker(root).ok().flatten();
     let session = {
         let mut trash = deleted();
-        if !trash.roots.iter().any(|(r, _)| r == root) {
+        if let Some((_, id)) = trash.roots.iter_mut().find(|(r, _)| r == root) {
+            *id = marker;
+        } else {
             trash.roots.push((root.to_owned(), marker));
         }
         trash.session
@@ -1450,7 +1467,7 @@ struct Trash {
     session: u64,
     notes: Vec<Deleted>,
     folders: Vec<DeletedFolder>,
-    /// Every notes folder whose own trash took something in this run, with its marker id then, purged
+    /// Every notes folder whose own trash took something in this run, with its latest deletion id, purged
     /// when the panel hides only if the folder at that path still has that id.
     roots: Vec<(PathBuf, Option<String>)>,
 }
@@ -1529,8 +1546,8 @@ fn delete_note_in(
         *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
         edited
     })
-    .map_err(|error| {
-        eprintln!("[delete] pinned items not removed: {error:?}");
+    .map_err(|_| {
+        eprintln!("[delete] pinned items not removed");
         Error::PinnedNotRemoved { undo }
     })?;
     if let Some(entry) = deleted()
@@ -1565,12 +1582,10 @@ fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
     if let Some((before, after)) = pinned
         && exists(&root.join(PINNED))
     {
-        edit_pinned(root, |text| pinned::repin(text, &before, &after, relative)).map_err(
-            |error| {
-                eprintln!("[undo] pinned items not restored: {error:?}");
-                Error::PinnedNotRestored
-            },
-        )?;
+        edit_pinned(root, |text| pinned::repin(text, &before, &after, relative)).map_err(|_| {
+            eprintln!("[undo] pinned items not restored");
+            Error::PinnedNotRestored
+        })?;
     }
     Ok(())
 }
@@ -1594,13 +1609,14 @@ pub fn forget_deleted() {
     trash.notes.clear();
     trash.folders.clear();
     let roots = trash.roots.clone();
-    std::thread::spawn(move || {
-        for (root, marker) in roots {
-            if read_marker(&root).ok().flatten() == marker {
-                trash::purge(&root, live_session);
-            }
+    std::thread::spawn(move || purge_registered(roots));
+}
+fn purge_registered(roots: Vec<(PathBuf, Option<String>)>) {
+    for (root, marker) in roots {
+        if read_marker(&root).is_ok_and(|current| current == marker) {
+            trash::purge(&root, live_session);
         }
-    });
+    }
 }
 /// The live panel session, which the trash purge reads for each entry it judges.
 fn live_session() -> u64 {
@@ -1710,9 +1726,9 @@ fn update_collapsed(
 /// Called under SETTINGS, before changing the configured folder. Unavailable folders leave legacy
 /// bytes untouched and unread. Destination files win after a crash between write and cleanup.
 fn try_migrate_derived(root: &Path, settings: &Path) {
-    if let Err(error) = migrate_derived(root, settings) {
+    if migrate_derived(root, settings).is_err() {
         // Legacy restoration data must never lock the user out of ordinary notes/preferences.
-        eprintln!("[pinned] derived-state migration deferred: {error:?}");
+        eprintln!("[pinned] derived-state migration deferred");
     }
 }
 fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
@@ -1775,8 +1791,8 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
 fn read_copy(store: &Path) -> Option<PinnedCopy> {
     serde_json::from_slice(&fs::read(store).ok()?).ok()
 }
-/// The copy for `root`, if it holds anything worth restoring.
-fn restorable_copy(store: &Path, _root: &Path) -> Option<String> {
+/// The stored copy, if it holds anything worth restoring.
+fn restorable_copy(store: &Path) -> Option<String> {
     read_copy(store)
         .filter(|copy| !copy.text.trim().is_empty())
         .map(|copy| copy.text)
@@ -1815,7 +1831,7 @@ fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Resu
         return Ok(Pinned {
             version: String::new(),
             items: Vec::new(),
-            restorable: restorable_copy(store, root).is_some(),
+            restorable: restorable_copy(store).is_some(),
         });
     };
     keep_copy(store, root, &text);
@@ -1853,7 +1869,7 @@ fn edit_pinned(root: &Path, edit: impl Fn(&str) -> String) -> Result<(), Error> 
 /// Brings back the last version read, only if `_pinned.md` is absent: an empty base never replaces.
 fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
     let _held = hold_ancestry(store.parent().ok_or(Error::InvalidPath)?)?;
-    if let Some(text) = restorable_copy(store, root) {
+    if let Some(text) = restorable_copy(store) {
         save_note_in(root, PINNED, &text, "")?;
     }
     Ok(())
@@ -1869,6 +1885,10 @@ pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
 /// `target` is a note's path (it must exist) or an http(s) URL. `title` is the link text.
 pub fn pin(app: &AppHandle, target: &str, title: &str) -> Result<Pinned, Error> {
     let root = root(app)?;
+    pin_in(&root, target, title)?;
+    pinned(app)
+}
+fn pin_in(root: &Path, target: &str, title: &str) -> Result<(), Error> {
     let (kind, target) = match pinned_kind(target) {
         Kind::Url => {
             let url = tauri::Url::parse(target).map_err(|e| Error::InvalidUrl {
@@ -1877,12 +1897,11 @@ pub fn pin(app: &AppHandle, target: &str, title: &str) -> Result<Pinned, Error> 
             (Kind::Url, url.to_string())
         }
         Kind::Note => {
-            resolve(&root, target, markdown)?;
+            resolve(root, target, markdown)?;
             (Kind::Note, target.to_owned())
         }
     };
-    edit_pinned(&root, |text| pinned::pin(text, kind, &target, title))?;
-    pinned(app)
+    edit_pinned(root, |text| pinned::pin(text, kind, &target, title))
 }
 fn pinned_kind(target: &str) -> Kind {
     let lower = target.to_ascii_lowercase();
@@ -2295,6 +2314,116 @@ mod tests {
         ] {
             assert!(resolve(&t.0, p, markdown).is_err(), "{p}");
         }
+    }
+    // Internal data must never become editable notes through a hand-written pin or alias.
+    fn internal_notes(t: &Temp) -> Vec<String> {
+        [
+            ".docdock",
+            ".docdock-trash",
+            "nested/.DOCDOCK",
+            "nested/.DOCDOCK-TRASH",
+        ]
+        .into_iter()
+        .map(|dir| {
+            fs::create_dir_all(t.0.join(dir)).unwrap();
+            let path = format!("{dir}/x.md");
+            fs::write(t.0.join(&path), "private").unwrap();
+            path
+        })
+        .collect()
+    }
+    #[test]
+    fn opening_internal_notes_is_refused() {
+        let t = Temp::new();
+        for path in internal_notes(&t) {
+            assert_eq!(resolve(&t.0, &path, markdown), Err(Error::InvalidPath));
+        }
+    }
+    #[test]
+    fn saving_internal_notes_is_refused() {
+        let t = Temp::new();
+        for path in internal_notes(&t) {
+            assert_eq!(
+                save_note_in(&t.0, &path, "changed", &version(b"private")),
+                Err(Error::InvalidPath)
+            );
+            assert_eq!(fs::read_to_string(t.0.join(path)).unwrap(), "private");
+        }
+    }
+    #[test]
+    fn recreating_internal_notes_is_refused() {
+        let t = Temp::new();
+        for path in internal_notes(&t) {
+            fs::remove_file(t.0.join(&path)).unwrap();
+            assert_eq!(
+                save_note_in(&t.0, &path, "changed", ""),
+                Err(Error::InvalidPath)
+            );
+            assert!(!t.0.join(path).exists());
+        }
+    }
+    #[test]
+    fn pinning_internal_notes_is_refused() {
+        let t = Temp::new();
+        for path in internal_notes(&t) {
+            assert_eq!(pin_in(&t.0, &path, "private"), Err(Error::InvalidPath));
+        }
+        assert!(!t.0.join(PINNED).exists());
+    }
+    #[test]
+    fn canonical_aliases_cannot_open_internal_notes() {
+        let t = Temp::new();
+        for (index, path) in internal_notes(&t).iter().enumerate() {
+            let alias = format!("alias{index}");
+            assert!(
+                mklink(
+                    &["/J"],
+                    &t.0.join(&alias),
+                    &t.0.join(path).parent().unwrap().canonicalize().unwrap()
+                ),
+                "could not create alias {index} for {path}"
+            );
+            assert_eq!(
+                resolve(&t.0, &format!("{alias}/x.md"), markdown),
+                Err(Error::InvalidPath)
+            );
+        }
+    }
+    #[test]
+    fn a_new_deletion_updates_the_registered_marker_for_purge() {
+        let _serial = deleting();
+        let t = Temp::new();
+        stamp(&t.0).unwrap();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        delete_note_in(&t.0, "a.md", |p| to_trash(&t.0, p)).unwrap();
+        fs::remove_file(t.0.join(DERIVED).join(MARKER)).unwrap();
+        stamp(&t.0).unwrap(); // Explicitly choosing the replacement folder.
+        fs::write(t.0.join("b.md"), "b").unwrap();
+        delete_note_in(&t.0, "b.md", |p| to_trash(&t.0, p)).unwrap();
+        let roots = {
+            let mut trash = deleted();
+            trash.session += 1;
+            trash.roots.clone()
+        };
+        purge_registered(roots);
+        assert!(!t.0.join(trash::DIR).exists());
+    }
+    #[test]
+    fn purge_skips_a_replaced_marker_without_a_new_deletion() {
+        let _serial = deleting();
+        let t = Temp::new();
+        stamp(&t.0).unwrap();
+        fs::write(t.0.join("a.md"), "a").unwrap();
+        delete_note_in(&t.0, "a.md", |p| to_trash(&t.0, p)).unwrap();
+        fs::remove_file(t.0.join(DERIVED).join(MARKER)).unwrap();
+        stamp(&t.0).unwrap();
+        let roots = {
+            let mut trash = deleted();
+            trash.session += 1;
+            trash.roots.clone()
+        };
+        purge_registered(roots);
+        assert_eq!(trashed(&t.0).len(), 1);
     }
     #[test]
     fn does_not_follow_junction_outside_folder() {
@@ -3191,12 +3320,25 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(root.join("a.md")).unwrap(), "a");
         assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
-        // Purging leaves a linked trash and what it points at alone.
+    }
+    #[test]
+    fn purging_leaves_a_linked_trash_and_its_target_alone() {
+        let t = Temp::new();
+        let (root, outside) = (t.0.join("notes"), t.0.join("outside"));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        assert!(mklink(&["/J"], &root.join(trash::DIR), &outside));
         fs::write(outside.join("other.md"), "keep").unwrap();
         trash::purge(&root, || u64::MAX);
         assert_eq!(
             fs::read_to_string(outside.join("other.md")).unwrap(),
             "keep"
+        );
+        assert!(
+            fs::symlink_metadata(root.join(trash::DIR))
+                .unwrap()
+                .file_type()
+                .is_symlink()
         );
     }
     #[test]
@@ -3617,6 +3759,22 @@ mod tests {
         let before = fs::read(&settings).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&before).unwrap();
         assert_eq!(value["collapsed"], serde_json::json!(["secret.md"]));
+        assert!(!root.exists());
+    }
+    #[test]
+    fn changing_folders_discards_pending_collapsed_migration() {
+        let t = Temp::new();
+        let settings = t.0.join("settings.json");
+        let root = t.0.join("offline/notes");
+        fs::write(
+            &settings,
+            serde_json::to_vec(&serde_json::json!({
+                "folder": root, "collapsed": ["secret.md"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let mut prefs = load(&settings);
         prefs.folder = Some(t.0.join("other"));
         save(&settings, &prefs).unwrap();
         let value: serde_json::Value =
@@ -3663,7 +3821,7 @@ mod tests {
         .unwrap();
         migrate_derived(&root, &settings).unwrap();
         assert!(!legacy.exists());
-        assert_eq!(restorable_copy(&store, &root).unwrap(), "synced");
+        assert_eq!(restorable_copy(&store).unwrap(), "synced");
     }
     #[test]
     fn failed_migration_keeps_legacy_copy() {

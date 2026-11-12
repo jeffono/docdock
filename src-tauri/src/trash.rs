@@ -255,7 +255,7 @@ pub fn purge(root: &Path, live: impl Fn() -> u64) {
                 Err(error) => Err(error),
             };
             if let Err(error) = removed {
-                eprintln!("[trash] {} not purged: {error}", path.display());
+                eprintln!("[trash] purge failed: {:?}", error.kind());
             }
         }
     }

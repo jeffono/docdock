@@ -14,6 +14,7 @@ import {
   type OpenNote,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
+import UnlockVault from "../preferences/UnlockVault.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
 import { editorExtensions, editorState } from "./editor";
@@ -382,6 +383,7 @@ onMount(() => {
       <p>{t(goneText[folderGone])}</p>
       <!-- Always offered, also after a conflict: leaving must never need the folder. -->
       <div class="actions">
+        <UnlockVault />
         {#if folderGone === "unrecognized"}<Button onclick={trustFolder}>{t("notes.trust")}</Button>{/if}
         <button class="discard" onclick={discardAndLeave}>{t("editor.discard")}</button>
       </div>

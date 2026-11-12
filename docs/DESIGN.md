@@ -102,7 +102,8 @@ pinned and unpinned notes differ only in section and starting state.
   "not found" (the folder above it is there) adds that a moved or renamed folder is chosen again;
   "not the folder you chose" (a folder is at the path but its identity marker is not the chosen one's)
   says nothing is written to it, a locked vault's folder opens again once unlocked, and notes moved
-  there are accepted by choosing the folder again. The
+  there are accepted with "Use this folder" or by choosing the folder again. "Use this folder" appears
+  in both the list empty state and the editor notice for an unrecognized folder. The
   list, previews, pinned items and tag suggestions disappear with it. An editor holding unsaved text
   stays as the only card, with a notice at the top of its body that the text stays there and is saved
   when the folder is back, and Discard my changes; Preferences shows the same sentence under the path.
@@ -333,9 +334,10 @@ label as a heading. Sections scroll inside the panel, use the same insets and to
 Opening a page preserves the Notes query.
 
 Vault file shows its path (wrapping when necessary), or a short optional hint, with neutral Choose file
-and Clear buttons. The native picker filters `.cryptomator` files. With a configured vault and an
-notes folder that is not available, both the list's empty state and the folder setting show Unlock
-beside the neutral Choose folder action. Unlock opens the saved file in its associated app; Cryptomator
+and Clear buttons. The native picker filters `.cryptomator` files. With a configured vault and a
+notes folder that is not available, the list's empty state, the editor's folder-away notice (including
+missing and unrecognized folders) and the folder setting show Unlock. In the list and Preferences it
+sits beside the neutral Choose folder action. Unlock opens the saved file in its associated app; Cryptomator
 handles authentication, including Windows Hello when configured. A missing vault file shows a nearby
 error asking to choose it again. The existing folder poll restores the list without another action.
 
