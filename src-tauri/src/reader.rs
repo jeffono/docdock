@@ -8,12 +8,15 @@ use dom_smoothie::{Config, Readability};
 
 use crate::error::Error;
 
-/// Bounds the HTML read from the page, in UTF-16 units; the script's slice uses this number.
+/// Bounds the HTML read from the page, in UTF-16 units; the script's budget and slice use this
+/// number.
 const HTML_MAX_CHARS: usize = 1_500_000;
 /// At most six JSON bytes per UTF-16 unit, plus the title.
 const READER_MAX_JSON: usize = 6 * HTML_MAX_CHARS + 64 * 1024;
-/// A page with more elements than this is refused before scoring.
-const MAX_ELEMENTS: usize = 100_000;
+/// The script copies at most this many elements; a page with more is cut there.
+const COPIED_ELEMENTS: usize = 100_000;
+/// Parsing the copy can add elements, such as `tbody`; a page with more is refused before scoring.
+const MAX_ELEMENTS: usize = 2 * COPIED_ELEMENTS;
 /// Deeper element nesting is refused, by the script and again here: parsing it takes quadratic
 /// time and extraction walks the tree recursively. Chromium's parser stops nesting at 512, so only
 /// a tree built by script goes deeper.
@@ -27,30 +30,85 @@ const SKIPPED: &[&str] = &[
     "object", "embed", "canvas", "noscript", "template",
 ];
 /// Fixed: no data is ever interpolated. Runs in the isolated world, so the builtins are the
-/// browser's. The copy goes into a document without a browsing context: no custom element
-/// constructor, script or load of the page runs for it. Removing what extraction drops anyway
-/// keeps large pages under the slice, which uses `HTML_MAX_CHARS`; JSON-LD stays for metadata.
-/// A tree deeper than `MAX_DEPTH` answers empty: parsing deep nesting again takes quadratic time.
+/// browser's, and no page code runs while it walks. It copies the page node by node into a
+/// document without a browsing context: no custom element constructor, script or load of the page
+/// runs for the copy, and shadow roots stay behind. What extraction drops anyway is never copied;
+/// JSON-LD stays for metadata. Every length is counted before its copy is made: the copy stops at
+/// `COPIED_ELEMENTS` elements or `HTML_MAX_CHARS` units of markup and text, so a huge page costs
+/// neither memory nor a full walk. Escaping can still lengthen the HTML, so the slice stays. A
+/// tree deeper than `MAX_DEPTH` answers empty: parsing deep nesting again takes quadratic time.
 const READER_SCRIPT: &str = r#"(() => {
+  const source = document.documentElement;
+  if (!source) return ["", ""];
   const copy = document.implementation.createHTMLDocument("");
-  const root = copy.importNode(document.documentElement, true);
-  const dropped = "script:not([type='application/ld+json']), style, link, noscript, template, " +
-    "svg, iframe, object, embed, canvas, video, audio, picture, img, source";
-  for (const node of root.querySelectorAll(dropped)) node.remove();
+  const dropped = new Set(["style", "link", "noscript", "template", "svg", "iframe", "object",
+    "embed", "canvas", "video", "audio", "picture", "img", "source"]);
+  let elements = 100000;
+  let chars = 1500000;
+  // The copy of `node`, or null to leave it and its children out. A negative `chars` ends the walk.
+  const take = (node) => {
+    chars--;
+    if (node.nodeType === 3) {
+      const length = Math.min(node.length, chars);
+      chars -= node.length;
+      return length > 0 ? copy.createTextNode(node.substringData(0, length)) : null;
+    }
+    if (node.nodeType !== 1) return null;
+    const name = node.localName;
+    if (dropped.has(name) ||
+        (name === "script" && node.getAttribute("type") !== "application/ld+json")) return null;
+    if (--elements < 0) {
+      chars = -1;
+      return null;
+    }
+    // Chromium finds each attribute by a linear search, so only the first 100 are read.
+    const attributes = Array.prototype.slice.call(node.attributes, 0, 100);
+    chars -= 2 * name.length + 5;
+    for (const attribute of attributes) {
+      if (chars < 0) return null;
+      chars -= attribute.name.length + attribute.value.length + 4;
+    }
+    if (chars < 0) return null;
+    let element;
+    try {
+      element = copy.createElementNS(node.namespaceURI,
+        node.prefix ? node.prefix + ":" + name : name);
+    } catch {
+      return null;
+    }
+    for (const attribute of attributes) {
+      try {
+        element.setAttributeNS(attribute.namespaceURI, attribute.name, attribute.value);
+      } catch {}
+    }
+    return element;
+  };
+  const root = take(source);
+  if (!root) return ["", ""];
+  copy.replaceChild(root, copy.documentElement);
+  // `parent` is always the copy of `node`'s parent; only copied elements are entered.
+  let node = source;
+  let target = root;
+  let parent = copy;
   let depth = 0;
-  for (let node = root; node; ) {
-    if (node.firstElementChild) {
-      node = node.firstElementChild;
+  while (chars >= 0) {
+    if (target && target.nodeType === 1 && node.firstChild) {
       if (++depth > 512) return ["", ""];
+      parent = target;
+      node = node.firstChild;
     } else {
-      while (node !== root && !node.nextElementSibling) {
-        node = node.parentElement;
+      while (node !== source && !node.nextSibling) {
+        node = node.parentNode;
+        parent = parent.parentNode;
         depth--;
       }
-      node = node === root ? null : node.nextElementSibling;
+      if (node === source) break;
+      node = node.nextSibling;
     }
+    target = take(node);
+    if (target) parent.appendChild(target);
   }
-  return [document.title.slice(0, 4096), root.outerHTML.slice(0, 1500000)]
+  return [copy.title.slice(0, 4096), root.outerHTML.slice(0, 1500000)]
     .map((text) => text.toWellFormed());
 })()"#;
 /// Copying a large page takes a moment; a hostile or hung page delays the command at most this.
@@ -64,8 +122,10 @@ pub struct Article {
     markdown: String,
 }
 
-/// The shown page's article. None without an http(s) page.
+/// The shown page's article. None without an http(s) page, or when a navigation started while it
+/// was read: the article would cover the page the user went to.
 pub fn read(app: &tauri::AppHandle) -> Result<Option<Article>, Error> {
+    let navigation = crate::platform::browser::navigation();
     let Some((url, json)) = crate::web::read_page(app, READER_SCRIPT, READER_TIMEOUT)? else {
         return Ok(None);
     };
@@ -73,6 +133,9 @@ pub fn read(app: &tauri::AppHandle) -> Result<Option<Article>, Error> {
         .and_then(|json| crate::web::two_strings(&json, READER_MAX_JSON))
         .ok_or(Error::PageNotRead)?;
     let (title, markdown) = extract(&html, &url, &title).ok_or(Error::NoArticle)?;
+    if crate::platform::browser::navigation() != navigation {
+        return Ok(None);
+    }
     Ok(Some(Article {
         url,
         title,

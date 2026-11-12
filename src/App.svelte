@@ -40,6 +40,15 @@ let previousWeb = false;
 let page = $state<PageState | null>(null);
 /** The reader view's article: the page window stays hidden while it is shown. */
 let article = $state<PageArticle | null>(null);
+/**
+ * Changes when the reader view ends, the page is shown or hidden, or its URL changes, so an article
+ * still being read is dropped. Rust drops it after a navigation to another document or a reload.
+ */
+let readerTurn = 0;
+function closeReader() {
+  article = null;
+  readerTurn++;
+}
 let extracting = $state(false);
 let error = $state("");
 async function action(work: Promise<void>) {
@@ -90,15 +99,17 @@ onMount(() => {
     focus = value;
   });
   const state = onWebState((value) => {
+    // A route change keeps the document, which Rust's check misses.
+    if (value?.url !== page?.url) readerTurn++;
     page = value;
     // The page window is gone.
-    if (!value) article = null;
+    if (!value) closeReader();
   });
   const visible = onWebVisible((value) => {
     // Entering the reader view hides the page but stays in Browser.
     if (!value && article) return;
     // A page opened from the bar or a link replaces the reader view.
-    if (value) article = null;
+    closeReader();
     web = value;
     if (value) preferences = false;
   });
@@ -188,7 +199,7 @@ onMount(() => {
 
 async function switchMode(value: boolean) {
   if (!(await notes.leaveEditor())) return;
-  article = null;
+  closeReader();
   await webSetVisible(value);
   web = value;
   preferences = false;
@@ -198,7 +209,7 @@ async function togglePreferences() {
   if (preferences) return switchMode(previousWeb);
   if (!(await notes.leaveEditor())) return;
   previousWeb = web;
-  article = null;
+  closeReader();
   await webSetVisible(false);
   web = false;
   preferences = true;
@@ -206,22 +217,23 @@ async function togglePreferences() {
 /** Back and forward show the page they reach, leaving the reader view. */
 async function history(back: boolean) {
   if (article) {
-    article = null;
+    closeReader();
     await webSetVisible(true);
   }
   await webHistory(back);
 }
 async function toggleReader() {
   if (article) {
-    article = null;
+    closeReader();
     return webSetVisible(true);
   }
   if (extracting) return;
   extracting = true;
+  const turn = readerTurn;
   try {
     const found = await webReader();
-    // Left Browser while the page was read.
-    if (!found || !web) return;
+    // Another page or mode was shown while the page was read.
+    if (!found || turn !== readerTurn) return;
     article = found;
     await webSetVisible(false);
   } finally {

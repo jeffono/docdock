@@ -19,12 +19,15 @@ that pulls `reqwest` by default), `readability-rust` 0.1 (Apache-2.0, a first re
   Markdown. It is a direct dependency only to choose the skipped tags; no other crate is added, and
   `htmd` is not needed.
 - **Reading:** Rust reads the live DOM through the same isolated-world `Runtime.evaluate` as the page
-  selection. The fixed script copies the document into one without a browsing context, so no page
-  code runs for the copy, drops scripts, styles, media and embeds (JSON-LD stays for metadata),
-  answers empty for element nesting deeper than 512, and cuts the HTML at 1,500,000 UTF-16 units. The
+  selection. The fixed script copies the document node by node into one without a browsing context,
+  so no page code runs for the copy, and never copies scripts, styles, media and embeds (JSON-LD
+  stays for metadata). Lengths are counted before anything is copied: the copy ends at 100,000
+  elements or 1,500,000 UTF-16 units of markup and text, reads at most 100 attributes per element,
+  and answers empty for element nesting deeper than 512, so a huge page costs neither renderer memory
+  nor a full walk. The HTML is still cut at 1,500,000 units, since escaping can lengthen it. The
   response is accepted only as two strings within its byte bound, with the 5-second limit.
-- **Extraction bounds:** nesting is checked again in Rust before parsing goes further, at most 100,000
-  elements are scored, and the Markdown is cut at the last paragraph break within 1 MiB, half the
+- **Extraction bounds:** nesting is checked again in Rust before parsing goes further, at most 200,000
+  elements are scored (parsing the copy can add some, such as `tbody`), and the Markdown is cut at the last paragraph break within 1 MiB, half the
   note size limit. Controls other than newline and tab are removed.
 - **Links and images:** only http(s) and mailto links keep their destination; script, data and
   in-page anchor links become their text. Images are dropped: the CSP blocks remote images, and their

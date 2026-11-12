@@ -232,9 +232,11 @@ per-monitor DPI awareness (PMv2).
   still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
 - **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
-  `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`;
-  if it is missing or unreadable (corrupt, another `adblock` version), it rebuilds from the cached
-  lists there and rewrites the cache, and without lists nothing is blocked. Every 15 minutes it
+  `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`,
+  which starts with a fingerprint of the lists it was built from; if it is missing, unreadable
+  (corrupt, another `adblock` version) or built from other lists (a crash or failed write after the
+  lists were replaced), it rebuilds from the cached lists there and rewrites the cache, and without
+  lists nothing is blocked. Every 15 minutes it
   downloads each list older than four days (HTTPS only, 60 s, 16 MiB, no cookies), keeps the old copy
   when a download fails or is not an Adblock Plus list, writes lists atomically, then rebuilds and
   swaps the engine (`Arc` behind a mutex held only to clone or replace it). `web::open` installs
@@ -299,16 +301,18 @@ per-monitor DPI awareness (PMv2).
   `Target.getTargetInfo` response.
 - **Reader view:** decision in [0011](decisions/0011-reader-view.md). `web_reader` reads the shown
   page through the same isolated-world evaluation, turns, navigation identity and response checks
-  as the selection (`web::read_page`), with a fixed script that copies the DOM into a document
-  without a browsing context and drops scripts, styles, media and embeds. `reader.rs` refuses
+  as the selection (`web::read_page`), with a fixed script that copies the DOM node by node into a
+  document without a browsing context, skipping scripts, styles, media and embeds, and counts lengths
+  before copying: it ends at 100,000 elements or 1,500,000 UTF-16 units. `reader.rs` refuses
   nesting deeper than 512, extracts the article with `dom_smoothie`, writes it as Markdown with
   `dom_query` without images, keeps only http(s) and mailto link destinations, and cuts it at 1 MiB.
   It answers `{ url, title, markdown }`, `pageNotRead` without a usable script result, or
   `noArticle`. The UI keeps the article in `App.svelte`, hides the page window and renders it with
   `renderNote` and no note path, so no `note-asset` image resolves. A `web-visible` false is ignored
   while an article is shown; a page shown again (the bar, a link, back/forward, leaving the view),
-  a tab change or a destroyed page window ends the view. "Save page as note" saves the shown
-  article.
+  a tab change or a destroyed page window ends the view. A result that arrives after any of those,
+  a URL change or, in Rust, a navigation started or committed during the read (a reload or A → B → A
+  included) is dropped. "Save page as note" saves the shown article.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
