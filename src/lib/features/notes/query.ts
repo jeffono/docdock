@@ -1,3 +1,4 @@
+import { quoteYaml } from "./markdown";
 // Search syntax and completion ranges are pure; input focus belongs to the caller.
 export type QueryToken = { kind: "tag" | "date"; value: string; from: number; to: number };
 export type Query = { text: string; tokens: QueryToken[] };
@@ -56,7 +57,7 @@ export function tagToken(tag: string): string {
   return `#${/\s|"|\\/.test(tag) || tag.startsWith("#") ? JSON.stringify(tag) : tag}`;
 }
 export function applyCompletion(query: string, context: QueryCompletion, tag: string) {
-  const token = context.kind === "date" ? `date:${tag}` : tagToken(tag);
+  const token = completionToken(context.kind, tag);
   const suffix = query.slice(context.to);
   const insert = token + (suffix.startsWith(" ") ? "" : " ");
   return {
@@ -70,4 +71,30 @@ export function filterQuery(query: string): boolean {
 }
 export function creationText(query: string): string {
   return filterQuery(query) ? parseQuery(query).text.replace(/^#$/, "") : query.trim();
+}
+
+export function completionToken(kind: QueryToken["kind"], value: string): string {
+  return kind === "date" ? `date:${value}` : tagToken(value);
+}
+/** A sole complete token leaves the arrows and Enter to the note list. */
+export function completionChoices(
+  query: string,
+  context: QueryCompletion,
+  values: string[],
+): string[] {
+  return values.length === 1 &&
+    query.slice(context.from, context.to) === completionToken(context.kind, values[0])
+    ? []
+    : values;
+}
+/** Creation seeds tag filters only; a new note keeps its current filesystem date. */
+export function creationContent(query: string): string {
+  const tags = [
+    ...new Set(
+      parseQuery(query)
+        .tokens.filter((token) => token.kind === "tag")
+        .map((token) => token.value),
+    ),
+  ];
+  return tags.length ? `---\ntags: [${tags.map(quoteYaml).join(", ")}]\n---\n` : "";
 }

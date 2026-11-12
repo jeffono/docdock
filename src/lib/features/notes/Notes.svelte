@@ -96,7 +96,14 @@ import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { pageNote } from "./page";
-import { applyCompletion, creationText, queryCompletion, tagToken } from "./query";
+import {
+  applyCompletion,
+  completionChoices,
+  completionToken,
+  creationContent,
+  creationText,
+  queryCompletion,
+} from "./query";
 import { datePresets } from "./query-date";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
@@ -364,11 +371,13 @@ const completionContext = $derived(
 );
 const completionItems = $derived.by(() => {
   void indexVersion;
-  return folder?.available && completionContext
-    ? completionContext.kind === "date"
-      ? datePresets.filter((preset) => preset.startsWith(completionContext.prefix))
-      : folderTags(folderIndex.index, completionContext.prefix)
-    : [];
+  const values =
+    folder?.available && completionContext
+      ? completionContext.kind === "date"
+        ? datePresets.filter((preset) => preset.startsWith(completionContext.prefix))
+        : folderTags(folderIndex.index, completionContext.prefix)
+      : [];
+  return completionContext ? completionChoices(query, completionContext, values) : [];
 });
 
 async function sync(list: Note[]): Promise<void> {
@@ -378,7 +387,12 @@ async function sync(list: Note[]): Promise<void> {
 
 const results = $derived.by(() => {
   void indexVersion;
-  return search(folderIndex.index, query, groupingDate);
+  return search(
+    folderIndex.index,
+    query,
+    groupingDate,
+    completionItems.length ? completionContext : null,
+  );
 });
 const kept = $derived.by(() => {
   void indexVersion;
@@ -606,6 +620,7 @@ async function create(text: string, content = "", annotate = false) {
   try {
     error = "";
     if (!(await leaveEditor())) return;
+    if (!content && !browser) content = creationContent(query);
     const taken = notes.map((note) => note.path);
     // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -1898,15 +1913,16 @@ onMount(() => {
       <TextField
         value={inputQuery}
         oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}
+        onkeyup={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateCompletion(event); }}
         onselect={updateCompletion}
         onclick={updateCompletion}
         onfocus={updateCompletion}
         onblur={() => { completionCaret = null; }}
-        aria-controls={completionItems.length ? "query-completion" : "note-list"}
-        aria-expanded={completionItems.length > 0}
-        aria-autocomplete="list"
-        role="combobox"
-        aria-activedescendant={completionItems.length ? "query-option-" + completionSelection : undefined}
+        aria-controls={completionItems.length ? "query-completion" : undefined}
+        aria-expanded={browser ? undefined : completionItems.length > 0}
+        aria-autocomplete={browser ? undefined : "list"}
+        role={browser ? undefined : "combobox"}
+        aria-activedescendant={completionItems.length ? "query-" + completionContext?.kind + "-" + completionSelection : undefined}
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
@@ -1914,9 +1930,9 @@ onMount(() => {
     </div>
   {#if completionItems.length}
     <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
-      {#each completionItems as tag, index (tag)}
-        <button id={"query-option-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptCompletion(tag)}
-          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{completionContext?.kind === "date" ? dateLabel(tag) : tagToken(tag)}</span></button>
+      {#each completionItems as value, index (completionContext?.kind + ":" + value)}
+        <button id={"query-" + completionContext?.kind + "-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptCompletion(value)}
+          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{completionContext?.kind === "date" ? dateLabel(value) : completionToken("tag", value)}</span></button>
       {/each}
     </div>
   {/if}

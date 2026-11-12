@@ -603,6 +603,10 @@ update on a change; Tauri forwards Windows theme changes to WebView2, including 
 is WebView2's default and is not overridden by the app's CSS tokens.
 
 
+Tag completion ignores only its active token while open; all other filters still apply. Folder tag
+suggestions use cached folded keys and are capped at 50. Creation serializes parsed tags with the
+existing YAML scalar writer, ignoring date tokens.
+
 Date tokens extend the same `query.ts` parser and completion ranges. Pure `query-date.ts` takes an
 explicit `now`, resolves presets and partial ISO ranges to local calendar boundaries, and uses an
 exclusive upper bound after the entire final day/month/year. Invalid and reversed tokens are ignored.

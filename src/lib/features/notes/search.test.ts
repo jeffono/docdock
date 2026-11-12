@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { creationContent, queryCompletion } from "./query";
 import {
   FolderIndex,
   folderTags,
@@ -261,14 +262,17 @@ test("tag filters require every complete frontmatter tag along with free text", 
   expect(paths(index, "#work #work")).toEqual(["c.md", "a.md"]);
   expect(paths(index, "missing #work")).toEqual([]);
 });
-test("folder completion follows note changes and excludes root pinned metadata", async () => {
+test("folder completion excludes root pinned metadata", async () => {
   const notes = [
     { path: "a.md", text: "---\ntags: [Work, work, revisão]\n---" },
     { path: "_pinned.md", text: "---\ntags: [wrong]\n---" },
   ];
   const index = await indexOf(notes);
   expect(folderTags(index, "W")).toEqual(["Work"]);
-  expect(folderTags(index, "revi")).toEqual(["revisão"]);
+});
+
+test("folder completion follows note removal", async () => {
+  const index = await indexOf([{ path: "a.md", text: "---\ntags: work\n---" }]);
   await syncIndex(index, [], reader([]));
   expect(folderTags(index, "")).toEqual([]);
 });
@@ -309,4 +313,48 @@ test("multiple date filters intersect and invalid date tokens are ignored", asyn
   const index = await indexOf([{ path: "a.md", text: "---\ndate: 2026-10-03\n---" }]);
   expect(paths(index, "date:2026 date:2026-10 date:bad")).toEqual(["a.md"]);
   expect(paths(index, "date:2026-10 date:2026-11")).toEqual([]);
+});
+
+test.each(["budget #work", "#work", '#"two words" #review date:today'])(
+  "creation from %s remains searchable by its tags",
+  async (query) => {
+    const content = creationContent(query);
+    const index = await indexOf([{ path: "budget.md", text: content }]);
+    const tags = query
+      .split("date:")[0]
+      .replace(/^budget /, "")
+      .trim();
+    expect(paths(index, tags)).toEqual(["budget.md"]);
+  },
+);
+test("created tag scalars cannot inject extra frontmatter keys", async () => {
+  const content = creationContent('#"work\\ncreated: 2000-01-01"');
+  const index = await indexOf([{ path: "a.md", text: content, modified: +new Date(2026, 9, 1) }]);
+  expect(paths(index, "date:2026-10")).toEqual(["a.md"]);
+});
+test("only the tag with open completion is ignored while typing", async () => {
+  const index = await indexOf([
+    { path: "a.md", text: "---\ntags: [work, review]\n---\nbudget" },
+    { path: "b.md", text: "---\ntags: work\n---\nbudget" },
+  ]);
+  const query = "budget #review #wor";
+  expect(
+    search(index, query, new Date(), queryCompletion(query, query.length)).hits.map(
+      (hit) => hit.path,
+    ),
+  ).toEqual(["a.md"]);
+  expect(paths(index, query)).toEqual([]);
+});
+test("folder completion folds accents and case", async () => {
+  const index = await indexOf([{ path: "a.md", text: "---\ntags: revisão\n---" }]);
+  expect(folderTags(index, "REVI")).toEqual(["revisão"]);
+});
+test("folder completion is capped at fifty distinct suggestions", async () => {
+  const index = await indexOf([
+    {
+      path: "a.md",
+      text: `---\ntags: [${Array.from({ length: 100 }, (_, i) => `tag${i}`).join(",")}]\n---`,
+    },
+  ]);
+  expect(folderTags(index, "tag")).toHaveLength(50);
 });

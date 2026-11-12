@@ -332,8 +332,12 @@ suggestion style. Up/Down select, Enter or Tab inserts the whole token and a spa
 accepts. Esc dismisses completion first, then follows the existing focus/close layers. Selecting the
 bar's text and typing replaces the whole query. Browser and `?` modes keep their web suggestions.
 Queries containing filters (or beginning with `#`) never offer automatic Create. Explicit Ctrl+Enter
-and "+" create from the free text only; a tag-only query creates an untitled note, without adding tags.
-
+and "+" create from the free text only; a tags-only query creates an untitled note. Creation seeds
+all tag filters in frontmatter so the note remains in the results; date filters are ignored for
+creation, and the new note is dated now.
+While completion is open, its partial tag token is ignored for filtering; accepting it applies the
+complete tag. A sole suggestion identical to the complete token leaves list navigation available.
+Keyboard caret movement updates completion; leaving the token dismisses it.
 
 Date filters share the tag completion list: `date:` offers Today (`date:today`), Last 7 days
 (`date:7d`, today and six preceding local days), This month (`date:month`) and Last month
