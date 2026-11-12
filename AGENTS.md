@@ -84,6 +84,7 @@ All durable context stays in the repository. Private agent memory is not shared.
 | Current state, next step, open task     | `docs/PLAN.md`         |
 | How the system works today              | `docs/ARCHITECTURE.md` |
 | Why a costly-to-reverse decision exists | `docs/decisions/`      |
+| Directions studied but not adopted      | `docs/EXPLORATIONS.md` |
 | Details of a change                     | Commit message         |
 
 - When pausing a task, leave a line in "In progress" in the plan; remove it when done.
