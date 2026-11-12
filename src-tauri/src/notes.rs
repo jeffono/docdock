@@ -1277,7 +1277,7 @@ fn send_away(
             let relative = real
                 .strip_prefix(&canonical)
                 .map_err(|_| Error::OutsideFolder)?;
-            let dir = trash_dir(&canonical)?;
+            let (dir, _held) = trash_dir(&canonical)?;
             trash::put(&dir, relative, target)
                 .map(Gone::Trash)
                 .map_err(failed)
@@ -1285,14 +1285,21 @@ fn send_away(
         Err(error) => Err(failed(error)),
     }
 }
-/// The notes folder's own trash, created if needed. Never creates `root`.
-fn trash_dir(root: &Path) -> Result<PathBuf, Error> {
-    let dir = derived_dir(root)?.join(trash::DIR);
+/// The notes folder's own trash, created if needed while `.docdock` is held, and held with every
+/// folder above it until the handles drop. Never creates `root`; a link in its place is refused.
+fn trash_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
+    let (derived, mut held) = held_derived_dir(root)?;
+    let dir = derived.join(trash::DIR);
     match fs::create_dir(&dir) {
-        Ok(()) => Ok(dir),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(dir),
-        Err(error) => Err(error.into()),
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
     }
+    let trash = platform::hold_directory(&dir).map_err(|error| Error::DeleteFailed {
+        detail: error.to_string(),
+    })?;
+    held.push(trash);
+    Ok((dir, held))
 }
 /// Remembers the pinned items a delete removed, so Undo can bring them back with the item.
 fn keep_pinned(
@@ -1617,11 +1624,13 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
         let canonical = root.canonicalize()?;
         let dir = canonical.join(DERIVED).join(trash::DIR);
         let _held_trash = hold_ancestry(&dir).map_err(|error| trash_error(&dir, error))?;
-        let (source, path, folder) = trash::find(&dir, id).map_err(|error| match error.kind() {
-            io::ErrorKind::NotFound => Error::TrashItemMissing,
-            io::ErrorKind::InvalidData => Error::InvalidPath,
-            _ => trash_error(&dir, error),
-        })?;
+        // The entry's folders stay held from the moment they are read until the item has moved.
+        let (source, path, folder, held_source) =
+            trash::find(&dir, id).map_err(|error| match error.kind() {
+                io::ErrorKind::NotFound => Error::TrashItemMissing,
+                io::ErrorKind::InvalidData => Error::InvalidPath,
+                _ => trash_error(&dir, error),
+            })?;
         let item = (path, folder);
         let path = checked(&item.0, |_| true)?;
         let name = path.file_name().ok_or(Error::InvalidPath)?;
@@ -1637,10 +1646,10 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
             return Err(Error::InvalidPath);
         }
         let parent = path.parent().unwrap_or(Path::new(""));
-        ensure_folders(&canonical, parent)?;
+        let held_parent = ensure_folders(&canonical, parent)?;
         let landed = {
-            let (into, _held_parent) = hold_folder(&canonical, parent)?;
-            let _held_source = hold_ancestry(source.parent().ok_or(Error::InvalidPath)?)?;
+            let (_held_parent, _held_source) = (held_parent, held_source);
+            let into = canonical.join(parent);
             place(&source, &into, name, folder, |candidate| {
                 !folder && reserved(root, &relative(&canonical, candidate))
             })?
@@ -1672,15 +1681,19 @@ pub fn restore_trashed(app: &AppHandle, id: &str, undo: bool) -> Result<String, 
 }
 /// Makes sure each folder of `relative` exists below `root`, creating the missing ones. Only a folder
 /// to create must pass the folder name rules: one that exists, even under a name the app would not
-/// give, is used as it is. Links are refused at every level.
-fn ensure_folders(root: &Path, relative: &Path) -> Result<(), Error> {
+/// give, is used as it is. Links are refused at every level. Each folder is created while the one
+/// above it is held, and every level stays held in the handles answered.
+fn ensure_folders(root: &Path, relative: &Path) -> Result<Vec<fs::File>, Error> {
+    let mut held = hold_ancestry(root).map_err(|_| Error::OutsideFolder)?;
     let mut dir = root.to_owned();
     for name in relative.iter() {
-        let _held = hold_ancestry(&dir).map_err(|_| Error::OutsideFolder)?;
         dir.push(name);
         match fs::symlink_metadata(&dir) {
             Ok(metadata) if metadata.is_symlink() => return Err(Error::OutsideFolder),
-            Ok(metadata) if metadata.is_dir() => continue,
+            Ok(metadata) if metadata.is_dir() => {
+                held.push(platform::hold_directory(&dir).map_err(|_| Error::OutsideFolder)?);
+                continue;
+            }
             Ok(_) => {
                 return Err(Error::FolderNameTaken {
                     name: name.to_string_lossy().into_owned(),
@@ -1697,8 +1710,9 @@ fn ensure_folders(root: &Path, relative: &Path) -> Result<(), Error> {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
+        held.push(platform::hold_directory(&dir).map_err(|_| Error::OutsideFolder)?);
     }
-    Ok(())
+    Ok(held)
 }
 /// Moves `source` into `folder` as `name`, or the first free numbered name, such as `name (2).md` or
 /// `folder (2)`, never over anything; `taken` refuses a name besides those on disk.
@@ -1793,15 +1807,20 @@ fn copy_path(app: &AppHandle) -> Result<PathBuf, Error> {
 }
 /// Hidden from listing, search and watcher; never creates the notes root or follows a link.
 fn derived_dir(root: &Path) -> Result<PathBuf, Error> {
-    let _held = hold_ancestry(root)?;
+    held_derived_dir(root).map(|(dir, _)| dir)
+}
+/// As `derived_dir`, created while `root` is held, and held with every folder above it until the
+/// handles drop, so a folder made inside it cannot land elsewhere.
+fn held_derived_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
+    let mut held = hold_ancestry(root)?;
     let dir = root.join(DERIVED);
     match fs::create_dir(&dir) {
         Ok(()) => (),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
         Err(error) => return Err(error.into()),
     }
-    let _held = hold_ancestry(&dir)?;
-    Ok(dir)
+    held.push(platform::hold_directory(&dir)?);
+    Ok((dir, held))
 }
 fn read_collapsed(dir: &Path) -> Result<BTreeSet<String>, Error> {
     match fs::read(dir.join("collapsed.json")) {
@@ -3606,6 +3625,15 @@ mod tests {
             restore_trashed_in(&t.0, &id, false),
             Err(Error::InvalidFolderName)
         );
+    }
+    #[test]
+    fn folders_made_for_a_restore_stay_held_until_released() {
+        let t = Temp::new();
+        let root = t.0.canonicalize().unwrap();
+        let held = ensure_folders(&root, Path::new("a/b")).unwrap();
+        assert!(fs::rename(root.join("a/b"), root.join("moved")).is_err());
+        drop(held);
+        assert!(fs::rename(root.join("a/b"), root.join("moved")).is_ok());
     }
     #[test]
     fn restoring_does_not_take_a_name_a_recycle_bin_undo_reserves() {

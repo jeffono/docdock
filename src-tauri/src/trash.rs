@@ -117,15 +117,17 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 /// Moves `target`, a note or a folder at `relative` below the notes folder, into `trash` as a new
 /// entry, and answers its id. A rename on the same volume: it either moves whole or stays. `trash` must
 /// exist; it is held, with every folder above it, so a link planted under its name is refused rather
-/// than followed out of the notes folder. The caller holds `target`'s ancestry. A path nested deeper
-/// than an entry can name is refused, and the item stays where it is.
+/// than followed out of the notes folder. Each folder of the entry is created while the one above it
+/// is held, then held itself until the move is done, so none can be swapped for a link meanwhile. The
+/// caller holds `target`'s ancestry. A path nested deeper than an entry can name is refused, and the
+/// item stays where it is.
 pub fn put(trash: &Path, relative: &Path, target: &Path) -> io::Result<String> {
     let names: Vec<_> = relative.iter().collect();
     let (name, folders) = names.split_last().ok_or(io::ErrorKind::InvalidInput)?;
     if folders.len() > MAX_DEPTH {
         return Err(io::ErrorKind::InvalidInput.into());
     }
-    let _held = platform::hold_ancestry(trash)?;
+    let _held_trash = platform::hold_ancestry(trash)?;
     let (id, entry) = loop {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let id = entry_name(now_ms(), n, random() >> 24, folders.len());
@@ -136,21 +138,33 @@ pub fn put(trash: &Path, relative: &Path, target: &Path) -> io::Result<String> {
             Err(error) => return Err(error),
         }
     };
-    let moved = (|| {
-        let mut dir = entry.clone();
-        for folder in folders {
-            dir.push(folder);
-            fs::create_dir(&dir)?;
-        }
-        let _held = platform::hold_ancestry(&dir)?;
-        platform::move_new(target, &dir.join(name))
-    })();
+    let mut held = Vec::new();
+    let moved = fill(&entry, folders, name, target, &mut held);
+    // Released first: the entry's folders cannot be removed while held.
+    drop(held);
     if let Err(error) = moved {
         // Only the folders made above, still empty: the item stayed where it was.
         discard(&entry);
         return Err(error);
     }
     Ok(id)
+}
+/// Creates `folders` in `entry`, each held, and moves `target` into the last one as `name`.
+fn fill(
+    entry: &Path,
+    folders: &[&std::ffi::OsStr],
+    name: &std::ffi::OsStr,
+    target: &Path,
+    held: &mut Vec<fs::File>,
+) -> io::Result<()> {
+    let mut dir = entry.to_owned();
+    held.push(platform::hold_directory(&dir)?);
+    for folder in folders {
+        dir.push(folder);
+        fs::create_dir(&dir)?;
+        held.push(platform::hold_directory(&dir)?);
+    }
+    platform::move_new(target, &dir.join(name))
 }
 
 /// Files the shell or a sync client may drop into any folder, which never make an item.
@@ -176,21 +190,25 @@ fn one_child(
 }
 /// The item of `entry`, whose name parsed as `parsed`: one chain of `depth` real folders, then one
 /// file or folder. Files beside the chain and shell or sync noise are ignored; anything else, such as
-/// two candidates, a link or a name that is not Unicode, is no item.
-fn item_in(entry: &Path, parsed: &Entry) -> Option<(PathBuf, String, bool)> {
+/// two candidates, a link or a name that is not Unicode, is no item. Each folder is held, without
+/// following links, before it is read, and the chain stays held in the handles answered: none can be
+/// swapped for a link while the caller uses the item.
+fn item_in(entry: &Path, parsed: &Entry) -> Option<(PathBuf, String, bool, Vec<fs::File>)> {
     let mut dir = entry.to_owned();
+    let mut held = vec![platform::hold_directory(&dir).ok()?];
     let mut names = Vec::new();
     for _ in 0..parsed.depth {
         let child = one_child(&dir, |_, kind| kind.is_dir())?;
         names.push(child.file_name().into_string().ok()?);
         dir = child.path();
+        held.push(platform::hold_directory(&dir).ok()?);
     }
     let child = one_child(&dir, |child, kind| {
         (kind.is_dir() || kind.is_file()) && !noise(&child.file_name())
     })?;
     let kind = child.file_type().ok()?;
     names.push(child.file_name().into_string().ok()?);
-    Some((child.path(), names.join("/"), kind.is_dir()))
+    Some((child.path(), names.join("/"), kind.is_dir(), held))
 }
 
 /// Every entry in `trash`, newest first. No trash lists nothing; a trash that is a link fails.
@@ -212,8 +230,8 @@ pub fn list(trash: &Path) -> io::Result<Vec<Item>> {
         let item = item_in(&entry.path(), &parsed);
         items.push(Item {
             id,
-            folder: item.as_ref().is_some_and(|(_, _, folder)| *folder),
-            path: item.map(|(_, path, _)| path),
+            folder: item.as_ref().is_some_and(|(_, _, folder, _)| *folder),
+            path: item.map(|(_, path, _, _)| path),
             deleted: parsed.deleted,
         });
     }
@@ -221,10 +239,10 @@ pub fn list(trash: &Path) -> io::Result<Vec<Item>> {
     Ok(items)
 }
 
-/// The item of entry `id` in `trash`: where it is now, its original path and whether it is a folder.
-/// `NotFound` when there is no such entry, `InvalidData` when its item cannot be told. The caller
-/// holds `trash`'s ancestry.
-pub fn find(trash: &Path, id: &str) -> io::Result<(PathBuf, String, bool)> {
+/// The item of entry `id` in `trash`: where it is now, its original path, whether it is a folder,
+/// and the folders above it in the entry, held until the handles drop. `NotFound` when there is no
+/// such entry, `InvalidData` when its item cannot be told. The caller holds `trash`'s ancestry.
+pub fn find(trash: &Path, id: &str) -> io::Result<(PathBuf, String, bool, Vec<fs::File>)> {
     let parsed = parse(id).ok_or(io::ErrorKind::NotFound)?;
     let entry = trash.join(id);
     if !fs::symlink_metadata(&entry)?.is_dir() {
@@ -234,28 +252,32 @@ pub fn find(trash: &Path, id: &str) -> io::Result<(PathBuf, String, bool)> {
 }
 
 /// Removes entry `id` once its item has moved out: only the folders it held, from the deepest up, and
-/// the shell or sync noise in them, so anything else that arrived meanwhile stays.
+/// the shell or sync noise in them, so anything else that arrived meanwhile stays. The caller holds
+/// `trash`'s ancestry.
 pub fn discard_entry(trash: &Path, id: &str) {
     discard(&trash.join(id));
 }
+/// Each folder is held before it is read or emptied of noise, so a link swapped in never leads
+/// outside; it is released only to be removed, which removes a link swapped in then, not its target.
 fn discard(entry: &Path) {
     let mut chain = Vec::new();
     let mut dir = entry.to_owned();
-    loop {
+    while let Ok(handle) = platform::hold_directory(&dir) {
         let next = one_child(&dir, |_, kind| kind.is_dir());
-        chain.push(dir);
+        chain.push((dir, handle));
         match next {
             Some(child) => dir = child.path(),
             None => break,
         }
     }
-    for dir in chain.iter().rev() {
-        for child in fs::read_dir(dir).into_iter().flatten().flatten() {
+    while let Some((dir, handle)) = chain.pop() {
+        for child in fs::read_dir(&dir).into_iter().flatten().flatten() {
             if noise(&child.file_name()) && child.file_type().is_ok_and(|kind| kind.is_file()) {
                 let _ = fs::remove_file(child.path());
             }
         }
-        if fs::remove_dir(dir).is_err() {
+        drop(handle);
+        if fs::remove_dir(&dir).is_err() {
             break;
         }
     }
@@ -317,20 +339,26 @@ fn sweep(trash: &Path, goes: impl Fn(&fs::DirEntry) -> bool) -> Option<io::Error
     failed
 }
 
-/// Deletes `path` and everything below it, removing links without following them. Walks the tree
-/// itself: `fs::remove_dir_all` asks for POSIX delete semantics, which a vault mounted by WinFsp
-/// refuses with ERROR_INVALID_PARAMETER after deleting the first file.
+/// Deletes `path` and everything below it, removing links without following them. Each folder is held
+/// before it is read and released only to be removed, so a link swapped in meanwhile is removed as a
+/// link, never followed. Walks the tree itself: `fs::remove_dir_all` asks for POSIX delete
+/// semantics, which a vault mounted by WinFsp refuses with ERROR_INVALID_PARAMETER after deleting the
+/// first file.
 fn remove(path: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
-    if metadata.is_symlink() {
+    let unlink = || fs::remove_file(path).or_else(|_| fs::remove_dir(path));
+    if metadata.is_symlink() || !metadata.is_dir() {
         // A link to a folder is itself a directory entry on Windows.
-        return fs::remove_file(path).or_else(|_| fs::remove_dir(path));
+        return unlink();
     }
-    if !metadata.is_dir() {
-        return fs::remove_file(path);
-    }
-    for entry in fs::read_dir(path)? {
-        remove(&entry?.path())?;
+    {
+        let Ok(_held) = platform::hold_directory(path) else {
+            // No longer a real folder, such as a link swapped in since.
+            return unlink();
+        };
+        for entry in fs::read_dir(path)? {
+            remove(&entry?.path())?;
+        }
     }
     fs::remove_dir(path)
 }
@@ -374,6 +402,21 @@ mod tests {
         assert!(expired(old, old, NOW));
         // A clock ahead of this one.
         assert!(!expired(NOW + 1000, old, NOW));
+    }
+    #[test]
+    fn a_found_items_folders_stay_held_until_released() {
+        let trash = std::env::temp_dir().join(format!("docdock-trash-held-{}", random()));
+        fs::create_dir_all(trash.join("1-0-0-1").join("sub")).unwrap();
+        fs::write(trash.join("1-0-0-1").join("sub").join("a.md"), "a").unwrap();
+        let (_, path, _, held) = find(&trash, "1-0-0-1").unwrap();
+        assert_eq!(path, "sub/a.md");
+        // Held folders cannot be swapped: neither renamed away nor replaced.
+        let sub = trash.join("1-0-0-1").join("sub");
+        assert!(fs::rename(&sub, trash.join("moved")).is_err());
+        assert!(fs::rename(trash.join("1-0-0-1"), trash.join("moved")).is_err());
+        drop(held);
+        assert!(fs::rename(&sub, trash.join("moved")).is_ok());
+        let _ = remove(&trash);
     }
     #[test]
     fn an_old_deletion_time_alone_does_not_purge() {

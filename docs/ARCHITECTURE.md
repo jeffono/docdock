@@ -465,7 +465,7 @@ clock ran late cannot have its entries purged early elsewhere. Then the purge re
 the panel hides (`purge_trash`), on a thread of its own, only in the folder that `root` accepts by its
 marker, so never while it is unavailable. "Empty trash" in Preferences (`notes_trash_empty(ids)`)
 removes the entries that were listed and confirmed, not one synced in since. Listing failures that
-are not a link tell the folder is unavailable, as while a vault locks. Both remove links inside without following them, refuse a trash that is a link (it is
+are not a link tell the folder is unavailable, as while a vault locks. Every walk inside the trash (listing, restoring, emptying, purging) holds each folder, without following links, before reading it and until done with it, and every folder the trash or a restore creates is made while the one above it is held and then held itself, so no folder can be swapped for a link meanwhile. Both remove links inside without following them, refuse a trash that is a link (it is
 held with its ancestry, as for writing), and walk the tree themselves: `fs::remove_dir_all` fails on a
 vault mounted by WinFsp. What cannot be removed now, such as while the vault locks, goes next time.
 Names DocDock did not make are left to Empty. Being under `.docdock`, the trash is skipped by listing,
