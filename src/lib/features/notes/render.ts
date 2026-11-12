@@ -62,8 +62,8 @@ export type Content = Element | string;
 
 const el = (tag: Tag, attrs?: Attrs, children?: Content[]): Element => ({ tag, attrs, children });
 
-/** Renders a whole note: the frontmatter header, then the Markdown after it. */
-export function noteModel(source: string, note: string): Content[] {
+/** Renders a whole note: the frontmatter header, then the Markdown after it. `note` is its path. */
+export function noteModel(source: string, note: string | null): Content[] {
   const text = source.replace(/\r\n?/g, "\n");
   const lines = text.split("\n");
   const meta = frontmatter((n) => lines[n - 1], lines.length);
@@ -147,7 +147,8 @@ export function noteName(source: string): { title: string; frontmatter: boolean 
 class Renderer {
   constructor(
     readonly slice: (from: number, to: number) => string,
-    readonly note: string,
+    /** Null for content that is not a note, such as a page article: it never shows local images. */
+    readonly note: string | null,
     readonly defs: Definitions,
   ) {}
 
@@ -394,7 +395,7 @@ class Renderer {
         );
         const target = linkTarget(node, this.slice, this.defs);
         if (!target) return [this.slice(node.from, node.to)];
-        const src = imageUrl(target.url, this.note);
+        const src = this.note === null ? null : imageUrl(target.url, this.note);
         return src
           ? [el("img", target.title ? { src, alt, title: target.title } : { src, alt })]
           : [alt];
@@ -476,7 +477,7 @@ export function toDom(content: Content[], doc: Document = document): DocumentFra
 }
 
 /** A note that cannot be rendered still shows its text. */
-export async function renderNote(text: string, note: string): Promise<DocumentFragment> {
+export async function renderNote(text: string, note: string | null): Promise<DocumentFragment> {
   try {
     const loads: Promise<unknown>[] = [];
     noteParser.parse(text).iterate({

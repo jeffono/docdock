@@ -30,6 +30,8 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2.7.2"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 notify = { version = "8", default-features = false }
+dom_smoothie = "0.19"
+dom_query = "0.29"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"

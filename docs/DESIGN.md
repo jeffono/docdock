@@ -152,7 +152,7 @@ pinned and unpinned notes differ only in section and starting state.
   title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
   the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
 - **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
-  URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
+  URL and quoted selection (in the reader view, the whole article instead), then returns to notes with the new card expanded and editing, ready for
   annotations. A note with an http(s) `url:` has an "Open page" globe action left of the pencil; it
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
@@ -355,7 +355,7 @@ shown in the notes list.
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
+controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
 a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
@@ -363,6 +363,13 @@ Button tooltips include their working shortcuts, including Ctrl+, on Preferences
 field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
+
+Reader view replaces the page, under the same bars, with its article as a note reads: the title as
+the note header, then text, headings, lists, quotes, code and tables in the reading styles, with the
+panel's insets and its own scroll. Images are left out. The toggle is disabled while the article is
+read; a failure says so under the top bar ("No article text was found on this page."). Links open in
+the page as in notes. The bar keeps the page URL, and "+" saves the whole article. Pressing the
+toggle again, back/forward, opening a page, switching tabs or Preferences return to the page.
 
 Tag filters in Notes use whitespace-delimited `#tag` tokens. All tags must match a complete
 frontmatter tag, ignoring case and accents, alongside the existing free-text search. Inline body

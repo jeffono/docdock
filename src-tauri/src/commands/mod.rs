@@ -134,6 +134,15 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
+/// The shown page's article for the reader view; waits off the async runtime as `web_selection`
+/// does, and extraction runs there too.
+#[tauri::command]
+pub async fn web_reader(app: AppHandle) -> Result<Option<crate::reader::Article>, Error> {
+    tauri::async_runtime::spawn_blocking(move || crate::reader::read(&app))
+        .await
+        .map_err(Error::unexpected)?
+}
+
 /// Copy and cut in the UI write through here, never through the browser, so the text stays out of
 /// clipboard history and cloud clipboard. Off the main thread: opening the clipboard may wait for
 /// another app to close it.
