@@ -5,7 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M8 integrated in `m8`; review fixes in `m8-fixes`, pending visual verification and final stage review.
+- M8 integrated and reviewed in `m8`; awaiting manual verification, visual approval and merge.
 
 ## M8 — Note privacy
 
