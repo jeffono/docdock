@@ -589,9 +589,8 @@ fn advance(page: &ICoreWebView2) -> windows::core::Result<()> {
     };
     let target = page.clone();
     let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
+        let ok = confirmed(&change, result.is_ok(), &json);
         let answer = parse(&json);
-        // A protocol error may also arrive as its JSON.
-        let ok = result.is_ok() && answer.get("code").is_none();
         let identifier = answer["identifier"].as_str().map(str::to_owned);
         if !DOCUMENT_START.with_borrow_mut(|state| state.answered(change, identifier, ok)) {
             eprintln!("[blocking] document start: {json}");
@@ -610,6 +609,17 @@ fn advance(page: &ICoreWebView2) -> windows::core::Result<()> {
         DOCUMENT_START.with_borrow_mut(DocumentStart::failed);
     }
     sent
+}
+
+/// Whether the browser did what `change` asked. A protocol error may also arrive as its JSON. A
+/// script the browser no longer knows is already removed: counting that as a failure kept its stale
+/// identifier, so every later removal failed and no other host's script was ever registered.
+/// The answer may be the error's JSON or its bare message, with or without a failed result.
+fn confirmed(change: &Change, ok: bool, json: &str) -> bool {
+    if matches!(change, Change::Remove(_)) && json.contains("Script not found") {
+        return true;
+    }
+    ok && parse(json).get("code").is_none()
 }
 
 /// Calls a DevTools protocol method; `then` receives the response JSON only on success.
@@ -654,6 +664,20 @@ unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_script_the_browser_lost_counts_as_removed() {
+        let remove = Change::Remove("1".into());
+        let message = r#"{"code":-32000,"message":"Script not found"}"#;
+        assert!(confirmed(&remove, true, message));
+        assert!(confirmed(&remove, false, "Script not found"));
+        assert!(!confirmed(
+            &remove,
+            true,
+            r#"{"code":-32000,"message":"Other"}"#
+        ));
+        assert!(!confirmed(&Change::Add("x".into()), true, message));
+    }
+
     use super::*;
 
     #[test]
