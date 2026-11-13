@@ -461,6 +461,149 @@ fn evaluate_in(
     })
 }
 
+/// The script Rust's isolated world runs as main-frame documents start. One browser call at a time,
+/// so every answer applies to what the state knows. Only the WebView2 UI thread uses it, and there
+/// is a single page window.
+#[derive(Default)]
+struct DocumentStart {
+    /// What the browser confirmed: the source and its identifier, kept until its removal is too.
+    registered: Option<(String, String)>,
+    /// The source navigations should get.
+    wanted: Option<String>,
+    /// A browser call is in flight; its answer advances the state.
+    busy: bool,
+    /// Sent to once `registered` matches `wanted`, or a call fails.
+    waiters: Vec<Sender<()>>,
+}
+
+/// A browser call that brings the registered script closer to the wanted one.
+#[derive(Debug, PartialEq)]
+enum Change {
+    Add(String),
+    Remove(String),
+}
+
+impl DocumentStart {
+    fn want(&mut self, source: Option<String>, settled: Sender<()>) {
+        self.wanted = source;
+        self.waiters.push(settled);
+    }
+
+    /// The call to make next, if any is due; settles the waiters once nothing is.
+    fn next(&mut self) -> Option<Change> {
+        if self.busy {
+            return None;
+        }
+        let change = match (&self.registered, &self.wanted) {
+            (Some((source, _)), Some(wanted)) if source == wanted => None,
+            (Some((_, identifier)), _) => Some(Change::Remove(identifier.clone())),
+            (None, Some(wanted)) => Some(Change::Add(wanted.clone())),
+            (None, None) => None,
+        };
+        match change {
+            Some(_) => self.busy = true,
+            None => self.settle(),
+        }
+        change
+    }
+
+    /// Records the browser's answer to `change`: the new script's identifier, or whether the
+    /// removal succeeded. A failure keeps what is registered and lets waiters go; the next
+    /// navigation tries again. Returns whether to continue.
+    fn answered(&mut self, change: Change, identifier: Option<String>, ok: bool) -> bool {
+        self.busy = false;
+        match change {
+            Change::Add(source) if ok => match identifier {
+                Some(identifier) => self.registered = Some((source, identifier)),
+                None => return self.failed(),
+            },
+            Change::Remove(_) if ok => self.registered = None,
+            _ => return self.failed(),
+        }
+        true
+    }
+
+    /// A call failed or could not be made.
+    fn failed(&mut self) -> bool {
+        self.busy = false;
+        self.settle();
+        false
+    }
+
+    fn settle(&mut self) {
+        for waiter in self.waiters.drain(..) {
+            let _ = waiter.send(());
+        }
+    }
+}
+
+thread_local! {
+    static DOCUMENT_START: RefCell<DocumentStart> = RefCell::default();
+}
+
+/// Lets document-start scripts run for this page: Chromium evaluates them only while the `Page`
+/// domain is enabled. The domain only reports events to this DevTools session; the page cannot
+/// notice it. Forgets a previous page window's script.
+pub fn enable_document_start(page: &ICoreWebView2) -> windows::core::Result<()> {
+    DOCUMENT_START.take();
+    call(page, "Page.enable", json!({}), |_, _| Ok(()))
+}
+
+/// Replaces the document-start script with `source` in the `WORLD` isolated world, or removes it,
+/// and sends on `settled` once the browser has confirmed it, or a call failed (at once when
+/// `source` is already registered). A script runs in every frame of the documents created after
+/// the browser registers it, so the script itself skips the frames and hosts it is not for.
+/// Registered as a same-site navigation starts, it may arrive after the new document: an unchanged
+/// script is therefore kept, and the app registers before the navigations it starts itself.
+pub fn document_start(
+    page: &ICoreWebView2,
+    source: Option<String>,
+    settled: Sender<()>,
+) -> windows::core::Result<()> {
+    DOCUMENT_START.with_borrow_mut(|state| state.want(source, settled));
+    advance(page)
+}
+
+/// Makes the next call the document-start state asks for; its answer makes the one after.
+fn advance(page: &ICoreWebView2) -> windows::core::Result<()> {
+    let Some(change) = DOCUMENT_START.with_borrow_mut(DocumentStart::next) else {
+        return Ok(());
+    };
+    let (method, params) = match &change {
+        Change::Add(source) => (
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": source, "worldName": WORLD }),
+        ),
+        Change::Remove(identifier) => (
+            "Page.removeScriptToEvaluateOnNewDocument",
+            json!({ "identifier": identifier }),
+        ),
+    };
+    let target = page.clone();
+    let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
+        let answer = parse(&json);
+        // A protocol error may also arrive as its JSON.
+        let ok = result.is_ok() && answer.get("code").is_none();
+        let identifier = answer["identifier"].as_str().map(str::to_owned);
+        if !DOCUMENT_START.with_borrow_mut(|state| state.answered(change, identifier, ok)) {
+            eprintln!("[blocking] document start: {json}");
+            return Ok(());
+        }
+        advance(&target)
+    }));
+    let sent = unsafe {
+        page.CallDevToolsProtocolMethod(
+            &HSTRING::from(method),
+            &HSTRING::from(params.to_string()),
+            &done,
+        )
+    };
+    if sent.is_err() {
+        DOCUMENT_START.with_borrow_mut(DocumentStart::failed);
+    }
+    sent
+}
+
 /// Calls a DevTools protocol method; `then` receives the response JSON only on success.
 fn call(
     page: &ICoreWebView2,
@@ -592,5 +735,80 @@ mod tests {
         let mut context = world(3, "F");
         context.as_object_mut().unwrap().remove("uniqueId");
         assert_eq!(world_context(&created(context), "F", 3), None);
+    }
+
+    fn want(state: &mut DocumentStart, source: Option<&str>) -> Receiver<()> {
+        let (sender, receiver) = mpsc::channel();
+        state.want(source.map(str::to_owned), sender);
+        receiver
+    }
+
+    fn registered(source: &str) -> DocumentStart {
+        let mut state = DocumentStart::default();
+        drop(want(&mut state, Some(source)));
+        state.next();
+        state.answered(Change::Add(source.into()), Some("1".into()), true);
+        state.next();
+        state
+    }
+
+    #[test]
+    fn an_equal_request_during_a_registration_waits_for_its_answer() {
+        let mut state = DocumentStart::default();
+        let first = want(&mut state, Some("a"));
+        assert_eq!(state.next(), Some(Change::Add("a".into())));
+        let second = want(&mut state, Some("a"));
+        assert_eq!(state.next(), None);
+        assert!(second.try_recv().is_err());
+        state.answered(Change::Add("a".into()), Some("1".into()), true);
+        assert_eq!(state.next(), None);
+        assert!(first.try_recv().is_ok() && second.try_recv().is_ok());
+    }
+
+    #[test]
+    fn a_request_during_a_removal_waits_for_its_answer() {
+        let mut state = registered("a");
+        let first = want(&mut state, None);
+        assert_eq!(state.next(), Some(Change::Remove("1".into())));
+        let second = want(&mut state, None);
+        assert_eq!(state.next(), None);
+        assert!(second.try_recv().is_err());
+        state.answered(Change::Remove("1".into()), None, true);
+        assert_eq!(state.next(), None);
+        assert!(first.try_recv().is_ok() && second.try_recv().is_ok());
+    }
+
+    #[test]
+    fn a_failed_removal_keeps_the_identifier_for_the_next_request() {
+        let mut state = registered("a");
+        let waiter = want(&mut state, None);
+        state.next();
+        assert!(!state.answered(Change::Remove("1".into()), None, false));
+        assert!(waiter.try_recv().is_ok());
+        drop(want(&mut state, None));
+        assert_eq!(state.next(), Some(Change::Remove("1".into())));
+    }
+
+    #[test]
+    fn a_call_that_could_not_be_made_is_retried_by_an_equal_request() {
+        let mut state = DocumentStart::default();
+        let waiter = want(&mut state, Some("a"));
+        state.next();
+        state.failed();
+        assert!(waiter.try_recv().is_ok());
+        drop(want(&mut state, Some("a")));
+        assert_eq!(state.next(), Some(Change::Add("a".into())));
+    }
+
+    #[test]
+    fn a_script_replaced_while_registering_is_removed_before_the_next() {
+        let mut state = DocumentStart::default();
+        drop(want(&mut state, Some("a")));
+        state.next();
+        drop(want(&mut state, Some("b")));
+        state.answered(Change::Add("a".into()), Some("1".into()), true);
+        assert_eq!(state.next(), Some(Change::Remove("1".into())));
+        state.answered(Change::Remove("1".into()), None, true);
+        assert_eq!(state.next(), Some(Change::Add("b".into())));
     }
 }
