@@ -5,22 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
-- M9 — Clean pages: tracking prevention, content blocking and reader view on branches `m9-tracking`,
-  `m9-adblock` and `m9-reader`, merged into `m9`.
-
-## M9 — Clean pages
-
-Space in the panel is small, so page clutter costs more than in a browser. These tasks need review by
-another provider: they touch untrusted content.
-
-- [ ] Strict tracking prevention on the page profile (`PreferredTrackingPreventionLevel`). `standard`
-- [ ] Content blocking with Brave's `adblock` crate (MPL-2.0): network rules through
-  `WebResourceRequested` and cosmetic rules hiding elements, which matter most in a narrow panel (cookie
-  banners, sticky bars). Lists downloaded and updated, not bundled; scriptlets off, since they run code in
-  the page; measure memory. Start with domain rules if the engine proves costly. `advanced`
-- [ ] Reader view: read the loaded page through CDP, extract the article in Rust with a Readability
-  port, convert it to Markdown and show it in the existing renderer; "Save page as note" can then save
-  the whole article. Text only at first if CSP blocks remote images. `advanced`
+- M9 on branch `m9`: manual verification in the app (tracking prevention, blocking, the shield and the
+  reader view), then merge into `main` and release.
 
 ## Completed
 
@@ -62,6 +48,12 @@ another provider: they touch untrusted content.
   `docs/ARCHITECTURE.md`. Rust tests grew 33%, on content loss and link safety around the folder marker,
   the unavailable folder and the trash.
 - Release 0.1.0-beta.3: automatic update from 0.1.0-beta.2 validated.
+- M9 — Clean pages: strict tracking prevention on the page profile, content blocking with Brave's
+  `adblock` crate from downloaded lists with cosmetic hiding and no scriptlets (about 8 MB), a shield to
+  allow a site, and a reader view that extracts the article with `dom_smoothie` and saves it as a note;
+  see `docs/decisions/0010-content-blocking.md`, `docs/decisions/0011-reader-view.md` and "Untrusted
+  content" in `docs/ARCHITECTURE.md`. Rust tests grew 12%, on site matching, the engine cache and
+  reader bounds.
 
 ## Later
 
