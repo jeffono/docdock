@@ -123,7 +123,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
             crate::platform::permission::install(
                 &window,
                 move |asked, held| crate::permissions::requested(&asking, asked, held),
-                move || crate::permissions::committed(&leaving),
+                move || crate::permissions::leaving(&leaving),
             )
         });
     if let Err(error) = setup {

@@ -147,6 +147,12 @@ pub fn navigation() -> u64 {
     navigations().changes
 }
 
+/// The page window's main-frame document, None while a navigation is in flight. Read it on the
+/// WebView2 UI thread, which alone changes it, to tie an event to the document it came from.
+pub fn document() -> Option<u64> {
+    navigations().identity()
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PageState {

@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError, mpsc};
 
 use serde::{Deserialize, Serialize};
@@ -126,13 +126,20 @@ pub fn decide(
     }
 }
 
+/// What an answer must still find: the document that asked and the stretch on screen it asked in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Moment {
+    document: u64,
+    shown: u64,
+}
+
 /// A page cannot pile up requests: beyond this many waiting, more are denied.
 const WAITING_MAX: usize = 8;
 
 /// Requests waiting for the bar, oldest first; the bar shows the first.
 struct Queue<T> {
     next: u64,
-    waiting: VecDeque<(u64, Prompt, T)>,
+    waiting: VecDeque<(u64, Prompt, Moment, T)>,
 }
 
 impl<T> Queue<T> {
@@ -144,32 +151,38 @@ impl<T> Queue<T> {
     }
 
     /// Gives `held` back when full.
-    fn push(&mut self, prompt: Prompt, held: T) -> Result<(), T> {
+    fn push(&mut self, prompt: Prompt, asked: Moment, held: T) -> Result<(), T> {
         if self.waiting.len() >= WAITING_MAX {
             return Err(held);
         }
         self.next += 1;
-        self.waiting.push_back((self.next, prompt, held));
+        self.waiting.push_back((self.next, prompt, asked, held));
         Ok(())
     }
 
     fn first(&self) -> Option<(u64, &Prompt)> {
-        self.waiting.front().map(|(id, prompt, _)| (*id, prompt))
+        self.waiting.front().map(|(id, prompt, ..)| (*id, prompt))
     }
 
     /// Removes request `id` and every other one the same answer settles: the same site and kind.
-    /// None when it no longer waits.
-    fn answer(&mut self, id: u64) -> Option<(Prompt, Vec<T>)> {
-        let prompt = self
+    /// None when it no longer waits. The prompt is None when the request was asked at another
+    /// moment than `now` (None: no document or not on screen): its answer must not count, and
+    /// every waiting request is given back to be denied.
+    fn answer(&mut self, id: u64, now: Option<Moment>) -> Option<(Option<Prompt>, Vec<T>)> {
+        let (prompt, asked) = self
             .waiting
             .iter()
             .find(|(waiting, ..)| *waiting == id)
-            .map(|(_, prompt, _)| prompt.clone())?;
+            .map(|(_, prompt, asked, _)| (prompt.clone(), *asked))?;
+        if now != Some(asked) {
+            return Some((None, self.clear()));
+        }
         let (settled, kept) = std::mem::take(&mut self.waiting)
             .into_iter()
-            .partition(|(_, other, _)| other.site == prompt.site && other.kind == prompt.kind);
+            .partition(|(_, other, ..)| other.site == prompt.site && other.kind == prompt.kind);
         self.waiting = kept;
-        Some((prompt, settled.into_iter().map(|(.., held)| held).collect()))
+        let settled = settled.into_iter().map(|(.., held)| held).collect();
+        Some((Some(prompt), settled))
     }
 
     fn clear(&mut self) -> Vec<T> {
@@ -181,8 +194,9 @@ impl<T> Queue<T> {
 static REMEMBERED: Mutex<Vec<Remembered>> = Mutex::new(Vec::new());
 /// Serializes changes without holding the request-path lock during I/O.
 static CHANGING: Mutex<()> = Mutex::new(());
-/// The page window is on screen: the panel is open and shows it.
-static SHOWN: AtomicBool = AtomicBool::new(false);
+/// Odd while the page window is on screen: the panel is open and shows it. Each change counts, so a
+/// request asked before the page hid never matches the page shown again.
+static SHOWN: AtomicU64 = AtomicU64::new(0);
 /// A request waits for the bar; the panel stays open meanwhile.
 static ASKING: AtomicBool = AtomicBool::new(false);
 
@@ -201,6 +215,17 @@ pub fn remembered() -> Vec<Remembered> {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
+}
+
+fn is_shown(epoch: u64) -> bool {
+    epoch % 2 == 1
+}
+
+/// Now, as an answer must find it; `document` is the current main-frame document.
+fn now(document: Option<u64>) -> Option<Moment> {
+    let shown = SHOWN.load(Ordering::SeqCst);
+    let document = document.filter(|_| is_shown(shown))?;
+    Some(Moment { document, shown })
 }
 
 /// Whether the panel must stay open: a request waits for an answer.
@@ -239,9 +264,15 @@ fn deny_waiting(app: &AppHandle) {
 
 /// A request of the page window. Runs on the WebView2 UI thread, so it must return at once.
 pub fn requested(app: &AppHandle, asked: Asked, held: Held) {
+    // During a navigation `top` may name the next document while the request comes from the one
+    // leaving, so a remembered choice could apply to the wrong site.
+    let Some(document) = asked.document else {
+        return held.settle(false);
+    };
+    let shown = SHOWN.load(Ordering::SeqCst);
     let outcome = decide(
         &REMEMBERED.lock().unwrap_or_else(PoisonError::into_inner),
-        SHOWN.load(Ordering::SeqCst),
+        is_shown(shown),
         asked.kind,
         &asked.origin,
         &asked.top,
@@ -250,7 +281,8 @@ pub fn requested(app: &AppHandle, asked: Asked, held: Held) {
         Outcome::Allow => held.settle(true),
         Outcome::Deny => held.settle(false),
         Outcome::Ask(prompt) => {
-            if let Err(held) = WAITING.with_borrow_mut(|queue| queue.push(prompt, held)) {
+            let asked = Moment { document, shown };
+            if let Err(held) = WAITING.with_borrow_mut(|queue| queue.push(prompt, asked, held)) {
                 held.settle(false);
             }
             publish(app);
@@ -258,15 +290,20 @@ pub fn requested(app: &AppHandle, asked: Asked, held: Held) {
     }
 }
 
-/// A new main-frame document replaced the one whose requests wait. UI thread.
-pub fn committed(app: &AppHandle) {
+/// A main-frame navigation started: the document whose requests wait may be about to go. UI thread.
+pub fn leaving(app: &AppHandle) {
     deny_waiting(app);
 }
 
 /// From the panel thread: whether the page is on screen. Hiding the panel or the page denies, without
 /// remembering, whatever waits: an answer comes only from a bar the user can see.
 pub fn set_shown(app: &AppHandle, shown: bool) {
-    if SHOWN.swap(shown, Ordering::SeqCst) && !shown {
+    let changed = SHOWN
+        .try_update(Ordering::SeqCst, Ordering::SeqCst, |epoch| {
+            (is_shown(epoch) != shown).then_some(epoch + 1)
+        })
+        .is_ok();
+    if changed && !shown {
         let handle = app.clone();
         if let Err(error) = app.run_on_main_thread(move || deny_waiting(&handle)) {
             eprintln!("[permissions] {error}");
@@ -275,21 +312,25 @@ pub fn set_shown(app: &AppHandle, shown: bool) {
 }
 
 /// Answers the bar's request `id`, and the others waiting for the same site and kind, then remembers
-/// the choice. Waits for the WebView2 UI thread, so never call it from that thread.
+/// the choice. An answer arriving after the page hid or its document changed denies instead,
+/// without remembering. Waits for the WebView2 UI thread, so never call it from that thread.
 pub fn answer(app: &AppHandle, id: u64, allow: bool) -> Result<(), Error> {
     let (sender, receiver) = mpsc::channel();
     let handle = app.clone();
     app.run_on_main_thread(move || {
-        let Some((prompt, held)) = WAITING.with_borrow_mut(|queue| queue.answer(id)) else {
+        let now = now(crate::platform::browser::document());
+        let Some((prompt, held)) = WAITING.with_borrow_mut(|queue| queue.answer(id, now)) else {
             return;
         };
         for held in held {
-            held.settle(allow);
+            held.settle(allow && prompt.is_some());
         }
         publish(&handle);
-        let _ = sender.send(prompt);
+        if let Some(prompt) = prompt {
+            let _ = sender.send(prompt);
+        }
     })?;
-    // No longer waiting, as after a navigation: nothing to remember.
+    // No longer waiting, or asked at another moment: nothing to remember.
     let Ok(prompt) = receiver.recv() else {
         return Ok(());
     };
@@ -455,37 +496,67 @@ mod tests {
         );
     }
 
+    const MOMENT: Moment = Moment {
+        document: 2,
+        shown: 1,
+    };
+
     #[test]
     fn an_answer_settles_every_request_for_the_same_site_and_kind() {
         let mut queue = Queue::new();
-        queue
-            .push(prompt("example.com", Kind::Camera), "camera")
-            .unwrap();
-        queue
-            .push(prompt("example.com", Kind::Microphone), "microphone")
-            .unwrap();
-        queue
-            .push(prompt("example.com", Kind::Camera), "camera again")
-            .unwrap();
+        for (kind, held) in [
+            (Kind::Camera, "camera"),
+            (Kind::Microphone, "microphone"),
+            (Kind::Camera, "camera again"),
+        ] {
+            queue
+                .push(prompt("example.com", kind), MOMENT, held)
+                .unwrap();
+        }
         let (id, _) = queue.first().unwrap();
-        let (answered, settled) = queue.answer(id).unwrap();
-        assert_eq!(answered, prompt("example.com", Kind::Camera));
+        let (answered, settled) = queue.answer(id, Some(MOMENT)).unwrap();
+        assert_eq!(answered, Some(prompt("example.com", Kind::Camera)));
         assert_eq!(settled, ["camera", "camera again"]);
         assert_eq!(
             queue.first().map(|(_, prompt)| prompt.kind),
             Some(Kind::Microphone)
         );
-        assert!(queue.answer(id).is_none());
+        assert!(queue.answer(id, Some(MOMENT)).is_none());
+    }
+
+    // An Allow clicked as the panel hides, or as the page navigates to the site of one of its
+    // frames, would otherwise be granted and remembered for a request nobody sees anymore.
+    #[test]
+    fn an_answer_from_another_moment_never_counts_and_denies_every_request() {
+        let later = |document, shown| Some(Moment { document, shown });
+        for now in [None, later(3, 1), later(2, 3)] {
+            let mut queue = Queue::new();
+            queue
+                .push(prompt("example.com", Kind::Camera), MOMENT, "camera")
+                .unwrap();
+            queue
+                .push(prompt("other.net", Kind::Location), MOMENT, "location")
+                .unwrap();
+            let (id, _) = queue.first().unwrap();
+            assert_eq!(
+                queue.answer(id, now),
+                Some((None, vec!["camera", "location"])),
+                "{now:?}"
+            );
+            assert!(queue.first().is_none());
+        }
     }
 
     #[test]
     fn a_full_queue_gives_the_request_back() {
         let mut queue = Queue::new();
         for n in 0..WAITING_MAX {
-            queue.push(prompt("example.com", Kind::Camera), n).unwrap();
+            queue
+                .push(prompt("example.com", Kind::Camera), MOMENT, n)
+                .unwrap();
         }
         assert_eq!(
-            queue.push(prompt("example.com", Kind::Camera), WAITING_MAX),
+            queue.push(prompt("example.com", Kind::Camera), MOMENT, WAITING_MAX),
             Err(WAITING_MAX)
         );
     }
