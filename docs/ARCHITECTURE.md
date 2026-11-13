@@ -21,6 +21,9 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
+  blocking.rs            Content blocking in the page window: filter lists, engine and hiding scripts
+  permissions.rs         Site permission requests of the page window: rules, remembered choices, waiting
+  reader.rs              Reader view: the page's article as Markdown
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
@@ -181,9 +184,8 @@ per-monitor DPI awareness (PMv2).
   in another. If it no longer exists or is minimized, focus goes to the desktop.
 - **Web page:** its own window (`web.rs`), owned by the panel, below the header and unified bar. The panel thread positions
   and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
-  because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
-  capability, Tauri rejects remote-origin commands and `lib.rs` accepts commands only from the `main`
-  window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
+  because the page does not talk to Rust: Windows activates the window on click. It reaches no command;
+  see "Page window IPC" under "Untrusted content". It navigates only over http(s),
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
   navigate in the page window itself. `on_navigation` sees only the main frame, so `platform/guard.rs`
   cancels iframe navigations to Tauri's origins and every external scheme launch from any frame; the
@@ -229,6 +231,92 @@ per-monitor DPI awareness (PMv2).
   `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
   still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
+- **Site exceptions:** `blocking::site_key` normalizes HTTP(S) URLs through Tauri's URL parser and
+  resolves eTLD+1 through the adblock engine's embedded PSL; IPs and local hosts stay exact.
+  `settings.json.allowed_sites` uses the existing locked atomic preferences writer. Startup loads
+  a memory copy; changes serialize separately and publish only after a successful save. Request
+  handlers check the top-level source against memory, never disk. Allowed documents skip cosmetic
+  hiding as well as network filtering, including third-party requests. The shield left of the address
+  toggles directly; Preferences > Browser removes exceptions. Changes cancel current cosmetic
+  passes and, when the page's site matches, replace its document-start script and then reload it.
+  Profile-wide WebView2 tracking prevention stays on at the balanced level, which blocks only
+  trackers known to be harmful; ads and common trackers are left to the engine, so allowing a site
+  restores them.
+- **Site permissions:** decisions in [0012](decisions/0012-site-permissions.md).
+  `platform/permission.rs` handles `PermissionRequested` on the page window only, installed with the
+  guard before the first navigation: each request gets a deferral, `SavesInProfile` false and
+  `Handled`, and is settled as Allow or Deny, never Default (a `Held` dropped unsettled denies). At
+  install it resets what the page profile saved (`GetNonDefaultPermissionSettings`, then each to
+  Default) and waits off the UI thread, up to five seconds, for every reset to complete: a saved state
+  answers without raising the event, so a failure or timeout fails the page window's setup, as the
+  mobile identity does. A request while a main-frame navigation is in flight
+  (`browser::document` is none) is denied: `Source` may already name the next document. The handler
+  passes the kind (location, camera, microphone, clipboard read, or none for any
+  other), the asking frame's URL and the page's `Source` to `permissions::decide`, a pure rule:
+  no kind, or a frame whose `blocking::site_key` differs from the page's, is denied; a remembered
+  choice for the page's site and kind applies; otherwise it asks if the page is on screen and is
+  denied if not. `dock.rs` reports on screen (panel open, page visible and present) after every poll
+  and request; a change to off screen denies what waits. Waiting requests and their deferrals live in a
+  queue on the WebView2 UI thread (at most eight), and the `permission` event gives `main` the first,
+  with an id. Each waiting request keeps the moment it was asked: its document (`browser::document`)
+  and the on-screen epoch, a counter that is odd while the page is on screen and changes on every show
+  and hide. While one waits, `permissions::asking` counts as a dialog in the panel's tick, so
+  neither the cursor nor focus moving elsewhere closes it; Esc in the search bar and the shortcut
+  still do. A main-frame `NavigationStarting` denies what waits without remembering. The bar never takes
+  focus: the page keeps it until the user clicks the panel. `permission_answer` settles that request
+  and every waiting one for the same site and kind on the UI thread, if the document and epoch are
+  still those it was asked in; otherwise it denies everything waiting, without remembering. It then saves
+  `settings.json.site_permissions` with the locked atomic writer and updates the memory copy only
+  after the save, as site exceptions do; the handler reads only memory. Reading settings keeps each
+  valid entry alone, drops sites that are not already site keys, and keeps Block when a site and kind
+  appear twice. Preferences > Browser lists choices (`permission_list`); Remove forgets one
+  (`permission_forget`).
+- **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
+  `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`,
+  which starts with a fingerprint of the lists it was built from; if it is missing, unreadable
+  (corrupt, another `adblock` version) or built from other lists (a crash or failed write after the
+  lists were replaced), it rebuilds from the cached lists there and rewrites the cache, and without
+  lists nothing is blocked. Every 15 minutes it
+  downloads each list older than four days (HTTPS only, 60 s, 16 MiB, no cookies), keeps the old copy
+  when a download fails or is not an Adblock Plus list, writes lists atomically, then rebuilds and
+  swaps the engine (`Arc` behind a mutex held only to clone or replace it). `web::open` installs
+  `platform/blocker.rs` with the guard and observers, before the first navigation; `main` never gets
+  it. It adds a `*` `WebResourceRequested` filter for all contexts and request source kinds (workers
+  and iframes included); the handler maps the resource context to a filter-list type, uses the page's
+  `Source` as the third-party reference and answers a blocked request with an empty 403. The target of
+  the last main-frame `NavigationStarting` is the `document` the user asked for and is never blocked.
+  Wry's custom-protocol handler ignores the extra requests.
+  Hiding starts with each document. `blocker::install` enables the `Page` domain (Chromium evaluates
+  document-start scripts only then) and, on each main-frame `NavigationStarting` (redirects
+  included), registers `blocking::starting`'s script with `Page.addScriptToEvaluateOnNewDocument` in
+  the `docdock` world, replacing the previous one; allowed sites and non-HTTP(S) targets get none.
+  The script carries the host's selectors and exceptions from `url_cosmetic_resources` and the
+  generic class and id rules: at each list install, every `.class` or `#id` leading a `##` selector
+  is asked to `hidden_class_id_selectors`, which keeps the engine the judge of what is generic
+  (about 28,000 keys, 480 KB). Building the script takes about 3 ms on the UI thread (debug
+  build). It runs before the page's scripts in every frame and acts only in the top frame of the
+  expected host: it adopts a sheet with the host's selectors and builds a map (about 10 ms) from
+  which a `MutationObserver` inserts each class's or id's rules, minus the exceptions, in the
+  microtask after the element appears, before it is painted. Under `$generichide` the map is
+  empty. Registered as a same-site navigation starts, the script can reach the browser after the
+  new document (measured: shield reloads and g1 → ge.globo.com links), so an unchanged script is
+  kept rather than replaced (its selectors are sorted, so the same URL gives the same source), and
+  `web::open` and the shield register theirs and wait up to a second before navigating.
+  `browser::document_start` makes one DevTools call at a time: a request waits until the browser
+  confirms the wanted script, removals included, and an identifier is forgotten only once its
+  removal is confirmed; a failed call lets the waiters go and the next request retries it. A navigation the page starts to another host of the same site still gets it
+  late; the passes below cover that document as before.
+  On each main-frame `ContentLoading`, `blocking::committed` starts six passes (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
+  a newer document stops them. Each pass goes through `web::evaluate` (the selection read's isolated
+  world, turn-taking and two-second limit) with one fixed function and JSON arguments: it checks
+  `location.hostname`, adds its `CSSStyleSheet` to `document.adoptedStyleSheets` again if the page
+  removed it, inserts each selector as its own `display:none!important` rule, and returns up to
+  1,000 new class names and ids recorded by the document-start observer, or by one the first pass
+  creates (at most 20,000 per document, 100 characters each; the last pass stops recording and
+  disconnects an observer without generic rules). The first pass carries the host's selectors and
+  the lists' generic non-class selectors; later passes carry generic class and id rules for what the
+  previous pass saw, unless `$generichide` applies. Selectors with braces or starting with `@` are
+  dropped, and responses over 2 MiB or of any other shape are ignored.
 - **Edge features:** `platform/edge.rs` filters WebView2's accelerator keys and context menu in both
   windows, installed natively before the first navigation, so no script or channel is involved.
   Edge's dialogs and popups (downloads, history, print, save, view source, DevTools, find) either
@@ -272,6 +360,20 @@ per-monitor DPI awareness (PMv2).
   removed; both are trimmed and cut at their limits. Selections inside iframes are not read. Native
   URL and title are bounded by Chromium (2 MB URLs, 4,096-character titles), also in the
   `Target.getTargetInfo` response.
+- **Reader view:** decision in [0011](decisions/0011-reader-view.md). `web_reader` reads the shown
+  page through the same isolated-world evaluation, turns, navigation identity and response checks
+  as the selection (`web::read_page`), with a fixed script that copies the DOM node by node into a
+  document without a browsing context, skipping scripts, styles, media and embeds, and counts lengths
+  before copying: it ends at 100,000 elements or 1,500,000 UTF-16 units. `reader.rs` refuses
+  nesting deeper than 512, extracts the article with `dom_smoothie`, writes it as Markdown with
+  `dom_query` without images, keeps only http(s) and mailto link destinations, and cuts it at 1 MiB.
+  It answers `{ url, title, markdown }`, `pageNotRead` without a usable script result, or
+  `noArticle`. The UI keeps the article in `App.svelte`, hides the page window and renders it with
+  `renderNote` and no note path, so no `note-asset` image resolves. A `web-visible` false is ignored
+  while an article is shown; a page shown again (the bar, a link, back/forward, leaving the view),
+  a tab change or a destroyed page window ends the view. A result that arrives after any of those,
+  a URL change or, in Rust, a navigation started or committed during the read (a reload or A → B → A
+  included) is dropped. "Save page as note" saves the shown article.
 - **Focused page:** counts as panel focus, so the panel is summoned. With the cursor outside, Esc returns focus
   to the previous app and the panel closes; with the cursor over it, Esc belongs to the page. Since the page
   does not talk to Rust, the key is read during cursor polling.
@@ -752,7 +854,9 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   URL as double-quoted YAML scalars (escaping controls and line breaks), and prefixes every selected
   line with `> ` (blank lines with `>`); no selection leaves the body empty. The existing create flow
   uses a sanitized title, falling back to the host, and `noteFileName` at the folder root, with an empty
-  base and conflict retries. After saving it hides the page and expands the note in edit mode. An
+  base and conflict retries. In the reader view it saves the whole article instead (`articleNote`:
+  the same frontmatter, then the Markdown). After saving it leaves the reader view, hides the page
+  and expands the note in edit mode. An
   unavailable folder/page or pending capture disables the action; errors use the existing notice.
 - **Note page action:** the search index carries the parsed http(s) `url:` separately from web-pin
   card URLs, so notes keep their expand/edit behavior. Their header offers Open page through the same
@@ -864,10 +968,30 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
 
 - **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
 - **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
+- **Reader view:** page articles are Markdown extracted in Rust and rendered by the same model,
+  without a note path, so they never show local images; see
+  [0011](decisions/0011-reader-view.md).
 - **Rendered notes:** DOM nodes from an allowlisted model, never HTML. GitHub alerts become
   `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
   kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.
+- **Page tracking prevention:** the page profile requests WebView2's balanced level before its first
+  navigation; the `main` profile is unchanged. Strict blocked Google Ad Manager and most ad exchanges
+  even on allowed sites (measured on g1.globo.com: `gpt.js`, `adsbygoogle.js` and Prebid failed with
+  `ERR_BLOCKED_BY_CLIENT`), so the shield could not restore a broken site.
+  Unsupported runtimes or failed settings are logged without blocking pages.
+- **Page window IPC (tested 2026-11-13, Tauri 2.12.5):** Tauri injects its scripts into every WebView
+  and every frame, with no per-window opt-out, so pages and their iframes see `window.isTauri`,
+  `window.ipc` and `__TAURI_INTERNALS__.invoke`. Every call fails: no capability names the `web`
+  window, so Tauri's ACL rejects plugin and core commands from any origin and app commands from remote
+  origins; app commands from a local origin (the dev UI at `localhost:1420`, which the page window may
+  load, or `note-asset`) reach `lib.rs`'s `main_only`, which rejects any other WebView label. A `null`
+  origin, as in a `data:` iframe, is rejected before the ACL, and a raw `fetch` to `ipc.localhost`
+  lacks Tauri's invoke key. The channel-data command bypasses the ACL but reads only the calling
+  WebView's queue, and the app uses no channels. `tests/page_ipc.rs` runs the real capabilities and
+  barrier on Tauri's mock runtime. Plugins must not add `js_init_script`s that change web APIs:
+  `tauri-plugin-dialog` replaced the page's `alert` and `confirm`, so the folder and vault pickers and
+  the update error message call `rfd` directly, and opener's link script is disabled in `lib.rs`.
 - **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
   scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its
   own `location` (also cross-origin and nested), meta refresh and an HTTP redirect. WebView2 raised only

@@ -11,7 +11,7 @@ DocDock is an autohiding Windows sidebar for keeping Markdown notes, images and 
 
 ## Installation
 
-DocDock requires Windows 10 or 11. The first release, **0.1.0-beta.1**, is a preliminary beta: back up your notes before trying it. Download `DocDock_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/jeffono/docdock/releases) and run it. It installs for the current user without administrator rights and downloads Microsoft Edge WebView2 if it is missing.
+DocDock requires Windows 10 or 11. Versions before 1.0 are not yet stable: back up your notes before trying it. Download `DocDock_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/jeffono/docdock/releases) and run it. It installs for the current user without administrator rights and downloads Microsoft Edge WebView2 if it is missing.
 
 The installer is not code-signed. If Windows SmartScreen displays “Windows protected your PC”, select **More info** and then **Run anyway**. DocDock checks for updates when it starts and downloads them in the background; when one is ready, choose **Update available — restart** in the tray menu. Quitting normally does not install it.
 

@@ -1,5 +1,6 @@
 //! App composition: registers modules and commands, without business logic.
 
+mod blocking;
 mod commands;
 mod dock;
 mod error;
@@ -7,8 +8,10 @@ mod i18n;
 mod main_window;
 mod notes;
 pub mod panel;
+mod permissions;
 mod pinned;
 mod platform;
+mod reader;
 mod shortcut;
 mod trash;
 mod tray;
@@ -19,6 +22,23 @@ mod web;
 use std::sync::mpsc;
 
 use tauri::Manager;
+
+/// App commands need no capability from a local origin. Without this barrier, the page window
+/// could reach all of them if it loaded an app origin.
+pub fn main_only<R: tauri::Runtime>(
+    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        if invoke.message.webview().label() == "main" {
+            commands(invoke)
+        } else {
+            invoke
+                .resolver
+                .reject("command restricted to the main window");
+            true
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,10 +61,17 @@ pub fn run() {
         commands::panel_close,
         commands::panel_set_side,
         commands::panel_resize,
+        commands::blocking_status,
+        commands::blocking_sites,
+        commands::blocking_set_allowed,
+        commands::permission_answer,
+        commands::permission_list,
+        commands::permission_forget,
         commands::web_open,
         commands::web_set_visible,
         commands::web_history,
         commands::web_selection,
+        commands::web_reader,
         commands::web_suggestions,
         commands::web_addresses,
         commands::web_overlay,
@@ -86,7 +113,6 @@ pub fn run() {
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // By default a script intercepting `target=_blank` is injected into every window. In the
         // page window, which has no capability, it would cancel the link and fail.
@@ -107,6 +133,8 @@ pub fn run() {
             app.manage(locale);
             notes::purge_trash(app.handle());
             updates::start(app.handle());
+            blocking::start(app.handle());
+            permissions::start(app.handle());
             watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
             app.manage(requests);
@@ -128,18 +156,7 @@ pub fn run() {
                 updates::request_exit(window.app_handle(), false);
             }
         })
-        // App commands need no capability from a local origin. Without this barrier, the page
-        // window could reach all of them if it loaded an app origin.
-        .invoke_handler(move |invoke| {
-            if invoke.message.webview().label() == "main" {
-                commands(invoke)
-            } else {
-                invoke
-                    .resolver
-                    .reject("command restricted to the main window");
-                true
-            }
-        })
+        .invoke_handler(main_only(commands))
         .build(tauri::generate_context!())
         .expect("failed to start application")
         .run(|app, event| {

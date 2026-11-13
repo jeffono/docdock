@@ -97,6 +97,9 @@ export const webHistory = (back: boolean) => invoke<void>("web_history", { back 
 /** The shown page, if any. `selection` is the main frame's plain text, empty when there is none. */
 export type PageSelection = { url: string; title: string; selection: string };
 export const webSelection = () => invoke<PageSelection | null>("web_selection");
+/** The shown page's article. `markdown` is untrusted: render it only through `render.ts`. */
+export type PageArticle = { url: string; title: string; markdown: string };
+export const webReader = () => invoke<PageArticle | null>("web_reader");
 export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
 export const onWebState = (handler: (state: PageState | null) => void) =>
   listen<PageState | null>("web-state", (event) => handler(event.payload));
@@ -266,3 +269,33 @@ export const notesSetGrouping = (grouping: Grouping) =>
   invoke<void>("notes_set_grouping", { grouping });
 export const pinnedMove = (target: string, to: string, base: string) =>
   invoke<Pinned>("pinned_move", { target, to, base });
+
+export type BlockingStatus = { site: string; allowed: boolean };
+export const blockingStatus = (url: string) =>
+  invoke<BlockingStatus | null>("blocking_status", { url });
+export const blockingSites = () => invoke<string[]>("blocking_sites");
+export const blockingSetAllowed = (url: string, allowed: boolean) =>
+  invoke<void>("blocking_set_allowed", { url, allowed });
+
+export type PermissionKind = "location" | "camera" | "microphone" | "clipboardRead";
+/**
+ * A site's request the panel asks about; the panel stays open until it is answered. `site` decides
+ * and is remembered; `origin`: the asking frame's, only when it is not the page's.
+ */
+export type PermissionPrompt = {
+  id: number;
+  site: string;
+  kind: PermissionKind;
+  origin: string | null;
+};
+/** The request to show, or null when none waits. */
+export const onPermission = (handler: (prompt: PermissionPrompt | null) => void) =>
+  listen<PermissionPrompt | null>("permission", (event) => handler(event.payload));
+/** Answers the request and remembers the choice for its site and kind. */
+export const permissionAnswer = (id: number, allow: boolean) =>
+  invoke<void>("permission_answer", { id, allow });
+export type SitePermission = { site: string; kind: PermissionKind; decision: "allow" | "block" };
+export const permissionList = () => invoke<SitePermission[]>("permission_list");
+/** Forgets a choice: the site asks again. */
+export const permissionForget = (site: string, kind: PermissionKind) =>
+  invoke<void>("permission_forget", { site, kind });

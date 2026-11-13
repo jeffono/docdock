@@ -24,7 +24,6 @@ use std::{
 use tauri::http::header::{CACHE_CONTROL, CONTENT_TYPE, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{Response, StatusCode};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::DialogExt;
 
 /// On Windows, images are at `http://note-asset.localhost/<relative path>`.
 pub const IMAGE_SCHEME: &str = "note-asset";
@@ -39,6 +38,11 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
+    #[serde(default, deserialize_with = "sites_or_default")]
+    allowed_sites: Vec<String>,
+    /// Remembered answers to the page window's permission requests.
+    #[serde(default, deserialize_with = "permissions_or_default")]
+    site_permissions: Vec<crate::permissions::Remembered>,
     #[serde(default, deserialize_with = "theme_or_default")]
     theme: Theme,
     #[serde(default)]
@@ -104,6 +108,45 @@ impl Theme {
 }
 fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
     Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+/// Keeps each valid entry on its own: one bad element must not erase the others on the next save,
+/// and an edited entry that is not already a site key would silently widen or move its scope.
+fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, D::Error> {
+    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
+        .unwrap_or_default();
+    let mut sites = Vec::new();
+    for entry in entries.iter().filter_map(serde_json::Value::as_str) {
+        if crate::blocking::site_key(&format!("https://{entry}/")).as_deref() == Some(entry) {
+            crate::blocking::change_allowed(&mut sites, entry, true);
+        }
+    }
+    Ok(sites)
+}
+fn permissions_or_default<'de, D: Deserializer<'de>>(
+    value: D,
+) -> Result<Vec<crate::permissions::Remembered>, D::Error> {
+    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
+        .unwrap_or_default();
+    Ok(crate::permissions::from_settings(entries))
+}
+pub fn site_permissions(app: &AppHandle) -> Vec<crate::permissions::Remembered> {
+    config(app)
+        .map(|p| load(&p).site_permissions)
+        .unwrap_or_default()
+}
+pub fn set_site_permissions(
+    app: &AppHandle,
+    list: Vec<crate::permissions::Remembered>,
+) -> Result<(), Error> {
+    update(app, |settings| settings.site_permissions = list)
+}
+pub fn allowed_sites(app: &AppHandle) -> Vec<String> {
+    config(app)
+        .map(|p| load(&p).allowed_sites)
+        .unwrap_or_default()
+}
+pub fn set_allowed_sites(app: &AppHandle, sites: Vec<String>) -> Result<(), Error> {
+    update(app, |settings| settings.allowed_sites = sites)
 }
 pub fn theme(app: &AppHandle) -> Theme {
     config(app).map(|p| load(&p).theme).unwrap_or_default()
@@ -569,14 +612,11 @@ pub fn choose_vault_file(
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| Error::unexpected("main window missing"))?;
-    if let Some(file) = app
-        .dialog()
-        .file()
+    if let Some(path) = rfd::FileDialog::new()
         .set_parent(&window)
         .add_filter("Cryptomator", &["cryptomator"])
-        .blocking_pick_file()
+        .pick_file()
     {
-        let path = file.into_path().map_err(Error::unexpected)?;
         validate_vault_file(&path)?;
         update(app, |settings| {
             settings.vault_file = Some(path.to_string_lossy().into_owned())
@@ -619,9 +659,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
         .get_webview_window("main")
         .ok_or_else(|| Error::unexpected("main window missing"))?;
     // Owned by the panel, the picker stays above it and does not open a second picker.
-    let dialog = app.dialog().file().set_parent(&window);
-    if let Some(path) = dialog.blocking_pick_folder() {
-        let path = path.into_path().map_err(Error::unexpected)?;
+    if let Some(path) = rfd::FileDialog::new().set_parent(&window).pick_folder() {
         choose_in(&config(app)?, path)?;
         crate::watch::stop();
         purge_trash(app);
@@ -2325,6 +2363,25 @@ mod tests {
             .success()
     }
     // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
+    #[test]
+    fn invalid_site_exceptions_do_not_discard_other_preferences() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"allowed_sites":42,"folder":"notes","theme":"dark"}"#)
+                .unwrap();
+        assert!(settings.allowed_sites.is_empty());
+        assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        assert_eq!(settings.theme, Theme::Dark);
+    }
+
+    #[test]
+    fn site_exceptions_keep_valid_entries_and_drop_widened_ones() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"allowed_sites":["example.com",5,"www.other.net","x.net#.example.com"]}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.allowed_sites, ["example.com"]);
+    }
+
     #[test]
     fn vault_refuses_other_extensions() {
         let t = Temp::new();

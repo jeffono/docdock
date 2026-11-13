@@ -11,7 +11,7 @@ O DocDock é um painel lateral para Windows que se oculta automaticamente e mant
 
 ## Instalação
 
-O DocDock requer Windows 10 ou 11. A primeira versão, **0.1.0-beta.1**, é uma beta preliminar: faça backup das suas notas antes de experimentá-la. Baixe `DocDock_<version>_x64-setup.exe` em [GitHub Releases](https://github.com/jeffono/docdock/releases) e execute o instalador. Ele instala para o usuário atual, sem exigir administrador, e baixa o Microsoft Edge WebView2 se estiver faltando.
+O DocDock requer Windows 10 ou 11. Versões anteriores à 1.0 ainda não são estáveis: faça backup das suas notas antes de experimentá-lo. Baixe `DocDock_<version>_x64-setup.exe` em [GitHub Releases](https://github.com/jeffono/docdock/releases) e execute o instalador. Ele instala para o usuário atual, sem exigir administrador, e baixa o Microsoft Edge WebView2 se estiver faltando.
 
 O instalador não tem assinatura de código. Se o Windows SmartScreen exibir “O Windows protegeu o computador”, selecione **Mais informações** e depois **Executar assim mesmo**. O DocDock procura atualizações ao iniciar e as baixa em segundo plano; quando uma estiver pronta, escolha **Atualização disponível — reiniciar** no menu da bandeja. Sair normalmente não a instala.
 

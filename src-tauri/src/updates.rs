@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::i18n::Locale;
@@ -155,7 +154,13 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
                     "Não foi possível instalar a atualização. Saia e abra o DocDock para baixá-la novamente."
                 }
             };
-            app.dialog().message(message).title("DocDock").show(|_| {});
+            // Its own thread, so the exit state below is restored while the message is open.
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
+                    .set_title("DocDock")
+                    .set_description(message)
+                    .show()
+            });
         }
     }
     app.state::<Mutex<State>>().lock().unwrap().exit.allowed = false;

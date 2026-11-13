@@ -30,6 +30,7 @@ import {
   onPanelHidden,
   onPanelSearch,
   openExternal,
+  type PageArticle,
   type Pinned,
   panelClose,
   pinnedAdd,
@@ -53,6 +54,9 @@ import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
+import Permission from "../web/Permission.svelte";
+import Reader from "../web/Reader.svelte";
+import Shield from "../web/Shield.svelte";
 import {
   barDefault,
   downOpensHistory,
@@ -99,7 +103,7 @@ import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
-import { pageNote } from "./page";
+import { articleNote, pageNote } from "./page";
 import {
   applyCompletion,
   completionChoices,
@@ -117,7 +121,14 @@ let {
   browser = false,
   pageUrl = "",
   inactive = false,
-}: { browser?: boolean; pageUrl?: string; inactive?: boolean } = $props();
+  article = $bindable(null),
+}: {
+  browser?: boolean;
+  pageUrl?: string;
+  inactive?: boolean;
+  /** The reader view's article, shown instead of the page while set. */
+  article?: PageArticle | null;
+} = $props();
 
 let shortcutSheet: ShortcutSheet;
 let movePicker: MovePicker;
@@ -170,6 +181,7 @@ let showingHistory = $state(false);
 let history = $state<string[]>([]);
 let remote = $state<string[]>([]);
 let suggestionsElement = $state<HTMLElement>();
+let permissionElement = $state<HTMLElement>();
 const latest = new LatestQuery();
 $effect(() => {
   void browser;
@@ -216,15 +228,21 @@ $effect(() => {
     .catch(() => {});
 });
 $effect(() => {
-  const element = suggestionsElement;
-  if (!element || !browser || !addressEditing) {
+  // Both float from the top of the page: the cutout is the taller one.
+  const elements = browser
+    ? [addressEditing ? suggestionsElement : undefined, permissionElement].filter(
+        (element): element is HTMLElement => !!element,
+      )
+    : [];
+  if (!elements.length) {
     void webOverlay(0);
     return;
   }
   const observer = new ResizeObserver(() => {
-    void webOverlay(Math.ceil(element.getBoundingClientRect().height));
+    const heights = elements.map((element) => element.getBoundingClientRect().height);
+    void webOverlay(Math.ceil(Math.max(...heights)));
   });
-  observer.observe(element);
+  for (const element of elements) observer.observe(element);
   return () => {
     observer.disconnect();
     void webOverlay(0);
@@ -666,6 +684,8 @@ async function create(text: string, content = "") {
         await sync(list);
         expanded = name;
         selection = name;
+        // Leaving the reader view first, so hiding the page returns to Notes.
+        article = null;
         await webSetVisible(false);
         await edit(name);
         return;
@@ -692,6 +712,12 @@ async function savePage() {
   savingPage = true;
   try {
     error = "";
+    // In the reader view, the whole article it shows.
+    if (article) {
+      const note = articleNote(article);
+      await create(note.name, note.text);
+      return;
+    }
     const page = await webSelection();
     pageUnavailable = page === null;
     if (!page) return;
@@ -2014,6 +2040,7 @@ onMount(() => {
 
 <section hidden={inactive} aria-label={t("notes.label")}>
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
+      {#if browser}<Shield url={pageUrl} onerror={(message) => { error = message; }} />{/if}
       <TextField
         value={inputQuery}
         oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}
@@ -2040,6 +2067,7 @@ onMount(() => {
       {/each}
     </div>
   {/if}
+  <Permission shown={browser} bind:element={permissionElement} onerror={(message) => { error = message; }} />
   {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
@@ -2051,6 +2079,7 @@ onMount(() => {
   <p class="announce" aria-live="polite">{announced}</p>
   {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
   {#if browser && !pageUrl}<div class="empty"><p>{t("web.empty")}</p></div>{/if}
+  {#if browser && article}<Reader {article} onlink={linkClick} />{/if}
   <div class="content" hidden={browser}>
   {#if ready || editing}
     {#if error}<p class="error" role="alert">{error}</p>{/if}

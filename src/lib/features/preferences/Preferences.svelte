@@ -4,6 +4,8 @@ import { dateTime, errorText, type MessageKey, t } from "../../i18n";
 import {
   appAutostart,
   appSetAutostart,
+  blockingSetAllowed,
+  blockingSites,
   type NotesFolder,
   notesFolder,
   notesTrash,
@@ -14,6 +16,9 @@ import {
   type PanelFocus,
   panelResize,
   panelSetSide,
+  permissionForget,
+  permissionList,
+  type SitePermission,
   type TrashItem,
   vaultChoose,
   vaultClear,
@@ -26,6 +31,7 @@ import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import { relativeDate } from "../notes/relative-date";
 import ShortcutList from "../notes/ShortcutList.svelte";
+import { blockingRevision } from "../web/blocking-store";
 import ActivationShortcut from "./ActivationShortcut.svelte";
 import UnlockVault from "./UnlockVault.svelte";
 import { loadVault, vaultPath } from "./vault-store";
@@ -39,6 +45,8 @@ let width = $state(window.innerWidth);
 let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
 let error = $state("");
+let allowedSites = $state<string[]>([]);
+let sitePermissions = $state<SitePermission[]>([]);
 let busy = $state(false);
 let autostart = $state<boolean | null>(null);
 let confirm: ConfirmDialog;
@@ -132,6 +140,8 @@ async function refreshFolder() {
 }
 onMount(() => {
   void action(async () => {
+    allowedSites = await blockingSites();
+    sitePermissions = await permissionList();
     await refreshFolder();
     await loadVault();
   });
@@ -225,6 +235,34 @@ onMount(() => {
       </div>
     {:else if section === "browser"}
       <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
+      <div class="setting">
+        <h3>{t("blocking.sites")}</h3>
+        <p>{t("blocking.hint")}</p>
+        {#if allowedSites.length === 0}<p>{t("blocking.empty")}</p>{:else}
+          <ul class="trash">
+            {#each allowedSites as site (site)}
+              <li><span class="item path">{site}</span><Button variant="neutral" disabled={busy} onclick={() => action(async () => {
+                try { await blockingSetAllowed(`https://${site}/`, false); }
+                finally { allowedSites = await blockingSites(); blockingRevision.update(value => value + 1); }
+              })}>{t("blocking.remove")}</Button></li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+      <div class="setting">
+        <h3>{t("permission.sites")}</h3>
+        <p>{t("permission.hint")}</p>
+        {#if sitePermissions.length === 0}<p>{t("permission.empty")}</p>{:else}
+          <ul class="trash">
+            {#each sitePermissions as entry (entry.site + entry.kind)}
+              <li><span class="item"><span class="name">{entry.site}</span><small>{t(`permission.kind.${entry.kind}`)} · {t(entry.decision === "allow" ? "permission.allowed" : "permission.blocked")}</small></span><Button variant="neutral" disabled={busy} onclick={() => action(async () => {
+                try { await permissionForget(entry.site, entry.kind); }
+                finally { sitePermissions = await permissionList(); }
+              })}>{t("blocking.remove")}</Button></li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
     {:else if section === "trash"}
       <div class="setting">
         <p>{t("trash.about")}</p>

@@ -152,7 +152,7 @@ pinned and unpinned notes differ only in section and starting state.
   title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
   the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
 - **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
-  URL and quoted selection, then returns to notes with the new card expanded and editing, ready for
+  URL and quoted selection (in the reader view, the whole article instead), then returns to notes with the new card expanded and editing, ready for
   annotations. A note with an http(s) `url:` has an "Open page" globe action left of the pencil; it
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
@@ -256,7 +256,7 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
-  leftovers, then "Restore pinned items") → list → note order button → top bar buttons (including
+  leftovers, then "Restore pinned items"; in Browser, the permission bar's Block and Allow) → list → note order button → top bar buttons (including
   Preferences) → resize handle → search bar, reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
@@ -312,7 +312,12 @@ General contains the folder path, folder picker, optional Vault file, note order
 "Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
-shows DuckDuckGo as read-only. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
+shows DuckDuckGo as read-only and a compact Allowed sites list, with a neutral Remove button per
+site. A short hint explains the subdomain scope.
+The empty list explains how to add an exception using the shield. Site permissions follows, in the
+same row style: the site, and below it in muted text the kind and the answer ("Location · Allowed"),
+with a neutral Remove; its hint says answers cover subdomains and that removing one asks again, and
+the empty list says a bar above the page asks when a site needs one. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
 keys, deriving formatting keys from the editor bindings; the activation row shows the current
 combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
 neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
@@ -355,14 +360,36 @@ shown in the notes list.
 ## Panel navigation
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls, then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
+controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
 a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
-field and "+" action occupy the second bar in both modes. Browser starts with a short hint and the
+field and "+" action occupy the second bar in both modes. In Browser a quiet shield button sits
+immediately left of the address field, sharing its row without taking space from the top navigation;
+its icon, not its larger hit area, starts at the bar's content edge.
+Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
+site and reloads the page, without a popover. The tooltip and accessible label name the site and
+current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
+
+A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
+page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,
+camera, microphone, clipboard), "example.com wants to use your location." naming the site the answer
+covers and, when a frame of another origin of that site asked, a muted line naming it; then neutral
+Block and Allow buttons, neither primary, so the panel does not lean either way. The page is cut out
+behind it without moving or resizing, as for suggestions, which float over it. Focus stays where it
+was. The panel stays open until an answer; Notes, Preferences, the reader view, closing the panel or
+leaving the page deny it without remembering. Further requests wait and show one at a time. Each
+answer is remembered for the site; other kinds are denied without a bar.
+
+Reader view replaces the page, under the same bars, with its article as a note reads: the title as
+the note header, then text, headings, lists, quotes, code and tables in the reading styles, with the
+panel's insets and its own scroll. Images are left out. The toggle is disabled while the article is
+read; a failure says so under the top bar ("No article text was found on this page."). Links open in
+the page as in notes. The bar keeps the page URL, and "+" saves the whole article. Pressing the
+toggle again, back/forward, opening a page, switching tabs or Preferences return to the page.
 
 Tag filters in Notes use whitespace-delimited `#tag` tokens. All tags must match a complete
 frontmatter tag, ignoring case and accents, alongside the existing free-text search. Inline body

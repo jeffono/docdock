@@ -134,6 +134,15 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
+/// The shown page's article for the reader view; waits off the async runtime as `web_selection`
+/// does, and extraction runs there too.
+#[tauri::command]
+pub async fn web_reader(app: AppHandle) -> Result<Option<crate::reader::Article>, Error> {
+    tauri::async_runtime::spawn_blocking(move || crate::reader::read(&app))
+        .await
+        .map_err(Error::unexpected)?
+}
+
 /// Copy and cut in the UI write through here, never through the browser, so the text stays out of
 /// clipboard history and cloud clipboard. Off the main thread: opening the clipboard may wait for
 /// another app to close it.
@@ -389,4 +398,37 @@ pub fn pinned_move(
     base: String,
 ) -> Result<crate::notes::Pinned, Error> {
     crate::notes::move_pinned(&app, &target, &to, &base)
+}
+
+#[tauri::command]
+pub fn blocking_status(url: String) -> Option<crate::blocking::SiteStatus> {
+    crate::blocking::status(&url)
+}
+#[tauri::command]
+pub fn blocking_sites() -> Vec<String> {
+    crate::blocking::allowed_sites()
+}
+#[tauri::command(async)]
+pub fn blocking_set_allowed(app: AppHandle, url: String, allowed: bool) -> Result<(), Error> {
+    crate::blocking::set_allowed(&app, &url, allowed)
+}
+
+/// Waits on a blocking-pool thread for the WebView2 UI thread, which holds the waiting requests.
+#[tauri::command]
+pub async fn permission_answer(app: AppHandle, id: u64, allow: bool) -> Result<(), Error> {
+    tauri::async_runtime::spawn_blocking(move || crate::permissions::answer(&app, id, allow))
+        .await
+        .map_err(Error::unexpected)?
+}
+#[tauri::command]
+pub fn permission_list() -> Vec<crate::permissions::Remembered> {
+    crate::permissions::remembered()
+}
+#[tauri::command(async)]
+pub fn permission_forget(
+    app: AppHandle,
+    site: String,
+    kind: crate::permissions::Kind,
+) -> Result<(), Error> {
+    crate::permissions::forget(&app, &site, kind)
 }

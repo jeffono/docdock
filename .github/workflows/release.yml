@@ -48,9 +48,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: DocDock __VERSION__ (preliminary beta)
+          releaseName: DocDock __VERSION__
           releaseBody: |
-            Preliminary beta for Windows. Back up your notes before testing.
+            Early version for Windows, not yet stable. Back up your notes before trying it.
             The installer is unsigned: Windows SmartScreen may show an unknown publisher warning.
           releaseDraft: true
           prerelease: false

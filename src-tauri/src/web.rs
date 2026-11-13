@@ -74,6 +74,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
         if !*ready {
             return Err(Error::unexpected("page window not guarded"));
         }
+        crate::platform::blocker::prepare(&window, crate::blocking::starting(url.as_str()))?;
         window.navigate(url)?;
         let _ = requests.send(Request::SetWebVisible(true));
         return Ok(());
@@ -107,12 +108,30 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     let setup = crate::platform::guard(&window, frame_allowed)
         .and_then(|()| edge::filter(&window, edge::Owner::Page))
         .and_then(|()| crate::platform::browser::mobile(&window))
-        .and_then(|()| crate::platform::browser::observe(&window));
+        .and_then(|()| crate::platform::browser::observe(&window))
+        .and_then(|()| {
+            let app = app.clone();
+            crate::platform::blocker::install(
+                &window,
+                crate::blocking::blocked,
+                crate::blocking::starting,
+                move |url| crate::blocking::committed(&app, url),
+            )
+        })
+        .and_then(|()| {
+            let (asking, leaving) = (app.clone(), app.clone());
+            crate::platform::permission::install(
+                &window,
+                move |asked, held| crate::permissions::requested(&asking, asked, held),
+                move || crate::permissions::leaving(&leaving),
+            )
+        });
     if let Err(error) = setup {
         let _ = window.destroy();
         return Err(error);
     }
     *ready = true;
+    crate::platform::blocker::prepare(&window, crate::blocking::starting(url.as_str()))?;
     window.navigate(url)?;
     let hwnd = window.hwnd()?;
     let _ = requests.send(Request::AttachWeb(hwnd.0 as isize));
@@ -158,50 +177,63 @@ struct Evaluated {
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum Remote {
-    /// The script's array: title, then selection.
+    /// The script's array of two strings, such as title and selection.
     Object { value: (String, String) },
     #[serde(other)]
     Other,
 }
 
-/// Decodes a `Runtime.evaluate` response into title and selection. The page cannot reach the
-/// script's world but owns its title and selected text, so only an array of two strings is
-/// accepted. The title keeps no controls; the selection keeps newline and tab, with LF line endings.
-fn decode_page(json: &str) -> Option<(String, String)> {
-    if json.len() > SELECTION_MAX_JSON {
+/// The two strings of a `Runtime.evaluate` response whose script returns `[string, string]`, if it
+/// is at most `max` bytes. The page cannot reach the script's world but owns the text it reads, so
+/// anything else is refused.
+pub fn two_strings(json: &str, max: usize) -> Option<(String, String)> {
+    if json.len() > max {
         return None;
     }
-    let Ok(Evaluated {
-        result: Remote::Object {
-            value: (title, text),
-        },
-    }) = serde_json::from_str(json)
-    else {
-        return None;
-    };
+    match serde_json::from_str(json) {
+        Ok(Evaluated {
+            result: Remote::Object { value },
+        }) => Some(value),
+        _ => None,
+    }
+}
+
+/// Without controls, trimmed and cut at Chromium's limit for native titles.
+pub fn clean_title(title: &str) -> String {
     let title: String = title.chars().filter(|c| !c.is_control()).collect();
-    let title = title.trim().chars().take(TITLE_MAX_CHARS).collect();
+    title.trim().chars().take(TITLE_MAX_CHARS).collect()
+}
+
+/// Decodes a `Runtime.evaluate` response into title and selection. The title keeps no controls;
+/// the selection keeps newline and tab, with LF line endings.
+fn decode_page(json: &str) -> Option<(String, String)> {
+    let (title, text) = two_strings(json, SELECTION_MAX_JSON)?;
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let text: String = text
         .chars()
         .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
         .collect();
     Some((
-        title,
+        clean_title(&title),
         text.trim().chars().take(SELECTION_MAX_CHARS).collect(),
     ))
 }
 
-/// Current page and its selection in the main frame; selections inside iframes are not read.
-/// Blocks the calling thread, never the WebView2 UI thread, for at most `SELECTION_TIMEOUT`.
-pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
+/// Evaluates `script` in the shown page's main frame. None without a page window or an http(s)
+/// page; otherwise its URL and, if the same document answered within `timeout`, the response JSON.
+/// Blocks the calling thread, never the WebView2 UI thread.
+pub fn read_page(
+    app: &AppHandle,
+    script: &'static str,
+    timeout: Duration,
+) -> Result<Option<(String, Option<String>)>, Error> {
     let Some(window) = app.get_webview_window(LABEL) else {
         return Ok(None);
     };
     // `Runtime.enable` lists contexts only to the first of overlapping reads, so reads take turns.
     let _turn = READING.lock().unwrap_or_else(PoisonError::into_inner);
-    let deadline = Instant::now() + SELECTION_TIMEOUT;
-    let reply = crate::platform::browser::read(&window, SELECTION_SCRIPT)?;
+    let deadline = Instant::now() + timeout;
+    let reply = crate::platform::browser::read(&window, script)?;
     let wait = || reply.recv_timeout(deadline.saturating_duration_since(Instant::now()));
     let Ok(Read::Page { url }) = wait() else {
         return Ok(None);
@@ -209,17 +241,45 @@ pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
     if !Url::parse(&url).is_ok_and(|url| is_web(&url)) {
         return Ok(None);
     }
-    // Without a script result, no title: the native one may still belong to the previous page.
-    let (title, selection) = match wait() {
-        Ok(Read::Script(json)) => decode_page(&json),
+    let json = match wait() {
+        Ok(Read::Script(json)) => Some(json),
         _ => None,
-    }
-    .unwrap_or_default();
+    };
+    Ok(Some((url, json)))
+}
+
+/// Current page and its selection in the main frame; selections inside iframes are not read.
+/// Blocks the calling thread for at most `SELECTION_TIMEOUT`.
+pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
+    let Some((url, json)) = read_page(app, SELECTION_SCRIPT, SELECTION_TIMEOUT)? else {
+        return Ok(None);
+    };
+    // Without a script result, no title: the native one may still belong to the previous page.
+    let (title, selection) = json.and_then(|json| decode_page(&json)).unwrap_or_default();
     Ok(Some(PageSelection {
         url,
         title,
         selection,
     }))
+}
+
+/// Evaluates Rust's `expression` in its isolated world of the page's main frame, taking turns with
+/// other reads, and returns the untrusted `Runtime.evaluate` response. None without a page window,
+/// while a navigation is in flight or when the page does not answer within `SELECTION_TIMEOUT`.
+/// Blocks the calling thread, never the WebView2 UI thread.
+pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
+    let window = app.get_webview_window(LABEL)?;
+    let _turn = READING.lock().unwrap_or_else(PoisonError::into_inner);
+    let deadline = Instant::now() + SELECTION_TIMEOUT;
+    let reply = crate::platform::browser::read(&window, expression).ok()?;
+    let wait = || reply.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+    let Ok(Read::Page { .. }) = wait() else {
+        return None;
+    };
+    match wait() {
+        Ok(Read::Script(json)) => Some(json),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

@@ -18,12 +18,14 @@ import {
   onToggleMode,
   onWebState,
   onWebVisible,
+  type PageArticle,
   type PageState,
   type PanelFocus,
   panelActivate,
   panelResize,
   panelSetPinned,
   webHistory,
+  webReader,
   webSetVisible,
 } from "./lib/ipc";
 
@@ -36,6 +38,18 @@ let web = $state(false);
 let preferences = $state(false);
 let previousWeb = false;
 let page = $state<PageState | null>(null);
+/** The reader view's article: the page window stays hidden while it is shown. */
+let article = $state<PageArticle | null>(null);
+/**
+ * Changes when the reader view ends, the page is shown or hidden, or its URL changes, so an article
+ * still being read is dropped. Rust drops it after a navigation to another document or a reload.
+ */
+let readerTurn = 0;
+function closeReader() {
+  article = null;
+  readerTurn++;
+}
+let extracting = $state(false);
 let error = $state("");
 async function action(work: Promise<void>) {
   try {
@@ -85,9 +99,17 @@ onMount(() => {
     focus = value;
   });
   const state = onWebState((value) => {
+    // A route change keeps the document, which Rust's check misses.
+    if (value?.url !== page?.url) readerTurn++;
     page = value;
+    // The page window is gone.
+    if (!value) closeReader();
   });
   const visible = onWebVisible((value) => {
+    // Entering the reader view hides the page but stays in Browser.
+    if (!value && article) return;
+    // A page opened from the bar or a link replaces the reader view.
+    closeReader();
     web = value;
     if (value) preferences = false;
   });
@@ -177,6 +199,7 @@ onMount(() => {
 
 async function switchMode(value: boolean) {
   if (!(await notes.leaveEditor())) return;
+  closeReader();
   await webSetVisible(value);
   web = value;
   preferences = false;
@@ -186,9 +209,36 @@ async function togglePreferences() {
   if (preferences) return switchMode(previousWeb);
   if (!(await notes.leaveEditor())) return;
   previousWeb = web;
+  closeReader();
   await webSetVisible(false);
   web = false;
   preferences = true;
+}
+/** Back and forward show the page they reach, leaving the reader view. */
+async function history(back: boolean) {
+  if (article) {
+    closeReader();
+    await webSetVisible(true);
+  }
+  await webHistory(back);
+}
+async function toggleReader() {
+  if (article) {
+    closeReader();
+    return webSetVisible(true);
+  }
+  if (extracting) return;
+  extracting = true;
+  const turn = readerTurn;
+  try {
+    const found = await webReader();
+    // Another page or mode was shown while the page was read.
+    if (!found || turn !== readerTurn) return;
+    article = found;
+    await webSetVisible(false);
+  } finally {
+    extracting = false;
+  }
 }
 /** Dragging the inner edge: the window moves under the pointer, so only screen positions count. */
 let drag: { x: number; width: number } | null = null;
@@ -263,8 +313,9 @@ function togglePin() {
       <button class:active={web} aria-pressed={web} title={t("web.browserShortcut")} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
     </nav>
     {#if web}
-      <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(webHistory(true))} />
-      <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(webHistory(false))} />
+      <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(history(true))} />
+      <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(history(false))} />
+      <IconButton quiet icon="reader" label={t("web.reader")} pressed={article !== null} disabled={!page?.url || extracting} onclick={() => action(toggleReader())} />
     {/if}
     <span class="spacer"></span>
     <IconButton quiet icon="settings" label={t("preferences.shortcutTooltip")} pressed={preferences} onclick={() => action(togglePreferences())} />
@@ -278,7 +329,7 @@ function togglePin() {
     </Notice>
   {/if}
   {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
-  <Notes bind:this={notes} browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
+  <Notes bind:this={notes} bind:article browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>
