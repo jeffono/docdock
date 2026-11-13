@@ -51,7 +51,8 @@ and the app's UI must never be filtered.
   the engine's embedded public suffix list, including private suffixes. IP addresses and local names
   use the exact host; ports and HTTP/HTTPS share the exception. Changes reload the current site.
 - Exceptions disable network and cosmetic rules for the allowed top-level document, including its
-  third-party requests. They live in app preferences, outside the notes folder. WebView2's strict
-  tracking prevention is profile-wide and stays enabled even on allowed sites, where it still
-  blocks the large ad networks (Google Ad Manager included), so allowing a site mostly restores
-  first-party content and smaller ad sources, not those ads.
+  third-party requests. They live in app preferences, outside the notes folder. WebView2's
+  tracking prevention is profile-wide and cannot be lowered per site. At the strict level it kept
+  blocking the large ad networks (Google Ad Manager included) on allowed sites, so the page profile
+  uses the balanced level, which blocks only trackers known to be harmful, and leaves ads and common
+  trackers to this engine.

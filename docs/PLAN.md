@@ -7,6 +7,11 @@ detail each stage when it is next.
 
 - M9 on branch `m9`: manual verification in the app (tracking prevention, blocking, the shield and the
   reader view), then merge into `main` and release.
+- Found while testing M9: the page window gets Tauri's injected scripts, so `window.__TAURI_INTERNALS__`
+  exists there and `tauri-plugin-dialog` replaces the page's `alert`/`confirm` (no dialog; `confirm`
+  returns a Promise). Confirm with a test that the page cannot reach any command, keep Tauri's scripts
+  out of the page window or stop the dialog plugin from replacing them, and update "Untrusted content"
+  in `docs/ARCHITECTURE.md`. `advanced`
 
 ## Completed
 
@@ -48,7 +53,7 @@ detail each stage when it is next.
   `docs/ARCHITECTURE.md`. Rust tests grew 33%, on content loss and link safety around the folder marker,
   the unavailable folder and the trash.
 - Release 0.1.0-beta.3: automatic update from 0.1.0-beta.2 validated.
-- M9 — Clean pages: strict tracking prevention on the page profile, content blocking with Brave's
+- M9 — Clean pages: balanced tracking prevention on the page profile, content blocking with Brave's
   `adblock` crate from downloaded lists with cosmetic hiding and no scriptlets (about 8 MB), a shield to
   allow a site, and a reader view that extracts the article with `dom_smoothie` and saves it as a note;
   see `docs/decisions/0010-content-blocking.md`, `docs/decisions/0011-reader-view.md` and "Untrusted

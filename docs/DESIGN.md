@@ -313,7 +313,7 @@ General contains the folder path, folder picker, optional Vault file, note order
 from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
 shows DuckDuckGo as read-only and a compact Allowed sites list, with a neutral Remove button per
-site. A short hint explains the subdomain scope and that WebView2 tracking prevention stays on.
+site. A short hint explains the subdomain scope.
 The empty list explains how to add an exception using the shield. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
 keys, deriving formatting keys from the editor bindings; the activation row shows the current
 combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a

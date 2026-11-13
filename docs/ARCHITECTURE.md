@@ -239,10 +239,9 @@ per-monitor DPI awareness (PMv2).
   hiding as well as network filtering, including third-party requests. The shield left of the address
   toggles directly; Preferences > Browser removes exceptions. Changes cancel current cosmetic
   passes and, when the page's site matches, replace its document-start script and then reload it.
-  Profile-wide WebView2 tracking prevention stays on: at the strict level it blocks Google Ad Manager
-  and most ad exchanges by itself, so ads served by them stay off on allowed sites (measured on
-  g1.globo.com: `gpt.js`, `adsbygoogle.js` and Prebid fail with `ERR_BLOCKED_BY_CLIENT` and a
-  "Tracking Prevention blocked" console message whether the site is allowed or not).
+  Profile-wide WebView2 tracking prevention stays on at the balanced level, which blocks only
+  trackers known to be harmful; ads and common trackers are left to the engine, so allowing a site
+  restores them.
 - **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
   `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`,
   which starts with a fingerprint of the lists it was built from; if it is missing, unreadable
@@ -947,7 +946,10 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   `markdown-alert-{note,tip,important,warning,caution}` blockquotes; shared CSS supplies literal English
   kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.
-- **Page tracking prevention:** the page profile requests WebView2's strict level before its first navigation; the `main` profile is unchanged.
+- **Page tracking prevention:** the page profile requests WebView2's balanced level before its first
+  navigation; the `main` profile is unchanged. Strict blocked Google Ad Manager and most ad exchanges
+  even on allowed sites (measured on g1.globo.com: `gpt.js`, `adsbygoogle.js` and Prebid failed with
+  `ERR_BLOCKED_BY_CLIENT`), so the shield could not restore a broken site.
   Unsupported runtimes or failed settings are logged without blocking pages.
 - **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
   scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its

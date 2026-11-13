@@ -232,8 +232,7 @@ const en = {
   "blocking.on": "Content blocking on for {site}",
   "blocking.allowed": "Allowed on {site}",
   "blocking.sites": "Allowed sites",
-  "blocking.hint":
-    "Content blocking is off on these sites and their subdomains. WebView2 tracking prevention stays on.",
+  "blocking.hint": "Content blocking is off on these sites and their subdomains.",
   "blocking.empty": "No allowed sites. Use the shield beside the address to allow a site.",
   "blocking.remove": "Remove",
   "web.reader": "Reader view",
@@ -522,8 +521,7 @@ const ptBR: Record<MessageKey, string> = {
   "blocking.on": "Bloqueio de conteúdo ativo em {site}",
   "blocking.allowed": "Permitido em {site}",
   "blocking.sites": "Sites permitidos",
-  "blocking.hint":
-    "O bloqueio de conteúdo está desativado nestes sites e seus subdomínios. A prevenção de rastreamento do WebView2 continua ativa.",
+  "blocking.hint": "O bloqueio de conteúdo está desativado nestes sites e seus subdomínios.",
   "blocking.empty":
     "Nenhum site permitido. Use o escudo ao lado do endereço para permitir um site.",
   "blocking.remove": "Remover",

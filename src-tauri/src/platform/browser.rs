@@ -8,7 +8,7 @@ use std::sync::{Mutex, PoisonError};
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager, WebviewWindow};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT, ICoreWebView2, ICoreWebView2_13,
+    COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_BALANCED, ICoreWebView2, ICoreWebView2_13,
     ICoreWebView2Profile3, ICoreWebView2Settings2,
 };
 use webview2_com::{
@@ -44,16 +44,18 @@ pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
         let prepare = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
             // Only the page profile, before navigation; older runtimes may lack these interfaces.
+            // Balanced, not strict: strict is profile-wide and blocks the large ad networks even on
+            // sites the shield allows, leaving no way out when blocking breaks a site.
             let tracking = || -> windows::core::Result<()> {
                 page.cast::<ICoreWebView2_13>()?
                     .Profile()?
                     .cast::<ICoreWebView2Profile3>()?
                     .SetPreferredTrackingPreventionLevel(
-                        COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_STRICT,
+                        COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_BALANCED,
                     )
             };
             if let Err(error) = tracking() {
-                eprintln!("[web] strict tracking prevention: {error}");
+                eprintln!("[web] balanced tracking prevention: {error}");
             }
             let settings = page.Settings()?.cast::<ICoreWebView2Settings2>()?;
             let mut default = PWSTR::null();
