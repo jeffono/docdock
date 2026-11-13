@@ -363,7 +363,8 @@ The panel pin is filled when active, outlined otherwise, and 12% smaller than ot
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
 field and "+" action occupy the second bar in both modes. In Browser a quiet shield button sits
-immediately left of the address field, sharing its row without taking space from the top navigation.
+immediately left of the address field, sharing its row without taking space from the top navigation;
+its icon, not its larger hit area, starts at the bar's content edge.
 Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
 site and reloads the page, without a popover. The tooltip and accessible label name the site and
 current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the

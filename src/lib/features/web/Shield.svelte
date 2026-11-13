@@ -39,5 +39,14 @@ async function toggle() {
 }
 </script>
 {#if status}
-  <IconButton quiet icon={status.allowed ? "shieldOff" : "shield"} label={t(status.allowed ? "blocking.allowed" : "blocking.on", { site: status.site })} disabled={busy} onclick={toggle} />
+  <span class="shield"><IconButton quiet icon={status.allowed ? "shieldOff" : "shield"} label={t(status.allowed ? "blocking.allowed" : "blocking.on", { site: status.site })} disabled={busy} onclick={toggle} /></span>
 {/if}
+
+<style>
+  /* The icon, not its larger hit area, starts at the bar's content edge. */
+  .shield {
+    display: flex;
+    flex: none;
+    margin-left: calc((var(--size-icon) - var(--size-control)) / 2);
+  }
+</style>
