@@ -10,6 +10,7 @@ pub mod external;
 mod files;
 mod guard;
 pub mod keyboard;
+pub mod permission;
 mod recycle;
 mod windows;
 

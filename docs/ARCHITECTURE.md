@@ -22,6 +22,7 @@ src-tauri/src/           Backend (Rust)
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   blocking.rs            Content blocking in the page window: filter lists, engine and hiding scripts
+  permissions.rs         Site permission requests of the page window: rules, remembered choices, waiting
   reader.rs              Reader view: the page's article as Markdown
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
@@ -241,6 +242,28 @@ per-monitor DPI awareness (PMv2).
   Profile-wide WebView2 tracking prevention stays on at the balanced level, which blocks only
   trackers known to be harmful; ads and common trackers are left to the engine, so allowing a site
   restores them.
+- **Site permissions:** decisions in [0012](decisions/0012-site-permissions.md).
+  `platform/permission.rs` handles `PermissionRequested` on the page window only, installed with the
+  guard before the first navigation: each request gets a deferral, `SavesInProfile` false and
+  `Handled`, and is settled as Allow or Deny, never Default (a `Held` dropped unsettled denies). At
+  install it resets what the page profile saved (`GetNonDefaultPermissionSettings`, then each to
+  Default). The handler passes the kind (location, camera, microphone, clipboard read, or none for any
+  other), the asking frame's URL and the page's `Source` to `permissions::decide`, a pure rule:
+  no kind, or a frame whose `blocking::site_key` differs from the page's, is denied; a remembered
+  choice for the page's site and kind applies; otherwise it asks if the page is on screen and is
+  denied if not. `dock.rs` reports on screen (panel open, page visible and present) after every poll
+  and request; a change to off screen denies what waits. Waiting requests and their deferrals live in a
+  queue on the WebView2 UI thread (at most eight), and the `permission` event gives `main` the first,
+  with an id. While one waits, `permissions::asking` counts as a dialog in the panel's tick, so
+  neither the cursor nor focus moving elsewhere closes it; Esc in the search bar and the shortcut
+  still do. A main-frame `ContentLoading` denies what waits without remembering. The bar never takes
+  focus: the page keeps it until the user clicks the panel. `permission_answer` settles that request
+  and every waiting one for the same site and kind on the UI thread, then saves
+  `settings.json.site_permissions` with the locked atomic writer and updates the memory copy only
+  after the save, as site exceptions do; the handler reads only memory. Reading settings keeps each
+  valid entry alone, drops sites that are not already site keys, and keeps Block when a site and kind
+  appear twice. Preferences > Browser lists choices (`permission_list`); Remove forgets one
+  (`permission_forget`).
 - **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
   `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`,
   which starts with a fingerprint of the lists it was built from; if it is missing, unreadable

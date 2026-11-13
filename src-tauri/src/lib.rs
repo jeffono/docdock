@@ -8,6 +8,7 @@ mod i18n;
 mod main_window;
 mod notes;
 pub mod panel;
+mod permissions;
 mod pinned;
 mod platform;
 mod reader;
@@ -63,6 +64,9 @@ pub fn run() {
         commands::blocking_status,
         commands::blocking_sites,
         commands::blocking_set_allowed,
+        commands::permission_answer,
+        commands::permission_list,
+        commands::permission_forget,
         commands::web_open,
         commands::web_set_visible,
         commands::web_history,
@@ -130,6 +134,7 @@ pub fn run() {
             notes::purge_trash(app.handle());
             updates::start(app.handle());
             blocking::start(app.handle());
+            permissions::start(app.handle());
             watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
             app.manage(requests);

@@ -117,6 +117,14 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
                 crate::blocking::starting,
                 move |url| crate::blocking::committed(&app, url),
             )
+        })
+        .and_then(|()| {
+            let (asking, leaving) = (app.clone(), app.clone());
+            crate::platform::permission::install(
+                &window,
+                move |asked, held| crate::permissions::requested(&asking, asked, held),
+                move || crate::permissions::committed(&leaving),
+            )
         });
     if let Err(error) = setup {
         let _ = window.destroy();
