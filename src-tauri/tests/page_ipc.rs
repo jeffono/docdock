@@ -12,6 +12,9 @@ fn probe() {}
 /// Commands that succeed in `main` without arguments: one app command and core plugin commands.
 const COMMANDS: [&str; 3] = ["probe", "plugin:app|version", "plugin:app|name"];
 const UI: &str = "http://tauri.localhost/";
+/// Origins Tauri treats as local: the UI, `localhost:1420` (the UI in `tauri dev`) and the
+/// registered `note-asset` scheme. A page window that loaded one must still reach nothing.
+const LOCAL: [&str; 3] = [UI, "http://localhost:1420/", "http://note-asset.localhost/"];
 
 type Window = WebviewWindow<MockRuntime>;
 
@@ -19,6 +22,8 @@ type Window = WebviewWindow<MockRuntime>;
 fn app() -> (App<MockRuntime>, Window, Window) {
     let app = mock_builder()
         .invoke_handler(docdock_lib::main_only(tauri::generate_handler![probe]))
+        // Registered as in production: registered schemes take part in classifying local origins.
+        .register_uri_scheme_protocol("note-asset", |_, _| tauri::http::Response::new(Vec::new()))
         .build(tauri::generate_context!())
         .unwrap();
     let window = |label| {
@@ -50,16 +55,30 @@ fn page_window_reaches_no_command() {
     let (_app, main, web) = app();
     for cmd in COMMANDS {
         assert!(invoke(&main, cmd, UI).is_ok(), "{cmd} from main");
-        // A remote page, or an app origin the page window loaded: `localhost:1420` is the UI in
-        // `tauri dev`, and `note-asset` is a registered scheme, so Tauri treats both as local.
-        for url in [
-            "https://example.com/",
-            UI,
-            "http://localhost:1420/",
-            "http://note-asset.localhost/",
-        ] {
+        assert!(
+            invoke(&web, cmd, "https://example.com/").is_err(),
+            "{cmd} from a remote page"
+        );
+        for url in LOCAL {
             assert!(invoke(&web, cmd, url).is_err(), "{cmd} from {url}");
         }
+    }
+}
+
+/// The local origins really pass the ACL, so the page window's rejection comes from `main_only`.
+#[test]
+fn local_origins_reach_app_commands_only_from_main() {
+    let (_app, main, web) = app();
+    for url in LOCAL {
+        assert!(
+            invoke(&main, "probe", url).is_ok(),
+            "probe from main at {url}"
+        );
+        let error = invoke(&web, "probe", url).unwrap_err().to_string();
+        assert!(
+            error.contains("main window"),
+            "probe from web at {url}: {error}"
+        );
     }
 }
 
