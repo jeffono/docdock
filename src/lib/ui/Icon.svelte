@@ -1,6 +1,8 @@
 <script lang="ts" module>
 // Lucide paths (ISC license). Only add icons used by the UI here.
 const paths = {
+  shield: "M20 13c0 5-8 9-8 9s-8-4-8-9V5l8-3 8 3z",
+  shieldOff: "m2 2 20 20 M9.5 2.6 12 2l8 3v8c0 .7-.2 1.4-.4 2 M4 5v8c0 5 8 9 8 9s2.5-1.3 4.7-3.3",
   plus: "M12 5v14 M5 12h14",
   search: "M21 21l-4.34-4.34 M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
   settings:

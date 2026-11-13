@@ -39,6 +39,8 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Settings {
+    #[serde(default, deserialize_with = "sites_or_default")]
+    allowed_sites: Vec<String>,
     #[serde(default, deserialize_with = "theme_or_default")]
     theme: Theme,
     #[serde(default)]
@@ -104,6 +106,27 @@ impl Theme {
 }
 fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
     Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+}
+/// Keeps each valid entry on its own: one bad element must not erase the others on the next save,
+/// and an edited entry that is not already a site key would silently widen or move its scope.
+fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, D::Error> {
+    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
+        .unwrap_or_default();
+    let mut sites = Vec::new();
+    for entry in entries.iter().filter_map(serde_json::Value::as_str) {
+        if crate::blocking::site_key(&format!("https://{entry}/")).as_deref() == Some(entry) {
+            crate::blocking::change_allowed(&mut sites, entry, true);
+        }
+    }
+    Ok(sites)
+}
+pub fn allowed_sites(app: &AppHandle) -> Vec<String> {
+    config(app)
+        .map(|p| load(&p).allowed_sites)
+        .unwrap_or_default()
+}
+pub fn set_allowed_sites(app: &AppHandle, sites: Vec<String>) -> Result<(), Error> {
+    update(app, |settings| settings.allowed_sites = sites)
 }
 pub fn theme(app: &AppHandle) -> Theme {
     config(app).map(|p| load(&p).theme).unwrap_or_default()
@@ -2325,6 +2348,25 @@ mod tests {
             .success()
     }
     // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
+    #[test]
+    fn invalid_site_exceptions_do_not_discard_other_preferences() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"allowed_sites":42,"folder":"notes","theme":"dark"}"#)
+                .unwrap();
+        assert!(settings.allowed_sites.is_empty());
+        assert_eq!(settings.folder, Some(PathBuf::from("notes")));
+        assert_eq!(settings.theme, Theme::Dark);
+    }
+
+    #[test]
+    fn site_exceptions_keep_valid_entries_and_drop_widened_ones() {
+        let settings: Settings = serde_json::from_str(
+            r#"{"allowed_sites":["example.com",5,"www.other.net","x.net#.example.com"]}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.allowed_sites, ["example.com"]);
+    }
+
     #[test]
     fn vault_refuses_other_extensions() {
         let t = Temp::new();

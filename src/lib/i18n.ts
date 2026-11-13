@@ -229,6 +229,13 @@ const en = {
   "web.openPage": "Open page",
   "web.back": "Back",
   "web.forward": "Forward",
+  "blocking.on": "Content blocking on for {site}",
+  "blocking.allowed": "Allowed on {site}",
+  "blocking.sites": "Allowed sites",
+  "blocking.hint":
+    "Content blocking is off on these sites and their subdomains. WebView2 tracking prevention stays on.",
+  "blocking.empty": "No allowed sites. Use the shield beside the address to allow a site.",
+  "blocking.remove": "Remove",
   "web.reader": "Reader view",
   "error.unexpected": "Something went wrong: {detail}",
   "error.clipboard": "Could not copy: another app is using the clipboard. Try again.",
@@ -512,6 +519,14 @@ const ptBR: Record<MessageKey, string> = {
   "web.openPage": "Abrir página",
   "web.back": "Voltar",
   "web.forward": "Avançar",
+  "blocking.on": "Bloqueio de conteúdo ativo em {site}",
+  "blocking.allowed": "Permitido em {site}",
+  "blocking.sites": "Sites permitidos",
+  "blocking.hint":
+    "O bloqueio de conteúdo está desativado nestes sites e seus subdomínios. A prevenção de rastreamento do WebView2 continua ativa.",
+  "blocking.empty":
+    "Nenhum site permitido. Use o escudo ao lado do endereço para permitir um site.",
+  "blocking.remove": "Remover",
   "web.reader": "Modo leitura",
   "error.unexpected": "Algo deu errado: {detail}",
   "error.clipboard":
