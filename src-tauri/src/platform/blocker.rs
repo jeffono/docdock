@@ -1,9 +1,10 @@
 //! Content blocking in the page window, natively: WebView2 asks before each request and Rust answers
 //! from memory on its UI thread. Nothing here gives the page a channel; hiding styles reach it only
-//! through Rust's isolated world (`browser::read`).
+//! through Rust's isolated world (`browser::document_start` and `browser::read`).
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
+use std::time::Duration;
 
 use tauri::WebviewWindow;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -25,6 +26,7 @@ use windows::Win32::System::Com::IStream;
 use windows::core::{HSTRING, Interface, PWSTR};
 
 use crate::error::Error;
+use crate::platform::browser;
 
 /// A request as the content blocker sees it. `kind` uses the filter-list request types.
 pub struct Request<'a> {
@@ -56,13 +58,16 @@ fn kind(context: COREWEBVIEW2_WEB_RESOURCE_CONTEXT, main: bool) -> &'static str 
 }
 
 /// Asks `blocked` about every request of the window, from every frame and worker, and answers a
-/// blocked one with an empty 403 before it reaches the network. `committed` receives the URL of
-/// each new main-frame document, on the UI thread, so it must return at once.
+/// blocked one with an empty 403 before it reaches the network. `starting` receives the target of
+/// each main-frame navigation and returns the script for Rust's isolated world to run when its
+/// document starts, if any; `committed` receives the URL of each new main-frame document. Both run
+/// on the UI thread, so they must return at once.
 /// Only for the page window: the app's UI is never filtered. Waits for the WebView2 UI thread, so
 /// never call it from that thread.
 pub fn install(
     window: &WebviewWindow,
     blocked: fn(&Request) -> bool,
+    starting: fn(&str) -> Option<String>,
     committed: impl Fn(String) + Send + 'static,
 ) -> Result<(), Error> {
     if window.label() == "main" {
@@ -76,11 +81,15 @@ pub fn install(
             // WebView2 raises NavigationStarting before requesting the main frame's document.
             let main = Rc::new(RefCell::new(String::new()));
             let target = main.clone();
-            let starting = NavigationStartingEventHandler::create(Box::new(move |_, args| {
-                if let Some(args) = args {
+            browser::enable_document_start(&page)?;
+            // Also raised for each redirect, so the script follows the final host.
+            let starting = NavigationStartingEventHandler::create(Box::new(move |page, args| {
+                if let (Some(page), Some(args)) = (page, args) {
                     let mut uri = PWSTR::null();
                     args.Uri(&mut uri)?;
-                    *target.borrow_mut() = CoTaskMemPWSTR::from(uri).to_string();
+                    let uri = CoTaskMemPWSTR::from(uri).to_string();
+                    browser::document_start(&page, starting(&uri), mpsc::channel().0)?;
+                    *target.borrow_mut() = uri;
                 }
                 Ok(())
             }));
@@ -151,4 +160,24 @@ pub fn install(
         Ok(Err(error)) => Err(Error::unexpected(format!("page blocker: {error}"))),
         Err(_) => Err(Error::unexpected("page blocker not installed")),
     }
+}
+
+/// How long a navigation the app starts waits for its document-start script.
+const PREPARE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Registers `source` as the window's document-start script before a navigation the app starts,
+/// such as a shield reload, which `NavigationStarting` alone would register too late for a
+/// same-site document. Waits for the WebView2 UI thread, so never call it from that thread.
+pub fn prepare(window: &WebviewWindow, source: Option<String>) -> Result<(), Error> {
+    let (sender, receiver) = mpsc::channel();
+    window.with_webview(move |view| unsafe {
+        let register =
+            || browser::document_start(&view.controller().CoreWebView2()?, source, sender);
+        if let Err(error) = register() {
+            eprintln!("[blocking] document start: {error}");
+        }
+    })?;
+    // Without an answer the navigation still happens; the passes hide what they can.
+    let _ = receiver.recv_timeout(PREPARE_TIMEOUT);
+    Ok(())
 }

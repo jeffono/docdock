@@ -21,7 +21,7 @@ src-tauri/src/           Backend (Rust)
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
-  blocking.rs            Content blocking in the page window: filter lists, engine and hiding passes
+  blocking.rs            Content blocking in the page window: filter lists, engine and hiding scripts
   reader.rs              Reader view: the page's article as Markdown
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
@@ -236,9 +236,13 @@ per-monitor DPI awareness (PMv2).
   `settings.json.allowed_sites` uses the existing locked atomic preferences writer. Startup loads
   a memory copy; changes serialize separately and publish only after a successful save. Request
   handlers check the top-level source against memory, never disk. Allowed documents skip cosmetic
-  passes as well as network filtering, including third-party requests. The shield left of the address
+  hiding as well as network filtering, including third-party requests. The shield left of the address
   toggles directly; Preferences > Browser removes exceptions. Changes cancel current cosmetic
-  passes and reload the page when its site matches. Profile-wide WebView2 tracking prevention stays on.
+  passes and, when the page's site matches, replace its document-start script and then reload it.
+  Profile-wide WebView2 tracking prevention stays on: at the strict level it blocks Google Ad Manager
+  and most ad exchanges by itself, so ads served by them stay off on allowed sites (measured on
+  g1.globo.com: `gpt.js`, `adsbygoogle.js` and Prebid fail with `ERR_BLOCKED_BY_CLIENT` and a
+  "Tracking Prevention blocked" console message whether the site is allowed or not).
 - **Content blocking:** decisions in [0010](decisions/0010-content-blocking.md). At startup a
   `blocking` thread loads the serialized engine from `app_local_data_dir/content-blocking/engine.dat`,
   which starts with a fingerprint of the lists it was built from; if it is missing, unreadable
@@ -253,14 +257,32 @@ per-monitor DPI awareness (PMv2).
   and iframes included); the handler maps the resource context to a filter-list type, uses the page's
   `Source` as the third-party reference and answers a blocked request with an empty 403. The target of
   the last main-frame `NavigationStarting` is the `document` the user asked for and is never blocked.
-  Wry's custom-protocol handler ignores the extra requests. On each main-frame `ContentLoading`,
-  `blocking::committed` starts six passes (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
+  Wry's custom-protocol handler ignores the extra requests.
+  Hiding starts with each document. `blocker::install` enables the `Page` domain (Chromium evaluates
+  document-start scripts only then) and, on each main-frame `NavigationStarting` (redirects
+  included), registers `blocking::starting`'s script with `Page.addScriptToEvaluateOnNewDocument` in
+  the `docdock` world, replacing the previous one; allowed sites and non-HTTP(S) targets get none.
+  The script carries the host's selectors and exceptions from `url_cosmetic_resources` and the
+  generic class and id rules: at each list install, every `.class` or `#id` leading a `##` selector
+  is asked to `hidden_class_id_selectors`, which keeps the engine the judge of what is generic
+  (about 28,000 keys, 480 KB). Building the script takes about 3 ms on the UI thread (debug
+  build). It runs before the page's scripts in every frame and acts only in the top frame of the
+  expected host: it adopts a sheet with the host's selectors and builds a map (about 10 ms) from
+  which a `MutationObserver` inserts each class's or id's rules, minus the exceptions, in the
+  microtask after the element appears, before it is painted. Under `$generichide` the map is
+  empty. Registered as a same-site navigation starts, the script can reach the browser after the
+  new document (measured: shield reloads and g1 → ge.globo.com links), so an unchanged script is
+  kept rather than replaced, and `web::open` and the shield register theirs and wait up to a second
+  before navigating. A navigation the page starts to another host of the same site still gets it
+  late; the passes below cover that document as before.
+  On each main-frame `ContentLoading`, `blocking::committed` starts six passes (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
   a newer document stops them. Each pass goes through `web::evaluate` (the selection read's isolated
   world, turn-taking and two-second limit) with one fixed function and JSON arguments: it checks
   `location.hostname`, adds its `CSSStyleSheet` to `document.adoptedStyleSheets` again if the page
   removed it, inserts each selector as its own `display:none!important` rule, and returns up to
-  1,000 new class names and ids recorded by a `MutationObserver` (at most 20,000 per document, 100
-  characters each; the last pass disconnects it). The first pass carries the host's selectors and
+  1,000 new class names and ids recorded by the document-start observer, or by one the first pass
+  creates (at most 20,000 per document, 100 characters each; the last pass stops recording and
+  disconnects an observer without generic rules). The first pass carries the host's selectors and
   the lists' generic non-class selectors; later passes carry generic class and id rules for what the
   previous pass saw, unless `$generichide` applies. Selectors with braces or starting with `@` are
   dropped, and responses over 2 MiB or of any other shape are ignored.

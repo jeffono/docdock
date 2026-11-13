@@ -3,7 +3,7 @@
 //! Requests are answered from memory; cosmetic rules hide elements through Rust's isolated world.
 //! Scriptlets and procedural rules stay off: they run code in the page.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Read;
 use std::path::Path;
@@ -41,19 +41,33 @@ const CHECK: Duration = Duration::from_secs(15 * 60);
 const LIST_MAX_BYTES: u64 = 16 * 1024 * 1024;
 const ENGINE_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
+/// The engine and what is derived from it for document starts.
+struct Filters {
+    engine: Engine,
+    /// `generic_rules` as a JavaScript string literal, ready for each document start.
+    generic: String,
+}
+
 /// Replaced whole when lists change; the WebView2 UI thread clones it per request, never waiting
 /// for I/O or a build.
-static ENGINE: Mutex<Option<Arc<Engine>>> = Mutex::new(None);
+static FILTERS: Mutex<Option<Arc<Filters>>> = Mutex::new(None);
 
-fn engine() -> Option<Arc<Engine>> {
-    ENGINE
+fn filters() -> Option<Arc<Filters>> {
+    FILTERS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
 }
 
-fn set_engine(engine: Engine) {
-    *ENGINE.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(engine));
+impl Filters {
+    fn new(engine: Engine, keys: &BTreeSet<String>) -> Self {
+        let generic = serde_json::to_string(&generic_rules(&engine, keys)).unwrap_or_default();
+        Self { engine, generic }
+    }
+}
+
+fn set_filters(filters: Filters) {
+    *FILTERS.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(filters));
 }
 
 /// Canonical site boundary from the engine's embedded public suffix list.
@@ -117,12 +131,11 @@ pub fn set_allowed(app: &AppHandle, url: &str, enabled: bool) -> Result<(), crat
     crate::notes::set_allowed_sites(app, sites.clone())?;
     *ALLOWED.lock().unwrap_or_else(PoisonError::into_inner) = sites;
     if let Some(window) = app.get_webview_window("web")
-        && window
-            .url()
-            .ok()
-            .is_some_and(|url| site_key(url.as_str()).as_ref() == Some(&site))
+        && let Ok(url) = window.url()
+        && site_key(url.as_str()).as_ref() == Some(&site)
     {
         DOCUMENT.fetch_add(1, Ordering::SeqCst);
+        blocker::prepare(&window, starting(url.as_str()))?;
         window.reload()?;
     }
     Ok(())
@@ -248,6 +261,7 @@ fn refresh(dir: &Path) -> bool {
 fn install(dir: &Path, cache: Option<&[u8]>) {
     let lists = read_lists(dir);
     let key = fingerprint(&lists);
+    let keys = rule_keys(&lists);
     let Some((engine, rebuilt)) = load(cache, &key, lists) else {
         return;
     };
@@ -257,7 +271,7 @@ fn install(dir: &Path, cache: Option<&[u8]>) {
     {
         eprintln!("[blocking] save cache: {error}");
     }
-    set_engine(engine);
+    set_filters(Filters::new(engine, &keys));
 }
 
 /// Loads the cached engine, then keeps the lists fresh, on its own thread for the app's lifetime.
@@ -299,9 +313,9 @@ fn blocks(engine: &Engine, sites: &[String], request: &blocker::Request) -> bool
 
 /// Runs on the WebView2 UI thread for every request of the page window.
 pub fn blocked(request: &blocker::Request) -> bool {
-    engine().is_some_and(|engine| {
+    filters().is_some_and(|filters| {
         blocks(
-            &engine,
+            &filters.engine,
             &ALLOWED.lock().unwrap_or_else(PoisonError::into_inner),
             request,
         )
@@ -314,9 +328,183 @@ fn safe_selector(selector: &str) -> bool {
     !selector.is_empty() && !selector.contains(['{', '}']) && !selector.starts_with('@')
 }
 
-/// Delays between the passes over one document. The first hides what applies to the host before
-/// the page renders and starts watching classes and ids; the next hide generic rules for those seen
-/// so far, including banners that scripts add after load. The last stops watching.
+/// Classes and ids, as `.name` and `#name`, that lead some element hiding selector of the lists:
+/// every key the engine can hold generic rules for, and host-specific keys that it then ignores.
+fn rule_keys(lists: &[String]) -> BTreeSet<String> {
+    let name = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_');
+    lists
+        .iter()
+        .flat_map(|list| list.lines())
+        .filter_map(|line| line.split_once("##").map(|(_, selector)| selector))
+        .filter(|selector| selector.starts_with(['.', '#']))
+        .map(|selector| {
+            let end = selector[1..]
+                .find(|c| !name(c))
+                .map_or(selector.len(), |i| i + 1);
+            selector[..end].to_owned()
+        })
+        .filter(|key| key.len() > 1)
+        .collect()
+}
+
+/// The engine's generic class and id rules, one key per line followed by its selectors, separated
+/// by tabs; a key alone hides itself. The engine decides what is generic, so host-specific keys
+/// stay out, and the page can apply these rules itself as elements appear.
+fn generic_rules(engine: &Engine, keys: &BTreeSet<String>) -> String {
+    let none = HashSet::new();
+    let mut rules = String::new();
+    for key in keys {
+        let name = [&key[1..]];
+        let selectors = if key.starts_with('.') {
+            engine.hidden_class_id_selectors(name, [] as [&str; 0], &none)
+        } else {
+            engine.hidden_class_id_selectors([] as [&str; 0], name, &none)
+        };
+        let selectors: Vec<String> = selectors
+            .into_iter()
+            .filter(|selector| safe_selector(selector) && !selector.contains(['\t', '\n']))
+            .collect();
+        if selectors.is_empty() {
+            continue;
+        }
+        rules.push_str(key);
+        if selectors != [key.as_str()] {
+            for selector in &selectors {
+                rules.push('\t');
+                rules.push_str(selector);
+            }
+        }
+        rules.push('\n');
+    }
+    rules.pop();
+    rules
+}
+
+/// Builds the hiding state of one document in Rust's isolated world, called as `(rules, skip)`:
+/// a map from `.class` or `#id` to the selectors it brings, and the selectors the host excepts.
+/// Its builtins and DOM wrappers are the world's own, so the page cannot change what it does; the
+/// page can only see the sheet and remove it from `adoptedStyleSheets`, which the observer and the
+/// next pass undo. An adopted sheet adds no node that hydration could trip on. `insertRule` takes
+/// one rule at a time, so an invalid selector drops only itself. A `MutationObserver` applies the
+/// rules of each class and id as they appear, in the microtask after the change and so before the
+/// next paint, and records up to 20,000 new names of at most 100 characters for the passes until
+/// `stop`. Without rules, `stop` also disconnects it.
+const STATE_SCRIPT: &str = "((rules, skip) => {
+  const sheet = new CSSStyleSheet();
+  const hide = (selector) => {
+    try { sheet.insertRule(selector + '{display:none!important}', sheet.cssRules.length); } catch {}
+  };
+  const adopt = () => {
+    if (!document.adoptedStyleSheets.includes(sheet)) {
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    }
+  };
+  const fresh = [new Set(), new Set()];
+  const seen = new Set();
+  let recording = true;
+  const add = (kind, name) => {
+    const key = (kind ? '#' : '.') + name;
+    const selectors = rules.get(key);
+    if (selectors) {
+      rules.delete(key);
+      for (const selector of selectors) if (!skip.has(selector)) hide(selector);
+    }
+    if (recording && name.length <= 100 && seen.size < 20000 && !seen.has(key)) {
+      seen.add(key);
+      fresh[kind].add(name);
+    }
+  };
+  const note = (element) => {
+    for (const name of element.classList) add(0, name);
+    if (typeof element.id === 'string' && element.id) add(1, element.id);
+  };
+  const scan = (node) => {
+    if (node.nodeType !== 1) return;
+    note(node);
+    for (const element of node.querySelectorAll('[class],[id]')) note(element);
+  };
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === 'attributes') note(record.target);
+      else for (const node of record.addedNodes) scan(node);
+    }
+    if (rules.size) adopt();
+  });
+  observer.observe(document, { childList: true, subtree: true, attributes: true,
+    attributeFilter: ['class', 'id'] });
+  if (document.documentElement) scan(document.documentElement);
+  const stop = () => {
+    recording = false;
+    if (!rules.size) observer.disconnect();
+  };
+  return { hide, adopt, fresh, stop };
+})";
+
+/// Runs in Rust's isolated world when a main-frame document starts, before its own scripts and
+/// first paint, called as `(state, host, hide, skip, generic)`: `generic` is the text of
+/// `generic_rules`, or null under `$generichide`. Frames and documents of other hosts are left
+/// alone.
+const START_SCRIPT: &str = "((state, host, hide, skip, generic) => {
+  if (window !== window.top || location.hostname !== host || globalThis.docdockHide) return;
+  const rules = new Map();
+  for (const line of generic ? generic.split('\\n') : []) {
+    const [key, ...selectors] = line.split('\\t');
+    rules.set(key, selectors.length ? selectors : [key]);
+  }
+  const hiding = globalThis.docdockHide = state(rules, new Set(skip));
+  for (const selector of hide) hiding.hide(selector);
+  hiding.adopt();
+})";
+
+/// The document-start script for a main-frame navigation to `url`: the host's selectors and the
+/// generic rules, minus the host's exceptions. None for an allowed site or anything but HTTP(S).
+fn start_script(filters: &Filters, sites: &[String], url: &str) -> Option<String> {
+    if allowed(sites, url) {
+        return None;
+    }
+    let host = web_host(url)?;
+    let resources = filters.engine.url_cosmetic_resources(url);
+    let hide: Vec<&String> = resources
+        .hide_selectors
+        .iter()
+        .filter(|selector| safe_selector(selector))
+        .collect();
+    let host = serde_json::to_string(&host).ok()?;
+    let hide = serde_json::to_string(&hide).ok()?;
+    let skip = serde_json::to_string(&resources.exceptions).ok()?;
+    let generic = if resources.generichide {
+        "null"
+    } else {
+        &filters.generic
+    };
+    Some(format!(
+        "{START_SCRIPT}({STATE_SCRIPT},{host},{hide},{skip},{generic})"
+    ))
+}
+
+/// Called on the WebView2 UI thread when a main-frame navigation starts, so it must be quick: the
+/// engine answers from memory.
+pub fn starting(url: &str) -> Option<String> {
+    let filters = filters()?;
+    start_script(
+        &filters,
+        &ALLOWED.lock().unwrap_or_else(PoisonError::into_inner),
+        url,
+    )
+}
+
+fn web_host(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .and_then(|url| url.host_str().map(str::to_owned))
+}
+
+/// Delays between the passes over one document. The document-start script normally hides
+/// everything already; the passes cover a document that started before it was registered. The
+/// first hides what applies to the host and starts watching classes and ids; the next hide generic
+/// rules for those seen so far, including banners that scripts add after load. The last stops
+/// recording.
 const PASSES: [Duration; 6] = [
     Duration::ZERO,
     Duration::ZERO,
@@ -327,59 +515,20 @@ const PASSES: [Duration; 6] = [
 ];
 /// Bounds what the page can make a pass carry back.
 const SEEN_MAX_JSON: usize = 2 * 1024 * 1024;
-/// Called as `(host, selectors, last)` in Rust's isolated world, with JSON arguments. Its builtins and
-/// DOM wrappers are the world's own, so the page cannot change what it does or returns; the page
-/// can only see the sheet and remove it from `adoptedStyleSheets`, and a later pass adds it back.
-/// An adopted sheet adds no node that hydration could trip on. `insertRule` takes one rule at a
-/// time, so an invalid selector drops only itself. It returns up to 1,000 new class names and ids
-/// of at most 100 characters each, and stops recording after 20,000.
-const COSMETIC_SCRIPT: &str = "((host, hide, last) => {
+/// Called as `(state, host, selectors, last)` in Rust's isolated world, with JSON arguments, on the
+/// document-start state when there is one. It returns up to 1,000 new class names and ids.
+const COSMETIC_SCRIPT: &str = "((state, host, hide, last) => {
   if (location.hostname !== host) return null;
-  let state = globalThis.docdockHide;
-  if (!state) {
-    const fresh = [new Set(), new Set()];
-    const seen = new Set();
-    const add = (kind, name) => {
-      const key = kind + name;
-      if (name.length <= 100 && seen.size < 20000 && !seen.has(key)) {
-        seen.add(key);
-        fresh[kind].add(name);
-      }
-    };
-    const note = (element) => {
-      for (const name of element.classList) add(0, name);
-      if (typeof element.id === 'string' && element.id) add(1, element.id);
-    };
-    const scan = (node) => {
-      if (node.nodeType !== 1) return;
-      note(node);
-      for (const element of node.querySelectorAll('[class],[id]')) note(element);
-    };
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === 'attributes') note(record.target);
-        else for (const node of record.addedNodes) scan(node);
-      }
-    });
-    observer.observe(document, { childList: true, subtree: true, attributes: true,
-      attributeFilter: ['class', 'id'] });
-    if (document.documentElement) scan(document.documentElement);
-    state = globalThis.docdockHide = { sheet: new CSSStyleSheet(), fresh, observer };
-  }
-  const sheet = state.sheet;
-  if (!document.adoptedStyleSheets.includes(sheet)) {
-    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-  }
-  for (const selector of hide) {
-    try { sheet.insertRule(selector + '{display:none!important}', sheet.cssRules.length); } catch {}
-  }
-  if (last) state.observer.disconnect();
+  const hiding = globalThis.docdockHide ??= state(new Map(), new Set());
+  hiding.adopt();
+  for (const selector of hide) hiding.hide(selector);
+  if (last) hiding.stop();
   const take = (names) => {
     const taken = [...names].slice(0, 1000);
     for (const name of taken) names.delete(name);
     return taken;
   };
-  return [take(state.fresh[0]), take(state.fresh[1])];
+  return [take(hiding.fresh[0]), take(hiding.fresh[1])];
 })";
 
 #[derive(serde::Deserialize)]
@@ -422,19 +571,15 @@ pub fn committed(app: &AppHandle, url: String) {
     ) {
         return;
     }
-    let Some(engine) = engine() else {
+    let Some(filters) = filters() else {
         return;
     };
     let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || hide(&app, &engine, document, &url));
+    tauri::async_runtime::spawn_blocking(move || hide(&app, &filters.engine, document, &url));
 }
 
 fn hide(app: &AppHandle, engine: &Engine, document: u64, url: &str) {
-    let Some(host) = Url::parse(url)
-        .ok()
-        .filter(|url| matches!(url.scheme(), "http" | "https"))
-        .and_then(|url| url.host_str().map(str::to_owned))
-    else {
+    let Some(host) = web_host(url) else {
         return;
     };
     let resources = engine.url_cosmetic_resources(url);
@@ -447,7 +592,7 @@ fn hide(app: &AppHandle, engine: &Engine, document: u64, url: &str) {
         }
         pending.retain(|selector| safe_selector(selector) && !shown.contains(selector));
         let arguments = serde_json::json!([host, pending, index + 1 == PASSES.len()]);
-        let expression = format!("{COSMETIC_SCRIPT}(...{arguments})");
+        let expression = format!("{COSMETIC_SCRIPT}({STATE_SCRIPT}, ...{arguments})");
         // A pass that gets no answer keeps its selectors for the next one.
         let Some((classes, ids)) =
             crate::web::evaluate(app, expression).and_then(|json| decode_seen(&json))
@@ -623,6 +768,67 @@ mod tests {
             method: "GET",
         };
         assert!(!blocks(&engine, &[], &request));
+    }
+
+    fn filters(rules: &str) -> Filters {
+        let lists = vec![list(rules)];
+        let keys = rule_keys(&lists);
+        Filters::new(build(lists).unwrap(), &keys)
+    }
+
+    /// The g1 cookie banner is hidden by `###cookie-banner-lgpd`, a generic rule.
+    #[test]
+    fn document_starts_carry_generic_class_and_id_rules() {
+        let filters = filters(
+            "###cookie-banner-lgpd
+##.ad-box
+##.promo > .banner",
+        );
+        let rules: String = serde_json::from_str(&filters.generic).unwrap();
+        let rules: Vec<&str> = rules.lines().collect();
+        assert_eq!(
+            rules,
+            ["#cookie-banner-lgpd", ".ad-box", ".promo	.promo > .banner"]
+        );
+    }
+
+    #[test]
+    fn host_specific_rules_stay_out_of_generic_rules() {
+        let filters = filters(
+            "example.com##.local-only
+example.com###local-id",
+        );
+        assert_eq!(filters.generic, "\"\"");
+        let script = start_script(&filters, &[], "https://example.com/").unwrap();
+        assert!(script.contains("\".local-only\"") && script.contains("\"#local-id\""));
+    }
+
+    #[test]
+    fn an_allowed_site_gets_no_document_start_hiding() {
+        let filters = filters("##.ad-box");
+        let sites = vec!["example.com".into()];
+        assert!(start_script(&filters, &sites, "https://news.example.com/").is_none());
+        assert!(start_script(&filters, &sites, "https://other.net/").is_some());
+    }
+
+    #[test]
+    fn a_sites_exceptions_reach_its_document_start() {
+        let filters = filters(
+            "##.ad-box
+example.com#@#.ad-box",
+        );
+        let script = start_script(&filters, &[], "https://example.com/").unwrap();
+        assert!(script.ends_with(r#",[".ad-box"],".ad-box")"#), "{script}");
+    }
+
+    #[test]
+    fn generichide_drops_generic_rules_at_document_start() {
+        let filters = filters(
+            "##.ad-box
+@@||example.com^$generichide",
+        );
+        let script = start_script(&filters, &[], "https://example.com/").unwrap();
+        assert!(script.ends_with(",null)"), "{script}");
     }
 
     #[test]

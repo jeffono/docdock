@@ -74,6 +74,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
         if !*ready {
             return Err(Error::unexpected("page window not guarded"));
         }
+        crate::platform::blocker::prepare(&window, crate::blocking::starting(url.as_str()))?;
         window.navigate(url)?;
         let _ = requests.send(Request::SetWebVisible(true));
         return Ok(());
@@ -110,15 +111,19 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
         .and_then(|()| crate::platform::browser::observe(&window))
         .and_then(|()| {
             let app = app.clone();
-            crate::platform::blocker::install(&window, crate::blocking::blocked, move |url| {
-                crate::blocking::committed(&app, url);
-            })
+            crate::platform::blocker::install(
+                &window,
+                crate::blocking::blocked,
+                crate::blocking::starting,
+                move |url| crate::blocking::committed(&app, url),
+            )
         });
     if let Err(error) = setup {
         let _ = window.destroy();
         return Err(error);
     }
     *ready = true;
+    crate::platform::blocker::prepare(&window, crate::blocking::starting(url.as_str()))?;
     window.navigate(url)?;
     let hwnd = window.hwnd()?;
     let _ = requests.send(Request::AttachWeb(hwnd.0 as isize));

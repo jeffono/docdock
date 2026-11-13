@@ -461,6 +461,114 @@ fn evaluate_in(
     })
 }
 
+/// The script Rust's isolated world runs as main-frame documents start. Only the WebView2 UI thread
+/// uses it, and there is a single page window.
+#[derive(Default)]
+struct DocumentStart {
+    /// Changes with each replacement, so a registration answered late knows it was replaced.
+    generation: u64,
+    /// The script's source, registered or on its way.
+    source: Option<String>,
+    /// Its identifier once the browser has answered.
+    identifier: Option<String>,
+}
+
+thread_local! {
+    static DOCUMENT_START: RefCell<DocumentStart> = RefCell::default();
+}
+
+/// Lets document-start scripts run for this page: Chromium evaluates them only while the `Page`
+/// domain is enabled. The domain only reports events to this DevTools session; the page cannot
+/// notice it. Forgets a previous page window's script.
+pub fn enable_document_start(page: &ICoreWebView2) -> windows::core::Result<()> {
+    DOCUMENT_START.take();
+    call(page, "Page.enable", json!({}), |_, _| Ok(()))
+}
+
+/// Replaces the document-start script with `source` in the `WORLD` isolated world, or removes it,
+/// and sends on `settled` once the browser has answered (at once when `source` is unchanged).
+/// A script runs in every frame of the documents created after the browser registers it, so the
+/// script itself skips the frames and hosts it is not for. Registered as a same-site navigation
+/// starts, it may arrive after the new document: an unchanged script is therefore kept, and the
+/// app registers before the navigations it starts itself.
+pub fn document_start(
+    page: &ICoreWebView2,
+    source: Option<String>,
+    settled: Sender<()>,
+) -> windows::core::Result<()> {
+    let change = DOCUMENT_START.with_borrow_mut(|current| {
+        if current.source == source {
+            return None;
+        }
+        current.generation += 1;
+        current.source.clone_from(&source);
+        Some((current.generation, current.identifier.take()))
+    });
+    let Some((generation, previous)) = change else {
+        let _ = settled.send(());
+        return Ok(());
+    };
+    let Some(source) = source else {
+        return match previous {
+            Some(identifier) => remove_script(page, identifier, settled),
+            None => {
+                let _ = settled.send(());
+                Ok(())
+            }
+        };
+    };
+    if let Some(identifier) = previous {
+        remove_script(page, identifier, mpsc::channel().0)?;
+    }
+    let target = page.clone();
+    let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |result, json| {
+        let identifier = result
+            .ok()
+            .and_then(|()| parse(&json)["identifier"].as_str().map(str::to_owned));
+        let replaced = DOCUMENT_START.with_borrow_mut(|current| {
+            let replaced = current.generation != generation;
+            if !replaced {
+                // A failed registration is retried by the next navigation.
+                current.source = current.source.take().filter(|_| identifier.is_some());
+                current.identifier.clone_from(&identifier);
+            }
+            replaced
+        });
+        let _ = settled.send(());
+        match identifier {
+            Some(identifier) if replaced => remove_script(&target, identifier, mpsc::channel().0),
+            _ => Ok(()),
+        }
+    }));
+    let script = json!({ "source": source, "worldName": WORLD });
+    unsafe {
+        page.CallDevToolsProtocolMethod(
+            &HSTRING::from("Page.addScriptToEvaluateOnNewDocument"),
+            &HSTRING::from(script.to_string()),
+            &done,
+        )
+    }
+}
+
+fn remove_script(
+    page: &ICoreWebView2,
+    identifier: String,
+    settled: Sender<()>,
+) -> windows::core::Result<()> {
+    let script = json!({ "identifier": identifier });
+    let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |_, _| {
+        let _ = settled.send(());
+        Ok(())
+    }));
+    unsafe {
+        page.CallDevToolsProtocolMethod(
+            &HSTRING::from("Page.removeScriptToEvaluateOnNewDocument"),
+            &HSTRING::from(script.to_string()),
+            &done,
+        )
+    }
+}
+
 /// Calls a DevTools protocol method; `then` receives the response JSON only on success.
 fn call(
     page: &ICoreWebView2,
