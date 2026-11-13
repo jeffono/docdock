@@ -53,8 +53,9 @@ detail each stage when it is next.
   allow a site, and a reader view that extracts the article with `dom_smoothie` and saves it as a note;
   see `docs/decisions/0010-content-blocking.md`, `docs/decisions/0011-reader-view.md` and "Untrusted
   content" in `docs/ARCHITECTURE.md`. The page window reaches no command from any origin and keeps
-  native dialogs (`rfd` replaced `tauri-plugin-dialog`). Rust tests grew 18%, on site matching, the
-  engine cache, reader bounds, early hiding state and page IPC.
+  native dialogs (`rfd` replaced `tauri-plugin-dialog`). Site permissions are asked in the panel and
+  remembered per site; see `docs/decisions/0012-site-permissions.md`. Rust tests grew 23%, on site
+  matching, the engine cache, reader bounds, early hiding state, page IPC and permission requests.
 
 ## Later
 
