@@ -23,7 +23,9 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-dialog = "2"
+# The dialog plugin's backend, called directly: the plugin injects a script into every WebView,
+# including remote pages, that replaces `alert` and `confirm`.
+rfd = { version = "0.17", default-features = false, features = ["common-controls-v6"] }
 tauri-plugin-updater = "2"
 percent-encoding = "2"
 tauri-plugin-global-shortcut = "2"
@@ -37,6 +39,10 @@ adblock = { version = "0.13.5", default-features = false, features = [
 ] }
 dom_smoothie = "0.19"
 dom_query = "0.29"
+
+[dev-dependencies]
+# Mock runtime to check that the page window reaches no command.
+tauri = { version = "2", features = ["tray-icon", "test"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"

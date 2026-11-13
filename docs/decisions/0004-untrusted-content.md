@@ -25,8 +25,8 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
   production build and `devUrl` in dev, and never opens another window.
 - **`Object.freeze(Object.prototype)`:** injected only in `main`. Tauri's `freezePrototype` runs in every
   WebView and would break sites in the `web` window.
-- **Capabilities:** remain only `core:default`. The folder picker is called by Rust, and
-  `tauri-plugin-dialog` commands are not granted to the UI.
+- **Capabilities:** remain only `core:default`. The folder picker is called by Rust through `rfd`;
+  no dialog plugin is registered.
 
 **Consequences:**
 

@@ -183,9 +183,8 @@ per-monitor DPI awareness (PMv2).
   in another. If it no longer exists or is minimized, focus goes to the desktop.
 - **Web page:** its own window (`web.rs`), owned by the panel, below the header and unified bar. The panel thread positions
   and moves it with `DeferWindowPos`, in the same transaction as the main window. No `WS_EX_NOACTIVATE`,
-  because the page does not talk to Rust: Windows activates the window on click. It is outside the `main`
-  capability, Tauri rejects remote-origin commands and `lib.rs` accepts commands only from the `main`
-  window; `__TAURI_INTERNALS__` exists on the page, but `invoke` fails. It navigates only over http(s),
+  because the page does not talk to Rust: Windows activates the window on click. It reaches no command;
+  see "Page window IPC" under "Untrusted content". It navigates only over http(s),
   outside Tauri's `*.localhost` origins, and never opens another window: `target=_blank` and `window.open`
   navigate in the page window itself. `on_navigation` sees only the main frame, so `platform/guard.rs`
   cancels iframe navigations to Tauri's origins and every external scheme launch from any frame; the
@@ -951,6 +950,18 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   even on allowed sites (measured on g1.globo.com: `gpt.js`, `adsbygoogle.js` and Prebid failed with
   `ERR_BLOCKED_BY_CLIENT`), so the shield could not restore a broken site.
   Unsupported runtimes or failed settings are logged without blocking pages.
+- **Page window IPC (tested 2026-11-13, Tauri 2.12.5):** Tauri injects its scripts into every WebView
+  and every frame, with no per-window opt-out, so pages and their iframes see `window.isTauri`,
+  `window.ipc` and `__TAURI_INTERNALS__.invoke`. Every call fails: no capability names the `web`
+  window, so Tauri's ACL rejects plugin and core commands from any origin and app commands from remote
+  origins; app commands from a local origin (the dev UI at `localhost:1420`, which the page window may
+  load, or `note-asset`) reach `lib.rs`'s `main_only`, which rejects any other WebView label. A `null`
+  origin, as in a `data:` iframe, is rejected before the ACL, and a raw `fetch` to `ipc.localhost`
+  lacks Tauri's invoke key. The channel-data command bypasses the ACL but reads only the calling
+  WebView's queue, and the app uses no channels. `tests/page_ipc.rs` runs the real capabilities and
+  barrier on Tauri's mock runtime. Plugins must not add `js_init_script`s that change web APIs:
+  `tauri-plugin-dialog` replaced the page's `alert` and `confirm`, so the folder and vault pickers and
+  the update error message call `rfd` directly, and opener's link script is disabled in `lib.rs`.
 - **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
   scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its
   own `location` (also cross-origin and nested), meta refresh and an HTTP redirect. WebView2 raised only
