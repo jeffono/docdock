@@ -272,8 +272,11 @@ per-monitor DPI awareness (PMv2).
   microtask after the element appears, before it is painted. Under `$generichide` the map is
   empty. Registered as a same-site navigation starts, the script can reach the browser after the
   new document (measured: shield reloads and g1 → ge.globo.com links), so an unchanged script is
-  kept rather than replaced, and `web::open` and the shield register theirs and wait up to a second
-  before navigating. A navigation the page starts to another host of the same site still gets it
+  kept rather than replaced (its selectors are sorted, so the same URL gives the same source), and
+  `web::open` and the shield register theirs and wait up to a second before navigating.
+  `browser::document_start` makes one DevTools call at a time: a request waits until the browser
+  confirms the wanted script, removals included, and an identifier is forgotten only once its
+  removal is confirmed; a failed call lets the waiters go and the next request retries it. A navigation the page starts to another host of the same site still gets it
   late; the passes below cover that document as before.
   On each main-frame `ContentLoading`, `blocking::committed` starts six passes (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
   a newer document stops them. Each pass goes through `web::evaluate` (the selection read's isolated

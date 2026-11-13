@@ -88,8 +88,11 @@ pub fn install(
                     let mut uri = PWSTR::null();
                     args.Uri(&mut uri)?;
                     let uri = CoTaskMemPWSTR::from(uri).to_string();
-                    browser::document_start(&page, starting(&uri), mpsc::channel().0)?;
+                    let script = starting(&uri);
                     *target.borrow_mut() = uri;
+                    if let Err(error) = browser::document_start(&page, script, mpsc::channel().0) {
+                        eprintln!("[blocking] document start: {error}");
+                    }
                 }
                 Ok(())
             }));

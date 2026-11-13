@@ -464,14 +464,17 @@ fn start_script(filters: &Filters, sites: &[String], url: &str) -> Option<String
     }
     let host = web_host(url)?;
     let resources = filters.engine.url_cosmetic_resources(url);
-    let hide: Vec<&String> = resources
+    // Sorted: the engine's sets iterate in a different order each time, and an unchanged source
+    // is what keeps the script registered before a navigation.
+    let hide: BTreeSet<&String> = resources
         .hide_selectors
         .iter()
         .filter(|selector| safe_selector(selector))
         .collect();
+    let skip: BTreeSet<&String> = resources.exceptions.iter().collect();
     let host = serde_json::to_string(&host).ok()?;
     let hide = serde_json::to_string(&hide).ok()?;
-    let skip = serde_json::to_string(&resources.exceptions).ok()?;
+    let skip = serde_json::to_string(&skip).ok()?;
     let generic = if resources.generichide {
         "null"
     } else {
@@ -801,6 +804,36 @@ example.com###local-id",
         assert_eq!(filters.generic, "\"\"");
         let script = start_script(&filters, &[], "https://example.com/").unwrap();
         assert!(script.contains("\".local-only\"") && script.contains("\"#local-id\""));
+    }
+
+    /// A different source for the same URL replaces the script registered before the navigation.
+    #[test]
+    fn the_same_url_gets_the_same_document_start_script() {
+        let filters = filters(
+            "example.com##.a
+example.com##.b
+example.com##.c
+example.com##.d
+example.com##.e
+example.com##.f
+example.com##.g
+example.com##.h
+##.x
+##.y
+##.z
+##.w
+example.com#@#.x
+example.com#@#.y
+example.com#@#.z
+example.com#@#.w",
+        );
+        let first = start_script(&filters, &[], "https://example.com/").unwrap();
+        for _ in 0..8 {
+            assert_eq!(
+                start_script(&filters, &[], "https://example.com/").unwrap(),
+                first
+            );
+        }
     }
 
     #[test]
