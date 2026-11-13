@@ -24,7 +24,6 @@ use std::{
 use tauri::http::header::{CACHE_CONTROL, CONTENT_TYPE, HeaderValue, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{Response, StatusCode};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::DialogExt;
 
 /// On Windows, images are at `http://note-asset.localhost/<relative path>`.
 pub const IMAGE_SCHEME: &str = "note-asset";
@@ -592,14 +591,11 @@ pub fn choose_vault_file(
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| Error::unexpected("main window missing"))?;
-    if let Some(file) = app
-        .dialog()
-        .file()
+    if let Some(path) = rfd::FileDialog::new()
         .set_parent(&window)
         .add_filter("Cryptomator", &["cryptomator"])
-        .blocking_pick_file()
+        .pick_file()
     {
-        let path = file.into_path().map_err(Error::unexpected)?;
         validate_vault_file(&path)?;
         update(app, |settings| {
             settings.vault_file = Some(path.to_string_lossy().into_owned())
@@ -642,9 +638,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
         .get_webview_window("main")
         .ok_or_else(|| Error::unexpected("main window missing"))?;
     // Owned by the panel, the picker stays above it and does not open a second picker.
-    let dialog = app.dialog().file().set_parent(&window);
-    if let Some(path) = dialog.blocking_pick_folder() {
-        let path = path.into_path().map_err(Error::unexpected)?;
+    if let Some(path) = rfd::FileDialog::new().set_parent(&window).pick_folder() {
         choose_in(&config(app)?, path)?;
         crate::watch::stop();
         purge_trash(app);

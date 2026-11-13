@@ -22,6 +22,23 @@ use std::sync::mpsc;
 
 use tauri::Manager;
 
+/// App commands need no capability from a local origin. Without this barrier, the page window
+/// could reach all of them if it loaded an app origin.
+pub fn main_only<R: tauri::Runtime>(
+    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        if invoke.message.webview().label() == "main" {
+            commands(invoke)
+        } else {
+            invoke
+                .resolver
+                .reject("command restricted to the main window");
+            true
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
@@ -92,7 +109,6 @@ pub fn run() {
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // By default a script intercepting `target=_blank` is injected into every window. In the
         // page window, which has no capability, it would cancel the link and fail.
@@ -135,18 +151,7 @@ pub fn run() {
                 updates::request_exit(window.app_handle(), false);
             }
         })
-        // App commands need no capability from a local origin. Without this barrier, the page
-        // window could reach all of them if it loaded an app origin.
-        .invoke_handler(move |invoke| {
-            if invoke.message.webview().label() == "main" {
-                commands(invoke)
-            } else {
-                invoke
-                    .resolver
-                    .reject("command restricted to the main window");
-                true
-            }
-        })
+        .invoke_handler(main_only(commands))
         .build(tauri::generate_context!())
         .expect("failed to start application")
         .run(|app, event| {
