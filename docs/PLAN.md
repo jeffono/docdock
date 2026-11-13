@@ -5,8 +5,6 @@ detail each stage when it is next.
 
 ## In progress
 
-- Release 0.2.0 with M9 and validate the automatic update from 0.1.0-beta.3.
-
 ## Completed
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
@@ -55,6 +53,7 @@ detail each stage when it is next.
   native dialogs (`rfd` replaced `tauri-plugin-dialog`). Site permissions are asked in the panel and
   remembered per site; see `docs/decisions/0012-site-permissions.md`. Rust tests grew 23%, on site
   matching, the engine cache, reader bounds, early hiding state, page IPC and permission requests.
+- Release 0.2.0: first SemVer version; automatic update from 0.1.0-beta.3 validated.
 
 ## Later
 
