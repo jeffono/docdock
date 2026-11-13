@@ -6,7 +6,7 @@ detail each stage when it is next.
 ## In progress
 
 - M9 on branch `m9`: manual verification in the app (tracking prevention, blocking, the shield and the
-  reader view), then merge into `main` and release.
+  reader view), then merge into `main` and release 0.2.0 (SemVer, no `-beta`; see decision 0008).
 
 ## Completed
 
