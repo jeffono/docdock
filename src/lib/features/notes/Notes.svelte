@@ -54,6 +54,7 @@ import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
+import Permission from "../web/Permission.svelte";
 import Reader from "../web/Reader.svelte";
 import Shield from "../web/Shield.svelte";
 import {
@@ -180,6 +181,7 @@ let showingHistory = $state(false);
 let history = $state<string[]>([]);
 let remote = $state<string[]>([]);
 let suggestionsElement = $state<HTMLElement>();
+let permissionElement = $state<HTMLElement>();
 const latest = new LatestQuery();
 $effect(() => {
   void browser;
@@ -226,15 +228,21 @@ $effect(() => {
     .catch(() => {});
 });
 $effect(() => {
-  const element = suggestionsElement;
-  if (!element || !browser || !addressEditing) {
+  // Both float from the top of the page: the cutout is the taller one.
+  const elements = browser
+    ? [addressEditing ? suggestionsElement : undefined, permissionElement].filter(
+        (element): element is HTMLElement => !!element,
+      )
+    : [];
+  if (!elements.length) {
     void webOverlay(0);
     return;
   }
   const observer = new ResizeObserver(() => {
-    void webOverlay(Math.ceil(element.getBoundingClientRect().height));
+    const heights = elements.map((element) => element.getBoundingClientRect().height);
+    void webOverlay(Math.ceil(Math.max(...heights)));
   });
-  observer.observe(element);
+  for (const element of elements) observer.observe(element);
   return () => {
     observer.disconnect();
     void webOverlay(0);
@@ -2059,6 +2067,7 @@ onMount(() => {
       {/each}
     </div>
   {/if}
+  <Permission shown={browser} bind:element={permissionElement} onerror={(message) => { error = message; }} />
   {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}

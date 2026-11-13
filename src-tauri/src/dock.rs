@@ -355,6 +355,7 @@ impl Dock {
             }
         };
         self.apply(action);
+        self.report_shown();
     }
 
     fn poll(&mut self) {
@@ -383,14 +384,22 @@ impl Dock {
         if page_focused && zone == CursorZone::Outside && escape {
             platform::restore_focus(self.previous_focus);
         }
+        // A site's permission request holds the panel open, as a dialog does, until answered.
         let tick = Input::Tick {
             zone,
-            dialog: self.dialog || self.resizing,
+            dialog: self.dialog || self.resizing || crate::permissions::asking(),
             focus,
         };
         let action = self.panel.step(tick, Instant::now());
         self.apply(action);
         self.report_focus(focus);
+        self.report_shown();
+    }
+
+    /// Permission requests are asked only while the page is on screen.
+    fn report_shown(&self) {
+        let shown = self.is_open() && self.web_visible && self.web.is_some();
+        crate::permissions::set_shown(&self.app, shown);
     }
 
     /// The accent band follows this. Polling sees the page too, which the UI's own focus events

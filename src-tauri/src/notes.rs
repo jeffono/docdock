@@ -40,6 +40,9 @@ const BACKUP_SUFFIX: &str = "docdock-bak";
 struct Settings {
     #[serde(default, deserialize_with = "sites_or_default")]
     allowed_sites: Vec<String>,
+    /// Remembered answers to the page window's permission requests.
+    #[serde(default, deserialize_with = "permissions_or_default")]
+    site_permissions: Vec<crate::permissions::Remembered>,
     #[serde(default, deserialize_with = "theme_or_default")]
     theme: Theme,
     #[serde(default)]
@@ -118,6 +121,24 @@ fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, 
         }
     }
     Ok(sites)
+}
+fn permissions_or_default<'de, D: Deserializer<'de>>(
+    value: D,
+) -> Result<Vec<crate::permissions::Remembered>, D::Error> {
+    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
+        .unwrap_or_default();
+    Ok(crate::permissions::from_settings(entries))
+}
+pub fn site_permissions(app: &AppHandle) -> Vec<crate::permissions::Remembered> {
+    config(app)
+        .map(|p| load(&p).site_permissions)
+        .unwrap_or_default()
+}
+pub fn set_site_permissions(
+    app: &AppHandle,
+    list: Vec<crate::permissions::Remembered>,
+) -> Result<(), Error> {
+    update(app, |settings| settings.site_permissions = list)
 }
 pub fn allowed_sites(app: &AppHandle) -> Vec<String> {
     config(app)

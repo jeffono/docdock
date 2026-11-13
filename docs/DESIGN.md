@@ -256,7 +256,7 @@ pinned and unpinned notes differ only in section and starting state.
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
 - **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
-  leftovers, then "Restore pinned items") → list → note order button → top bar buttons (including
+  leftovers, then "Restore pinned items"; in Browser, the permission bar's Block and Allow) → list → note order button → top bar buttons (including
   Preferences) → resize handle → search bar, reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
@@ -314,7 +314,10 @@ from the tray while Preferences is open. Startup is read from Windows, with a di
 the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
 shows DuckDuckGo as read-only and a compact Allowed sites list, with a neutral Remove button per
 site. A short hint explains the subdomain scope.
-The empty list explains how to add an exception using the shield. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
+The empty list explains how to add an exception using the shield. Site permissions follows, in the
+same row style: the site, and below it in muted text the kind and the answer ("Location · Allowed"),
+with a neutral Remove; its hint says answers cover subdomains and that removing one asks again, and
+the empty list says a bar above the page asks when a site needs one. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
 keys, deriving formatting keys from the editor bindings; the activation row shows the current
 combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
 neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
@@ -370,6 +373,16 @@ site and reloads the page, without a popover. The tooltip and accessible label n
 current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
+
+A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
+page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,
+camera, microphone, clipboard), "example.com wants to use your location." naming the site the answer
+covers and, when a frame of another origin of that site asked, a muted line naming it; then neutral
+Block and Allow buttons, neither primary, so the panel does not lean either way. The page is cut out
+behind it without moving or resizing, as for suggestions, which float over it. Focus stays where it
+was. The panel stays open until an answer; Notes, Preferences, the reader view, closing the panel or
+leaving the page deny it without remembering. Further requests wait and show one at a time. Each
+answer is remembered for the site; other kinds are denied without a bar.
 
 Reader view replaces the page, under the same bars, with its article as a note reads: the title as
 the note header, then text, headings, lists, quotes, code and tables in the reading styles, with the

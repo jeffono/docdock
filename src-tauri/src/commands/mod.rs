@@ -412,3 +412,23 @@ pub fn blocking_sites() -> Vec<String> {
 pub fn blocking_set_allowed(app: AppHandle, url: String, allowed: bool) -> Result<(), Error> {
     crate::blocking::set_allowed(&app, &url, allowed)
 }
+
+/// Waits on a blocking-pool thread for the WebView2 UI thread, which holds the waiting requests.
+#[tauri::command]
+pub async fn permission_answer(app: AppHandle, id: u64, allow: bool) -> Result<(), Error> {
+    tauri::async_runtime::spawn_blocking(move || crate::permissions::answer(&app, id, allow))
+        .await
+        .map_err(Error::unexpected)?
+}
+#[tauri::command]
+pub fn permission_list() -> Vec<crate::permissions::Remembered> {
+    crate::permissions::remembered()
+}
+#[tauri::command(async)]
+pub fn permission_forget(
+    app: AppHandle,
+    site: String,
+    kind: crate::permissions::Kind,
+) -> Result<(), Error> {
+    crate::permissions::forget(&app, &site, kind)
+}
