@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "docdock"
-version = "0.1.0-beta.3"
+version = "0.2.0"
 dependencies = [
  "adblock",
  "dom_query 0.29.0",
