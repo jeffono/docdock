@@ -5,6 +5,8 @@ detail each stage when it is next.
 
 ## In progress
 
+- Edge handle: implemented on `edge-handle`; awaits the manual visual check and screenshot approval.
+
 ## Next
 
 M10 — Identity: official icon, a dev-only tweak panel to explore the look in the real app, and an edge
@@ -25,7 +27,7 @@ handle that opens the panel.
   font sizes, spacing, radius and control sizes. Named presets switch A/B, and an export gives the
   `tokens.css` diff to apply. The panel stays open while tweaking. A chosen look goes to
   `tokens.css` and `docs/DESIGN.md` with a screenshot for approval.
-- [ ] Edge handle (`advanced`). Only a short stretch of the edge around a handle opens the panel,
+- [x] Edge handle (`advanced`). Only a short stretch of the edge around a handle opens the panel,
   instead of the whole column, to avoid accidental openings. The handle appears only while the
   cursor is near. A window at the edge must not take clicks from scrollbars or maximized window
   buttons, so it stays click-through and is shown only on proximity. When the panel is open, the

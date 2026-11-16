@@ -76,6 +76,21 @@ export const panelResize = (width: number | null, done: boolean) =>
     done,
   });
 
+/** The edge handle is drawn natively: it takes the theme's tokens resolved to sRGB channels. */
+export type HandleLook = {
+  background: [number, number, number];
+  line: [number, number, number];
+  text: [number, number, number];
+  fonts: string[];
+  /** Logical pixels. */
+  size: number;
+};
+export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_look", { look });
+
+/** Clicking the edge tab closed the pinned panel, unpinning it. */
+export const onPanelPinned = (handler: (pinned: boolean) => void): Promise<UnlistenFn> =>
+  listen<boolean>("panel-pinned", (event) => handler(event.payload));
+
 /** Whether the panel window or its page is foreground; `side` is the screen edge it docks to. */
 export type PanelFocus = { focused: boolean; side: "left" | "right" };
 export const onPanelFocus = (handler: (focus: PanelFocus) => void): Promise<UnlistenFn> =>

@@ -105,6 +105,12 @@ pub fn panel_resize(requests: State<'_, Sender<Request>>, width: Option<u32>, do
     send(requests, Request::Resize { width, done });
 }
 
+/// The UI's tokens for the edge handle, which is drawn natively, in the current theme.
+#[tauri::command]
+pub fn panel_handle_look(look: crate::platform::handle::Look) {
+    crate::platform::handle::set_look(look);
+}
+
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.
 #[tauri::command]
 pub async fn web_open(

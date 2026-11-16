@@ -16,6 +16,7 @@ src/                     UI (Svelte 5 + Vite)
 src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
   panel.rs               Pure panel state machine
+  handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
   dock.rs                Thread connecting cursor, state machine and windows
   tray.rs                Tray: screen side, exit and Windows startup
   main_window.rs         Creates the main window and limits its navigation
@@ -126,8 +127,24 @@ per-monitor DPI awareness (PMv2).
   edge, so with its 2-pixel region inset a 6-pixel strip of the UI, where the handle sits, runs the
   full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
-  the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
-  from scrollbars and maximized window buttons. Points outside that monitor are ignored.
+  the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
+  edge handle opens the panel: the handle's height plus 16 logical pixels above and below. Points
+  outside that monitor are ignored. The rules are pure functions in `handle.rs`.
+- **Edge handle:** a native popup painted with GDI (`platform/handle.rs`), created on the main thread,
+  whose event loop pumps its messages, and owned by the panel window so it stays above it. It is
+  layered, `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW`, and `WS_EX_TRANSPARENT` while it shows over the
+  closed panel: hit-testing skips it, so scrollbars and maximized window buttons below keep their
+  clicks. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
+  panel in the same `DeferWindowPos` batch, so with the panel parked it rests on the screen edge.
+  `handle::presence` decides: hidden, shown click-through (closed with the cursor within 48 logical
+  pixels of the edge and of the handle's ends, or sliding), or the tab (open and at rest), the only
+  state where it is enabled and takes clicks. The tab counts as inside the open panel. A press and
+  release on it within the system drag distance sends `Request::Tab`: the panel closes as on a close
+  request, even pinned, which emits `panel-pinned` so the UI's pin follows; with the native picker
+  open it does nothing. `WM_MOUSEACTIVATE` answers `MA_NOACTIVATE`. Colors and font come from the
+  UI, which resolves its tokens for the current theme and sends them through `panel_handle_look` at
+  startup and on every theme change; until then the handle stays hidden and the stretch still opens
+  the panel.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
   The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
   uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation

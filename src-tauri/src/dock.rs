@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+use crate::handle::{self, Presence};
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
-use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
+use crate::platform::{self, Activation, Monitor, PanelWindow, Rect};
 
 const POLL: Duration = Duration::from_millis(50);
 const SLIDE: Duration = Duration::from_millis(150);
@@ -48,6 +49,8 @@ pub enum Request {
     Shortcut,
     /// Side chosen in the tray.
     SetSide(Side),
+    /// The open panel's tab was clicked.
+    Tab,
     /// Logical width from the UI's resize handle, `None` for the default. `done` ends a drag and
     /// saves it; until then the panel stays open as if a dialog held it.
     Resize {
@@ -142,23 +145,6 @@ fn monitor_change(current: &Monitor, monitors: Vec<Monitor>, side: Side) -> Opti
     edge_monitor(monitors, side).filter(|monitor| monitor != current)
 }
 
-/// Translates the cursor position. Points outside the monitor never open or hold the panel.
-fn cursor_zone(cursor: Point, monitor: Rect, panel: Rect, side: Side) -> CursorZone {
-    let edge = match side {
-        Side::Right => monitor.right - 1,
-        Side::Left => monitor.left,
-    };
-    if !monitor.contains(cursor) {
-        CursorZone::Outside
-    } else if cursor.x == edge {
-        CursorZone::Edge
-    } else if panel.contains(cursor) {
-        CursorZone::Inside
-    } else {
-        CursorZone::Outside
-    }
-}
-
 /// Slide position after `elapsed`, easing out at the end. It depends on elapsed time, not frame
 /// count: a late frame jumps ahead instead of extending the animation.
 fn slide_x(from: i32, to: i32, elapsed: Duration) -> i32 {
@@ -213,6 +199,9 @@ struct Dock {
     window: PanelWindow,
     /// Web page window, if present.
     web: Option<PanelWindow>,
+    /// The edge handle, which becomes the open panel's tab and slides with it.
+    handle: PanelWindow,
+    handle_presence: Presence,
     web_visible: bool,
     overlay_height: u32,
     side: Side,
@@ -260,11 +249,43 @@ impl Dock {
             self.parked_x
         };
         self.window.place(self.rect, monitor.bounds, self.x);
+        platform::handle::set_frame(monitor.dpi, self.side == Side::Right);
+        if self.handle_presence != Presence::Hidden {
+            self.place_handle();
+        }
         if self.web_visible
             && let Some(web) = &mut self.web
         {
             web.overlay(monitor.dpi, self.overlay_height, self.x);
             place_page(web, &monitor, self.rect, self.side, self.x);
+        }
+    }
+
+    /// Places the tab outside the panel's inner edge, sliding with it at `x`; this also shows it.
+    fn place_handle(&mut self) {
+        let tab = handle::tab_rect(&self.monitor, self.rect, self.side);
+        self.handle.set_offset(tab.left - self.rect.left);
+        self.handle.place(tab, self.monitor.bounds, self.x);
+    }
+
+    fn update_handle(&mut self) {
+        let revealed = platform::cursor_pos()
+            .is_some_and(|cursor| handle::revealed(cursor, &self.monitor, self.side));
+        let ready = platform::handle::ready();
+        let presence = handle::presence(ready, self.is_open(), self.slide.is_some(), revealed);
+        if presence == self.handle_presence {
+            return;
+        }
+        let shown = self.handle_presence != Presence::Hidden;
+        self.handle_presence = presence;
+        // Clicks pass through before it shows, and are taken only by an enabled tab.
+        let tab = presence == Presence::Tab;
+        self.handle.set_click_through(!tab);
+        self.handle.set_enabled(tab);
+        match (shown, presence) {
+            (_, Presence::Hidden) => self.handle.hide(),
+            (false, _) => self.place_handle(),
+            (true, _) => {}
         }
     }
 
@@ -344,6 +365,20 @@ impl Dock {
                 self.relocate(monitor);
                 Action::None
             }
+            Request::Tab => {
+                let pinned = self.panel.state == State::Pinned;
+                let action = self.panel.step(
+                    Input::Tab {
+                        dialog: self.dialog,
+                    },
+                    now,
+                );
+                // The UI's pin button follows: the panel closed unpinned.
+                if pinned && action == Action::Hide {
+                    let _ = self.app.emit_to("main", "panel-pinned", false);
+                }
+                action
+            }
             Request::Resize { width, done } => {
                 self.width = width.map(|width| clamp_width(&self.monitor, Some(width)));
                 self.resizing = !done;
@@ -356,6 +391,7 @@ impl Dock {
         };
         self.apply(action);
         self.report_shown();
+        self.update_handle();
     }
 
     fn poll(&mut self) {
@@ -374,7 +410,7 @@ impl Dock {
             });
         }
         self.track_focus();
-        let zone = cursor_zone(cursor, self.monitor.bounds, self.rect, self.side);
+        let zone = handle::cursor_zone(cursor, &self.monitor, self.rect, self.side);
         // A user typing on the page can move the mouse away without losing the panel. The page does
         // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
         // Once focus is restored, the panel closes as with any other focus loss.
@@ -394,6 +430,7 @@ impl Dock {
         self.apply(action);
         self.report_focus(focus);
         self.report_shown();
+        self.update_handle();
     }
 
     /// Permission requests are asked only while the page is on screen.
@@ -517,7 +554,10 @@ impl Dock {
 
     /// Draws a frame if a slide is in progress.
     fn animate(&mut self) {
-        let windows = self.windows();
+        let mut windows = self.windows();
+        if self.handle_presence != Presence::Hidden {
+            windows.push(self.handle);
+        }
         let Some(slide) = &mut self.slide else {
             return;
         };
@@ -536,6 +576,7 @@ impl Dock {
                 crate::shortcut::end_recording(&self.app);
                 let _ = self.app.emit_to("main", "panel-hidden", ());
             }
+            self.update_handle();
         }
     }
 
@@ -563,10 +604,12 @@ impl Dock {
     }
 }
 
-/// Prepares the window off-screen and starts the panel thread.
+/// Prepares the window off-screen and starts the panel thread. `raw_handle` is the hidden edge
+/// handle window.
 pub fn start(
     app: AppHandle,
     raw_window: isize,
+    raw_handle: isize,
     requests: Receiver<Request>,
     side: Side,
     width: Option<u32>,
@@ -576,11 +619,14 @@ pub fn start(
     let parked_x = parked_x(&monitor, side, rect);
     let bounds = monitor.bounds;
     let window = PanelWindow::prepare(raw_window, rect, bounds, parked_x, Activation::OnRequest);
+    platform::handle::set_frame(monitor.dpi, side == Side::Right);
     eprintln!("[panel] {side:?} of monitor {monitor:?}, panel {rect:?}");
     let dock = Dock {
         app,
         window,
         web: None,
+        handle: PanelWindow::new(raw_handle),
+        handle_presence: Presence::Hidden,
         web_visible: false,
         overlay_height: 0,
         side,
@@ -618,31 +664,6 @@ mod tests {
         }
     }
 
-    const PRIMARY: Rect = Rect {
-        left: 0,
-        top: 0,
-        right: 3840,
-        bottom: 2160,
-    };
-    const PANEL: Rect = Rect {
-        left: 3315,
-        top: 47,
-        right: 3840,
-        bottom: 2100,
-    };
-
-    fn zone(x: i32, y: i32, side: Side) -> CursorZone {
-        let panel = match side {
-            Side::Right => PANEL,
-            Side::Left => Rect {
-                left: 0,
-                right: 525,
-                ..PANEL
-            },
-        };
-        cursor_zone(Point { x, y }, PRIMARY, panel, side)
-    }
-
     #[test]
     fn panel_stays_on_outermost_monitor_of_its_side() {
         let principal = monitor(0, 3840);
@@ -659,7 +680,7 @@ mod tests {
             bounds: Rect {
                 top: 2160,
                 bottom: 4320,
-                ..PRIMARY
+                ..principal.bounds
             },
             ..principal
         };
@@ -686,20 +707,6 @@ mod tests {
         assert!(monitor_change(&atual, Vec::new(), Side::Right).is_none());
         let novo = monitor_change(&atual, pair, Side::Left).unwrap();
         assert_eq!(novo.bounds.left, 0);
-    }
-
-    #[test]
-    fn only_outer_pixel_column_of_monitor_is_edge() {
-        assert_eq!(zone(3839, 0, Side::Right), CursorZone::Edge);
-        assert_eq!(zone(3839, 2159, Side::Right), CursorZone::Edge);
-        assert_eq!(zone(3838, 0, Side::Right), CursorZone::Outside);
-        assert_eq!(zone(0, 0, Side::Left), CursorZone::Edge);
-        assert_eq!(zone(0, 2159, Side::Left), CursorZone::Edge);
-        assert_eq!(zone(1, 0, Side::Left), CursorZone::Outside);
-        assert_eq!(zone(3839, 0, Side::Left), CursorZone::Outside);
-        // Points on other monitors are ignored.
-        assert_eq!(zone(-1, 500, Side::Right), CursorZone::Outside);
-        assert_eq!(zone(-1, 500, Side::Left), CursorZone::Outside);
     }
 
     #[test]
