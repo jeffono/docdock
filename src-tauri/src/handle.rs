@@ -8,10 +8,17 @@ use crate::dock::Side;
 use crate::panel::CursorZone;
 use crate::platform::{Monitor, Point, Rect};
 
-/// Tab width: `--size-icon` plus `--space-2` in `tokens.css`.
-const WIDTH: u32 = 24;
-/// Tab height: twice `--size-bar`, room for "DocDock" written vertically.
-const HEIGHT: u32 = 88;
+/// Depth of the tab beyond the panel's inner edge, as in the reference look.
+const WIDTH: u32 = 20;
+/// Tab height, its two curves included.
+const HEIGHT: u32 = 152;
+/// Height of each S-curve joining the panel's edge to the tab's outer side.
+const CURVE: u32 = 28;
+/// How far the tab's window reaches into the panel to cover its inner-edge line and focus band
+/// along the curves, so no seam shows where they meet.
+const OVERLAP: u32 = 4;
+/// Length of the wordmark along the tab.
+const WORDMARK: u32 = 52;
 /// Edge beyond each end of the handle that still opens the panel.
 const ACTIVATION_MARGIN: u32 = 16;
 /// How near the edge, and the handle's ends, the cursor must come for the handle to show.
@@ -19,14 +26,63 @@ const REVEAL_DISTANCE: u32 = 48;
 const BASE_DPI: u32 = 96;
 
 fn scale(monitor: &Monitor, logical: u32) -> i32 {
-    (logical * monitor.dpi / BASE_DPI) as i32
+    scale_dpi(monitor.dpi, logical)
+}
+
+fn scale_dpi(dpi: u32, logical: u32) -> i32 {
+    (logical * dpi / BASE_DPI) as i32
+}
+
+/// The tab's drawing at one DPI, in physical pixels, as if the panel were on the right: the tab
+/// grows left from the panel's edge at `x = depth`, and the window reaches `overlap` into it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shape {
+    pub depth: i32,
+    pub overlap: i32,
+    pub height: i32,
+    pub curve: f32,
+    /// The panel's 1 px CSS border: Chromium floors border widths to device pixels, at least 1.
+    pub line: i32,
+    /// The panel's 2 px focus band, a positioned box whose edges Chromium rounds to pixels.
+    pub band: i32,
+    pub wordmark: f32,
+}
+
+impl Shape {
+    pub fn new(dpi: u32) -> Self {
+        let scale = dpi as f32 / BASE_DPI as f32;
+        Self {
+            depth: scale_dpi(dpi, WIDTH),
+            overlap: scale_dpi(dpi, OVERLAP),
+            height: scale_dpi(dpi, HEIGHT),
+            curve: CURVE as f32 * scale,
+            line: (dpi / BASE_DPI).max(1) as i32,
+            band: ((2 * dpi + BASE_DPI / 2) / BASE_DPI) as i32,
+            wordmark: WORDMARK as f32 * scale,
+        }
+    }
+
+    pub fn width(&self) -> i32 {
+        self.depth + self.overlap
+    }
+
+    /// The window's columns that show the tab, without the strip over the panel.
+    pub fn tab_columns(&self, side: Side) -> std::ops::Range<i32> {
+        match side {
+            Side::Right => 0..self.depth,
+            Side::Left => self.overlap..self.width(),
+        }
+    }
 }
 
 /// The tab outside the inner edge of `panel`, wherever the panel is, vertically centered on the
 /// work area like the open panel.
 pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
-    let width = scale(monitor, WIDTH);
-    let height = scale(monitor, HEIGHT);
+    let Shape {
+        depth: width,
+        height,
+        ..
+    } = Shape::new(monitor.dpi);
     let top = monitor.work.top + (monitor.work.bottom - monitor.work.top - height) / 2;
     let (left, right) = match side {
         Side::Right => (panel.left - width, panel.left),
@@ -37,6 +93,22 @@ pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
         top,
         right,
         bottom: top + height,
+    }
+}
+
+/// The tab's window: the tab plus the strip of the panel's edge it covers.
+pub fn window_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
+    let tab = tab_rect(monitor, panel, side);
+    let overlap = Shape::new(monitor.dpi).overlap;
+    match side {
+        Side::Right => Rect {
+            right: tab.right + overlap,
+            ..tab
+        },
+        Side::Left => Rect {
+            left: tab.left - overlap,
+            ..tab
+        },
     }
 }
 
@@ -159,7 +231,7 @@ impl Press {
 mod tests {
     use super::*;
 
-    /// 3840×2160 at 150%, taskbar at the bottom. The handle is 36×132, its top at 978.
+    /// 3840×2160 at 150%, taskbar at the bottom. The handle is 30×228, its top at 930.
     const MONITOR: Monitor = Monitor {
         bounds: Rect {
             left: 0,
@@ -197,14 +269,14 @@ mod tests {
     /// edge, or the stretch drifting away from the drawn handle.
     #[test]
     fn only_the_edge_beside_the_handle_opens() {
-        // The handle spans 978..1110 and the margin is 24 pixels on each side.
+        // The handle spans 930..1158 and the margin is 24 pixels on each side.
         for (y, opens) in [
             (0, false),
-            (953, false),
-            (954, true),
+            (905, false),
+            (906, true),
             (1040, true),
-            (1133, true),
-            (1134, false),
+            (1181, true),
+            (1182, false),
             (2159, false),
         ] {
             assert_eq!(
@@ -231,12 +303,12 @@ mod tests {
     #[test]
     fn the_tab_belongs_to_the_open_panel() {
         assert_eq!(zone(3149, 1040, Side::Right), CursorZone::Inside);
-        assert_eq!(zone(3114, 1040, Side::Right), CursorZone::Inside);
-        assert_eq!(zone(3113, 1040, Side::Right), CursorZone::Outside);
-        assert_eq!(zone(3149, 977, Side::Right), CursorZone::Outside);
+        assert_eq!(zone(3120, 1040, Side::Right), CursorZone::Inside);
+        assert_eq!(zone(3119, 1040, Side::Right), CursorZone::Outside);
+        assert_eq!(zone(3149, 929, Side::Right), CursorZone::Outside);
         assert_eq!(zone(690, 1040, Side::Left), CursorZone::Inside);
-        assert_eq!(zone(725, 1040, Side::Left), CursorZone::Inside);
-        assert_eq!(zone(726, 1040, Side::Left), CursorZone::Outside);
+        assert_eq!(zone(719, 1040, Side::Left), CursorZone::Inside);
+        assert_eq!(zone(720, 1040, Side::Left), CursorZone::Outside);
     }
 
     /// Catches the handle showing in one place while the edge opens in another: the tab of the
@@ -261,7 +333,7 @@ mod tests {
                 x: edge_x(&MONITOR, side),
                 y: tab.top
             }));
-            assert_eq!((tab.right - tab.left, tab.bottom - tab.top), (36, 132));
+            assert_eq!((tab.right - tab.left, tab.bottom - tab.top), (30, 228));
         }
     }
 
@@ -270,7 +342,7 @@ mod tests {
     fn the_handle_shows_only_near_the_edge_and_its_ends() {
         let near = |x, y, side| revealed(Point { x, y }, &MONITOR, side);
         // The reveal distance is 72 pixels: from the edge, and beyond each end of the handle.
-        for y in [906, 1040, 1181] {
+        for y in [858, 1040, 1229] {
             assert!(near(3839, y, Side::Right), "y={y}");
             assert!(near(3768, y, Side::Right), "y={y}");
             assert!(near(0, y, Side::Left), "y={y}");
@@ -278,7 +350,7 @@ mod tests {
         }
         assert!(!near(3767, 1040, Side::Right));
         assert!(!near(72, 1040, Side::Left));
-        for y in [905, 1182, 0, 2159] {
+        for y in [857, 1230, 0, 2159] {
             assert!(!near(3839, y, Side::Right), "y={y}");
             assert!(!near(0, y, Side::Left), "y={y}");
         }
@@ -290,7 +362,7 @@ mod tests {
     /// Catches the handle following the monitor instead of the work area, or forgetting the DPI.
     #[test]
     fn the_handle_centers_on_the_work_area_at_any_scale() {
-        for (dpi, size) in [(96, (24, 88)), (120, (30, 110)), (144, (36, 132))] {
+        for (dpi, size) in [(96, (20, 152)), (120, (25, 190)), (144, (30, 228))] {
             let monitor = Monitor {
                 dpi,
                 work: Rect {

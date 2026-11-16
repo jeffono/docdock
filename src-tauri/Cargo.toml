@@ -39,6 +39,7 @@ adblock = { version = "0.13.5", default-features = false, features = [
 ] }
 dom_smoothie = "0.19"
 dom_query = "0.29"
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }
 
 [dev-dependencies]
 # Mock runtime to check that the page window reaches no command.

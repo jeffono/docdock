@@ -107,8 +107,15 @@ pub fn panel_resize(requests: State<'_, Sender<Request>>, width: Option<u32>, do
 
 /// The UI's tokens for the edge handle, which is drawn natively, in the current theme.
 #[tauri::command]
-pub fn panel_handle_look(look: crate::platform::handle::Look) {
+pub fn panel_handle_look(look: crate::tab::Look) {
     crate::platform::handle::set_look(look);
+}
+
+/// Development builds only: the tweak panel tries another slide duration and curve.
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn dev_motion(duration: u32, curve: crate::motion::Curve) {
+    crate::motion::tune(std::time::Duration::from_millis(duration.into()), curve);
 }
 
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.

@@ -17,6 +17,8 @@ src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
   panel.rs               Pure panel state machine
   handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
+  tab.rs                 Pure drawing of the edge handle's tab with the wordmark, as RGBA pixels
+  motion.rs              Slide duration and easing; tunable live in development builds
   dock.rs                Thread connecting cursor, state machine and windows
   tray.rs                Tray: icon, screen side, exit and Windows startup
   main_window.rs         Creates the main window and limits its navigation
@@ -142,21 +144,27 @@ per-monitor DPI awareness (PMv2).
   the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
   edge handle opens the panel: the handle's height plus 16 logical pixels above and below. Points
   outside that monitor are ignored. The rules are pure functions in `handle.rs`.
-- **Edge handle:** a native popup painted with GDI (`platform/handle.rs`), created on the main thread,
-  whose event loop pumps its messages, and owned by the panel window so it stays above it. It is
-  layered, `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW`, and `WS_EX_TRANSPARENT` while it shows over the
-  closed panel: hit-testing skips it, so scrollbars and maximized window buttons below keep their
-  clicks. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
+- **Edge handle:** a native popup with per-pixel alpha (`platform/handle.rs`), created on the main
+  thread, whose event loop pumps its messages, and owned by the panel window so it stays above it.
+  It is layered, `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW`, and `WS_EX_TRANSPARENT` while it shows over
+  the closed panel: hit-testing skips it, so scrollbars and maximized window buttons below keep their
+  clicks; open, its transparent pixels still pass clicks through. `tab.rs` draws it with `tiny-skia`
+  into premultiplied pixels that `UpdateLayeredWindow` shows; other threads only post a redraw to
+  the main thread. The window reaches a few pixels into the panel and repaints its inner-edge line or
+  focus band along the tab's curves, so no seam shows where they meet; a click on that strip does
+  nothing. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
   panel in the same `DeferWindowPos` batch, so with the panel parked it rests on the screen edge.
   `handle::presence` decides: hidden, shown click-through (closed with the cursor within 48 logical
   pixels of the edge and of the handle's ends, or sliding), or the tab (open and at rest), the only
-  state where it is enabled and takes clicks. The tab counts as inside the open panel. A press and
-  release on it within the system drag distance sends `Request::Tab`: the panel closes as on a close
-  request, even pinned, which emits `panel-pinned` so the UI's pin follows; with the native picker
-  open it does nothing. `WM_MOUSEACTIVATE` answers `MA_NOACTIVATE`. Colors and font come from the
-  UI, which resolves its tokens for the current theme and sends them through `panel_handle_look` at
-  startup and on every theme change; until then the handle stays hidden and the stretch still opens
-  the panel.
+  state where it is enabled and takes clicks. Appearing, it starts its depth beyond the screen edge
+  and slides in; hiding, it slides back out and only then hides, still click-through. The tab counts
+  as inside the open panel. A press and release on it within the system drag distance sends
+  `Request::Tab`: the panel closes as on a close request, even pinned, which emits `panel-pinned` so
+  the UI's pin follows; with the native picker open it does nothing. `WM_MOUSEACTIVATE` answers
+  `MA_NOACTIVATE`. Colors come from the UI, which resolves its tokens for the current theme and sends
+  them through `panel_handle_look` at startup, on every theme change and on tweak panel edits; until
+  then the handle stays hidden and the stretch still opens the panel. Focus comes from the panel
+  thread with each focus report, so the outline follows the UI's band.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
   The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
   uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation
@@ -203,7 +211,9 @@ per-monitor DPI awareness (PMv2).
   the source. The page window covers the band below the top bars.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
-  time, targeting 150 ms.
+  time, targeting 150 ms with a cubic ease-in-out (`motion.rs`). Development builds add the
+  `dev_motion` command, which the tweak panel uses to try other durations and curves; release builds
+  compile it out.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.

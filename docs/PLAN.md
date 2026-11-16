@@ -8,6 +8,9 @@ detail each stage when it is next.
 - M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`), awaiting the user's manual
   check: tray icon at 100%, 125% and 150% with light and dark taskbar; edge handle behavior and
   screenshot approval of the tab; a look chosen with the tweak panel.
+- Branch `handle-tab` (from `m10`): the tab redrawn as a bulge of the panel with the wordmark and the
+  focus band around it, a reveal slide for the closed handle, ease-in-out slides and dev-only slide
+  controls in the tweak panel; awaiting the user's manual check before merging into `m10`.
 
 ## Next
 

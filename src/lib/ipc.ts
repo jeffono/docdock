@@ -77,15 +77,15 @@ export const panelResize = (width: number | null, done: boolean) =>
   });
 
 /** The edge handle is drawn natively: it takes the theme's tokens resolved to sRGB channels. */
-export type HandleLook = {
-  background: [number, number, number];
-  line: [number, number, number];
-  text: [number, number, number];
-  fonts: string[];
-  /** Logical pixels. */
-  size: number;
-};
+type Rgb = [number, number, number];
+export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb };
 export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_look", { look });
+
+/** How the panel and the edge handle slide. */
+export type MotionCurve = "linear" | "ease-out" | "ease-in-out";
+/** Development builds only: release builds have no such command. */
+export const devMotion = (duration: number, curve: MotionCurve) =>
+  invoke<void>("dev_motion", { duration: Math.max(0, Math.round(duration)), curve });
 
 /** Clicking the edge tab closed the pinned panel, unpinning it. */
 export const onPanelPinned = (handler: (pinned: boolean) => void): Promise<UnlistenFn> =>

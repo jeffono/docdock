@@ -7,6 +7,7 @@ mod error;
 mod handle;
 mod i18n;
 mod main_window;
+mod motion;
 mod notes;
 pub mod panel;
 mod permissions;
@@ -14,6 +15,7 @@ mod pinned;
 mod platform;
 mod reader;
 mod shortcut;
+mod tab;
 mod trash;
 mod tray;
 mod updates;
@@ -63,6 +65,8 @@ pub fn run() {
         commands::panel_set_side,
         commands::panel_resize,
         commands::panel_handle_look,
+        #[cfg(debug_assertions)]
+        commands::dev_motion,
         commands::blocking_status,
         commands::blocking_sites,
         commands::blocking_set_allowed,

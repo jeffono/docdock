@@ -1,5 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { reportHandleLook } from "../../handle-look";
+import { devMotion, type MotionCurve } from "../../ipc";
 import Button from "../../ui/Button.svelte";
 import { colors, contrast, defaults, exportDiff, tokens, type Values, valid } from "./tokens";
 
@@ -12,6 +14,9 @@ let presets = $state<Record<string, Values>>({});
 let name = $state("");
 let selected = $state("");
 let diff = $state("");
+// Rust's release constants: 150 ms, ease-in-out.
+let duration = $state(150);
+let curve = $state<MotionCurve>("ease-in-out");
 const key = "docdock-tweak-presets-v1";
 const fonts = [
   '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
@@ -93,6 +98,18 @@ function edit(token: string, value: string) {
   values[token] = value;
   diff = "";
   error = "";
+  // The edge handle is drawn natively from the colors.
+  reportHandleLook();
+}
+function tuneMotion() {
+  devMotion(duration, curve).then(
+    () => {
+      error = "";
+    },
+    (e) => {
+      error = String(e);
+    },
+  );
 }
 function editColor(token: string, index: number, value: string) {
   const pair = colors(values[token]);
@@ -161,6 +178,17 @@ function save() {
         {/each}
       </details>
     {/each}
+    <details><summary>Slide · panel and edge handle</summary>
+      <p>Applies from the next slide. Release builds keep 150 ms, ease-in-out.</p>
+      <label class="token">Duration (ms)<input type="number" min="0" max="1000" step="10" bind:value={duration} onchange={tuneMotion} /></label>
+      <label class="token">Curve
+        <select bind:value={curve} onchange={tuneMotion}>
+          <option value="linear">Linear</option>
+          <option value="ease-out">Ease-out (cubic)</option>
+          <option value="ease-in-out">Ease-in-out (cubic)</option>
+        </select>
+      </label>
+    </details>
     <details><summary>WCAG contrast · light / dark</summary>
       <p>AA normal text ≥ 4.5:1; large text ≥ 3:1.</p>
       {#each pairs as [fg, bg]}
