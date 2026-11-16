@@ -405,7 +405,7 @@ panel has focus, its 2 px `--color-accent` band does instead. The user's wordmar
 top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered between
 the band and the panel's edge. Edges are antialiased. It is drawn natively from those tokens, which the UI sends for the current theme.
 Closed, it slides in from the screen edge, vertically centered on the work area, only while the
-cursor is within 48 logical pixels of the edge and of its ends, and slides back out when the cursor
+cursor is within 48 logical pixels of the edge and of the activation stretch, and slides back out when the cursor
 leaves; touching the edge within a centered stretch of 300% of the tab height, clipped to the
 work area, opens the panel. Open, it slides with the panel and sits outside the inner edge at the
 same height; clicking it

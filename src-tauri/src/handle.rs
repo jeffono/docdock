@@ -145,25 +145,17 @@ pub fn activation_stretch(monitor: &Monitor, percent: u32) -> std::ops::Range<i3
     top..top + height
 }
 
-fn current_activation_percent() -> u32 {
-    #[cfg(debug_assertions)]
-    return crate::dev_tuning::activation_percent();
-    #[cfg(not(debug_assertions))]
-    ACTIVATION_PERCENT
-}
-
-fn current_reveal_distance() -> u32 {
-    #[cfg(debug_assertions)]
-    return crate::dev_tuning::reveal_distance();
-    #[cfg(not(debug_assertions))]
-    REVEAL_DISTANCE
-}
-
 /// Only the edge column in the activation stretch opens the panel; the tab counts as part of the
 /// open panel `panel`. Points outside the
 /// monitor never open or hold the panel.
-pub fn cursor_zone(cursor: Point, monitor: &Monitor, panel: Rect, side: Side) -> CursorZone {
-    let stretch = activation_stretch(monitor, current_activation_percent());
+pub fn cursor_zone(
+    cursor: Point,
+    monitor: &Monitor,
+    panel: Rect,
+    side: Side,
+    percent: u32,
+) -> CursorZone {
+    let stretch = activation_stretch(monitor, percent);
     if !monitor.bounds.contains(cursor) {
         CursorZone::Outside
     } else if cursor.x == edge_x(monitor, side) && stretch.contains(&cursor.y) {
@@ -175,14 +167,16 @@ pub fn cursor_zone(cursor: Point, monitor: &Monitor, panel: Rect, side: Side) ->
     }
 }
 
-/// Whether the cursor is near enough for the closed panel's handle to show: within the reveal
-/// distance of the edge, and of the handle's ends vertically, on this monitor.
-pub fn revealed(cursor: Point, monitor: &Monitor, side: Side) -> bool {
+/// Whether the cursor is near enough for the closed panel's handle to show: within `reveal`
+/// logical pixels of the edge, and of the handle or the activation stretch vertically, whichever
+/// is longer, on this monitor. The handle always shows before the edge can open the panel.
+pub fn revealed(cursor: Point, monitor: &Monitor, side: Side, percent: u32, reveal: u32) -> bool {
     let handle = handle_rect(monitor, side);
-    let reach = scale(monitor, current_reveal_distance());
+    let stretch = activation_stretch(monitor, percent);
+    let reach = scale(monitor, reveal);
     let near = Rect {
-        top: handle.top - reach,
-        bottom: handle.bottom + reach,
+        top: handle.top.min(stretch.start) - reach,
+        bottom: handle.bottom.max(stretch.end) + reach,
         ..match side {
             Side::Right => Rect {
                 left: monitor.bounds.right - reach,
@@ -282,7 +276,13 @@ mod tests {
     }
 
     fn zone(x: i32, y: i32, side: Side) -> CursorZone {
-        cursor_zone(Point { x, y }, &MONITOR, open_panel(side), side)
+        cursor_zone(
+            Point { x, y },
+            &MONITOR,
+            open_panel(side),
+            side,
+            ACTIVATION_PERCENT,
+        )
     }
 
     /// Catches the whole column opening the panel again, as when reaching for a scrollbar at the
@@ -318,7 +318,30 @@ mod tests {
                     stretch.end - stretch.start,
                     Shape::new(dpi).height * percent as i32 / 100
                 );
-                assert_eq!(stretch.start, monitor.work.bottom - stretch.end);
+                // Centered, give or take the pixel an odd difference rounds away.
+                let (above, below) = (
+                    stretch.start - monitor.work.top,
+                    monitor.work.bottom - stretch.end,
+                );
+                assert!((above - below).abs() <= 1, "above={above} below={below}");
+            }
+        }
+    }
+
+    /// Catches the panel opening from an edge stretch where the handle never showed.
+    #[test]
+    fn the_handle_shows_wherever_the_edge_opens() {
+        let stretch = activation_stretch(&MONITOR, ACTIVATION_PERCENT);
+        for y in [stretch.start, stretch.end - 1] {
+            for side in [Side::Right, Side::Left] {
+                let x = edge_x(&MONITOR, side);
+                assert!(revealed(
+                    Point { x, y },
+                    &MONITOR,
+                    side,
+                    ACTIVATION_PERCENT,
+                    REVEAL_DISTANCE
+                ));
             }
         }
     }
@@ -388,7 +411,8 @@ mod tests {
     /// Catches the handle staying hidden where it opens, or showing over the whole edge.
     #[test]
     fn the_handle_shows_only_near_the_edge_and_its_ends() {
-        let near = |x, y, side| revealed(Point { x, y }, &MONITOR, side);
+        // At 100% activation the stretch is the handle itself.
+        let near = |x, y, side| revealed(Point { x, y }, &MONITOR, side, 100, REVEAL_DISTANCE);
         // The reveal distance is 72 pixels: from the edge, and beyond each end of the handle.
         for y in [858, 1040, 1229] {
             assert!(near(3839, y, Side::Right), "y={y}");

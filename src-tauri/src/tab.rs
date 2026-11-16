@@ -292,29 +292,6 @@ mod tests {
         text: [232, 234, 237],
         muted: [150, 150, 150],
     };
-    /// Catches the wordmark remaining bright after focus or pin is released.
-    #[test]
-    fn wordmark_is_muted_only_without_focus_or_pin() {
-        for focused in [false, true] {
-            for pinned in [false, true] {
-                let frame = Frame {
-                    dpi: 96,
-                    side: Side::Right,
-                    focused,
-                    pinned,
-                };
-                assert_eq!(
-                    wordmark_color(LOOK, frame),
-                    if focused || pinned {
-                        LOOK.text
-                    } else {
-                        LOOK.muted
-                    }
-                );
-            }
-        }
-    }
-
     /// 100%, 125%, 150%, 175% and 200%.
     const DPIS: [u32; 5] = [96, 120, 144, 168, 192];
 

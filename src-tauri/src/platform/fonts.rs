@@ -3,14 +3,19 @@ use std::collections::BTreeSet;
 use windows::Win32::Foundation::LPARAM;
 use windows::Win32::Graphics::Gdi::{
     DEFAULT_CHARSET, EnumFontFamiliesExW, GetDC, LOGFONTW, ReleaseDC, TEXTMETRICW,
+    TRUETYPE_FONTTYPE,
 };
 
 unsafe extern "system" fn collect(
     font: *const LOGFONTW,
     _: *const TEXTMETRICW,
-    _: u32,
+    kind: u32,
     data: LPARAM,
 ) -> i32 {
+    // Raster and vector faces (Modern, MS Sans Serif) are GDI-only: the WebView cannot use them.
+    if kind & TRUETYPE_FONTTYPE == 0 {
+        return 1;
+    }
     // GDI calls synchronously with a LOGFONTW prefix and our live collection pointer.
     let font = unsafe { &*font };
     let names = unsafe { &mut *(data.0 as *mut BTreeSet<String>) };

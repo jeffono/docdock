@@ -1,6 +1,5 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { t } from "../../i18n";
 import { curatedFonts, fontStack, installedFonts } from "./fonts";
 
 let {
@@ -37,12 +36,12 @@ onMount(() => {
 });
 </script>
 
-<input aria-label={`${t("tweak.searchFonts")} ${token}`} placeholder={t("tweak.searchFonts")} bind:value={query} />
+<input aria-label={`${"Search fonts"} ${token}`} placeholder={"Search fonts"} bind:value={query} />
 <select aria-label={token} {value} onchange={(event) => onchange(event.currentTarget.value)}>
   {#if !matches.includes(value)}<option {value}>{value.split(",")[0]}</option>{/if}
   {#each matches as stack}<option value={stack}>{stack.split(",")[0]}</option>{/each}
 </select>
-{#if error}<small role="alert">{t("tweak.fontError")}</small>{/if}
+{#if error}<small role="alert">{"Could not load installed fonts. Curated fonts remain available."}</small>{/if}
 
 <style>
   input, select { min-width: 0; box-sizing: border-box; width: 100%; min-height: var(--size-control); border: 1px solid var(--color-line); border-radius: var(--radius-sm); padding: var(--space-1); background: var(--color-surface); color: var(--color-fg); font: inherit; }

@@ -3,7 +3,6 @@ let settings = { percent: 300, reveal: 48 };
 </script>
 
 <script lang="ts">
-import { t } from "../../i18n";
 import { devHandle } from "../../ipc";
 
 let percent = $state(settings.percent);
@@ -15,16 +14,16 @@ async function apply() {
     settings = { percent, reveal };
     error = "";
   } catch {
-    error = t("tweak.handleError");
+    error = "Use 100-1000% activation and 1-500 logical pixels for reveal.";
   }
 }
 </script>
 
 <details>
-  <summary>{t("tweak.handle")}</summary>
-  <p>{t("tweak.handleHint")}</p>
-  <label>{t("tweak.activation")}<input type="number" min="100" max="1000" step="10" bind:value={percent} onchange={apply} /></label>
-  <label>{t("tweak.reveal")}<input type="number" min="1" max="500" bind:value={reveal} onchange={apply} /></label>
+  <summary>Edge handle</summary>
+  <p>Live until restart. Release defaults: 300% activation, 48 logical pixels reveal distance.</p>
+  <label>Activation height (%)<input type="number" min="100" max="1000" step="10" bind:value={percent} onchange={apply} /></label>
+  <label>Reveal distance (logical px)<input type="number" min="1" max="500" bind:value={reveal} onchange={apply} /></label>
   {#if error}<p role="alert">{error}</p>{/if}
 </details>
 

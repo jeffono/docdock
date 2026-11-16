@@ -221,7 +221,8 @@ per-monitor DPI awareness (PMv2).
 - **Development tuning:** `dev_tuning.rs` adds `dev_handle` (activation percent and reveal distance)
   and `dev_fonts` only under `cfg(debug_assertions)`, including command registration. Release builds
   keep the activation constant. `platform/fonts.rs` enumerates GDI font families, deduplicates and sorts
-  them, and skips vertical `@` faces. The searchable picker keeps curated stacks first and quotes
+  them, and skips vertical `@` faces and non-TrueType faces the WebView cannot use. `dock.rs` reads
+  the tuning and passes it to the pure rules in `handle.rs`. The searchable picker keeps curated stacks first and quotes
   installed family names with a sans-serif or monospace fallback.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
