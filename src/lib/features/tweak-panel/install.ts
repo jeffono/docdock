@@ -12,13 +12,14 @@ import {
   tweakRequest,
 } from "../../ipc";
 import Launcher from "./Launcher.svelte";
-import type { Payload } from "./state.svelte";
+import { receive } from "./receive";
 
 let tokens: Record<string, string> = {};
 let motion = "";
 let handle = "";
 
-function apply(state: Payload) {
+function apply(event: unknown) {
+  const state = receive(event);
   const style = document.documentElement.style;
   for (const name of Object.keys(tokens)) if (!(name in state.tokens)) style.removeProperty(name);
   for (const [name, value] of Object.entries(state.tokens)) style.setProperty(name, value);
