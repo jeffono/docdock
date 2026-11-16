@@ -12,6 +12,7 @@ mod guard;
 pub mod keyboard;
 pub mod permission;
 mod recycle;
+pub mod taskbar;
 mod windows;
 
 pub use self::capture::exclude_from_capture;

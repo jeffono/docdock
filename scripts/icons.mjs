@@ -1,24 +1,30 @@
 // Sources are the user's drawings. Never rewrite them or resize a small drawing.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
 const icons = join(import.meta.dirname, "../src-tauri/icons");
+
+/** Renders `<prefix>-<size>.svg` 1:1 when drawn, otherwise `master` scaled to `size`. */
+function render(prefix, size, master) {
+  const drawing = join(icons, "source", `${prefix}-${size}.svg`);
+  const exact = existsSync(drawing);
+  const source = readFileSync(exact ? drawing : join(icons, "source", master));
+  // An exact drawing has only a viewBox: its intrinsic size renders 1:1, with no fit transform.
+  const image = new Resvg(source, {
+    font: { loadSystemFonts: false },
+    ...(exact ? {} : { fitTo: { mode: "width", value: size } }),
+  }).render();
+  if (image.width !== size || image.height !== size) {
+    throw new Error(`Expected a ${size}x${size} drawing, got ${image.width}x${image.height}`);
+  }
+  return image.asPng();
+}
+
 const cache = new Map();
 function png(size) {
   if (!cache.has(size)) {
-    const drawing = join(icons, "source", `icon-${size}.svg`);
-    const exact = existsSync(drawing);
-    const source = readFileSync(exact ? drawing : join(icons, "source/icon-design-480.svg"));
-    // An exact drawing has only a viewBox: its intrinsic size renders 1:1, with no fit transform.
-    const image = new Resvg(source, {
-      font: { loadSystemFonts: false },
-      ...(exact ? {} : { fitTo: { mode: "width", value: size } }),
-    }).render();
-    if (image.width !== size || image.height !== size) {
-      throw new Error(`Expected a ${size}x${size} drawing, got ${image.width}x${image.height}`);
-    }
-    cache.set(size, image.asPng());
+    cache.set(size, render("icon", size, "icon-design-480.svg"));
   }
   return cache.get(size);
 }
@@ -68,4 +74,17 @@ const header = Buffer.alloc(8);
 header.write("icns");
 header.writeUInt32BE(8 + chunks.reduce((length, chunk) => length + chunk.length, 0), 4);
 writeFileSync(join(icons, "icon.icns"), Buffer.concat([header, ...chunks]));
-console.log("Rebuilt the bundle PNGs, ICO and ICNS from icons/source/.");
+
+// Tray glyphs, embedded in the binary by `tray.rs`: "light" is black for a light taskbar, "dark" is
+// white for a dark one. 40 and 64 have no drawing and come from the 48, the largest one.
+mkdirSync(join(icons, "tray"), { recursive: true });
+for (const theme of ["light", "dark"]) {
+  for (const size of [16, 20, 24, 30, 32, 40, 48, 64]) {
+    const prefix = `icon-tray-${theme}`;
+    writeFileSync(
+      join(icons, "tray", `${theme}-${size}.png`),
+      render(prefix, size, `${prefix}-48.svg`),
+    );
+  }
+}
+console.log("Rebuilt the bundle PNGs, ICO, ICNS and tray PNGs from icons/source/.");

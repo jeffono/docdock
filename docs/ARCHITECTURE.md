@@ -17,7 +17,7 @@ src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
   panel.rs               Pure panel state machine
   dock.rs                Thread connecting cursor, state machine and windows
-  tray.rs                Tray: screen side, exit and Windows startup
+  tray.rs                Tray: icon, screen side, exit and Windows startup
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
@@ -56,6 +56,14 @@ is never duplicated in `settings.json`. Turning it on or off from either control
 unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
 one; an entry for another existing copy is left alone.
 
+The tray icon is a monochrome glyph embedded in the binary: black for a light taskbar, white for a
+dark one, following `SystemUsesLightTheme` rather than the apps theme. Its size is the small icon
+size (`SM_CXSMICON`) at the DPI of the monitor holding `Shell_TrayWnd`, rounded up to the nearest
+glyph by a pure function. `platform/taskbar.rs` subclasses the main window, which as a top-level
+window receives `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE` and `WM_DPICHANGED`; a theme change arrives as
+"ImmersiveColorSet" and a taskbar scale change as a work area change. A thread rereads the taskbar
+once the burst settles, outside the shell's broadcast, and replaces the icon only if it differs.
+
 ## Flow
 
 ```mermaid
@@ -69,7 +77,7 @@ flowchart LR
 
 ## Distribution and updates
 
-Original icon SVGs live in `src-tauri/icons/source/`; `pnpm icons` rebuilds the bundle icons, using exact-size drawings before the 480 master.
+Original icon SVGs live in `src-tauri/icons/source/`; `pnpm icons` rebuilds the bundle icons, using exact-size drawings before the 480 master, and the tray glyphs in `src-tauri/icons/tray/`, rendering 40 and 64 from the 48 drawing.
 
 NSIS installs for the current Windows user, in English or pt-BR, with a WebView2 bootstrapper when
 needed. Installers have no Windows code signature; see `decisions/0008-distribution.md` for the

@@ -129,7 +129,8 @@ pub fn run() {
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();
-            tray::setup(app, locale, side, requests.clone())?;
+            let hwnd = window.hwnd()?.0 as isize;
+            tray::setup(app, hwnd, locale, side, requests.clone())?;
             app.manage(locale);
             notes::purge_trash(app.handle());
             updates::start(app.handle());
@@ -140,7 +141,7 @@ pub fn run() {
             app.manage(requests);
             dock::start(
                 app.handle().clone(),
-                window.hwnd()?.0 as isize,
+                hwnd,
                 receiver,
                 side,
                 notes::width(app.handle()),

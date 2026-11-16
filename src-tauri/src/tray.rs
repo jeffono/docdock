@@ -1,21 +1,26 @@
-//! Shared tray, screen side and autostart control.
+//! Tray: its icon, and the screen side and autostart controls it shares with Preferences.
 
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::Duration;
 
+use tauri::image::Image;
+use tauri::include_image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::dock::{Request, Side};
 use crate::i18n::Locale;
 use crate::notes;
-use crate::platform::autostart;
+use crate::platform::{autostart, taskbar};
 
 struct SideItems([(Side, CheckMenuItem<Wry>); 2]);
 struct AutostartItem(CheckMenuItem<Wry>);
 
+/// `window` is a top-level window whose messages tell when the taskbar's theme or scale changes.
 pub fn setup(
     app: &mut tauri::App,
+    window: isize,
     locale: Locale,
     side: Side,
     requests: Sender<Request>,
@@ -69,12 +74,9 @@ pub fn setup(
             &quit,
         ],
     )?;
-    TrayIconBuilder::new()
-        .icon(
-            app.default_window_icon()
-                .expect("default icon missing")
-                .clone(),
-        )
+    let shown = glyph();
+    let tray = TrayIconBuilder::new()
+        .icon(glyph_image(shown))
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "quit" => app.exit(0),
@@ -105,7 +107,88 @@ pub fn setup(
             _ => {}
         })
         .build(app)?;
+    // Without this, the glyph keeps the theme and scale it started with.
+    let (changes, received) = mpsc::channel();
+    std::thread::spawn(move || follow_taskbar(&tray, shown, &received));
+    if let Err(error) = taskbar::on_change(window, move || {
+        let _ = changes.send(());
+    }) {
+        eprintln!("[tray] failed to follow the taskbar: {error}");
+    }
     Ok(())
+}
+
+/// Glyph sizes in `icons/tray/`, ascending: the drawn ones plus 40 and 64 rendered by `pnpm icons`.
+const SIZES: [u32; 8] = [16, 20, 24, 30, 32, 40, 48, 64];
+
+/// A glyph: whether it is for a light taskbar, and its index in `SIZES`.
+type Glyph = (bool, usize);
+
+/// Index in `SIZES` of the glyph for a notification area that draws `needed`-pixel icons (16 at 100%
+/// scale, 20 at 125%, 24 at 150%): that size, else the next larger one so the shell only scales
+/// down, else the largest.
+fn size_index(needed: u32) -> usize {
+    SIZES
+        .iter()
+        .position(|&size| size >= needed)
+        .unwrap_or(SIZES.len() - 1)
+}
+
+/// The glyph for the taskbar as it is now.
+fn glyph() -> Glyph {
+    (taskbar::light(), size_index(taskbar::small_icon_size()))
+}
+
+/// Glyphs in `SIZES` order: black for a light taskbar, white for a dark one. Embedded, so the tray
+/// never depends on files beside the executable.
+fn glyphs(light: bool) -> [Image<'static>; SIZES.len()] {
+    if light {
+        [
+            include_image!("icons/tray/light-16.png"),
+            include_image!("icons/tray/light-20.png"),
+            include_image!("icons/tray/light-24.png"),
+            include_image!("icons/tray/light-30.png"),
+            include_image!("icons/tray/light-32.png"),
+            include_image!("icons/tray/light-40.png"),
+            include_image!("icons/tray/light-48.png"),
+            include_image!("icons/tray/light-64.png"),
+        ]
+    } else {
+        [
+            include_image!("icons/tray/dark-16.png"),
+            include_image!("icons/tray/dark-20.png"),
+            include_image!("icons/tray/dark-24.png"),
+            include_image!("icons/tray/dark-30.png"),
+            include_image!("icons/tray/dark-32.png"),
+            include_image!("icons/tray/dark-40.png"),
+            include_image!("icons/tray/dark-48.png"),
+            include_image!("icons/tray/dark-64.png"),
+        ]
+    }
+}
+
+fn glyph_image((light, index): Glyph) -> Image<'static> {
+    glyphs(light)[index].clone()
+}
+
+/// How long settings messages must stop before the taskbar is read again.
+const SETTLE: Duration = Duration::from_millis(250);
+
+/// Replaces the glyph when the taskbar's theme or scale changed. Messages come in bursts, mostly
+/// about something else, and the shell may be the one broadcasting them: the glyph is read once they
+/// settle, off the window's thread, and sent to the shell only if it differs.
+fn follow_taskbar(tray: &TrayIcon, mut shown: Glyph, changes: &Receiver<()>) {
+    while changes.recv().is_ok() {
+        while changes.recv_timeout(SETTLE).is_ok() {}
+        let glyph = glyph();
+        if glyph == shown {
+            continue;
+        }
+        match tray.set_icon(Some(glyph_image(glyph))) {
+            Ok(()) => shown = glyph,
+            Err(error) => eprintln!("[tray] failed to change icon: {error}"),
+        }
+    }
 }
 
 pub fn autostart_enabled() -> Result<bool, crate::error::Error> {
@@ -150,4 +233,52 @@ pub fn select_side(
     // This only fails if the panel thread has stopped.
     let _ = requests.send(Request::SetSide(side));
     saved
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn size_for(needed: u32) -> u32 {
+        SIZES[size_index(needed)]
+    }
+
+    #[test]
+    fn common_scales_get_their_exact_size() {
+        // 100%, 125%, 150%, 200% and 300%.
+        for needed in [16, 20, 24, 32, 48] {
+            assert_eq!(size_for(needed), needed);
+        }
+    }
+
+    #[test]
+    fn scales_between_sizes_get_the_next_larger() {
+        // 175%, 225% and 350%.
+        assert_eq!(size_for(28), 30);
+        assert_eq!(size_for(36), 40);
+        assert_eq!(size_for(56), 64);
+    }
+
+    #[test]
+    fn scales_beyond_the_largest_get_the_largest() {
+        assert_eq!(size_for(80), 64);
+    }
+
+    #[test]
+    fn an_unreadable_size_gets_the_smallest() {
+        assert_eq!(size_for(0), 16);
+    }
+
+    #[test]
+    fn glyph_tables_match_sizes() {
+        for light in [true, false] {
+            for (image, size) in glyphs(light).iter().zip(SIZES) {
+                assert_eq!(
+                    (image.width(), image.height()),
+                    (size, size),
+                    "light: {light}"
+                );
+            }
+        }
+    }
 }
