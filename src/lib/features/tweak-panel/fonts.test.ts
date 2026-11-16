@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fontStack } from "./fonts";
+import { fontStack, fontsReply } from "./fonts";
 
 describe("installed font stacks", () => {
   it("keeps punctuation inside the family rather than adding CSS families", () => {
@@ -9,5 +9,17 @@ describe("installed font stacks", () => {
   });
   it("escapes backslashes and newlines as CSS escapes", () => {
     expect(fontStack("A\\B\nC", true)).toBe('"A\\5c B\\a C", "Cascadia Mono", Consolas, monospace');
+  });
+});
+
+describe("fontsReply", () => {
+  it("rejects a reply whose families are not a list of names", () => {
+    for (const reply of [null, { families: "Arial" }, { families: ["Arial", 3] }]) {
+      expect(fontsReply(reply)).toBeInstanceOf(Error);
+    }
+  });
+
+  it("passes the panel's error on", () => {
+    expect(fontsReply({ error: "no fonts" })).toEqual(new Error("no fonts"));
   });
 });

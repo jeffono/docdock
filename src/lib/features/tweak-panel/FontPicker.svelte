@@ -25,7 +25,9 @@ const matches = $derived(
     stack.split(",")[0].toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   ),
 );
-onMount(() => {
+// A panel reloading when the window asked never answers: Retry asks again.
+function load() {
+  error = false;
   installedFonts().then(
     (names) => {
       families = names;
@@ -34,7 +36,8 @@ onMount(() => {
       error = true;
     },
   );
-});
+}
+onMount(load);
 </script>
 
 <input aria-label={`Search fonts ${name}`} placeholder="Search fonts" bind:value={query} />
@@ -42,7 +45,7 @@ onMount(() => {
   {#if !matches.includes(value)}<option {value}>{value.split(",")[0]}</option>{/if}
   {#each matches as stack}<option value={stack}>{stack.split(",")[0]}</option>{/each}
 </select>
-{#if error}<small role="alert">Could not load installed fonts. Curated fonts remain available.</small>{/if}
+{#if error}<small role="alert">Could not load installed fonts. Curated fonts remain available. <button type="button" onclick={load}>Retry</button></small>{/if}
 
 <style>
   small[role="alert"] { color: var(--color-danger); }

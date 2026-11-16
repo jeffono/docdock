@@ -29,8 +29,9 @@ async function askPanel() {
       // A panel reloading at that moment never answers: give up, and the next picker asks again.
       timeout = setTimeout(() => reject(new Error("The panel did not answer")), 5000);
       onTweakFonts((reply) => {
-        if ("families" in reply) resolve(reply.families);
-        else reject(new Error(reply.error));
+        const families = fontsReply(reply);
+        if (families instanceof Error) reject(families);
+        else resolve(families);
       })
         .then((stop) => {
           unlisten = stop;
@@ -42,6 +43,17 @@ async function askPanel() {
     clearTimeout(timeout);
     unlisten?.();
   }
+}
+
+/** The families in a `tweak-fonts` reply, or why there are none: the event is not trusted. */
+export function fontsReply(reply: unknown): string[] | Error {
+  const { families, error } = (reply && typeof reply === "object" ? reply : {}) as Record<
+    string,
+    unknown
+  >;
+  if (Array.isArray(families) && families.every((family) => typeof family === "string"))
+    return families;
+  return new Error(typeof error === "string" ? error : "Malformed font list");
 }
 
 /** A CSS stack for an installed `family`, quoted and escaped, with a matching fallback. */
