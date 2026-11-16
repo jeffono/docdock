@@ -286,6 +286,7 @@ impl Dock {
     }
 
     fn update_handle(&mut self) {
+        platform::handle::set_pinned(self.panel.state == State::Pinned);
         let revealed = platform::cursor_pos()
             .is_some_and(|cursor| handle::revealed(cursor, &self.monitor, self.side));
         let ready = platform::handle::ready();

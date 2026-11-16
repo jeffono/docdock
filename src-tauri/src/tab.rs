@@ -23,6 +23,7 @@ pub struct Look {
     pub line: [u8; 3],
     pub accent: [u8; 3],
     pub text: [u8; 3],
+    pub muted: [u8; 3],
 }
 
 /// What the tab shows besides its colors.
@@ -32,6 +33,16 @@ pub struct Frame {
     pub side: Side,
     /// The panel has focus: the outline is the accent band instead of the line.
     pub focused: bool,
+    pub pinned: bool,
+}
+
+/// An inactive, unpinned panel keeps its identity quiet.
+fn wordmark_color(look: Look, frame: Frame) -> [u8; 3] {
+    if frame.focused || frame.pinned {
+        look.text
+    } else {
+        look.muted
+    }
 }
 
 /// The tab's outer boundary for a panel on the right: down the panel's edge, out along an S-curve
@@ -252,7 +263,7 @@ pub fn draw(look: &Look, frame: Frame) -> Option<Pixmap> {
         None,
     );
     if let Some(wordmark) = wordmark() {
-        paint.set_color(color(look.text));
+        paint.set_color(color(wordmark_color(*look, frame)));
         let place = wordmark_transform(&shape, frame.side, wordmark.bounds());
         pixmap.fill_path(wordmark, &paint, FillRule::Winding, place, None);
     }
@@ -279,7 +290,31 @@ mod tests {
         line: [44, 48, 56],
         accent: [106, 165, 255],
         text: [232, 234, 237],
+        muted: [150, 150, 150],
     };
+    /// Catches the wordmark remaining bright after focus or pin is released.
+    #[test]
+    fn wordmark_is_muted_only_without_focus_or_pin() {
+        for focused in [false, true] {
+            for pinned in [false, true] {
+                let frame = Frame {
+                    dpi: 96,
+                    side: Side::Right,
+                    focused,
+                    pinned,
+                };
+                assert_eq!(
+                    wordmark_color(LOOK, frame),
+                    if focused || pinned {
+                        LOOK.text
+                    } else {
+                        LOOK.muted
+                    }
+                );
+            }
+        }
+    }
+
     /// 100%, 125%, 150%, 175% and 200%.
     const DPIS: [u32; 5] = [96, 120, 144, 168, 192];
 
@@ -291,7 +326,12 @@ mod tests {
                 (Side::Left, false),
                 (Side::Left, true),
             ]
-            .map(|(side, focused)| Frame { dpi, side, focused })
+            .map(|(side, focused)| Frame {
+                dpi,
+                side,
+                focused,
+                pinned: false,
+            })
         })
     }
 

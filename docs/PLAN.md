@@ -122,6 +122,6 @@ Defaults used until you decide otherwise.
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Handle position            | Vertically centered on the work area; not movable                           |
-| Handle activation stretch  | The handle's height plus a small margin above and below                     |
+| Handle activation stretch  | 300% of the tab height, centered on it and clamped to the work area         |
 | Handle reveal distance     | Cursor within a few dozen pixels of the edge, near the handle               |
 | Clicking the open tab      | Closes the panel; dragging it does nothing                                  |

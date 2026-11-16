@@ -3,6 +3,8 @@ import { onMount } from "svelte";
 import { reportHandleLook } from "../../handle-look";
 import { devMotion, type MotionCurve } from "../../ipc";
 import Button from "../../ui/Button.svelte";
+import FontPicker from "./FontPicker.svelte";
+import HandleControls from "./HandleControls.svelte";
 import { colors, contrast, defaults, exportDiff, tokens, type Values, valid } from "./tokens";
 
 let { hold }: { hold: (open: boolean) => Promise<void> } = $props();
@@ -18,16 +20,6 @@ let diff = $state("");
 let duration = $state(150);
 let curve = $state<MotionCurve>("ease-in-out");
 const key = "docdock-tweak-presets-v1";
-const fonts = [
-  '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
-  '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif',
-  '"Segoe UI", system-ui, sans-serif',
-  "Arial, sans-serif",
-  "Verdana, sans-serif",
-  "Georgia, serif",
-  '"Cascadia Mono", Consolas, monospace',
-  "Consolas, monospace",
-];
 const groups = [
   ["Colors", "--color-"],
   ["Fonts", "--font-"],
@@ -167,10 +159,8 @@ function save() {
                   {#if /^#[\da-f]{6}$/i.test(color)}<input type="color" aria-label={`${token.name} ${i === 0 ? "light" : "dark"} picker`} value={color} oninput={(e) => editColor(token.name, i, e.currentTarget.value)} />{/if}</label>
                 {/each}
               </div>
-            {:else if token.name === "--font-sans" || token.name === "--font-mono"}
-              <select aria-label={token.name} value={values[token.name]} onchange={(e) => edit(token.name, e.currentTarget.value)}>
-                {#each [...new Set([defaults[token.name], ...fonts])] as font}<option value={font}>{font.split(",")[0]}</option>{/each}
-              </select>
+            {:else if token.name.startsWith("--font-") && !token.name.startsWith("--font-size")}
+              <FontPicker token={token.name} value={values[token.name]} defaultValue={defaults[token.name]} onchange={(value) => edit(token.name, value)} />
             {:else}
               <input aria-label={token.name} value={values[token.name]} onchange={(e) => edit(token.name, e.currentTarget.value)} />
             {/if}
@@ -178,6 +168,7 @@ function save() {
         {/each}
       </details>
     {/each}
+    <HandleControls />
     <details><summary>Slide · panel and edge handle</summary>
       <p>Applies from the next slide. Release builds keep 150 ms, ease-in-out.</p>
       <label class="token">Duration (ms)<input type="number" min="0" max="1000" step="10" bind:value={duration} onchange={tuneMotion} /></label>

@@ -8,6 +8,8 @@ mod clipboard;
 pub mod edge;
 pub mod external;
 mod files;
+#[cfg(debug_assertions)]
+pub mod fonts;
 mod guard;
 pub mod handle;
 pub mod keyboard;

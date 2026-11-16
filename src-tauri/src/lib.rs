@@ -2,6 +2,8 @@
 
 mod blocking;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev_tuning;
 mod dock;
 mod error;
 mod handle;
@@ -67,6 +69,10 @@ pub fn run() {
         commands::panel_handle_look,
         #[cfg(debug_assertions)]
         commands::dev_motion,
+        #[cfg(debug_assertions)]
+        dev_tuning::dev_handle,
+        #[cfg(debug_assertions)]
+        dev_tuning::dev_fonts,
         commands::blocking_status,
         commands::blocking_sites,
         commands::blocking_set_allowed,

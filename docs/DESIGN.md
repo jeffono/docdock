@@ -15,7 +15,13 @@ the fixed Rust bar offset, so bar-size experiments require a matching code chang
 No identity is selected by the tool; applying a look and screenshot approval remain M10 work. A
 Slide section sets the duration and curve (linear, ease-out or ease-in-out) of the panel and edge
 handle slides through the dev-only `dev_motion` command, from the next slide on; release builds keep
-the defaults. Color edits are also sent to the natively drawn edge handle.
+the defaults. A separate Edge handle section previews activation height (100-1000%, default 300%)
+and reveal distance (1-500 logical pixels, default 48) until restart. Each font-family token has a
+searchable installed-family picker with curated stacks first and a sans-serif or monospace fallback.
+Color edits are also sent to the natively drawn edge handle.
+
+The native wordmark uses `--color-muted` while neither pinned nor focused; either state restores
+`--color-fg`. Its outline continues to follow focus only.
 
 ## Principles
 
@@ -396,12 +402,13 @@ the edge, rounding into the straight outer side), filled with `--color-bg`, with
 and panel. The panel's inner-edge line, 1 px `--color-line`, runs around the tab's outline; while the
 panel has focus, its 2 px `--color-accent` band does instead. The user's wordmark
 (`src-tauri/icons/source/wordmark.svg`) runs along the tab, 52 pixels long, reading from bottom to
-top, filled with `--color-fg` and centered between the band and the panel's edge. Edges are
-antialiased. It is drawn natively from those tokens, which the UI sends for the current theme.
+top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered between
+the band and the panel's edge. Edges are antialiased. It is drawn natively from those tokens, which the UI sends for the current theme.
 Closed, it slides in from the screen edge, vertically centered on the work area, only while the
 cursor is within 48 logical pixels of the edge and of its ends, and slides back out when the cursor
-leaves; resting the cursor on the edge beside it, or up to 16 pixels beyond its ends, opens the
-panel. Open, it slides with the panel and sits outside the inner edge at the same height; clicking it
+leaves; touching the edge within a centered stretch of 300% of the tab height, clipped to the
+work area, opens the panel. Open, it slides with the panel and sits outside the inner edge at the
+same height; clicking it
 closes the panel, even pinned, only when released on its shape, not in the cutouts beside the
 curves; dragging it does nothing. It has no hover state or tooltip and
 never takes focus.

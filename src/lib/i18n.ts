@@ -2,6 +2,14 @@
 import type { Locale } from "./ipc";
 
 const en = {
+  "tweak.searchFonts": "Search fonts",
+  "tweak.fontError": "Could not load installed fonts. Curated fonts remain available.",
+  "tweak.handle": "Edge handle",
+  "tweak.handleHint":
+    "Live until restart. Release defaults: 300% activation, 48 logical pixels reveal distance.",
+  "tweak.activation": "Activation height (%)",
+  "tweak.reveal": "Reveal distance (logical px)",
+  "tweak.handleError": "Use 100-1000% activation and 1-500 logical pixels for reveal.",
   "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
   "preferences.relativeDates": "Use relative dates",
   "group.label": "Group by date",
@@ -309,6 +317,15 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
+  "tweak.searchFonts": "Buscar fontes",
+  "tweak.fontError":
+    "Não foi possível carregar as fontes instaladas. As fontes sugeridas continuam disponíveis.",
+  "tweak.handle": "Aba lateral",
+  "tweak.handleHint":
+    "Vale até reiniciar. Padrões de lançamento: ativação de 300%, distância de exibição de 48 pixels lógicos.",
+  "tweak.activation": "Altura de ativação (%)",
+  "tweak.reveal": "Distância de exibição (px lógicos)",
+  "tweak.handleError": "Use ativação de 100-1000% e distância de exibição de 1-500 pixels lógicos.",
   "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
   "preferences.relativeDates": "Usar datas relativas",
   "group.label": "Agrupar por data",

@@ -142,7 +142,7 @@ per-monitor DPI awareness (PMv2).
   full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
-  edge handle opens the panel: the handle's height plus 16 logical pixels above and below. Points
+  edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
   outside that monitor are ignored. The rules are pure functions in `handle.rs`.
 - **Edge handle:** a native popup with per-pixel alpha (`platform/handle.rs`), created on the main
   thread, whose event loop pumps its messages, and owned by the panel window so it stays above it.
@@ -166,7 +166,9 @@ per-monitor DPI awareness (PMv2).
   `MA_NOACTIVATE`. Colors come from the UI, which resolves its tokens for the current theme and sends
   them through `panel_handle_look` at startup, on every theme change and on tweak panel edits; until
   then the handle stays hidden and the stretch still opens the panel. Focus comes from the panel
-  thread with each focus report, so the outline follows the UI's band.
+  thread with each focus report, so the outline follows the UI's band. Dock also supplies pin state;
+  the wordmark uses muted only when neither pinned nor focused. Unchanged look/frame state never
+  posts a redraw.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
   The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
   uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation
@@ -216,6 +218,11 @@ per-monitor DPI awareness (PMv2).
   time, targeting 150 ms with a cubic ease-in-out (`motion.rs`). Development builds add the
   `dev_motion` command, which the tweak panel uses to try other durations and curves; release builds
   compile it out.
+- **Development tuning:** `dev_tuning.rs` adds `dev_handle` (activation percent and reveal distance)
+  and `dev_fonts` only under `cfg(debug_assertions)`, including command registration. Release builds
+  keep the activation constant. `platform/fonts.rs` enumerates GDI font families, deduplicates and sorts
+  them, and skips vertical `@` faces. The searchable picker keeps curated stacks first and quotes
+  installed family names with a sans-serif or monospace fallback.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.

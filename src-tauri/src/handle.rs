@@ -16,10 +16,10 @@ const HEIGHT: u32 = 152;
 const CURVE: u32 = 28;
 /// Length of the wordmark along the tab.
 const WORDMARK: u32 = 52;
-/// Edge beyond each end of the handle that still opens the panel.
-const ACTIVATION_MARGIN: u32 = 16;
+/// Activation height as a percentage of the tab height.
+pub const ACTIVATION_PERCENT: u32 = 300;
 /// How near the edge, and the handle's ends, the cursor must come for the handle to show.
-const REVEAL_DISTANCE: u32 = 48;
+pub const REVEAL_DISTANCE: u32 = 48;
 const BASE_DPI: u32 = 96;
 
 fn scale(monitor: &Monitor, logical: u32) -> i32 {
@@ -137,13 +137,33 @@ fn edge_x(monitor: &Monitor, side: Side) -> i32 {
     }
 }
 
-/// Translates the cursor position. Only the edge column beside the handle, with a small margin above
-/// and below, opens the panel; the tab counts as part of the open panel `panel`. Points outside the
+/// A centered activation stretch, clipped to the work area (never the taskbar).
+pub fn activation_stretch(monitor: &Monitor, percent: u32) -> std::ops::Range<i32> {
+    let height = (i64::from(Shape::new(monitor.dpi).height) * i64::from(percent) / 100)
+        .min(i64::from(monitor.work.bottom - monitor.work.top)) as i32;
+    let top = monitor.work.top + (monitor.work.bottom - monitor.work.top - height) / 2;
+    top..top + height
+}
+
+fn current_activation_percent() -> u32 {
+    #[cfg(debug_assertions)]
+    return crate::dev_tuning::activation_percent();
+    #[cfg(not(debug_assertions))]
+    ACTIVATION_PERCENT
+}
+
+fn current_reveal_distance() -> u32 {
+    #[cfg(debug_assertions)]
+    return crate::dev_tuning::reveal_distance();
+    #[cfg(not(debug_assertions))]
+    REVEAL_DISTANCE
+}
+
+/// Only the edge column in the activation stretch opens the panel; the tab counts as part of the
+/// open panel `panel`. Points outside the
 /// monitor never open or hold the panel.
 pub fn cursor_zone(cursor: Point, monitor: &Monitor, panel: Rect, side: Side) -> CursorZone {
-    let handle = handle_rect(monitor, side);
-    let margin = scale(monitor, ACTIVATION_MARGIN);
-    let stretch = handle.top - margin..handle.bottom + margin;
+    let stretch = activation_stretch(monitor, current_activation_percent());
     if !monitor.bounds.contains(cursor) {
         CursorZone::Outside
     } else if cursor.x == edge_x(monitor, side) && stretch.contains(&cursor.y) {
@@ -159,7 +179,7 @@ pub fn cursor_zone(cursor: Point, monitor: &Monitor, panel: Rect, side: Side) ->
 /// distance of the edge, and of the handle's ends vertically, on this monitor.
 pub fn revealed(cursor: Point, monitor: &Monitor, side: Side) -> bool {
     let handle = handle_rect(monitor, side);
-    let reach = scale(monitor, REVEAL_DISTANCE);
+    let reach = scale(monitor, current_reveal_distance());
     let near = Rect {
         top: handle.top - reach,
         bottom: handle.bottom + reach,
@@ -269,14 +289,14 @@ mod tests {
     /// edge, or the stretch drifting away from the drawn handle.
     #[test]
     fn only_the_edge_beside_the_handle_opens() {
-        // The handle spans 930..1158 and the margin is 24 pixels on each side.
+        // The handle spans 930..1158; the 300% stretch spans 702..1386.
         for (y, opens) in [
             (0, false),
-            (905, false),
-            (906, true),
+            (701, false),
+            (702, true),
             (1040, true),
-            (1181, true),
-            (1182, false),
+            (1385, true),
+            (1386, false),
             (2159, false),
         ] {
             assert_eq!(
@@ -286,6 +306,34 @@ mod tests {
             );
             assert_eq!(zone(0, y, Side::Left) == CursorZone::Edge, opens, "y={y}");
         }
+    }
+
+    #[test]
+    fn activation_scales_with_the_tab() {
+        for dpi in [96, 120, 144, 192] {
+            let monitor = Monitor { dpi, ..MONITOR };
+            for percent in [100, 200, 300, 500] {
+                let stretch = activation_stretch(&monitor, percent);
+                assert_eq!(
+                    stretch.end - stretch.start,
+                    Shape::new(dpi).height * percent as i32 / 100
+                );
+                assert_eq!(stretch.start, monitor.work.bottom - stretch.end);
+            }
+        }
+    }
+
+    #[test]
+    fn activation_is_clipped_to_the_work_area() {
+        let monitor = Monitor {
+            work: Rect {
+                top: 100,
+                bottom: 400,
+                ..MONITOR.work
+            },
+            ..MONITOR
+        };
+        assert_eq!(activation_stretch(&monitor, 300), 100..400);
     }
 
     #[test]

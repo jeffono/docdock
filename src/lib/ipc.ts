@@ -78,8 +78,13 @@ export const panelResize = (width: number | null, done: boolean) =>
 
 /** The edge handle is drawn natively: it takes the theme's tokens resolved to sRGB channels. */
 type Rgb = [number, number, number];
-export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb };
+export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb; muted: Rgb };
 export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_look", { look });
+
+/** Development-only handle tuning and installed font discovery. */
+export const devHandle = (activationPercent: number, revealDistance: number) =>
+  invoke<void>("dev_handle", { activationPercent, revealDistance });
+export const devFonts = () => invoke<string[]>("dev_fonts");
 
 /** How the panel and the edge handle slide. */
 export type MotionCurve = "linear" | "ease-out" | "ease-in-out";

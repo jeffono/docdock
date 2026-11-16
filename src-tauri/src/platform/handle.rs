@@ -40,6 +40,7 @@ static PAINT: Mutex<Paint> = Mutex::new(Paint {
         dpi: 96,
         side: Side::Right,
         focused: false,
+        pinned: false,
     },
 });
 static WINDOW: OnceLock<isize> = OnceLock::new();
@@ -98,6 +99,9 @@ pub fn ready() -> bool {
 /// The UI's tokens changed, as with the theme.
 pub fn set_look(look: Look) {
     if let Ok(mut paint) = PAINT.lock() {
+        if paint.look == Some(look) {
+            return;
+        }
         paint.look = Some(look);
     }
     redraw();
@@ -111,6 +115,10 @@ pub fn set_frame(dpi: u32, side: Side) {
 /// The panel gained or lost focus: the outline follows its inner-edge band.
 pub fn set_focused(focused: bool) {
     update(|frame| Frame { focused, ..frame });
+}
+
+pub fn set_pinned(pinned: bool) {
+    update(|frame| Frame { pinned, ..frame });
 }
 
 fn update(change: impl FnOnce(Frame) -> Frame) {
