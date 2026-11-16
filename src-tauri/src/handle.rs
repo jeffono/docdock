@@ -128,6 +128,33 @@ pub fn presence(ready: bool, open: bool, sliding: bool, revealed: bool) -> Prese
     }
 }
 
+/// A press on the tab: it stays a click only while the pointer never leaves the drag
+/// tolerance (`slop`), so dragging away and back before releasing does nothing.
+#[derive(Debug, Clone, Copy)]
+pub struct Press {
+    origin: Point,
+    dragged: bool,
+}
+
+impl Press {
+    pub fn new(origin: Point) -> Self {
+        Self {
+            origin,
+            dragged: false,
+        }
+    }
+
+    pub fn moved(&mut self, to: Point, slop: Point) {
+        self.dragged |=
+            (to.x - self.origin.x).abs() > slop.x || (to.y - self.origin.y).abs() > slop.y;
+    }
+
+    pub fn is_click(mut self, release: Point, slop: Point) -> bool {
+        self.moved(release, slop);
+        !self.dragged
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,5 +335,15 @@ mod tests {
                 "{state:?}"
             );
         }
+    }
+
+    #[test]
+    fn dragging_away_and_back_is_not_a_click() {
+        let slop = Point { x: 4, y: 4 };
+        let mut press = Press::new(Point { x: 10, y: 40 });
+        press.moved(Point { x: 10, y: 90 }, slop);
+        press.moved(Point { x: 10, y: 40 }, slop);
+        assert!(!press.is_click(Point { x: 10, y: 40 }, slop));
+        assert!(Press::new(Point { x: 10, y: 40 }).is_click(Point { x: 12, y: 41 }, slop));
     }
 }

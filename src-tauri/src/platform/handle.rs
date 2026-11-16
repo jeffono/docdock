@@ -6,7 +6,10 @@
 use std::sync::{Mutex, OnceLock};
 
 use serde::Deserialize;
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+
+use super::Point;
+use crate::handle::Press;
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
     DEFAULT_CHARSET, DEFAULT_PITCH, DeleteObject, EndPaint, FF_SWISS, FW_SEMIBOLD, FillRect,
@@ -19,7 +22,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GWLP_HINSTANCE, GetClientRect, GetSystemMetrics,
     GetWindowLongPtrW, IDC_ARROW, LWA_ALPHA, LoadCursorW, MA_NOACTIVATE, RegisterClassW, SM_CXDRAG,
     SM_CYDRAG, SetLayeredWindowAttributes, WM_CAPTURECHANGED, WM_ERASEBKGND, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_PAINT, WNDCLASSW, WS_DISABLED, WS_EX_LAYERED,
+    WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_PAINT, WNDCLASSW, WS_DISABLED, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
@@ -57,7 +60,7 @@ static PAINT: Mutex<Paint> = Mutex::new(Paint {
 static WINDOW: OnceLock<isize> = OnceLock::new();
 static CLICK: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 /// Where the primary button went down on the tab, in client coordinates.
-static PRESS: Mutex<Option<POINT>> = Mutex::new(None);
+static PRESS: Mutex<Option<Press>> = Mutex::new(None);
 
 /// Creates the hidden, disabled and click-through window, owned by the panel window `owner` so it
 /// stays above it. Call on the main thread. `click` runs on that thread when the tab is clicked.
@@ -136,24 +139,30 @@ fn repaint() {
     }
 }
 
-fn client_point(lparam: LPARAM) -> POINT {
-    POINT {
+fn client_point(lparam: LPARAM) -> Point {
+    Point {
         x: i32::from(lparam.0 as u16 as i16),
         y: i32::from((lparam.0 >> 16) as u16 as i16),
     }
 }
 
-/// A press and release on the tab without dragging: dragging it does nothing.
-fn is_click(hwnd: HWND, press: POINT, release: POINT) -> bool {
-    let mut client = RECT::default();
+/// The system drag tolerance, in pixels.
+fn slop() -> Point {
     unsafe {
-        let _ = GetClientRect(hwnd, &mut client);
-        let inside = (client.left..client.right).contains(&release.x)
-            && (client.top..client.bottom).contains(&release.y);
-        inside
-            && (release.x - press.x).abs() <= GetSystemMetrics(SM_CXDRAG)
-            && (release.y - press.y).abs() <= GetSystemMetrics(SM_CYDRAG)
+        Point {
+            x: GetSystemMetrics(SM_CXDRAG),
+            y: GetSystemMetrics(SM_CYDRAG),
+        }
     }
+}
+
+/// A press and release on the tab without dragging: dragging it does nothing.
+fn is_click(hwnd: HWND, press: Press, release: Point) -> bool {
+    let mut client = RECT::default();
+    let _ = unsafe { GetClientRect(hwnd, &mut client) };
+    let inside = (client.left..client.right).contains(&release.x)
+        && (client.top..client.bottom).contains(&release.y);
+    inside && press.is_click(release, slop())
 }
 
 unsafe extern "system" fn procedure(
@@ -172,9 +181,17 @@ unsafe extern "system" fn procedure(
         }
         WM_LBUTTONDOWN => {
             if let Ok(mut press) = PRESS.lock() {
-                *press = Some(client_point(lparam));
+                *press = Some(Press::new(client_point(lparam)));
             }
             unsafe { SetCapture(hwnd) };
+            LRESULT(0)
+        }
+        WM_MOUSEMOVE => {
+            if let Ok(mut press) = PRESS.lock()
+                && let Some(press) = press.as_mut()
+            {
+                press.moved(client_point(lparam), slop());
+            }
             LRESULT(0)
         }
         WM_LBUTTONUP => {

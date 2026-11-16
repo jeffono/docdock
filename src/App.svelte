@@ -362,8 +362,14 @@ function togglePin() {
     pointer-events: none;
   }
 
+  /* The line stays on the inner edge, whichever side the panel is on. */
+  main.left {
+    border-right: 1px solid var(--color-line);
+    border-left: none;
+  }
+
   main.focused.left::before {
-    right: 0;
+    right: -1px;
     left: auto;
   }
 
