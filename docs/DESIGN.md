@@ -3,19 +3,20 @@
 Identity chosen by the user: a neutral, compact system utility. Values live in
 `src/lib/styles/tokens.css`; this file says how to use them. Only the user changes the identity.
 
-Development builds offer a small Tweak button at the bottom of the panel, dynamically loaded only
-under `import.meta.env.DEV`. It opens a compact token editor over the lower part of the content;
-CSSOM property updates preview both color schemes, typography and geometry without changing the
-source or CSP. Named local presets allow A/B switching; Export shows a unified `tokens.css` diff
-to select and copy. Closing keeps the preview until reload; Reset restores source values. The tool
-temporarily uses the existing pin rule (`user pin || tweak open`) and hides the native page, restoring
-the user's pin and page on close. The preview stays visible but inert; tool keys do not reach note
-shortcuts, and Esc closes the tool. Tab changes wait until it closes. Native page geometry still uses
-the fixed Rust bar offset, so bar-size experiments require a matching code change before adoption.
-No identity is selected by the tool; applying a look and screenshot approval remain M10 work. A
-Slide section sets the duration and curve (linear, ease-out or ease-in-out) of the panel and edge
-handle slides through the dev-only `dev_motion` command, from the next slide on; release builds keep
-the defaults. Color edits are also sent to the natively drawn edge handle.
+Development builds offer a small Tweak button at the bottom of the panel, loaded only under
+`import.meta.env.DEV`. It opens the tweak window: an ordinary resizable window that can stay open on
+another monitor while the panel behaves exactly as in production (no pin, nothing inert, the page
+untouched). Every change applies live to the panel, even hidden: CSSOM token updates in both color
+schemes, typography and geometry, without changing the source or CSP; colors also reach the natively
+drawn edge handle. The Slides section sets a duration and a `cubic-bezier` curve for each slide (panel
+open, panel close, handle in, handle out) with presets, including overshooting `back` curves, four
+numbers and a draggable curve editor; each slide reads its motion when it starts. Named presets keep
+tokens and motions for A/B switching; Reset restores the source values. The window remembers its last
+state, so a reload or a restart after a Rust change keeps the tweaks once it is open again. Export
+shows the unified diffs to apply: `tokens.css` and the motion constants in `motion.rs`; release builds
+keep those constants. Native page geometry still uses the fixed Rust bar offset, so bar-size
+experiments require a matching code change before adoption. No identity is selected by the tool;
+applying a look and screenshot approval remain M10 work.
 
 ## Principles
 

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
 use crate::handle::{self, Presence};
-use crate::motion::{self, Motion};
+use crate::motion::{self, Kind, Motion};
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
 use crate::platform::{self, Activation, Monitor, PanelWindow, Rect};
 
@@ -156,12 +156,12 @@ struct Slide {
 }
 
 impl Slide {
-    fn new(from: i32, to: i32) -> Self {
+    fn new(from: i32, to: i32, kind: Kind) -> Self {
         let now = Instant::now();
         Self {
             from,
             to,
-            motion: motion::current(),
+            motion: motion::current(kind),
             started: now,
             last_frame: now,
             frames: 0,
@@ -318,7 +318,12 @@ impl Dock {
             .as_ref()
             .map_or(self.handle_shift, |slide| slide.to);
         if heading != target {
-            self.handle_slide = Some(Slide::new(self.handle_shift, target));
+            let kind = if target == 0 {
+                Kind::HandleIn
+            } else {
+                Kind::HandleOut
+            };
+            self.handle_slide = Some(Slide::new(self.handle_shift, target, kind));
         }
     }
 
@@ -551,7 +556,7 @@ impl Dock {
         self.window.raise();
         // Summoning an open panel only gives it focus.
         if self.x != self.rect.left || self.slide.is_some() {
-            self.slide = Some(Slide::new(self.x, self.rect.left));
+            self.slide = Some(Slide::new(self.x, self.rect.left, Kind::Open));
         }
     }
 
@@ -579,7 +584,7 @@ impl Dock {
             Action::Hide => {
                 self.release_focus();
                 self.set_enabled(false);
-                self.slide = Some(Slide::new(self.x, self.parked_x));
+                self.slide = Some(Slide::new(self.x, self.parked_x, Kind::Close));
             }
             // The panel is foreground, so Windows lets it hand focus over.
             Action::Release => self.release_focus(),

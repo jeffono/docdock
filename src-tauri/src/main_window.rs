@@ -8,13 +8,13 @@ use tauri::{App, Url, WebviewWindow, WebviewWindowBuilder};
 const FREEZE_PROTOTYPE: &str = "Object.freeze(Object.prototype)";
 
 /// In development the UI comes from Vite; in production, from the `tauri` protocol at this Windows URL.
-fn ui_url(dev_url: Option<&Url>) -> Url {
+pub fn ui_url(dev_url: Option<&Url>) -> Url {
     dev_url
         .cloned()
         .unwrap_or_else(|| Url::parse("http://tauri.localhost").expect("valid fixed URL"))
 }
 
-fn stays_in_ui(url: &Url, ui: &Url) -> bool {
+pub fn stays_in_ui(url: &Url, ui: &Url) -> bool {
     url.origin() == ui.origin()
 }
 

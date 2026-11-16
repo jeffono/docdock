@@ -2,6 +2,8 @@
 
 mod blocking;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev;
 mod dock;
 mod error;
 mod handle;
@@ -66,7 +68,9 @@ pub fn run() {
         commands::panel_resize,
         commands::panel_handle_look,
         #[cfg(debug_assertions)]
-        commands::dev_motion,
+        dev::dev_motion,
+        #[cfg(debug_assertions)]
+        dev::dev_tweak_window,
         commands::blocking_status,
         commands::blocking_sites,
         commands::blocking_set_allowed,
@@ -129,6 +133,8 @@ pub fn run() {
         )
         .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            dev::setup(app)?;
             let window = main_window::create(app)?;
             platform::edge::filter(&window, platform::edge::Owner::Ui)
                 .map_err(|error| format!("{error:?}"))?;

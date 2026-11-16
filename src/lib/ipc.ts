@@ -1,6 +1,7 @@
 // The only point of contact between the UI and the Rust backend.
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /** Native exit waits indefinitely for the trusted UI to confirm its saves. */
 export const onExitRequested = (handler: (id: number) => void) =>
@@ -81,11 +82,22 @@ type Rgb = [number, number, number];
 export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb };
 export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_look", { look });
 
-/** How the panel and the edge handle slide. */
-export type MotionCurve = "linear" | "ease-out" | "ease-in-out";
-/** Development builds only: release builds have no such command. */
-export const devMotion = (duration: number, curve: MotionCurve) =>
-  invoke<void>("dev_motion", { duration: Math.max(0, Math.round(duration)), curve });
+/** How a slide moves: milliseconds and `cubic-bezier` control points `[x1, y1, x2, y2]`. */
+export type Curve = [number, number, number, number];
+export type Motion = { duration: number; curve: Curve };
+export type Motions = { open: Motion; close: Motion; handleIn: Motion; handleOut: Motion };
+
+// Development builds only: release builds have neither the commands nor the tweak window.
+export const devMotion = (motions: Motions) => invoke<void>("dev_motion", { motions });
+export const devTweakWindow = () => invoke<void>("dev_tweak_window");
+export const isTweakWindow = () => getCurrentWebviewWindow().label === "tweak";
+/** The tweak window sends its whole state to the panel. */
+export const tweakSend = (state: unknown) => emitTo("main", "tweak-state", state);
+export const onTweakState = <T>(handler: (state: T) => void) =>
+  listen<T>("tweak-state", (event) => handler(event.payload));
+/** The panel, after a reload, asks the tweak window for its state. */
+export const tweakRequest = () => emitTo("tweak", "tweak-request");
+export const onTweakRequest = (handler: () => void) => listen("tweak-request", () => handler());
 
 /** Clicking the edge tab closed the pinned panel, unpinning it. */
 export const onPanelPinned = (handler: (pinned: boolean) => void): Promise<UnlistenFn> =>

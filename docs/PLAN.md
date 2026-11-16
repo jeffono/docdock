@@ -11,6 +11,9 @@ detail each stage when it is next.
 - Branch `handle-tab` (from `m10`): the tab redrawn as a bulge of the panel with the wordmark and the
   focus band around it, a reveal slide for the closed handle, ease-in-out slides and dev-only slide
   controls in the tweak panel; awaiting the user's manual check before merging into `m10`.
+- Branch `tweak-window` (from `m10`): the tweak tool as a separate dev-only window that applies live
+  while the panel behaves as in production, a `cubic-bezier` duration and curve per slide, and the
+  motion constants in the export; awaiting the user's manual check before merging into `m10`.
 
 ## Next
 
@@ -30,7 +33,7 @@ handle that opens the panel.
   live through CSSOM, which CSP allows: both `light-dark` values of each color with the WCAG
   contrast shown for text and background pairs, system fonts (including Segoe UI Variable),
   font sizes, spacing, radius and control sizes. Named presets switch A/B, and an export gives the
-  `tokens.css` diff to apply. The panel stays open while tweaking. A chosen look goes to
+  `tokens.css` diff to apply. A separate window tweaks while the panel behaves as in production. A chosen look goes to
   `tokens.css` and `docs/DESIGN.md` with a screenshot for approval.
 - [x] Edge handle (`advanced`). Only a short stretch of the edge around a handle opens the panel,
   instead of the whole column, to avoid accidental openings. The handle appears only while the

@@ -164,7 +164,7 @@ per-monitor DPI awareness (PMv2).
   `Request::Tab`: the panel closes as on a close request, even pinned, which emits `panel-pinned` so
   the UI's pin follows; with the native picker open it does nothing. `WM_MOUSEACTIVATE` answers
   `MA_NOACTIVATE`. Colors come from the UI, which resolves its tokens for the current theme and sends
-  them through `panel_handle_look` at startup, on every theme change and on tweak panel edits; until
+  them through `panel_handle_look` at startup, on every theme change and on tweak window edits; until
   then the handle stays hidden and the stretch still opens the panel. Focus comes from the panel
   thread with each focus report, so the outline follows the UI's band.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
@@ -213,9 +213,17 @@ per-monitor DPI awareness (PMv2).
   the source. The page window covers the band below the top bars.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
-  time, targeting 150 ms with a cubic ease-in-out (`motion.rs`). Development builds add the
-  `dev_motion` command, which the tweak panel uses to try other durations and curves; release builds
-  compile it out.
+  time, along a CSS-style `cubic-bezier` curve solved in `motion.rs`: 150 ms of cubic ease-in-out for
+  each kind of slide (panel open, panel close, handle in, handle out). A curve's x stays within 0..1
+  and its y may overshoot; the last frame lands exactly on the destination, and an overshoot beyond
+  the edge is cut by the monitor clip below.
+- **Tweak window (development builds only):** `dev.rs`, compiled only with `debug_assertions`, opens a
+  separate `tweak` window on the same UI page (`main.ts` mounts the tool there) with a capability
+  added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its
+  app commands. The window sends its whole state to the panel as the `tweak-state` event; the panel
+  applies tokens through CSSOM and slide motions through `dev_motion`, and asks again with
+  `tweak-request` after a reload. Release builds have neither the module, the commands, the capability
+  nor the frontend code.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.

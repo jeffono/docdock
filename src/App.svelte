@@ -35,7 +35,6 @@ import Notice from "./lib/ui/Notice.svelte";
 
 let notes: Notes;
 let pinned = $state(false);
-let devHold = false;
 let web = $state(false);
 let preferences = $state(false);
 let previousWeb = false;
@@ -71,11 +70,7 @@ onMount(() => {
     void import("./lib/features/tweak-panel/install").then(({ install }) => {
       const target = document.querySelector("main");
       if (disposed || !target) return;
-      disposeDev = install(target, async (open) => {
-        await panelSetPinned(pinned || open);
-        devHold = open;
-        await webSetVisible(!open && web && !preferences && !article);
-      });
+      disposeDev = install(target);
     });
   }
   const clipboardFailed = () => {
@@ -124,7 +119,6 @@ onMount(() => {
     if (!value) closeReader();
   });
   const visible = onWebVisible((value) => {
-    if (import.meta.env.DEV && devHold) return;
     // Entering the reader view hides the page but stays in Browser.
     if (!value && article) return;
     // A page opened from the bar or a link replaces the reader view.
@@ -172,7 +166,6 @@ onMount(() => {
     }
     if (
       preferences &&
-      !(import.meta.env.DEV && devHold) &&
       event.key === "Escape" &&
       !event.isComposing &&
       // An open menu or dialog takes its own Esc.
@@ -221,7 +214,6 @@ onMount(() => {
 });
 
 async function switchMode(value: boolean) {
-  if (import.meta.env.DEV && devHold) return;
   if (!(await notes.leaveEditor())) return;
   closeReader();
   await webSetVisible(value);
@@ -230,7 +222,6 @@ async function switchMode(value: boolean) {
   if (value) notes.focusSearch();
 }
 async function togglePreferences() {
-  if (import.meta.env.DEV && devHold) return;
   if (preferences) return switchMode(previousWeb);
   if (!(await notes.leaveEditor())) return;
   previousWeb = web;
@@ -309,7 +300,7 @@ function resizeKey(event: KeyboardEvent) {
 }
 function togglePin() {
   pinned = !pinned;
-  panelSetPinned(pinned || (import.meta.env.DEV && devHold));
+  panelSetPinned(pinned);
 }
 </script>
 

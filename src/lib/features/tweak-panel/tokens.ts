@@ -1,4 +1,5 @@
 import source from "../../styles/tokens.css?raw";
+import { unifiedDiff } from "./diff";
 
 // Read declarations from the source, preserving their original spelling for export.
 const parse = (text: string) =>
@@ -57,30 +58,7 @@ export function exportDiff(values: Values, text = source) {
       throw new Error(`Cannot export ${token.name}: unexpected spelling in tokens.css`);
     return next;
   });
-  const ranges: { start: number; end: number }[] = [];
-  lines.forEach((line, index) => {
-    if (line === edited[index]) return;
-    const start = Math.max(0, index - 3);
-    const end = Math.min(lines.length, index + 4);
-    const previous = ranges.at(-1);
-    if (previous && start <= previous.end) previous.end = end;
-    else ranges.push({ start, end });
-  });
-  return [
-    "--- a/src/lib/styles/tokens.css",
-    "+++ b/src/lib/styles/tokens.css",
-    ...ranges.flatMap(({ start, end }) => {
-      return [
-        `@@ -${start + 1},${end - start} +${start + 1},${end - start} @@`,
-        ...lines
-          .slice(start, end)
-          .flatMap((line, i) =>
-            line === edited[start + i] ? [` ${line}`] : [`-${line}`, `+${edited[start + i]}`],
-          ),
-      ];
-    }),
-    "",
-  ].join("\n");
+  return unifiedDiff("src/lib/styles/tokens.css", lines, edited) ?? "No token changes.";
 }
 
 // Canvas resolves all browser-supported color formats, including alpha; no inline style is injected.
