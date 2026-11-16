@@ -150,15 +150,17 @@ per-monitor DPI awareness (PMv2).
   the closed panel: hit-testing skips it, so scrollbars and maximized window buttons below keep their
   clicks; open, its transparent pixels still pass clicks through. `tab.rs` draws it with `tiny-skia`
   into premultiplied pixels that `UpdateLayeredWindow` shows; other threads only post a redraw to
-  the main thread. The window reaches a few pixels into the panel and repaints its inner-edge line or
-  focus band along the tab's curves, so no seam shows where they meet; a click on that strip does
-  nothing. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
+  the main thread. The window reaches into the panel by the width of its focus band and repaints its
+  inner-edge line or focus band along the tab's curves, so no seam shows where they meet; past the
+  current line or band those pixels are transparent, so at the tab's height the panel's resize strip
+  loses only the columns of its line or band, and a click on them does nothing. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
   panel in the same `DeferWindowPos` batch, so with the panel parked it rests on the screen edge.
   `handle::presence` decides: hidden, shown click-through (closed with the cursor within 48 logical
   pixels of the edge and of the handle's ends, or sliding), or the tab (open and at rest), the only
   state where it is enabled and takes clicks. Appearing, it starts its depth beyond the screen edge
   and slides in; hiding, it slides back out and only then hides, still click-through. The tab counts
-  as inside the open panel. A press and release on it within the system drag distance sends
+  as inside the open panel. A press and release on it within the system drag distance, the release
+  on the tab's shape (`tab::hit`, since capture bypasses the alpha hit-testing), sends
   `Request::Tab`: the panel closes as on a close request, even pinned, which emits `panel-pinned` so
   the UI's pin follows; with the native picker open it does nothing. `WM_MOUSEACTIVATE` answers
   `MA_NOACTIVATE`. Colors come from the UI, which resolves its tokens for the current theme and sends

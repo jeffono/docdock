@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use super::Point;
 use crate::dock::Side;
-use crate::handle::{Press, Shape};
+use crate::handle::Press;
 use crate::tab::{self, Frame, Look};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -150,16 +150,14 @@ fn slop() -> Point {
     }
 }
 
-/// A press and release on the tab without dragging: dragging it does nothing. Only on the tab
-/// itself: the strip over the panel's edge looks like the panel, so a click there does nothing.
+/// A press and release on the tab without dragging: dragging it does nothing. Only a release on
+/// the tab's shape counts ([`tab::hit`]): not in the cutouts beside the curves, nor on the strip
+/// over the panel's edge, which looks like the panel.
 fn is_click(press: Press, release: Point) -> bool {
     let Ok(frame) = PAINT.lock().map(|paint| paint.frame) else {
         return false;
     };
-    let shape = Shape::new(frame.dpi);
-    let inside = shape.tab_columns(frame.side).contains(&release.x)
-        && (0..shape.height).contains(&release.y);
-    inside && press.is_click(release, slop())
+    tab::hit(frame, release) && press.is_click(release, slop())
 }
 
 unsafe extern "system" fn procedure(

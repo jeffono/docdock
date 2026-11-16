@@ -11,6 +11,7 @@ use tiny_skia::{
 
 use crate::dock::Side;
 use crate::handle::Shape;
+use crate::platform::Point;
 
 /// The user's drawing, used only as a shape: its own fill is replaced by a theme color.
 const WORDMARK_SVG: &str = include_str!("../icons/source/wordmark.svg");
@@ -56,14 +57,33 @@ fn boundary(shape: &Shape, pad: f32) -> PathBuilder {
     path
 }
 
-/// The tab and the covered strip of the panel: the boundary closed beyond the window's panel side.
-fn area(shape: &Shape, pad: f32) -> Option<Path> {
+/// The tab and the strip of the panel's edge it repaints, `reach` pixels deep: the boundary closed
+/// inside the panel. The window stays transparent beyond, passing clicks to the panel.
+fn area(shape: &Shape, pad: f32, reach: f32) -> Option<Path> {
     let mut path = boundary(shape, pad);
-    let far = shape.width() as f32 + pad;
-    path.line_to(far, shape.height as f32 + pad);
-    path.line_to(far, -pad);
+    let inner = shape.depth as f32 + reach;
+    path.line_to(inner, shape.height as f32 + pad);
+    path.line_to(inner, -pad);
     path.close();
     path.finish()
+}
+
+/// Whether `point`, in window pixels, lands on the tab itself: at least half covered by its
+/// outline, and off the strip over the panel, which looks like the panel. A captured release
+/// reaches the window wherever it lands, past the alpha hit-testing that guards a press.
+pub fn hit(frame: Frame, point: Point) -> bool {
+    let shape = Shape::new(frame.dpi);
+    if !shape.tab_columns(frame.side).contains(&point.x) || !(0..shape.height).contains(&point.y) {
+        return false;
+    }
+    let (Some(mut mask), Some(area)) = (
+        Mask::new(shape.width() as u32, shape.height as u32),
+        area(&shape, 1.0, 0.0),
+    ) else {
+        return false;
+    };
+    mask.fill_path(&area, FillRule::Winding, true, mirror(&shape, frame.side));
+    mask.data()[(point.y * shape.width() + point.x) as usize] >= 128
 }
 
 /// Mirrors the drawing for a panel on the left, whose tab grows right.
@@ -236,10 +256,11 @@ pub fn draw(look: &Look, frame: Frame) -> Option<Pixmap> {
         let place = wordmark_transform(&shape, frame.side, wordmark.bounds());
         pixmap.fill_path(wordmark, &paint, FillRule::Winding, place, None);
     }
-    // Cut to the outline with antialiased edges. Scaling every premultiplied channel by the
-    // coverage keeps the band's color right up to the edge.
+    // Cut to the outline with antialiased edges, and to the panel's line or band on its side.
+    // Scaling every premultiplied channel by the coverage keeps the band's color right up to the
+    // edge.
     let mut mask = Mask::new(pixmap.width(), pixmap.height())?;
-    mask.fill_path(&area(&shape, pad)?, FillRule::Winding, true, mirror);
+    mask.fill_path(&area(&shape, pad, width)?, FillRule::Winding, true, mirror);
     let pixels = pixmap.data_mut().as_chunks_mut::<4>().0.iter_mut();
     for (pixel, &coverage) in pixels.zip(mask.data()) {
         for channel in pixel {
@@ -302,7 +323,7 @@ mod tests {
                 (shape.line, LOOK.line)
             };
             assert!(
-                shape.overlap > band,
+                shape.overlap >= band,
                 "{frame:?}: the window must cover the band"
             );
             for y in [0, shape.height - 1] {
@@ -312,18 +333,69 @@ mod tests {
                         "{frame:?} x={x} y={y}"
                     );
                 }
-                for x in shape.depth..shape.width() {
-                    let expected = if x < shape.depth + band {
-                        color
-                    } else {
-                        LOOK.background
-                    };
+                for x in shape.depth..shape.depth + band {
                     assert_eq!(
                         pixel(&pixmap, frame.side, x, y),
-                        opaque(expected),
+                        opaque(color),
                         "{frame:?} x={x} y={y}"
                     );
                 }
+            }
+        }
+    }
+
+    /// Catches the window taking the clicks of the panel's resize strip on the inner edge: past
+    /// the columns of the line or band it repaints, its pixels must be fully transparent, which
+    /// lets clicks through to the panel.
+    #[test]
+    fn the_strip_over_the_panel_is_transparent_past_the_outline() {
+        for frame in frames() {
+            let shape = Shape::new(frame.dpi);
+            let pixmap = draw(&LOOK, frame).unwrap();
+            let outline = if frame.focused {
+                shape.band
+            } else {
+                shape.line
+            };
+            for y in 0..shape.height {
+                for x in shape.depth + outline..shape.width() {
+                    assert_eq!(
+                        pixel(&pixmap, frame.side, x, y),
+                        [0; 4],
+                        "{frame:?} x={x} y={y}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Catches a release in the cutout beside an S-curve closing the panel: captured, it reaches
+    /// the window although its pixel is transparent.
+    #[test]
+    fn only_releases_on_the_tab_itself_hit() {
+        for frame in frames() {
+            let shape = Shape::new(frame.dpi);
+            let middle = (shape.curve / 2.0) as i32;
+            // The outer side, counted from the window's outer edge like `pixel`.
+            let at = |x: i32, y: i32| {
+                let x = match frame.side {
+                    Side::Right => x,
+                    Side::Left => shape.width() - 1 - x,
+                };
+                hit(frame, Point { x, y })
+            };
+            assert!(at(0, shape.height / 2), "{frame:?}");
+            assert!(at(shape.depth - 2, middle), "{frame:?}");
+            for (x, y) in [
+                (0, 1),
+                (0, middle),
+                (0, shape.height - 1 - middle),
+                (shape.depth, shape.height / 2),
+                (0, -1),
+                (0, shape.height),
+                (-1, shape.height / 2),
+            ] {
+                assert!(!at(x, y), "{frame:?} x={x} y={y}");
             }
         }
     }

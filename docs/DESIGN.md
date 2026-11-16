@@ -376,7 +376,8 @@ shown in the notes list.
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
 controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
-a 6-pixel handle along the inner edge resizes it (double-click restores the default).
+a 6-pixel handle along the inner edge resizes it (double-click restores the default); beside the
+edge tab, its columns under the panel's line or focus band belong to the tab.
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
@@ -401,7 +402,8 @@ Closed, it slides in from the screen edge, vertically centered on the work area,
 cursor is within 48 logical pixels of the edge and of its ends, and slides back out when the cursor
 leaves; resting the cursor on the edge beside it, or up to 16 pixels beyond its ends, opens the
 panel. Open, it slides with the panel and sits outside the inner edge at the same height; clicking it
-closes the panel, even pinned, and dragging it does nothing. It has no hover state or tooltip and
+closes the panel, even pinned, only when released on its shape, not in the cutouts beside the
+curves; dragging it does nothing. It has no hover state or tooltip and
 never takes focus.
 
 A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the

@@ -14,9 +14,6 @@ const WIDTH: u32 = 20;
 const HEIGHT: u32 = 152;
 /// Height of each S-curve joining the panel's edge to the tab's outer side.
 const CURVE: u32 = 28;
-/// How far the tab's window reaches into the panel to cover its inner-edge line and focus band
-/// along the curves, so no seam shows where they meet.
-const OVERLAP: u32 = 4;
 /// Length of the wordmark along the tab.
 const WORDMARK: u32 = 52;
 /// Edge beyond each end of the handle that still opens the panel.
@@ -34,7 +31,9 @@ fn scale_dpi(dpi: u32, logical: u32) -> i32 {
 }
 
 /// The tab's drawing at one DPI, in physical pixels, as if the panel were on the right: the tab
-/// grows left from the panel's edge at `x = depth`, and the window reaches `overlap` into it.
+/// grows left from the panel's edge at `x = depth`, and the window reaches `overlap` into it: just
+/// the columns of the panel's line and focus band, which it repaints along the curves so no seam
+/// shows, and no further, so the panel's resize strip beyond them keeps its clicks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shape {
     pub depth: i32,
@@ -51,13 +50,14 @@ pub struct Shape {
 impl Shape {
     pub fn new(dpi: u32) -> Self {
         let scale = dpi as f32 / BASE_DPI as f32;
+        let band = ((2 * dpi + BASE_DPI / 2) / BASE_DPI) as i32;
         Self {
             depth: scale_dpi(dpi, WIDTH),
-            overlap: scale_dpi(dpi, OVERLAP),
+            overlap: band,
             height: scale_dpi(dpi, HEIGHT),
             curve: CURVE as f32 * scale,
             line: (dpi / BASE_DPI).max(1) as i32,
-            band: ((2 * dpi + BASE_DPI / 2) / BASE_DPI) as i32,
+            band,
             wordmark: WORDMARK as f32 * scale,
         }
     }
