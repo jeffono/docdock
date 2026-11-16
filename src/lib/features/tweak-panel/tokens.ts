@@ -1,9 +1,9 @@
 import source from "../../styles/tokens.css?raw";
 
 // Read declarations from the source, preserving their original spelling for export.
-export const tokens = [...source.matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)].map(
-  ([, name, value]) => ({ name, value }),
-);
+const parse = (text: string) =>
+  [...text.matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)].map(([, name, value]) => ({ name, value }));
+export const tokens = parse(source);
 export const defaults = Object.fromEntries(tokens.map(({ name, value }) => [name, value]));
 export type Values = Record<string, string>;
 
@@ -41,15 +41,21 @@ export function valid(name: string, value: string) {
   return CSS.supports(property, value);
 }
 
-export function exportDiff(values: Values) {
-  const changed = tokens.filter(({ name, value }) => values[name] !== value);
+export function exportDiff(values: Values, text = source) {
+  const changed = parse(text).filter(({ name, value }) => name in values && values[name] !== value);
   if (!changed.length) return "No token changes.";
-  const lines = source.split(/\r?\n/);
+  const lines = text.split(/\r?\n/);
   const edited = lines.map((line) => {
     const token = changed.find(({ name }) => line.trimStart().startsWith(`${name}:`));
-    return token
-      ? line.replace(`${token.name}: ${token.value};`, `${token.name}: ${values[token.name]};`)
-      : line;
+    if (!token) return line;
+    const next = line.replace(
+      `${token.name}: ${token.value};`,
+      `${token.name}: ${values[token.name]};`,
+    );
+    // An unexpected spelling in the source must not drop an edit silently.
+    if (next === line)
+      throw new Error(`Cannot export ${token.name}: unexpected spelling in tokens.css`);
+    return next;
   });
   const ranges: { start: number; end: number }[] = [];
   lines.forEach((line, index) => {

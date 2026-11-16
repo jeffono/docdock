@@ -71,16 +71,9 @@ onMount(() => {
       const target = document.querySelector("main");
       if (disposed || !target) return;
       disposeDev = install(target, async (open) => {
-        const previous = devHold;
         await panelSetPinned(pinned || open);
         devHold = open;
-        try {
-          await webSetVisible(!open && web && !preferences && !article);
-        } catch (e) {
-          devHold = previous;
-          await panelSetPinned(pinned || previous);
-          throw e;
-        }
+        await webSetVisible(!open && web && !preferences && !article);
       });
     });
   }
@@ -175,6 +168,7 @@ onMount(() => {
     }
     if (
       preferences &&
+      !(import.meta.env.DEV && devHold) &&
       event.key === "Escape" &&
       !event.isComposing &&
       // An open menu or dialog takes its own Esc.
@@ -310,7 +304,7 @@ function resizeKey(event: KeyboardEvent) {
 }
 function togglePin() {
   pinned = !pinned;
-  void action(panelSetPinned(pinned || (import.meta.env.DEV && devHold)));
+  panelSetPinned(pinned || (import.meta.env.DEV && devHold));
 }
 </script>
 

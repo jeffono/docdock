@@ -55,14 +55,13 @@ onMount(() => {
     if (stored && typeof stored === "object" && !Array.isArray(stored)) {
       for (const [label, preset] of Object.entries(stored)) {
         if (preset && typeof preset === "object" && !Array.isArray(preset)) {
-          presets[label] = Object.fromEntries(
-            tokens.map(({ name, value }) => {
-              const candidate = (preset as Values)[name];
-              return [
-                name,
-                typeof candidate === "string" && valid(name, candidate) ? candidate : value,
-              ];
-            }),
+          presets[label] = <Values>(
+            Object.fromEntries(
+              Object.entries(preset as Record<string, unknown>).filter(
+                ([name, value]) =>
+                  name in defaults && typeof value === "string" && valid(name, value as string),
+              ),
+            )
           );
         }
       }
@@ -106,7 +105,11 @@ function apply(preset: Values) {
 }
 function save() {
   if (!name.trim()) return;
-  const next = { ...presets, [name.trim()]: { ...values } };
+  // Only edited tokens, so a preset follows later changes to the source.
+  const edited = Object.fromEntries(
+    Object.entries(values).filter(([token, value]) => value !== defaults[token]),
+  );
+  const next = { ...presets, [name.trim()]: edited };
   try {
     localStorage.setItem(key, JSON.stringify(next));
     presets = next;
@@ -118,10 +121,11 @@ function save() {
 }
 </script>
 
+<svelte:window onkeydown={(event) => { if (open && event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); void toggle(); } }} />
 <div class="launcher"><Button variant="neutral" onclick={toggle} disabled={busy}>Tweak</Button></div>
 {#if open}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <section class="tweak-panel" aria-label="Development token tweaks" onkeydown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); void toggle(); } }}>
+  <section class="tweak-panel" aria-label="Development token tweaks" onkeydown={(event) => { if (event.key !== "Escape") event.stopPropagation(); }}>
     <div class="toolbar"><strong>Tweak panel · DEV</strong><Button variant="neutral" onclick={toggle} disabled={busy}>Close</Button></div>
     <p>Live preview · changes stay until reload. Closing restores the usual pin rule.</p>
     <div class="toolbar">
