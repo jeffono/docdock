@@ -142,7 +142,7 @@ per-monitor DPI awareness (PMv2).
   full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
-  edge handle opens the panel: the handle's height plus 16 logical pixels above and below. Points
+  edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
   outside that monitor are ignored. The rules are pure functions in `handle.rs`.
 - **Edge handle:** a native popup with per-pixel alpha (`platform/handle.rs`), created on the main
   thread, whose event loop pumps its messages, and owned by the panel window so it stays above it.
@@ -166,7 +166,9 @@ per-monitor DPI awareness (PMv2).
   `MA_NOACTIVATE`. Colors come from the UI, which resolves its tokens for the current theme and sends
   them through `panel_handle_look` at startup, on every theme change and on tweak window edits; until
   then the handle stays hidden and the stretch still opens the panel. Focus comes from the panel
-  thread with each focus report, so the outline follows the UI's band.
+  thread with each focus report, so the outline follows the UI's band. Dock also supplies pin state;
+  the wordmark uses muted only when neither pinned nor focused. Unchanged look/frame state never
+  posts a redraw.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
   The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
   uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation
@@ -221,9 +223,13 @@ per-monitor DPI awareness (PMv2).
   separate `tweak` window on the same UI page (`main.ts` mounts the tool there) with a capability
   added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its
   app commands. The window sends its whole state to the panel as the `tweak-state` event; the panel
-  applies tokens through CSSOM and slide motions through `dev_motion`, and asks again with
-  `tweak-request` after a reload. Release builds have neither the module, the commands, the capability
-  nor the frontend code.
+  applies tokens through CSSOM, slide motions through `dev_motion` and the edge handle's activation
+  percent and reveal distance through `dev_handle`, and asks again with `tweak-request` after a
+  reload. `dock.rs` reads that tuning, or the `handle.rs` constants in release builds, and passes it
+  to the pure rules. For the font picker the window sends `tweak-fonts-request`; the panel calls
+  `dev_fonts` and answers with `tweak-fonts`. `platform/fonts.rs` enumerates GDI font families,
+  sorted and deduplicated, skipping vertical `@` faces and non-TrueType faces the WebView cannot use.
+  Release builds have neither the module, the commands, the capability nor the frontend code.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.

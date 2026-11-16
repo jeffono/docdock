@@ -286,8 +286,11 @@ impl Dock {
     }
 
     fn update_handle(&mut self) {
-        let revealed = platform::cursor_pos()
-            .is_some_and(|cursor| handle::revealed(cursor, &self.monitor, self.side));
+        platform::handle::set_pinned(self.panel.state == State::Pinned);
+        let revealed = platform::cursor_pos().is_some_and(|cursor| {
+            let (percent, reveal) = handle_tuning();
+            handle::revealed(cursor, &self.monitor, self.side, percent, reveal)
+        });
         let ready = platform::handle::ready();
         let presence = handle::presence(ready, self.is_open(), self.slide.is_some(), revealed);
         if presence != self.handle_presence {
@@ -448,7 +451,13 @@ impl Dock {
             });
         }
         self.track_focus();
-        let zone = handle::cursor_zone(cursor, &self.monitor, self.rect, self.side);
+        let zone = handle::cursor_zone(
+            cursor,
+            &self.monitor,
+            self.rect,
+            self.side,
+            handle_tuning().0,
+        );
         // A user typing on the page can move the mouse away without losing the panel. The page does
         // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
         // Once focus is restored, the panel closes as with any other focus loss.
@@ -705,6 +714,15 @@ pub fn start(
         slide: None,
     };
     std::thread::spawn(move || dock.run(requests));
+}
+
+/// The activation stretch (percent of the tab height) and the reveal distance: constants in
+/// release builds, live values from the development tweak window otherwise.
+fn handle_tuning() -> (u32, u32) {
+    #[cfg(debug_assertions)]
+    return crate::dev::handle_tuning();
+    #[cfg(not(debug_assertions))]
+    (handle::ACTIVATION_PERCENT, handle::REVEAL_DISTANCE)
 }
 
 #[cfg(test)]

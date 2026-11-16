@@ -15,11 +15,15 @@ export function reportHandleLook() {
   probe.style.outlineColor = "var(--color-accent)";
   document.body.append(probe);
   const style = getComputedStyle(probe);
+  const text = channels(style.color);
+  probe.style.color = "var(--color-muted)";
+  const muted = channels(getComputedStyle(probe).color);
   const look: HandleLook = {
     background: channels(style.backgroundColor),
     line: channels(style.borderTopColor),
     accent: channels(style.outlineColor),
-    text: channels(style.color),
+    text,
+    muted,
   };
   probe.remove();
   // Without it the handle stays hidden, and the edge stretch still opens the panel.

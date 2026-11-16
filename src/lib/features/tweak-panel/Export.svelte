@@ -1,5 +1,6 @@
 <script lang="ts">
 import Button from "../../ui/Button.svelte";
+import { exportHandle } from "./handle";
 import { exportMotion } from "./motion";
 import { tweak } from "./state.svelte";
 import { exportDiff } from "./tokens";
@@ -9,7 +10,9 @@ let shown = $state(false);
 const diff = $derived.by(() => {
   if (!shown) return "";
   try {
-    return [exportDiff(tweak.tokens), exportMotion(tweak.motion)].join("\n");
+    return [exportDiff(tweak.tokens), exportMotion(tweak.motion), exportHandle(tweak.handle)].join(
+      "\n",
+    );
   } catch (e) {
     return String(e);
   }

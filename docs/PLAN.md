@@ -7,13 +7,14 @@ detail each stage when it is next.
 
 - M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`), awaiting the user's manual
   check: tray icon at 100%, 125% and 150% with light and dark taskbar; edge handle behavior and
-  screenshot approval of the tab; a look chosen with the tweak panel.
+  screenshot approval of the tab; a look chosen with the tweak window.
 - Branch `handle-tab` (from `m10`): the tab redrawn as a bulge of the panel with the wordmark and the
   focus band around it, a reveal slide for the closed handle, ease-in-out slides and dev-only slide
   controls in the tweak panel; awaiting the user's manual check before merging into `m10`.
-- Branch `tweak-window` (from `m10`): the tweak tool as a separate dev-only window that applies live
-  while the panel behaves as in production, a `cubic-bezier` duration and curve per slide, and the
-  motion constants in the export; awaiting the user's manual check before merging into `m10`.
+- Branch `tweak-integrate` (from `m10`, which has `tweak-window`): merges `handle-tuning` into the
+  separate dev-only tweak window: a 300% activation stretch, the muted wordmark while neither pinned
+  nor focused, and the window's Edge handle section and installed-font picker, routed through the
+  panel; awaiting the user's manual check before merging into `m10`.
 
 ## Next
 
@@ -125,6 +126,6 @@ Defaults used until you decide otherwise.
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Handle position            | Vertically centered on the work area; not movable                           |
-| Handle activation stretch  | The handle's height plus a small margin above and below                     |
+| Handle activation stretch  | 300% of the tab height, centered on it and clamped to the work area         |
 | Handle reveal distance     | Cursor within a few dozen pixels of the edge, near the handle               |
 | Clicking the open tab      | Closes the panel; dragging it does nothing                                  |

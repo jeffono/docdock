@@ -1,0 +1,54 @@
+import source from "../../../../src-tauri/src/handle.rs?raw";
+import type { HandleTuning } from "../../ipc";
+import { unifiedDiff } from "./diff";
+
+export type { HandleTuning } from "../../ipc";
+
+/** Each tuned value with its release constant in `handle.rs` and the range `dev_handle` accepts. */
+export const handleFields = [
+  {
+    key: "activationPercent",
+    constant: "ACTIVATION_PERCENT",
+    label: "Activation height (% of the tab)",
+    range: [100, 1000],
+  },
+  {
+    key: "revealDistance",
+    constant: "REVEAL_DISTANCE",
+    label: "Reveal distance (logical px)",
+    range: [1, 500],
+  },
+] as const;
+
+export function validHandle(value: unknown): value is HandleTuning {
+  if (!value || typeof value !== "object") return false;
+  return handleFields.every(({ key, range: [min, max] }) => {
+    const field = (value as Record<string, unknown>)[key];
+    return Number.isInteger(field) && (field as number) >= min && (field as number) <= max;
+  });
+}
+
+const pattern = (constant: string) => new RegExp(`^pub const ${constant}: u32 = (\\d+);$`);
+
+/** The release values as `handle.rs` spells them. */
+export function parseHandle(text = source): HandleTuning {
+  const lines = text.split(/\r?\n/);
+  const entries = handleFields.map(({ key, constant }) => {
+    const match = lines.map((line) => pattern(constant).exec(line)).find(Boolean);
+    if (!match) throw new Error(`Cannot find ${constant} in handle.rs`);
+    return [key, Number(match[1])];
+  });
+  return Object.fromEntries(entries) as HandleTuning;
+}
+
+export const handleDefaults = parseHandle();
+
+/** The `handle.rs` constants to change for `values`, as a unified diff. */
+export function exportHandle(values: HandleTuning, text = source) {
+  const lines = text.split(/\r?\n/);
+  const edited = lines.map((line) => {
+    const field = handleFields.find(({ constant }) => pattern(constant).test(line));
+    return field ? `pub const ${field.constant}: u32 = ${values[field.key]};` : line;
+  });
+  return unifiedDiff("src-tauri/src/handle.rs", lines, edited) ?? "No edge handle changes.";
+}

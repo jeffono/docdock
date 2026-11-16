@@ -3,7 +3,7 @@ import { onMount } from "svelte";
 import Button from "../../ui/Button.svelte";
 import { load, payload, status, tweak } from "./state.svelte";
 
-// Each preset holds edited tokens and all motions, in the format of the panel's payload.
+// Each preset holds edited tokens, all motions and the edge handle values, as the panel's payload.
 const key = "docdock-tweak-presets-v2";
 let presets = $state<Record<string, unknown>>({});
 let name = $state("");

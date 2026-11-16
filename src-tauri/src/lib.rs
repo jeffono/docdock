@@ -70,6 +70,10 @@ pub fn run() {
         #[cfg(debug_assertions)]
         dev::dev_motion,
         #[cfg(debug_assertions)]
+        dev::dev_handle,
+        #[cfg(debug_assertions)]
+        dev::dev_fonts,
+        #[cfg(debug_assertions)]
         dev::dev_tweak_window,
         commands::blocking_status,
         commands::blocking_sites,

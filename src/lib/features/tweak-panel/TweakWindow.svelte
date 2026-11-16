@@ -3,6 +3,7 @@ import { onMount } from "svelte";
 import { onTweakRequest, tweakSend } from "../../ipc";
 import Contrast from "./Contrast.svelte";
 import Export from "./Export.svelte";
+import HandleControls from "./HandleControls.svelte";
 import MotionSection from "./MotionSection.svelte";
 import Presets from "./Presets.svelte";
 import { payload, remember, restore, status, tweak } from "./state.svelte";
@@ -33,6 +34,7 @@ onMount(() => {
   {#if status.error}<p role="alert">{status.error}</p>{/if}
   <TokenGroups />
   <MotionSection />
+  <HandleControls />
   <Contrast />
   <Export />
   <p>Bar height previews CSS only; the native page offset is fixed. Verify a chosen size in the app.</p>

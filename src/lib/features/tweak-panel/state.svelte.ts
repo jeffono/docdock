@@ -1,11 +1,16 @@
-// The tweak window's state. Each section owns one key; the panel applies each key in `apply.ts`.
+// The tweak window's state. Each section owns one key; the panel applies each key in `install.ts`.
+import { type HandleTuning, handleDefaults, validHandle } from "./handle";
 import { type Motions, motionDefaults, validMotion } from "./motion";
 import { defaults as tokenDefaults, type Values, valid } from "./tokens";
 
-export type TweakState = { tokens: Values; motion: Motions };
+export type TweakState = { tokens: Values; motion: Motions; handle: HandleTuning };
 
 function initial(): TweakState {
-  return { tokens: { ...tokenDefaults }, motion: structuredClone(motionDefaults) };
+  return {
+    tokens: { ...tokenDefaults },
+    motion: structuredClone(motionDefaults),
+    handle: { ...handleDefaults },
+  };
 }
 
 export const tweak = $state<TweakState>(initial());
@@ -18,6 +23,7 @@ export function payload(state: TweakState) {
       Object.entries(state.tokens).filter(([name, value]) => value !== tokenDefaults[name]),
     ),
     motion: state.motion,
+    handle: state.handle,
   };
 }
 export type Payload = ReturnType<typeof payload>;
@@ -34,7 +40,7 @@ export function editToken(name: string, value: string) {
 /** Replaces the whole state with `preset` over the source values, keeping only valid entries. */
 export function load(preset: unknown) {
   const next = initial();
-  const { tokens, motion } = (preset && typeof preset === "object" ? preset : {}) as Record<
+  const { tokens, motion, handle } = (preset && typeof preset === "object" ? preset : {}) as Record<
     string,
     unknown
   >;
@@ -47,6 +53,11 @@ export function load(preset: unknown) {
       const value = (motion as Record<string, unknown>)[key];
       if (validMotion(value)) next.motion[key] = value;
     }
+  if (validHandle(handle))
+    next.handle = {
+      activationPercent: handle.activationPercent,
+      revealDistance: handle.revealDistance,
+    };
   Object.assign(tweak, next);
 }
 

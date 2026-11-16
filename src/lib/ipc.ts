@@ -79,16 +79,20 @@ export const panelResize = (width: number | null, done: boolean) =>
 
 /** The edge handle is drawn natively: it takes the theme's tokens resolved to sRGB channels. */
 type Rgb = [number, number, number];
-export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb };
+export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb; muted: Rgb };
 export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_look", { look });
 
 /** How a slide moves: milliseconds and `cubic-bezier` control points `[x1, y1, x2, y2]`. */
 export type Curve = [number, number, number, number];
 export type Motion = { duration: number; curve: Curve };
 export type Motions = { open: Motion; close: Motion; handleIn: Motion; handleOut: Motion };
+/** The edge handle's activation stretch (percent of the tab height) and reveal distance (logical px). */
+export type HandleTuning = { activationPercent: number; revealDistance: number };
 
 // Development builds only: release builds have neither the commands nor the tweak window.
 export const devMotion = (motions: Motions) => invoke<void>("dev_motion", { motions });
+export const devHandle = (tuning: HandleTuning) => invoke<void>("dev_handle", tuning);
+export const devFonts = () => invoke<string[]>("dev_fonts");
 export const devTweakWindow = () => invoke<void>("dev_tweak_window");
 export const isTweakWindow = () => getCurrentWebviewWindow().label === "tweak";
 /** The tweak window sends its whole state to the panel. */
@@ -98,6 +102,14 @@ export const onTweakState = <T>(handler: (state: T) => void) =>
 /** The panel, after a reload, asks the tweak window for its state. */
 export const tweakRequest = () => emitTo("tweak", "tweak-request");
 export const onTweakRequest = (handler: () => void) => listen("tweak-request", () => handler());
+/** The tweak window cannot invoke `dev_fonts`: it asks the panel, which answers with the list. */
+export type TweakFonts = { families: string[] } | { error: string };
+export const tweakFontsRequest = () => emitTo("main", "tweak-fonts-request");
+export const onTweakFontsRequest = (handler: () => void) =>
+  listen("tweak-fonts-request", () => handler());
+export const tweakFontsSend = (fonts: TweakFonts) => emitTo("tweak", "tweak-fonts", fonts);
+export const onTweakFonts = (handler: (fonts: TweakFonts) => void) =>
+  listen<TweakFonts>("tweak-fonts", (event) => handler(event.payload));
 
 /** Clicking the edge tab closed the pinned panel, unpinning it. */
 export const onPanelPinned = (handler: (pinned: boolean) => void): Promise<UnlistenFn> =>

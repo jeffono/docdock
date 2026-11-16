@@ -1,5 +1,5 @@
 <script lang="ts">
-import FontSelect from "./FontSelect.svelte";
+import FontPicker from "./FontPicker.svelte";
 import { editToken, tweak } from "./state.svelte";
 import { colors, defaults, tokens } from "./tokens";
 
@@ -36,7 +36,7 @@ function editColor(token: string, index: number, value: string) {
             {/each}
           </div>
         {:else if token.name === "--font-sans" || token.name === "--font-mono"}
-          <FontSelect name={token.name} value={tweak.tokens[token.name]} initial={defaults[token.name]} onchange={(value) => editToken(token.name, value)} />
+          <FontPicker name={token.name} value={tweak.tokens[token.name]} initial={defaults[token.name]} onchange={(value) => editToken(token.name, value)} />
         {:else}
           <input aria-label={token.name} value={tweak.tokens[token.name]} onchange={(e) => editToken(token.name, e.currentTarget.value)} />
         {/if}
