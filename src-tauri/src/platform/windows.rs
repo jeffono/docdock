@@ -16,7 +16,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
     IsIconic, IsWindow, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
     SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    ShowWindow, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 use windows::core::BOOL;
 
@@ -152,18 +152,28 @@ pub struct PanelWindow {
 }
 
 impl PanelWindow {
-    /// Applies styles and shows the window at its final size and position `x` without activating it.
-    pub fn prepare(raw: isize, rect: Rect, clip: Rect, x: i32, activation: Activation) -> Self {
-        let mut window = Self {
+    /// A window whose styles are already set, shown and sized by the first [`Self::place`].
+    pub fn new(raw: isize) -> Self {
+        Self {
             raw,
-            clip,
-            top: rect.top,
+            clip: Rect {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            top: 0,
             width: 0,
             height: 0,
             inset: 0,
             overlay_top: 0,
             offset: 0,
-        };
+        }
+    }
+
+    /// Applies styles and shows the window at its final size and position `x` without activating it.
+    pub fn prepare(raw: isize, rect: Rect, clip: Rect, x: i32, activation: Activation) -> Self {
+        let mut window = Self::new(raw);
         window.set_enabled(false);
         unsafe {
             let hwnd = window.hwnd();
@@ -256,6 +266,20 @@ impl PanelWindow {
             if SetWindowRgn(self.hwnd(), Some(region), true) == 0 {
                 let _ = DeleteObject(region.into());
             }
+        }
+    }
+
+    /// Lets clicks through to the windows below. Only a layered window is skipped by hit-testing.
+    pub fn set_click_through(&self, through: bool) {
+        unsafe {
+            let hwnd = self.hwnd();
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            let style = if through {
+                style | WS_EX_TRANSPARENT.0
+            } else {
+                style & !WS_EX_TRANSPARENT.0
+            };
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
         }
     }
 

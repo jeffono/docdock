@@ -14,6 +14,7 @@ import {
   onExitCancelled,
   onExitRequested,
   onPanelFocus,
+  onPanelPinned,
   onPanelSearch,
   onToggleMode,
   onWebState,
@@ -112,6 +113,9 @@ onMount(() => {
   const stop = onPanelFocus((value) => {
     focus = value;
   });
+  const unpinned = onPanelPinned((value) => {
+    pinned = value;
+  });
   const state = onWebState((value) => {
     // A route change keeps the document, which Rust's check misses.
     if (value?.url !== page?.url) readerTurn++;
@@ -203,6 +207,7 @@ onMount(() => {
     window.removeEventListener("keydown", shortcut, true);
     for (const listener of [
       stop,
+      unpinned,
       state,
       visible,
       toggle,
@@ -377,8 +382,14 @@ function togglePin() {
     pointer-events: none;
   }
 
+  /* The line stays on the inner edge, whichever side the panel is on. */
+  main.left {
+    border-right: 1px solid var(--color-line);
+    border-left: none;
+  }
+
   main.focused.left::before {
-    right: 0;
+    right: -1px;
     left: auto;
   }
 

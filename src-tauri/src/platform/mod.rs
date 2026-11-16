@@ -9,6 +9,7 @@ pub mod edge;
 pub mod external;
 mod files;
 mod guard;
+pub mod handle;
 pub mod keyboard;
 pub mod permission;
 mod recycle;

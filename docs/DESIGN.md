@@ -385,6 +385,16 @@ current state. It is hidden without an HTTP(S) page and disabled while saving. B
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 
+The edge handle shows the app identity: a 24 by 88 logical pixel tab with "DocDock" written
+vertically, read from top to bottom, in the sans font at `--font-size-sm`, weight 600 and `--color-muted`,
+on `--color-bg` with a 1 px `--color-line` border on the three sides away from the panel. It is drawn
+natively from those tokens, which the UI sends for the current theme. Closed, it appears on the screen
+edge, vertically centered on the work area, only while the cursor is within 48 logical pixels of the
+edge and of its ends; resting the cursor on the edge beside it, or up to 16 pixels beyond its ends,
+opens the panel. Open, it slides with the panel and sits outside the inner edge at the same height;
+clicking it closes the panel, even pinned, and dragging it does nothing. It has no hover state or
+tooltip and never takes focus.
+
 A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
 page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,
 camera, microphone, clipboard), "example.com wants to use your location." naming the site the answer

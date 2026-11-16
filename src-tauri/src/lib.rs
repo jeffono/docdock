@@ -4,6 +4,7 @@ mod blocking;
 mod commands;
 mod dock;
 mod error;
+mod handle;
 mod i18n;
 mod main_window;
 mod notes;
@@ -61,6 +62,7 @@ pub fn run() {
         commands::panel_close,
         commands::panel_set_side,
         commands::panel_resize,
+        commands::panel_handle_look,
         commands::blocking_status,
         commands::blocking_sites,
         commands::blocking_set_allowed,
@@ -138,10 +140,15 @@ pub fn run() {
             permissions::start(app.handle());
             watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
+            let tab = requests.clone();
+            let raw_handle = platform::handle::create(hwnd, move || {
+                let _ = tab.send(dock::Request::Tab);
+            })?;
             app.manage(requests);
             dock::start(
                 app.handle().clone(),
                 hwnd,
+                raw_handle,
                 receiver,
                 side,
                 notes::width(app.handle()),

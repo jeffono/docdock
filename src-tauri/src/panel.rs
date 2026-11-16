@@ -89,6 +89,11 @@ pub enum Input {
     /// The UI asked to close: Escape in the search bar, or the shortcut while already there. A pinned
     /// panel only gives up focus.
     Close,
+    /// The tab beside the open panel was clicked: it closes, even pinned. `dialog` indicates that
+    /// the native picker is open.
+    Tab {
+        dialog: bool,
+    },
 }
 
 /// Effect for the calling layer to perform.
@@ -126,7 +131,10 @@ impl Panel {
     pub fn step(&mut self, input: Input, now: Instant) -> Action {
         match (self.state, input) {
             // The picker is modal: closing it would re-enable the already hidden panel window.
-            (_, Input::Shortcut { dialog: true }) => Action::None,
+            (_, Input::Shortcut { dialog: true } | Input::Tab { dialog: true }) => Action::None,
+            (State::Open { .. } | State::Summoned { .. } | State::Pinned, Input::Tab { .. }) => {
+                self.dismiss()
+            }
             // Pinned stays pinned: the shortcut only brings focus to the search bar.
             (State::Pinned, Input::Shortcut { .. }) => Action::Summon,
             // An open panel takes focus instead of closing; the UI closes it when the shortcut
@@ -490,6 +498,23 @@ mod tests {
             tick(&mut p, CursorZone::Edge, false, t0, 1150),
             Action::Show
         );
+    }
+
+    /// Bug caught: clicking the tab leaves a pinned panel open, or a stationary cursor reopens it.
+    #[test]
+    fn tab_click_closes_even_pinned_but_not_over_the_picker() {
+        let t0 = Instant::now();
+        let mut pinned = opened(t0);
+        pinned.step(Input::Pin, t0);
+        for mut p in [opened(t0), summoned(t0), pinned] {
+            let picker = Input::Tab { dialog: true };
+            assert_eq!(p.step(picker, t0), Action::None);
+            assert_eq!(p.step(Input::Tab { dialog: false }, t0), Action::Hide);
+            assert_eq!(p.state, State::Dismissed);
+        }
+        let mut p = Panel::new(D);
+        assert_eq!(p.step(Input::Tab { dialog: false }, t0), Action::None);
+        assert_eq!(p.state, State::Hidden);
     }
 
     #[test]
