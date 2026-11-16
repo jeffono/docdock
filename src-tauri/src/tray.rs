@@ -1,6 +1,6 @@
 //! Tray: its icon, and the screen side and autostart controls it shares with Preferences.
 
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use tauri::image::Image;
@@ -173,13 +173,20 @@ fn glyph_image((light, index): Glyph) -> Image<'static> {
 
 /// How long settings messages must stop before the taskbar is read again.
 const SETTLE: Duration = Duration::from_millis(250);
+/// Not every scale change on the taskbar's monitor reaches a top-level window (an auto-hidden
+/// taskbar keeps the work area), so the glyph is also checked this often. Reading it is cheap.
+const RECHECK: Duration = Duration::from_secs(3);
 
 /// Replaces the glyph when the taskbar's theme or scale changed. Messages come in bursts, mostly
 /// about something else, and the shell may be the one broadcasting them: the glyph is read once they
 /// settle, off the window's thread, and sent to the shell only if it differs.
 fn follow_taskbar(tray: &TrayIcon, mut shown: Glyph, changes: &Receiver<()>) {
-    while changes.recv().is_ok() {
-        while changes.recv_timeout(SETTLE).is_ok() {}
+    loop {
+        match changes.recv_timeout(RECHECK) {
+            Ok(()) => while changes.recv_timeout(SETTLE).is_ok() {},
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
         let glyph = glyph();
         if glyph == shown {
             continue;
