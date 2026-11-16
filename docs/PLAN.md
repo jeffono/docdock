@@ -5,8 +5,9 @@ detail each stage when it is next.
 
 ## In progress
 
-- Tray icon: manual check at 100%, 125% and 150%, light and dark taskbar, pending on branch `tray-icon`.
-- Edge handle: implemented on `edge-handle`; awaits the manual visual check and screenshot approval.
+- M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`), awaiting the user's manual
+  check: tray icon at 100%, 125% and 150% with light and dark taskbar; edge handle behavior and
+  screenshot approval of the tab; a look chosen with the tweak panel.
 
 ## Next
 
