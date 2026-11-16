@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24">
+  <defs>
+    <style>
+      .cls-1{fill:none}
+      .cls-2{fill:#000000}
+    </style>
+  </defs>
+  <title>icon-tray-light-24</title>
+  <g id="Design">
+    <g>
+      <path d="M8 22 L8 2 L13 2 C17.971 2 22 6.029 22 11 L22 13 C22 17.971 17.971 22 13 22 Z M11 7 L11 8 L16 8 L16 7 Z M11 10 L11 11 L18 11 L18 10 Z M11 13 L11 14 L15 14 L15 13 Z" class="cls-1"/>
+      <path d="M8 22 L8 2 L13 2 C17.971 2 22 6.029 22 11 L22 13 C22 17.971 17.971 22 13 22 Z M11 7 L11 8 L16 8 L16 7 Z M11 10 L11 11 L18 11 L18 10 Z M11 13 L11 14 L15 14 L15 13 Z" class="cls-2"/>
+    </g>
+    <rect x="2" y="2" width="4" height="20" class="cls-2"/>
+  </g>
+</svg>

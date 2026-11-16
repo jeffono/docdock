@@ -10,9 +10,9 @@ detail each stage when it is next.
 M10 — Identity: official icon, a dev-only tweak panel to explore the look in the real app, and an edge
 handle that opens the panel.
 
-- [ ] App icon (`standard`). Hand-drawn SVGs per size, from the user's files, go to
+- [x] App icon (`standard`). Hand-drawn SVGs per size, from the user's files, go to
   `src-tauri/icons/source/` with a script that rebuilds everything derived. `icon.ico` takes the
-  drawn 16, 20, 24, 30, 32 and 48 and renders 36, 40, 64 and 256 from the 480 master; the PNGs in
+  drawn 16, 20, 24, 30, 32, 48 and 256 and renders 36, 40 and 64 from the 480 master; the PNGs in
   `tauri.conf.json` are regenerated. Only the user changes the drawings.
 - [ ] Tray icon (`advanced`). Monochrome glyphs (black for a light taskbar, white for a dark one) at the
   size for the monitor's scale (16, 20, 24, 32, 48; 40 and 64 rendered), switched when the

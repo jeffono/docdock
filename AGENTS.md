@@ -23,6 +23,7 @@ task requires it. Do not reopen recorded decisions without new evidence.
 | `pnpm check`      | Full verification; use on task completion   |
 | `pnpm test`       | Frontend tests                              |
 | `pnpm clean`      | Delete `.tmp/` and list merged leftovers    |
+| `pnpm icons`      | Rebuild app icons from the original SVGs    |
 
 Use only pnpm. Hooks run `check:fast` on commit and `check` on push: never use `--no-verify`.
 

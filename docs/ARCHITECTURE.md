@@ -69,6 +69,8 @@ flowchart LR
 
 ## Distribution and updates
 
+Original icon SVGs live in `src-tauri/icons/source/`; `pnpm icons` rebuilds the bundle icons, using exact-size drawings before the 480 master.
+
 NSIS installs for the current Windows user, in English or pt-BR, with a WebView2 bootstrapper when
 needed. Installers have no Windows code signature; see `decisions/0008-distribution.md` for the
 accepted SmartScreen warning and release-channel policy. The manual release workflow creates

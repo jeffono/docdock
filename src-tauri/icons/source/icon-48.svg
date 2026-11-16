@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 48 48">
+  <defs>
+    <style>
+      .cls-1{fill:url(#D_gradient)}
+      .cls-2{fill:#fffaf2}
+      .cls-3{fill:url(#Bar_gradient)}
+    </style>
+    <linearGradient id="D_gradient" x1="43.218" y1="46.029" x2="17.782" y2="1.971" gradientUnits="userSpaceOnUse">
+      <stop offset="0.2" stop-color="#1f4799"/>
+      <stop offset="0.68" stop-color="#438acc" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#66ccff"/>
+    </linearGradient>
+    <linearGradient id="Bar_gradient" x1="17.718" y1="41.699" x2="-2.718" y2="6.301" gradientUnits="userSpaceOnUse">
+      <stop offset="0.4" stop-color="#ff9326"/>
+      <stop offset="0.76" stop-color="#ffae26" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#ffc926"/>
+    </linearGradient>
+  </defs>
+  <title>icon-48</title>
+  <g id="Design">
+    <path d="M16 3 L25 3 C36.046 3 45 11.954 45 23 L45 25 C45 36.046 36.046 45 25 45 L16 45 Z" class="cls-1"/>
+    <path d="M23.5 13 L32.5 13 C33.328 13 34 13.672 34 14.5 L34 14.5 C34 15.328 33.328 16 32.5 16 L23.5 16 C22.672 16 22 15.328 22 14.5 L22 14.5 C22 13.672 22.672 13 23.5 13 Z" class="cls-2"/>
+    <path d="M23.5 19 L35.5 19 C36.328 19 37 19.672 37 20.5 L37 20.5 C37 21.328 36.328 22 35.5 22 L23.5 22 C22.672 22 22 21.328 22 20.5 L22 20.5 C22 19.672 22.672 19 23.5 19 Z" class="cls-2"/>
+    <path d="M23.5 25 L29.5 25 C30.328 25 31 25.672 31 26.5 L31 26.5 C31 27.328 30.328 28 29.5 28 L23.5 28 C22.672 28 22 27.328 22 26.5 L22 26.5 C22 25.672 22.672 25 23.5 25 Z" class="cls-2"/>
+    <path d="M6 3 L12 3 L12 45 L6 45 C4.343 45 3 43.657 3 42 L3 6 C3 4.343 4.343 3 6 3 Z" class="cls-3"/>
+  </g>
+</svg>

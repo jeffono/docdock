@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 480 480">
+  <defs>
+    <style>
+      .cls-1{fill:url(#D_gradient)}
+      .cls-2{fill:#fffaf2}
+      .cls-3{fill:url(#linear-gradient-1)}
+    </style>
+    <linearGradient id="D_gradient" x1="432.183" y1="460.287" x2="177.817" y2="19.713" gradientUnits="userSpaceOnUse">
+      <stop offset="0.2" stop-color="#1f4799"/>
+      <stop offset="0.68" stop-color="#438acc" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#66ccff"/>
+    </linearGradient>
+    <linearGradient id="linear-gradient-1" x1="177.183" y1="416.986" x2="-27.183" y2="63.014" gradientUnits="userSpaceOnUse">
+      <stop offset="0.4" stop-color="#ff9326"/>
+      <stop offset="0.76" stop-color="#ffae26" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#ffc926"/>
+    </linearGradient>
+  </defs>
+  <title>icon-design-480</title>
+  <g id="Design">
+    <path d="M170 30 L250 30 C360.457 30 450 119.543 450 230 L450 250 C450 360.457 360.457 450 250 450 L170 450 C164.477 450 160 445.523 160 440 L160 40 C160 34.477 164.477 30 170 30 Z" class="cls-1"/>
+    <path d="M235 130 L325 130 C333.284 130 340 136.716 340 145 L340 145 C340 153.284 333.284 160 325 160 L235 160 C226.716 160 220 153.284 220 145 L220 145 C220 136.716 226.716 130 235 130 Z" class="cls-2"/>
+    <path d="M235 190 L355 190 C363.284 190 370 196.716 370 205 L370 205 C370 213.284 363.284 220 355 220 L235 220 C226.716 220 220 213.284 220 205 L220 205 C220 196.716 226.716 190 235 190 Z" class="cls-2"/>
+    <path d="M235 250 L295 250 C303.284 250 310 256.716 310 265 L310 265 C310 273.284 303.284 280 295 280 L235 280 C226.716 280 220 273.284 220 265 L220 265 C220 256.716 226.716 250 235 250 Z" class="cls-2"/>
+    <path d="M50 30 L110 30 C115.523 30 120 34.477 120 40 L120 440 C120 445.523 115.523 450 110 450 L50 450 C38.954 450 30 441.046 30 430 L30 50 C30 38.954 38.954 30 50 30 Z" class="cls-3"/>
+  </g>
+</svg>

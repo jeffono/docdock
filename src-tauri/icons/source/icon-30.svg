@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 30 30">
+  <defs>
+    <style>
+      .cls-1{fill:url(#D_gradient)}
+      .cls-2{fill:#fffaf2}
+      .cls-3{fill:url(#Bar_gradient)}
+    </style>
+    <linearGradient id="D_gradient" x1="26.879" y1="28.647" x2="11.121" y2="1.353" gradientUnits="userSpaceOnUse">
+      <stop offset="0.2" stop-color="#1f4799"/>
+      <stop offset="0.68" stop-color="#438acc" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#66ccff"/>
+    </linearGradient>
+    <linearGradient id="Bar_gradient" x1="10.754" y1="25.833" x2="-1.754" y2="4.167" gradientUnits="userSpaceOnUse">
+      <stop offset="0.4" stop-color="#ff9326"/>
+      <stop offset="0.76" stop-color="#ffae26" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#ffc926"/>
+    </linearGradient>
+  </defs>
+  <title>icon-30</title>
+  <g id="Design">
+    <path d="M10 2 L15.807 2 C22.541 2 28 7.459 28 14.193 L28 15.807 C28 22.541 22.541 28 15.807 28 L10 28 Z" class="cls-1"/>
+    <path d="M14 8 L20 8 C20.552 8 21 8.448 21 9 L21 9 C21 9.552 20.552 10 20 10 L14 10 C13.448 10 13 9.552 13 9 L13 9 C13 8.448 13.448 8 14 8 Z" class="cls-2"/>
+    <path d="M14 12 L22 12 C22.552 12 23 12.448 23 13 L23 13 C23 13.552 22.552 14 22 14 L14 14 C13.448 14 13 13.552 13 13 L13 13 C13 12.448 13.448 12 14 12 Z" class="cls-2"/>
+    <path d="M14 16 L18 16 C18.552 16 19 16.448 19 17 L19 17 C19 17.552 18.552 18 18 18 L14 18 C13.448 18 13 17.552 13 17 L13 17 C13 16.448 13.448 16 14 16 Z" class="cls-2"/>
+    <path d="M5 2 L7 2 L7 28 L5 28 C3.343 28 2 26.657 2 25 L2 5 C2 3.343 3.343 2 5 2 Z" class="cls-3"/>
+  </g>
+</svg>
