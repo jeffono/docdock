@@ -3,6 +3,17 @@
 Identity chosen by the user: a neutral, compact system utility. Values live in
 `src/lib/styles/tokens.css`; this file says how to use them. Only the user changes the identity.
 
+Development builds offer a small Tweak button at the bottom of the panel, dynamically loaded only
+under `import.meta.env.DEV`. It opens a compact token editor over the lower part of the content;
+CSSOM property updates preview both color schemes, typography and geometry without changing the
+source or CSP. Named local presets allow A/B switching; Export shows a unified `tokens.css` diff
+to select and copy. Closing keeps the preview until reload; Reset restores source values. The tool
+temporarily uses the existing pin rule (`user pin || tweak open`) and hides the native page, restoring
+the user's pin and page on close. The preview stays visible but inert; tool keys do not reach note
+shortcuts, and Esc closes the tool. Tab changes wait until it closes. Native page geometry still uses
+the fixed Rust bar offset, so bar-size experiments require a matching code change before adoption.
+No identity is selected by the tool; applying a look and screenshot approval remain M10 work.
+
 ## Principles
 
 - **Quick reference:** the panel is narrow and opens briefly. Content first, with minimal controls.
