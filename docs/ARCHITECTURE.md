@@ -477,7 +477,8 @@ skipped folder (case-insensitive, any depth) is unread, not gone, so it keeps it
 pin, expansion and editor, is never re-read by the index sync and never reaches `missing()`; a
 pinned item Rust reports `missing` there is not offered for removal. Kept notes follow renames and
 moves (watcher pairs and the app's own), and a delete made by the app drops them with everything
-below. A security change on the folder reaches the watcher, and while folders are skipped the list
+below; an Undo while the folder is still skipped restores the file, which shows once the folder
+opens again. A security change on the folder reaches the watcher, and while folders are skipped the list
 is read again whenever the panel hides, so a folder that opens again returns without a timer. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
 which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title,
