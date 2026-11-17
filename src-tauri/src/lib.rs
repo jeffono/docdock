@@ -17,7 +17,6 @@ mod pinned;
 mod platform;
 mod reader;
 mod shortcut;
-mod tab;
 mod trash;
 mod tray;
 mod updates;
@@ -66,7 +65,8 @@ pub fn run() {
         commands::panel_close,
         commands::panel_set_side,
         commands::panel_resize,
-        commands::panel_handle_look,
+        commands::panel_tab_shape,
+        commands::panel_tab,
         #[cfg(debug_assertions)]
         dev::dev_motion,
         #[cfg(debug_assertions)]
@@ -154,15 +154,10 @@ pub fn run() {
             permissions::start(app.handle());
             watch::monitor(app.handle().clone());
             shortcut::setup(app, requests.clone());
-            let tab = requests.clone();
-            let raw_handle = platform::handle::create(hwnd, move || {
-                let _ = tab.send(dock::Request::Tab);
-            })?;
             app.manage(requests);
             dock::start(
                 app.handle().clone(),
                 hwnd,
-                raw_handle,
                 receiver,
                 side,
                 notes::width(app.handle()),

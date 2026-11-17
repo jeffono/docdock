@@ -1,4 +1,14 @@
 /**
+ * The panel's columns in the viewport, which reaches beyond the panel by the edge tab's strip, as
+ * `--frame-left` and `--frame-right` on the panel say.
+ */
+export function panelColumns(inside: Element) {
+  const style = getComputedStyle(inside);
+  const frame = (name: string) => Number.parseFloat(style.getPropertyValue(name)) || 0;
+  return { left: frame("--frame-left"), right: innerWidth - frame("--frame-right") };
+}
+
+/**
  * Places an open modal dialog just below `near`, what it is about, or above it when there is no room,
  * always inside the viewport; centered without `near`. The dialog's top margin keeps the gap.
  */

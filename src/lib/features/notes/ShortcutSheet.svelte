@@ -42,7 +42,7 @@ export function shortcut(event: KeyboardEvent) {
 </dialog>
 
 <style>
-dialog { box-sizing: border-box; width: calc(100dvw - var(--space-4) * 2); max-width: none; max-height: calc(100dvh - var(--space-4) * 2); padding: 0; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-fg); }
+dialog { box-sizing: border-box; left: var(--frame-left); right: var(--frame-right); width: calc(var(--panel-width) - var(--space-4) * 2); max-width: none; max-height: calc(100dvh - var(--space-4) * 2); padding: 0; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-fg); }
 dialog[open] { display: flex; flex-direction: column; }
 dialog::backdrop { background: transparent; }
 header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-line); }

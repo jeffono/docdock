@@ -7,11 +7,12 @@ detail each stage when it is next.
 
 - M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`; `tweak-polish` and
   `handle-reveal` merged, batched placement and capture-excluded tab added). The user checked it
-  manually; the tab moves into the panel's WebView next (see the task below), then the look chosen
-  with the tweak window goes to the defaults. Native page bar offset still ignores `--size-bar`.
-- Spike `tab-spike` (worktree `~/.t3/worktrees/docdock/t3-b05596e9-03bccc18f7a51521`, head
-  `412a3ef`, from `m10`) passed the user's manual check: no resize flicker, clicks pass through,
-  focus and activation unchanged. Throwaway: production is rebuilt on `m10`, using it as reference.
+  manually; then the look chosen with the tweak window goes to the defaults. Native page bar offset
+  still ignores `--size-bar`.
+- Branch `webview-tab` (from `m10`): the tab drawn by the panel's WebView, rebuilt from the spike
+  `tab-spike` (worktree `~/.t3/worktrees/docdock/t3-b05596e9-03bccc18f7a51521`, throwaway); awaiting
+  the user's manual check, the RAM/GPU measurement and a review by another provider before merging
+  into `m10`.
 
 ## Next
 
@@ -40,24 +41,14 @@ handle that opens the panel.
   handle becomes a tab outside its inner edge with the app identity (vertical "DocDock" or the
   icon). The trigger rule lives in pure functions with tests; visual behavior gets a manual
   verification script. See the defaults in "Open questions".
-- [ ] Tab in the panel's WebView (`advanced`). The native tab window imitated the panel with a second
-  renderer: its border never matched exactly at 125%/150%, it trailed the panel by a frame during
-  resize, and every panel rule (capture exclusion) had to be copied. Future tab content (voice
-  input, AI token usage, GPU/RAM/network meters) is easier in HTML. Decided after `tab-spike`:
-  - The main window is transparent and wider by the tab depth on the inner side; one SVG path draws
-    the inner-edge line or focus band down the panel and around the tab, so there is no seam.
-    Remaining in the spike: a subtle 1 px line where the tab meets the panel.
-  - Clicks: `SetWindowRgn` shaped row by row to panel plus tab outline (about 1 px beyond the curves),
-    combined with the monitor clip; while parked and still, `WS_EX_LAYERED | WS_EX_TRANSPARENT`.
-  - Parked: the tab's reveal shift pushes the whole panel, so only the tab shows; reveal, rush and
-    activation rules in `handle.rs` are unchanged.
-  - Remove `tab.rs`, `platform/handle.rs`, `tiny-skia`, `handle-look.ts`, `panel_handle_look` and
-    `Look`. Rust sends the tab shape to the UI instead of duplicating constants.
-  - Fix what the wider viewport shifts: menus, dialogs and the width in Preferences position against
-    the panel, not the viewport. The tab click keeps the native drag tolerance and release-on-tab rule.
-  - Risks to check: a flash when toggling `WS_EX_LAYERED`, dark `color-scheme` painting the
-    transparent area, Windows 10. Measured with the panel parked: RAM and GPU equal to the native tab
-    within 5 MB.
+- [x] Tab in the panel's WebView (`advanced`). The main window is transparent and wider by the tab
+  depth on the inner side, shaped by `SetWindowRgn` to the panel and the tab's outline; one SVG path
+  draws the inner-edge line or focus band around the tab. Parked, the window lets every click
+  through, and the tab's shift pushes the whole panel. `tab.rs`, `platform/handle.rs`, `tiny-skia`
+  and the look IPC are gone; Rust sends the tab's size and drag tolerance. Menus, dialogs, editor
+  tooltips and the Preferences width keep to the panel. To check: a flash when toggling
+  `WS_EX_LAYERED`, dark `color-scheme` painting the transparent strip, Windows 10, and RAM and GPU
+  with the panel parked within 5 MB of the native tab.
 
 ## Completed
 

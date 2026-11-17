@@ -17,7 +17,6 @@ src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
   panel.rs               Pure panel state machine
   handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
-  tab.rs                 Pure drawing of the edge handle's tab with the wordmark, as RGBA pixels
   motion.rs              Slide duration and easing; tunable live in development builds
   dock.rs                Thread connecting cursor, state machine and windows
   tray.rs                Tray: icon, screen side, exit and Windows startup
@@ -146,37 +145,40 @@ per-monitor DPI awareness (PMv2).
   outside that monitor are ignored. A rush skips the pause: the cursor reaching the edge at 3000
   logical pixels per second or more toward it, measured between the last two polls, opens the panel
   at once. The rules are pure functions in `handle.rs`.
-- **Edge handle:** a native popup with per-pixel alpha (`platform/handle.rs`), created on the main
-  thread, whose event loop pumps its messages, and owned by the panel window so it stays above it.
-  It is layered, `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW`, and `WS_EX_TRANSPARENT` while it shows over
-  the closed panel: hit-testing skips it, so scrollbars and maximized window buttons below keep their
-  clicks; open, its transparent pixels still pass clicks through. `tab.rs` draws it with `tiny-skia`
-  into premultiplied pixels that `UpdateLayeredWindow` shows; other threads only post a redraw to
-  the main thread. The window reaches into the panel by the width of its focus band and repaints its
-  inner-edge line or focus band along the tab's curves, so no seam shows where they meet; past the
-  current line or band those pixels are transparent, so at the tab's height the panel's resize strip
-  loses only the columns of its line or band, and a click on them does nothing. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
-  panel in the same `DeferWindowPos` batch, so with the panel parked it rests on the screen edge.
-  `handle::presence` decides: hidden, shown click-through (revealed while closed, or the panel
-  opening), or the tab (open and at rest), the only state where it is enabled and takes clicks. The
-  reveal area is a capsule: every point within 400% of the tab height of the parked tab's outline,
-  stretched along the edge to the activation stretch if that is longer, so the handle shows before
-  the edge opens. `handle::Reveal` keeps it hidden while the cursor rushes toward the edge, never
-  hiding a shown handle, and from the moment the panel starts closing until the cursor leaves the
-  area. Appearing alone, it starts its depth beyond the screen edge and slides in; hiding, it slides
-  back out and only then hides, still click-through. Moving the panel's way, it slides in step with
-  the panel's slide instead, same motion and start: hidden, it comes in with the opening panel, and
-  it leaves with the closing one, both landing on the same frame. The tab counts
-  as inside the open panel. A press and release on it within the system drag distance, the release
-  on the tab's shape (`tab::hit`, since capture bypasses the alpha hit-testing), sends
-  `Request::Tab`: the panel closes as on a close request, even pinned, which emits `panel-pinned` so
-  the UI's pin follows; with the native picker open it does nothing. `WM_MOUSEACTIVATE` answers
-  `MA_NOACTIVATE`. Colors come from the UI, which resolves its tokens for the current theme and sends
-  them through `panel_handle_look` at startup, on every theme change and on tweak window edits; until
-  then the handle stays hidden and the stretch still opens the panel. Focus comes from the panel
-  thread with each focus report, so the outline follows the UI's band. Dock also supplies pin state;
-  the wordmark uses muted only when neither pinned nor focused. Unchanged look/frame state never
-  posts a redraw.
+- **Edge handle:** the panel's tab, drawn by the panel's own WebView (`features/tab/EdgeTab.svelte`).
+  The main window is transparent and wider than the panel by the tab's depth on the inner side
+  (`handle::framed_rect`); `main` keeps to the panel with a margin, and one SVG path draws the
+  inner-edge line, or the focus band, down the panel and around the tab, so no seam shows where they
+  meet. The tab's fill reaches a band's width into the panel, over its background. `SetWindowRgn`
+  shapes the window row by row to the panel plus the tab's outline, a pixel beyond the curves for
+  their antialiased edge (`handle::Outline`), combined with the monitor clip: clicks beside the tab
+  reach the windows below. Rust gives the UI the tab's logical size and the system drag tolerance
+  (`panel_tab_shape`), so the geometry has one source; the UI centers the tab on the window, as
+  Rust centers the region, with a row of slack for rounding. Because the viewport reaches beyond
+  the panel, the panel sets `--frame-left`, `--frame-right` and `--panel-width`: dialogs center on
+  the panel, menus placed at a point and CodeMirror tooltips keep to its columns
+  (`ui/place.ts::panelColumns`), the anchored order menu flips to fit the panel, and Preferences shows
+  the panel's own width. It slides with the panel: `handle_shift` pushes all the panel's windows out
+  by the tab's depth, so a hidden handle takes the parked panel's tab beyond the screen edge, and
+  revealed, only the tab shows. While parked the window is `WS_EX_LAYERED | WS_EX_TRANSPARENT` (as
+  Tauri's `set_ignore_cursor_events` does), so the shown handle lets every click through to the
+  scrollbars and maximized window buttons below; opening clears both. `handle::presence` decides:
+  hidden, shown click-through (revealed while closed, or the panel opening), or the tab (open and
+  at rest), the only state whose clicks count. The reveal area is a capsule: every point within 400%
+  of the tab height of the parked tab's outline, stretched along the edge to the activation stretch
+  if that is longer, so the handle shows before the edge opens. `handle::Reveal` keeps it hidden
+  while the cursor rushes toward the edge, never hiding a shown handle, and from the moment the panel
+  starts closing until the cursor leaves the area. Appearing alone, it slides in from beyond the
+  screen edge; hiding, it slides back out. Moving the panel's way, it slides in step with the panel's
+  slide instead, same motion and start: hidden, it comes in with the opening panel, and it leaves
+  with the closing one, both landing on the same frame. The tab counts as inside the open panel. A
+  press and release on it within the system drag distance (`features/tab/press.ts`), the release on
+  the tab's shape (`elementFromPoint`, since the pointer capture delivers releases anywhere), sends
+  `panel_tab`; its `pointerdown` stops before the window's handler, so the click never activates the
+  panel. Rust takes it only in the tab state: the panel closes as on a close request, even pinned,
+  which emits `panel-pinned` so the UI's pin follows; with the native picker open it does nothing.
+  The tab follows the theme and tweak window edits through CSS tokens, the focus report for its
+  band and the UI's pin for its wordmark, muted only when neither pinned nor focused.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
   The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
   uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation

@@ -390,8 +390,7 @@ shown in the notes list.
 
 The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
 controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
-a 6-pixel handle along the inner edge resizes it (double-click restores the default); beside the
-edge tab, its columns under the panel's line or focus band belong to the tab.
+a 6-pixel handle along the inner edge resizes it (double-click restores the default).
 The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
 Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
 Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
@@ -411,8 +410,8 @@ between tab and panel. The panel's inner-edge line, 1 px `--color-line`, runs ar
 outline; while the panel has focus, its 2 px `--color-accent` band does instead. The user's wordmark
 (`src-tauri/icons/source/wordmark.svg`) runs along the tab, 52 pixels long, reading from bottom to
 top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered
-between the band and the panel's edge. Edges are antialiased. It is drawn natively from those
-tokens, which the UI sends for the current theme. Closed, it slides in from the screen edge,
+between the band and the panel's edge. Edges are antialiased. The panel's WebView draws it with those
+tokens, in a strip of the panel's own window beside the panel. Closed, it slides in from the screen edge,
 vertically centered on the work area, only while the cursor is within 48 logical pixels of the edge
 and of the activation stretch, and slides back out when the cursor leaves; touching the edge within
 a centered stretch of 300% of the tab height, clipped to the work area, opens the panel. Open, it

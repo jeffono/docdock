@@ -74,6 +74,10 @@ function triggerKey(event: KeyboardEvent) {
 .preferences { margin-bottom: var(--space-2); }
 .trigger { anchor-name: --note-order; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-muted); font: inherit; font-size: var(--font-size-sm); min-height: var(--size-control); padding: var(--space-1) var(--space-2); text-align: left; }
 .trigger:hover { background: var(--color-surface); color: var(--color-fg); }
-.note-order :global(.order-menu) { position-anchor: --note-order; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
+/* Flipped to fit the panel, not the viewport, which reaches beyond it by the edge tab's strip. */
+.note-order :global(.order-menu) { position-anchor: --note-order; position-area: bottom span-right; right: var(--frame-right); position-try-fallbacks: --note-order-up, --note-order-left, --note-order-up-left; }
+@position-try --note-order-up { position-area: top span-right; right: var(--frame-right); }
+@position-try --note-order-left { position-area: bottom span-left; right: 0; left: var(--frame-left); }
+@position-try --note-order-up-left { position-area: top span-left; right: 0; left: var(--frame-left); }
 .error { color: var(--color-danger); font-size: var(--font-size-sm); }
 </style>

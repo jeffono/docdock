@@ -124,7 +124,7 @@ function key(event: KeyboardEvent) {
 </dialog>
 
 <style>
-dialog { box-sizing: border-box; width: calc(100dvw - var(--space-4) * 2); max-width: none; bottom: auto; margin: var(--space-2) auto 0; padding: var(--space-3); border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-fg); }
+dialog { box-sizing: border-box; left: var(--frame-left); right: var(--frame-right); width: calc(var(--panel-width) - var(--space-4) * 2); max-width: none; bottom: auto; margin: var(--space-2) auto 0; padding: var(--space-3); border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-fg); }
 dialog::backdrop { background: var(--color-scrim); }
 h2 { margin: 0 0 var(--space-2); font-size: var(--font-size-md); font-weight: 600; overflow-wrap: anywhere; }
 dialog :global(input) { width: 100%; }
