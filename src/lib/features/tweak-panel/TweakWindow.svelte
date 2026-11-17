@@ -7,6 +7,7 @@ import HandleControls from "./HandleControls.svelte";
 import MotionSection from "./MotionSection.svelte";
 import Presets from "./Presets.svelte";
 import { payload, remember, restore, status, tweak } from "./state.svelte";
+import TabShapeControls from "./TabShapeControls.svelte";
 import TokenGroups from "./TokenGroups.svelte";
 
 restore();
@@ -33,7 +34,7 @@ onMount(() => {
   {#if status.error}<p role="alert">{status.error}</p>{/if}
   <div class="columns">
     <section class="options" aria-label="Tweak options">
-      <TokenGroups /><MotionSection /><HandleControls />
+      <TokenGroups /><MotionSection /><HandleControls /><TabShapeControls />
       <details><summary>Presets and export</summary><Presets /><Export /></details>
       <p>Bar height previews CSS only; the native page offset is fixed. Verify a chosen size in the app.</p>
     </section>

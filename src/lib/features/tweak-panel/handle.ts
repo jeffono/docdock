@@ -1,6 +1,7 @@
 import source from "../../../../src-tauri/src/handle.rs?raw";
-import type { HandleTuning } from "../../ipc";
+import type { HandleTuning, TabSize } from "../../ipc";
 import { unifiedDiff } from "./diff";
+import { editSize } from "./tab-shape";
 
 export type { HandleTuning } from "../../ipc";
 
@@ -52,12 +53,18 @@ export function parseHandle(text = source): HandleTuning {
 
 export const handleDefaults = parseHandle();
 
-/** The `handle.rs` constants to change for `values`, as a unified diff. */
-export function exportHandle(values: HandleTuning, text = source) {
+/**
+ * The `handle.rs` constants to change for `values` and the tab's `size`, as one unified diff: the
+ * constants sit close enough for their hunks to share context.
+ */
+export function exportHandle(values: HandleTuning, size: TabSize, text = source) {
   const lines = text.split(/\r?\n/);
-  const edited = lines.map((line) => {
-    const field = handleFields.find(({ constant }) => pattern(constant).test(line));
-    return field ? `pub const ${field.constant}: u32 = ${values[field.key]};` : line;
-  });
+  const edited = editSize(
+    lines.map((line) => {
+      const field = handleFields.find(({ constant }) => pattern(constant).test(line));
+      return field ? `pub const ${field.constant}: u32 = ${values[field.key]};` : line;
+    }),
+    size,
+  );
   return unifiedDiff("src-tauri/src/handle.rs", lines, edited) ?? "No edge handle changes.";
 }

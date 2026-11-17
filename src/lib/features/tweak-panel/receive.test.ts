@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { handleDefaults } from "./handle";
 import { motionDefaults } from "./motion";
 import { receive } from "./receive";
+import { tabDefaults } from "./tab-shape";
 
 describe("receive", () => {
   it("drops ordinary CSS properties, which would restyle the panel root", () => {
@@ -14,6 +15,7 @@ describe("receive", () => {
         tokens: {},
         motion: motionDefaults,
         handle: handleDefaults,
+        tab: tabDefaults,
       });
     }
   });

@@ -77,12 +77,14 @@ export const panelResize = (width: number | null, done: boolean) =>
     done,
   });
 
-/**
- * The edge tab's size in logical pixels, which the window's region follows, and the system drag
- * tolerance each way in physical pixels.
- */
-export type TabShape = { depth: number; height: number; curve: number; drag: [number, number] };
+/** The edge tab's size in logical pixels, which the window's region follows. */
+export type TabSize = { depth: number; height: number; curve: number };
+/** The tab's size and the system drag tolerance each way in physical pixels. */
+export type TabShape = TabSize & { drag: [number, number] };
 export const panelTabShape = () => invoke<TabShape>("panel_tab_shape");
+/** Rust reshaped the window for a new tab size, which only the tweak window changes. */
+export const onPanelTabShape = (handler: (size: TabSize) => void): Promise<UnlistenFn> =>
+  listen<TabSize>("panel-tab-shape", (event) => handler(event.payload));
 /** The edge tab was clicked; Rust takes it only from the open panel at rest. */
 export const panelTab = () => invoke<void>("panel_tab");
 
@@ -99,6 +101,8 @@ export type HandleTuning = { activationPercent: number; revealPercent: number; r
 // Development builds only: release builds have neither the commands nor the tweak window.
 export const devMotion = (motions: Motions) => invoke<void>("dev_motion", { motions });
 export const devHandle = (tuning: HandleTuning) => invoke<void>("dev_handle", tuning);
+/** Rust validates the size and answers with `panel-tab-shape` once the window follows it. */
+export const devTabShape = (size: TabSize) => invoke<void>("dev_tab_shape", size);
 export const devFonts = () => invoke<string[]>("dev_fonts");
 export const devTweakWindow = () => invoke<void>("dev_tweak_window");
 export const isTweakWindow = () => getCurrentWebviewWindow().label === "tweak";

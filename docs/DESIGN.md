@@ -10,7 +10,7 @@ untouched). Every change applies live to the panel, even hidden: CSSOM token upd
 schemes, typography and geometry, without changing the source or CSP; colors also reach the natively
 drawn edge handle. The options scroll independently from an always-visible WCAG AA/AAA table (stacked below the options
 in narrow windows). Collapsible groups collect typography, colors, layout, CSS transitions, native
-motion, the edge handle, and presets/export. Numeric controls apply on input with bounded steppers
+motion, the edge handle, the tab shape, and presets/export. Numeric controls apply on input with bounded steppers
 and Up/Down keys; Shift multiplies the step by ten. Colors use HSB by default, with a swatch beside
 the CSS/hex field and an alpha control; untouched source spellings remain unchanged.
 Each font-family token has a keyboard-accessible filtering combobox (Up/Down, Enter, Escape): curated stacks first, then the
@@ -20,13 +20,17 @@ with presets, including overshooting `back` curves, four numbers and a draggable
 slide reads its motion when it starts; an ongoing slide keeps its starting motion. The separate
 `--duration` token affects CSS transitions, not these native slides. The Edge handle section sets the
 activation height (100-1000% of the tab), the reveal radius (10-1000% of the tab) and the rush speed
-(500-20000 logical pixels per second). Named presets can be renamed, deleted or overwritten; deletion
+(500-20000 logical pixels per second). The Tab shape section sets the tab's depth (4-64 logical
+pixels), height (40-400) and curve height (at most half the height), which resize the panel's window
+and its click region at the next cursor poll, open or parked, and the wordmark length (10-300
+pixels), a UI-only override. Named presets can be renamed, deleted or overwritten; deletion
 and overwrite require inline confirmation. Storage failure preserves the previous map. Presets keep
-tokens, motions and
-the edge handle values for A/B switching; Reset restores the source values. The window remembers its
+tokens, motions, the edge handle values and the tab shape for A/B switching; a preset saved before
+the tab shape keeps the source shape. Reset restores the source values. The window remembers its
 last state, so a reload or a restart after a Rust change keeps the tweaks once it is open again.
-Export shows the unified diffs to apply: `tokens.css`, the motion constants in `motion.rs` and the
-edge handle constants in `handle.rs`; release builds keep those constants. Native page geometry
+Export shows the unified diffs to apply: `tokens.css`, the motion constants in `motion.rs`, the
+edge handle and tab size constants in `handle.rs` (one diff) and the wordmark length in
+`EdgeTab.svelte`; release builds keep those constants. Native page geometry
 still uses the fixed Rust bar offset, so bar-size experiments require a matching code change before
 adoption. No identity is selected by the tool; applying a look and screenshot approval remain M10
 work.

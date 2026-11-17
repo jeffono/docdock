@@ -153,7 +153,8 @@ per-monitor DPI awareness (PMv2).
   shapes the window row by row to the panel plus the tab's outline, a pixel beyond the curves for
   their antialiased edge (`handle::Outline`), combined with the monitor clip: clicks beside the tab
   reach the windows below. Rust gives the UI the tab's logical size and the system drag tolerance
-  (`panel_tab_shape`), so the geometry has one source; the UI centers the tab on the window, as
+  (`panel_tab_shape`), and the new size as `panel-tab-shape` once it reshaped the window for it, so
+  the geometry has one source; the UI centers the tab on the window, as
   Rust centers the region, with a row of slack for rounding. Because the viewport reaches beyond
   the panel, the panel sets `--frame-left`, `--frame-right` and `--panel-width`: dialogs center on
   the panel, menus placed at a point and CodeMirror tooltips keep to its columns
@@ -234,9 +235,12 @@ per-monitor DPI awareness (PMv2).
   added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its
   app commands. The window sends its whole state to the panel as the `tweak-state` event; the panel
   applies tokens through CSSOM, slide motions through `dev_motion` and the edge handle's activation
-  percent, reveal radius and rush speed through `dev_handle`, and asks again with `tweak-request` after a
-  reload. `dock.rs` reads that tuning, or the `handle.rs` constants in release builds, and passes it
-  to the pure rules. For the font picker the window sends `tweak-fonts-request`; the panel calls
+  percent, reveal radius and rush speed through `dev_handle`, the tab's size through `dev_tab_shape`
+  and the wordmark length to `EdgeTab.svelte` directly, and asks again with `tweak-request` after a
+  reload. `dock.rs` reads that tuning, or the `handle.rs` constants in release builds, once per cursor
+  poll and passes the same snapshot to the pure rules and the window geometry. A new tab size goes
+  through the ordinary placement (`Dock::place`): window width, region, the hidden handle's shift and
+  the page, open or parked; then `dock.rs` emits `panel-tab-shape` and the UI redraws the tab. For the font picker the window sends `tweak-fonts-request`; the panel calls
   `dev_fonts` and answers with `tweak-fonts`. `platform/fonts.rs` enumerates GDI font families,
   sorted and deduplicated, skipping vertical `@` faces and non-TrueType faces the WebView cannot use.
   Release builds have neither the module, the commands, the capability nor the frontend code.

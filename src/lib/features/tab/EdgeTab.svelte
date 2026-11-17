@@ -9,6 +9,7 @@ import { onMount } from "svelte";
 import wordmarkSource from "../../../../src-tauri/icons/source/wordmark.svg?raw";
 import { panelTab, type TabShape } from "../../ipc";
 import { Press } from "./press";
+import { wordmarkOverride } from "./wordmark.svelte";
 
 let {
   shape,
@@ -19,6 +20,8 @@ let {
 
 /** Length of the wordmark along the tab. */
 const WORDMARK = 52;
+/** The wordmark's length, which the tweak window may change in development builds. */
+const length = $derived(import.meta.env.DEV ? (wordmarkOverride.length ?? WORDMARK) : WORDMARK);
 /** How far the edge's line starts above the window and ends below it, so it shows no caps. */
 const PAD = 8;
 
@@ -86,7 +89,7 @@ const inside = $derived(`${boundary} L ${mx(width)} ${height + PAD} L ${mx(width
  * panel's edge so focus does not move it.
  */
 const placement = $derived.by(() => {
-  const scale = WORDMARK / bounds.width;
+  const scale = length / bounds.width;
   const x = mx((shape.depth + band) / 2);
   const y = top + shape.height / 2;
   const [u, v] = [bounds.x + bounds.width / 2, bounds.y + bounds.height / 2];

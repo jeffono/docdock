@@ -35,12 +35,15 @@ pub struct Tuning {
     pub reveal: u32,
     /// [`RUSH_SPEED`].
     pub rush: u32,
+    /// [`LOGICAL`].
+    pub tab: Logical,
 }
 
 pub const TUNING: Tuning = Tuning {
     activation: ACTIVATION_PERCENT,
     reveal: REVEAL_PERCENT,
     rush: RUSH_SPEED,
+    tab: LOGICAL,
 };
 
 /// The tab's size in logical pixels, which the UI draws it at: the window region below follows
@@ -71,19 +74,19 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn new(dpi: u32) -> Self {
+    pub fn new(tab: Logical, dpi: u32) -> Self {
         Self {
-            depth: scale_dpi(dpi, DEPTH),
-            height: scale_dpi(dpi, HEIGHT),
-            curve: CURVE as f32 * dpi as f32 / BASE_DPI as f32,
+            depth: scale_dpi(dpi, tab.depth),
+            height: scale_dpi(dpi, tab.height),
+            curve: tab.curve as f32 * dpi as f32 / BASE_DPI as f32,
         }
     }
 }
 
 /// The tab outside the inner edge of `panel`, wherever the panel is, vertically centered on the
 /// work area like the open panel.
-pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
-    let Shape { depth, height, .. } = Shape::new(monitor.dpi);
+pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side, tab: Logical) -> Rect {
+    let Shape { depth, height, .. } = Shape::new(tab, monitor.dpi);
     let top = monitor.work.top + (monitor.work.bottom - monitor.work.top - height) / 2;
     let (left, right) = match side {
         Side::Right => (panel.left - depth, panel.left),
@@ -99,8 +102,8 @@ pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
 
 /// The panel's own window: the panel widened by the tab's depth on its inner side, where its
 /// WebView draws the tab.
-pub fn framed_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
-    let depth = Shape::new(monitor.dpi).depth;
+pub fn framed_rect(monitor: &Monitor, panel: Rect, side: Side, tab: Logical) -> Rect {
+    let depth = Shape::new(tab, monitor.dpi).depth;
     match side {
         Side::Right => Rect {
             left: panel.left - depth,
@@ -129,13 +132,13 @@ pub struct Outline {
 }
 
 impl Outline {
-    pub fn new(monitor: &Monitor, panel: Rect, side: Side) -> Self {
+    pub fn new(monitor: &Monitor, panel: Rect, side: Side, tab: Logical) -> Self {
         Self {
             side,
-            shape: Shape::new(monitor.dpi),
+            shape: Shape::new(tab, monitor.dpi),
             width: panel.right - panel.left,
             height: panel.bottom - panel.top,
-            top: tab_rect(monitor, panel, side).top - panel.top,
+            top: tab_rect(monitor, panel, side, tab).top - panel.top,
         }
     }
 
@@ -208,7 +211,7 @@ impl Outline {
 }
 
 /// The handle on the screen edge: where the tab rests while the panel is parked beyond it.
-fn handle_rect(monitor: &Monitor, side: Side) -> Rect {
+fn handle_rect(monitor: &Monitor, side: Side, tab: Logical) -> Rect {
     let edge = match side {
         Side::Right => Rect {
             left: monitor.bounds.right,
@@ -221,7 +224,7 @@ fn handle_rect(monitor: &Monitor, side: Side) -> Rect {
             ..monitor.work
         },
     };
-    tab_rect(monitor, edge, side)
+    tab_rect(monitor, edge, side, tab)
 }
 
 /// The outer pixel column of the monitor.
@@ -233,29 +236,29 @@ fn edge_x(monitor: &Monitor, side: Side) -> i32 {
 }
 
 /// A centered activation stretch, clipped to the work area (never the taskbar).
-pub fn activation_stretch(monitor: &Monitor, percent: u32) -> std::ops::Range<i32> {
-    let height = (i64::from(Shape::new(monitor.dpi).height) * i64::from(percent) / 100)
+pub fn activation_stretch(monitor: &Monitor, tab: Logical, percent: u32) -> std::ops::Range<i32> {
+    let height = (i64::from(Shape::new(tab, monitor.dpi).height) * i64::from(percent) / 100)
         .min(i64::from(monitor.work.bottom - monitor.work.top)) as i32;
     let top = monitor.work.top + (monitor.work.bottom - monitor.work.top - height) / 2;
     top..top + height
 }
 
 /// Only the edge column in the activation stretch opens the panel; the tab counts as part of the
-/// open panel `panel`. Points outside the
-/// monitor never open or hold the panel.
+/// open panel `panel`. Points outside the monitor never open or hold the panel.
 pub fn cursor_zone(
     cursor: Point,
     monitor: &Monitor,
     panel: Rect,
     side: Side,
-    percent: u32,
+    tuning: Tuning,
 ) -> CursorZone {
-    let stretch = activation_stretch(monitor, percent);
+    let stretch = activation_stretch(monitor, tuning.tab, tuning.activation);
     if !monitor.bounds.contains(cursor) {
         CursorZone::Outside
     } else if cursor.x == edge_x(monitor, side) && stretch.contains(&cursor.y) {
         CursorZone::Edge
-    } else if panel.contains(cursor) || tab_rect(monitor, panel, side).contains(cursor) {
+    } else if panel.contains(cursor) || tab_rect(monitor, panel, side, tuning.tab).contains(cursor)
+    {
         CursorZone::Inside
     } else {
         CursorZone::Outside
@@ -267,13 +270,14 @@ pub fn cursor_zone(
 /// this monitor. The area is a capsule, a circle drawn around the tab's outline rather than its
 /// center, so the handle always shows before the edge can open the panel.
 pub fn near(cursor: Point, monitor: &Monitor, side: Side, tuning: Tuning) -> bool {
-    let handle = handle_rect(monitor, side);
-    let stretch = activation_stretch(monitor, tuning.activation);
+    let handle = handle_rect(monitor, side, tuning.tab);
+    let stretch = activation_stretch(monitor, tuning.tab, tuning.activation);
     let (top, bottom) = (
         handle.top.min(stretch.start),
         handle.bottom.max(stretch.end),
     );
-    let reach = i64::from(Shape::new(monitor.dpi).height) * i64::from(tuning.reveal) / 100;
+    let reach =
+        i64::from(Shape::new(tuning.tab, monitor.dpi).height) * i64::from(tuning.reveal) / 100;
     // Distance to the nearest pixel of the tab, 0 inside it.
     let gap =
         |value: i32, start: i32, end: i32| i64::from((start - value).max(value - (end - 1)).max(0));
@@ -388,13 +392,7 @@ mod tests {
     }
 
     fn zone(x: i32, y: i32, side: Side) -> CursorZone {
-        cursor_zone(
-            Point { x, y },
-            &MONITOR,
-            open_panel(side),
-            side,
-            ACTIVATION_PERCENT,
-        )
+        cursor_zone(Point { x, y }, &MONITOR, open_panel(side), side, TUNING)
     }
 
     /// Catches the whole column opening the panel again, as when reaching for a scrollbar at the
@@ -425,10 +423,10 @@ mod tests {
         for dpi in [96, 120, 144, 192] {
             let monitor = Monitor { dpi, ..MONITOR };
             for percent in [100, 200, 300, 500] {
-                let stretch = activation_stretch(&monitor, percent);
+                let stretch = activation_stretch(&monitor, LOGICAL, percent);
                 assert_eq!(
                     stretch.end - stretch.start,
-                    Shape::new(dpi).height * percent as i32 / 100
+                    Shape::new(LOGICAL, dpi).height * percent as i32 / 100
                 );
                 // Centered, give or take the pixel an odd difference rounds away.
                 let (above, below) = (
@@ -449,7 +447,7 @@ mod tests {
             reveal: 10,
             ..TUNING
         };
-        let stretch = activation_stretch(&MONITOR, tuning.activation);
+        let stretch = activation_stretch(&MONITOR, LOGICAL, tuning.activation);
         for y in [stretch.start, stretch.end - 1] {
             for side in [Side::Right, Side::Left] {
                 let x = edge_x(&MONITOR, side);
@@ -468,7 +466,7 @@ mod tests {
             },
             ..MONITOR
         };
-        assert_eq!(activation_stretch(&monitor, 300), 100..400);
+        assert_eq!(activation_stretch(&monitor, LOGICAL, 300), 100..400);
     }
 
     #[test]
@@ -510,8 +508,8 @@ mod tests {
             ..MONITOR.work
         };
         for (panel, side) in [(right, Side::Right), (left, Side::Left)] {
-            let tab = tab_rect(&MONITOR, panel, side);
-            assert_eq!(tab, handle_rect(&MONITOR, side));
+            let tab = tab_rect(&MONITOR, panel, side, LOGICAL);
+            assert_eq!(tab, handle_rect(&MONITOR, side, LOGICAL));
             assert!(MONITOR.bounds.contains(Point {
                 x: edge_x(&MONITOR, side),
                 y: tab.top
@@ -575,8 +573,8 @@ mod tests {
     fn the_reveal_radius_scales_with_the_tab() {
         for dpi in [96, 120, 144, 192] {
             let monitor = Monitor { dpi, ..MONITOR };
-            let handle = handle_rect(&monitor, Side::Right);
-            let reach = Shape::new(dpi).height * 4;
+            let handle = handle_rect(&monitor, Side::Right, LOGICAL);
+            let reach = Shape::new(LOGICAL, dpi).height * 4;
             let y = (handle.top + handle.bottom) / 2;
             let at = |x| near(Point { x, y }, &monitor, Side::Right, TUNING);
             assert!(at(handle.left - reach), "dpi={dpi}");
@@ -681,7 +679,7 @@ mod tests {
                 },
                 ..MONITOR
             };
-            let handle = handle_rect(&monitor, Side::Right);
+            let handle = handle_rect(&monitor, Side::Right, LOGICAL);
             let (width, height) = size;
             assert_eq!(handle.right, 3840);
             assert_eq!(handle.right - handle.left, width);
@@ -716,7 +714,7 @@ mod tests {
     fn the_window_region_hugs_the_tab() {
         for side in [Side::Right, Side::Left] {
             let panel = open_panel(side);
-            let outline = Outline::new(&MONITOR, panel, side);
+            let outline = Outline::new(&MONITOR, panel, side, LOGICAL);
             let (depth, width) = (outline.shape.depth, outline.width);
             let rects = outline.rects();
             let row = |y: i32| {

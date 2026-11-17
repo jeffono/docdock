@@ -5,17 +5,20 @@ import {
   devFonts,
   devHandle,
   devMotion,
+  devTabShape,
   onTweakFontsRequest,
   onTweakState,
   tweakFontsSend,
   tweakRequest,
 } from "../../ipc";
+import { wordmarkOverride } from "../tab/wordmark.svelte";
 import Launcher from "./Launcher.svelte";
 import { receive } from "./receive";
 
 let tokens: Record<string, string> = {};
 let motion = "";
 let handle = "";
+let size = "";
 
 function apply(event: unknown) {
   const state = receive(event);
@@ -34,6 +37,13 @@ function apply(event: unknown) {
     handle = nextHandle;
     devHandle(state.handle).catch((e) => console.error("dev_handle", e));
   }
+  // Rust answers with the shape it applied, which the tab is drawn at: the UI never draws ahead.
+  const { wordmark, ...nextSize } = state.tab;
+  if (JSON.stringify(nextSize) !== size) {
+    size = JSON.stringify(nextSize);
+    devTabShape(nextSize).catch((e) => console.error("dev_tab_shape", e));
+  }
+  wordmarkOverride.length = wordmark;
 }
 
 // The window cannot invoke `dev_fonts`, so the panel reads the list and sends it over.

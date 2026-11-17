@@ -17,6 +17,7 @@ import {
   onPanelFocus,
   onPanelPinned,
   onPanelSearch,
+  onPanelTabShape,
   onToggleMode,
   onWebState,
   onWebVisible,
@@ -89,6 +90,10 @@ onMount(() => {
       tab = shape;
     })
     .catch(() => {});
+  // The tab is drawn at the size Rust shaped the window to, never ahead of it.
+  const reshaped = onPanelTabShape((size) => {
+    if (tab) tab = { ...tab, ...size };
+  });
   const activationChanged = watchActivation();
   void action(loadActivation());
   let exiting = false;
@@ -220,6 +225,7 @@ onMount(() => {
       exit,
       cancelled,
       activationChanged,
+      reshaped,
     ])
       void listener.then((unlisten) => unlisten());
   };

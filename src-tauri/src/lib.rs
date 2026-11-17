@@ -72,6 +72,8 @@ pub fn run() {
         #[cfg(debug_assertions)]
         dev::dev_handle,
         #[cfg(debug_assertions)]
+        dev::dev_tab_shape,
+        #[cfg(debug_assertions)]
         dev::dev_fonts,
         #[cfg(debug_assertions)]
         dev::dev_tweak_window,

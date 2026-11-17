@@ -119,7 +119,7 @@ pub struct TabShape {
 pub fn panel_tab_shape() -> TabShape {
     let drag = crate::platform::drag_tolerance();
     TabShape {
-        size: crate::handle::LOGICAL,
+        size: crate::dock::handle_tuning().tab,
         drag: [drag.x, drag.y],
     }
 }

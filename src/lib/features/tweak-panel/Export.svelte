@@ -3,6 +3,7 @@ import Button from "../../ui/Button.svelte";
 import { exportHandle } from "./handle";
 import { exportMotion } from "./motion";
 import { tweak } from "./state.svelte";
+import { exportWordmark } from "./tab-shape";
 import { exportDiff } from "./tokens";
 
 let shown = $state(false);
@@ -10,9 +11,12 @@ let shown = $state(false);
 const diff = $derived.by(() => {
   if (!shown) return "";
   try {
-    return [exportDiff(tweak.tokens), exportMotion(tweak.motion), exportHandle(tweak.handle)].join(
-      "\n",
-    );
+    return [
+      exportDiff(tweak.tokens),
+      exportMotion(tweak.motion),
+      exportHandle(tweak.handle, tweak.tab),
+      exportWordmark(tweak.tab.wordmark),
+    ].join("\n");
   } catch (e) {
     return String(e);
   }

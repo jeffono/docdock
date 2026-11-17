@@ -216,6 +216,9 @@ struct Dock {
     handle_shift: i32,
     handle_slide: Option<Slide>,
     reveal: handle::Reveal,
+    /// The handle values in use, the tab's shape among them: read on each cursor poll, so one poll's
+    /// rules and the windows' geometry agree.
+    tuning: handle::Tuning,
     /// The last polled cursor, to measure its speed toward the edge.
     last_cursor: Option<(Point, Instant)>,
     /// The cursor heads for the edge fast enough to open the panel without waiting.
@@ -248,6 +251,18 @@ impl Dock {
             self.panel.state,
             State::Open { .. } | State::Summoned { .. } | State::Pinned
         )
+    }
+
+    /// Takes the latest handle values. A new tab shape resizes the window's strip beside the panel
+    /// and reshapes its region in place, and the UI redraws the tab from the shape it is sent.
+    fn retune(&mut self) {
+        let tuning = handle_tuning();
+        let reshaped = tuning.tab != self.tuning.tab;
+        self.tuning = tuning;
+        if reshaped {
+            self.place(self.monitor);
+            let _ = self.app.emit_to("main", "panel-tab-shape", tuning.tab);
+        }
     }
 
     /// Moves windows to the monitor and side without animation. Any ongoing slide used the old ones.
@@ -296,10 +311,15 @@ impl Dock {
     /// Sizes the panel's window to the panel and the strip beside it where the tab shows, and
     /// shapes it to their outline.
     fn frame_window(&mut self) {
-        let framed = handle::framed_rect(&self.monitor, self.rect, self.side);
+        let tab = self.tuning.tab;
+        let framed = handle::framed_rect(&self.monitor, self.rect, self.side, tab);
         self.window.set_offset(framed.left - self.rect.left);
-        self.window
-            .set_outline(handle::Outline::new(&self.monitor, self.rect, self.side));
+        self.window.set_outline(handle::Outline::new(
+            &self.monitor,
+            self.rect,
+            self.side,
+            tab,
+        ));
         self.window.set_rect(framed, self.monitor.bounds);
     }
 
@@ -313,7 +333,7 @@ impl Dock {
 
     /// Out of sight beyond the screen edge, whether the panel is parked or not: the tab's depth.
     fn away(&self) -> i32 {
-        handle::Shape::new(self.monitor.dpi).depth
+        handle::Shape::new(self.tuning.tab, self.monitor.dpi).depth
     }
 
     fn set_click_through(&mut self, through: bool) {
@@ -325,7 +345,7 @@ impl Dock {
 
     fn update_handle(&mut self) {
         let near = platform::cursor_pos()
-            .is_some_and(|cursor| handle::near(cursor, &self.monitor, self.side, handle_tuning()));
+            .is_some_and(|cursor| handle::near(cursor, &self.monitor, self.side, self.tuning));
         let revealed = self.reveal.step(near, self.rushing);
         let presence = handle::presence(self.is_open(), self.slide.is_some(), revealed);
         self.handle_presence = presence;
@@ -472,6 +492,7 @@ impl Dock {
         if let Some(monitor) = monitor_change(&self.monitor, platform::monitors(), self.side) {
             self.relocate(monitor);
         }
+        self.retune();
         // A drag whose end never reached Rust (lost capture, rejected request) must not hold the
         // panel open forever: the released button ends it with the last width.
         if self.resizing && !platform::primary_button_down() {
@@ -481,20 +502,14 @@ impl Dock {
             });
         }
         self.track_focus();
-        let tuning = handle_tuning();
+        let tuning = self.tuning;
         let now = Instant::now();
         self.rushing = self.last_cursor.is_some_and(|(from, then)| {
             let elapsed = now - then;
             handle::rushing(from, cursor, elapsed, &self.monitor, self.side, tuning.rush)
         });
         self.last_cursor = Some((cursor, now));
-        let zone = handle::cursor_zone(
-            cursor,
-            &self.monitor,
-            self.rect,
-            self.side,
-            tuning.activation,
-        );
+        let zone = handle::cursor_zone(cursor, &self.monitor, self.rect, self.side, tuning);
         // A user typing on the page can move the mouse away without losing the panel. The page does
         // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
         // Once focus is restored, the panel closes as with any other focus loss.
@@ -728,6 +743,7 @@ pub fn start(
         handle_shift: 0,
         handle_slide: None,
         reveal: handle::Reveal::default(),
+        tuning: handle_tuning(),
         last_cursor: None,
         rushing: false,
         web_visible: false,
@@ -752,7 +768,7 @@ pub fn start(
 
 /// The edge handle's constants in release builds, live values from the development tweak window
 /// otherwise.
-fn handle_tuning() -> handle::Tuning {
+pub fn handle_tuning() -> handle::Tuning {
     #[cfg(debug_assertions)]
     return crate::dev::handle_tuning();
     #[cfg(not(debug_assertions))]
