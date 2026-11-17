@@ -610,7 +610,6 @@ mod tests {
         rushing(from, to, poll, &monitor, Side::Right, SPEED)
     }
 
-    /// Catches an ordinary approach skipping the handle: 100 logical pixels in a 50 ms poll is
     /// Catches the threshold drifting with the monitor's scale: 3000 logical pixels per second is
     /// 150 physical pixels per poll at 100%, 225 at 150% and 300 at 200%.
     #[test]

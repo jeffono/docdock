@@ -5,7 +5,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR,
-    HRGN, MONITORINFO, RDW_ALLCHILDREN, RDW_FRAME, RDW_INVALIDATE, RGN_OR, RedrawWindow,
+    HRGN, MONITORINFO, RDW_ALLCHILDREN, RDW_FRAME, RDW_INVALIDATE, RGN_ERROR, RGN_OR, RedrawWindow,
     SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -248,6 +248,7 @@ impl PanelWindow {
     /// Reveal the panel border and its floating dropdown without resizing the page viewport.
     /// Stored here so sliding and monitor clipping preserve both cutouts.
     pub fn overlay(&mut self, dpi: u32, height: u32, x: i32) {
+        // Rounded up, unlike `scale_dpi`, so the inset and cutout never fall short of the UI's.
         self.inset = (2 * dpi).div_ceil(96) as i32;
         self.overlay_top = (height * dpi).div_ceil(96) as i32;
         self.clip(x);
@@ -271,8 +272,15 @@ impl PanelWindow {
         let rect = self.visible_rect(x + self.offset);
         unsafe {
             let region = match &self.outline {
-                None => CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom),
+                None => Some(CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom))
+                    .filter(|region| !region.is_invalid()),
                 Some(outline) => outline_region(outline, rect),
+            };
+            // A null region would remove the clip altogether, letting the transparent strip take
+            // clicks and the windows show on a neighboring monitor: keep the previous one instead.
+            let Some(region) = region else {
+                eprintln!("[panel] window region could not be built; keeping the previous one");
+                return;
             };
             // The system takes ownership of the region only if the call succeeds.
             if SetWindowRgn(self.hwnd(), Some(region), true) == 0 {
@@ -319,19 +327,30 @@ impl PanelWindow {
 }
 
 /// The outline's rectangles cut to the visible columns of `visible`, as one region.
-fn outline_region(outline: &Outline, visible: Rect) -> HRGN {
+/// The outline clipped to `visible`, or `None` if any part of it could not be built.
+fn outline_region(outline: &Outline, visible: Rect) -> Option<HRGN> {
     unsafe {
         let region = CreateRectRgn(0, 0, 0, 0);
+        if region.is_invalid() {
+            return None;
+        }
         for rect in outline.rects() {
             let (left, right) = (rect.left.max(visible.left), rect.right.min(visible.right));
             if left >= right {
                 continue;
             }
             let part = CreateRectRgn(left, rect.top, right, rect.bottom);
-            CombineRgn(Some(region), Some(region), Some(part), RGN_OR);
-            let _ = DeleteObject(part.into());
+            let combined = !part.is_invalid()
+                && CombineRgn(Some(region), Some(region), Some(part), RGN_OR) != RGN_ERROR;
+            if !part.is_invalid() {
+                let _ = DeleteObject(part.into());
+            }
+            if !combined {
+                let _ = DeleteObject(region.into());
+                return None;
+            }
         }
-        region
+        Some(region)
     }
 }
 
