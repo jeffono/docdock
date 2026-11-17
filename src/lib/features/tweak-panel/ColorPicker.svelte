@@ -23,7 +23,20 @@ let emitted = "";
 $effect(() => {
   if (value !== emitted) hsb = rgbToHsb(rgba.slice(0, 3) as RGB);
 });
-const hex = $derived(`#${rgba.map((v) => v.toString(16).padStart(2, "0")).join("")}`);
+// Opaque colors keep the six-digit spelling tokens.css uses.
+const toHex = (channels: number[]) =>
+  `#${(channels[3] === 255 ? channels.slice(0, 3) : channels).map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+const hex = $derived(toHex(rgba));
+let field: HTMLInputElement;
+// The field keeps what is being typed; it shows the resolved color only when not focused.
+$effect(() => {
+  if (document.activeElement !== field) field.value = hex;
+});
+// Paths that bypass `emit` must not leave it pointing at an older color.
+function apply(color: string) {
+  emitted = "";
+  onchange(color);
+}
 function change(index: number, value: number) {
   const next = [...hsb] as HSB;
   next[index] = value;
@@ -31,12 +44,12 @@ function change(index: number, value: number) {
   emit(hsbToRgb(next), rgba[3]);
 }
 function emit(rgb: RGB, alpha: number) {
-  emitted = `#${[...rgb, alpha].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  emitted = toHex([...rgb, alpha]);
   onchange(emitted);
 }
 </script>
 <div class="picker">
-  <div class="preview"><input type="color" aria-label={`${label} picker`} value={hex.slice(0,7)} oninput={(e) => { onchange(`${e.currentTarget.value}${hex.slice(7)}`); }} /><input aria-label={`${label} hex or CSS color`} value={hex} oninput={(e) => { if (CSS.supports("color", e.currentTarget.value)) onchange(e.currentTarget.value); }} /></div>
+  <div class="preview"><input type="color" aria-label={`${label} picker`} value={hex.slice(0,7)} oninput={(e) => { apply(`${e.currentTarget.value}${hex.slice(7)}`); }} /><input bind:this={field} aria-label={`${label} hex or CSS color`} oninput={(e) => { if (CSS.supports("color", e.currentTarget.value)) apply(e.currentTarget.value); }} onblur={(e) => { e.currentTarget.value = hex; }} /></div>
   <select aria-label={`${label} color model`} bind:value={model}><option>HSB</option><option>Hex / CSS</option></select>
   {#if model === "HSB"}<div class="channels">{#each ["H", "S", "B"] as channel, i}<label>{channel}<NumberField label={`${label} ${channel}`} value={Number(hsb[i].toFixed(2))} max={i === 0 ? 360 : 100} onchange={(v) => change(i,v)} /></label>{/each}</div>{/if}
   <label>Alpha %<NumberField label={`${label} alpha`} value={Number((rgba[3]/255*100).toFixed(2))} onchange={(v) => emit(rgba.slice(0,3) as RGB, Math.round(v/100*255))} /></label>
