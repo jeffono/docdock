@@ -2516,8 +2516,11 @@ mod tests {
             .map(|n| n.path)
             .collect();
         assert_eq!(paths, [".ponto.md", "A.md", "sub/b.md", "z.MD"]);
-        // The watcher reports changes to what is listed and nothing inside hidden folders.
-        let shown = |p: &str| shown_change(&t.0, &t.0.join(p));
+    }
+    #[test]
+    fn the_watcher_reports_changes_to_what_is_listed_only() {
+        let root = Path::new(r"C:\notes");
+        let shown = |p: &str| shown_change(root, &root.join(p));
         assert!(shown(".ponto.md") && shown("sub/b.md") && shown("sub"));
         assert!(!shown(".oculta/segredo.md") && !shown("a.md.1-2.docdock-tmp"));
     }
@@ -4280,22 +4283,25 @@ mod tests {
         assert!(!other.join(PINNED).exists());
     }
     #[test]
-    fn replaces_configuration() {
+    fn missing_or_corrupt_settings_read_as_the_defaults() {
         let t = Temp::new();
         let p = t.0.join("settings.json");
-        // Missing or corrupt settings read as the defaults.
         assert!(read_settings(&p).is_none());
         fs::write(&p, "{").unwrap();
         assert!(read_settings(&p).is_none());
+    }
+    #[test]
+    fn saving_settings_replaces_the_previous_file() {
+        let t = Temp::new();
+        let p = t.0.join("settings.json");
         let settings = |name| Settings {
             folder: Some(t.0.join(name)),
-            side: Side::Left,
             ..Settings::default()
         };
         save(&p, &settings("a")).unwrap();
         save(&p, &settings("b")).unwrap();
         assert_eq!(read_settings(&p), Some(t.0.join("b")));
-        assert_eq!(load(&p).side, Side::Left);
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 1);
     }
     #[test]
     fn restores_leftovers_without_overwriting() {
