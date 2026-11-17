@@ -448,7 +448,7 @@ function push(out: Content[], item: Content) {
 }
 
 /** Builds DOM nodes from the model; only the tags and attributes of the model types exist. */
-export function toDom(content: Content[], doc: Document = document): DocumentFragment {
+function toDom(content: Content[], doc: Document = document): DocumentFragment {
   const fragment = doc.createDocumentFragment();
   for (const item of content) {
     if (typeof item === "string") {

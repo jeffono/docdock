@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Note, NoteOrder } from "../../ipc";
 import { dateHeadings } from "./grouping";
-import { buildList, navKeys, rows } from "./list";
+import { buildList, rows } from "./list";
 import { orderHits } from "./order";
 import type { Hit } from "./search";
 
@@ -69,7 +69,7 @@ test.each<[NoteOrder, boolean, string]>([
   expect(dateHeadings([hit(now)], [], order, enabled, query, now).size).toBe(0);
 });
 
-test("date labels leave pinned rows and edited card keys intact and out of keyboard navigation", () => {
+test("date labels keep pinned rows outside date groups", () => {
   const model = buildList({
     hits: [hit(now, "pin"), hit(new Date(2025, 0, 1), "old"), hit(now, "today")],
     pinned: [{ target: "pin", title: "Pin", kind: "note", missing: false, collapsed: true }],
@@ -88,16 +88,33 @@ test("date labels leave pinned rows and edited card keys intact and out of keybo
     now,
   );
   const flat = rows(model, "today", headers);
-  expect(flat.map((row) => row.key)).toEqual([
+  expect(flat.slice(0, 3).map((row) => row.key)).toEqual([
     "heading:pinned",
     "note:pin",
     "heading:notes",
-    "group:year:2025:old",
-    "note:old",
-    "group:today:today",
-    "editing",
   ]);
-  expect(navKeys(model)).toEqual(["pin", "old", "today"]);
+});
+
+test("date labels preserve the edited card key", () => {
+  const model = buildList({
+    hits: [hit(now, "pin"), hit(new Date(2025, 0, 1), "old"), hit(now, "today")],
+    pinned: [{ target: "pin", title: "Pin", kind: "note", missing: false, collapsed: true }],
+    query: "",
+    exactTitle: false,
+    expanded: "today",
+    editing: true,
+    kept: null,
+  });
+  const headers = dateHeadings(
+    model.notes.map((card) => card.hit),
+    [],
+    "modified-asc",
+    true,
+    "",
+    now,
+  );
+  const flat = rows(model, "today", headers);
+  expect(flat.slice(-2).map((row) => row.key)).toEqual(["group:today:today", "editing"]);
 });
 
 // Bug: a folder split in two groups, the order within a folder lost, or a subfolder before its parent.

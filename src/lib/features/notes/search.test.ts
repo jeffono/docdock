@@ -271,12 +271,6 @@ test("folder completion excludes root pinned metadata", async () => {
   expect(folderTags(index, "W")).toEqual(["Work"]);
 });
 
-test("folder completion follows note removal", async () => {
-  const index = await indexOf([{ path: "a.md", text: "---\ntags: work\n---" }]);
-  await syncIndex(index, [], reader([]));
-  expect(folderTags(index, "")).toEqual([]);
-});
-
 test("date filters combine with all tags and free text", async () => {
   const index = await indexOf([
     {

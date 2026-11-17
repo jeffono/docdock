@@ -10,7 +10,7 @@ import type { EditorView } from "@codemirror/view";
 import { frontmatter, yamlValue } from "./markdown";
 
 /** Keys most notes tools read; the card uses title and tags, page notes url. */
-export const commonKeys = [
+const commonKeys = [
   "title",
   "tags",
   "aliases",

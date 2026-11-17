@@ -41,7 +41,7 @@ export function validHandle(value: unknown): value is HandleTuning {
 const pattern = (constant: string) => new RegExp(`^pub const ${constant}: u32 = (\\d+);$`);
 
 /** The release values as `handle.rs` spells them. */
-export function parseHandle(text = source): HandleTuning {
+function parseHandle(text = source): HandleTuning {
   const lines = text.split(/\r?\n/);
   const entries = handleFields.map(({ key, constant }) => {
     const match = lines.map((line) => pattern(constant).exec(line)).find(Boolean);
