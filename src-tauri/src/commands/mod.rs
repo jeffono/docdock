@@ -10,11 +10,6 @@ use crate::error::Error;
 use crate::i18n::Locale;
 use crate::web;
 
-#[tauri::command]
-pub fn app_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
 #[tauri::command(async)]
 pub fn vault_file(app: AppHandle) -> Result<Option<String>, Error> {
     crate::notes::vault_file(&app)
