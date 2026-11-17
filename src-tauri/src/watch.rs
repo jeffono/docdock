@@ -47,7 +47,10 @@ pub fn ensure(app: &AppHandle, root: &Path) {
 
 /// Tells the UI that the app itself changed the folder, as the watcher would.
 pub fn notify(app: &AppHandle) {
-    if let Err(error) = app.emit_to("main", EVENT, Changes::default()) {
+    emit(app, Changes::default());
+}
+fn emit(app: &AppHandle, changes: Changes) {
+    if let Err(error) = app.emit_to("main", EVENT, changes) {
         eprintln!("[watch] failed to notify the UI: {error}");
     }
 }
@@ -77,9 +80,7 @@ pub fn monitor(app: AppHandle) {
                     stop();
                     crate::notes::forget_unavailable();
                 }
-                if let Err(error) = app.emit_to("main", EVENT, Changes::default()) {
-                    eprintln!("[watch] failed to notify the UI: {error}");
-                }
+                notify(&app);
             }
             last = now;
         }
@@ -108,8 +109,8 @@ fn start(app: AppHandle, root: &Path) -> notify::Result<RecommendedWatcher> {
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
-            if changed && let Err(error) = app.emit_to("main", EVENT, payload) {
-                eprintln!("[watch] failed to notify the UI: {error}");
+            if changed {
+                emit(&app, payload);
             }
         }
     });
@@ -182,20 +183,9 @@ fn rename_paths(root: &Path, old: &Path, new: &Path, changes: &mut Changes) {
         }
         return;
     }
-    let relative = |path: &Path| {
-        path.strip_prefix(root)
-            .ok()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-    };
-    if old
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
-        && new
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("md"))
-        && let (Some(old), Some(new)) = (relative(old), relative(new))
-    {
-        changes.renames.push((old, new));
+    if crate::notes::markdown(old) && crate::notes::markdown(new) {
+        let relative = |path| crate::notes::relative(root, path);
+        changes.renames.push((relative(old), relative(new)));
     }
 }
 

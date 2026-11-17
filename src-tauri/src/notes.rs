@@ -698,7 +698,7 @@ fn root_in(config: &Path) -> Result<Root, Error> {
 fn root(app: &AppHandle) -> Result<Root, Error> {
     root_in(&config(app)?)
 }
-fn markdown(path: &Path) -> bool {
+pub(crate) fn markdown(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
@@ -763,7 +763,7 @@ fn sort_paths<T>(items: &mut [T], path: impl Fn(&T) -> &str) {
     });
 }
 /// The path the UI uses: relative to `root`, with `/`.
-fn relative(root: &Path, path: &Path) -> String {
+pub(crate) fn relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
