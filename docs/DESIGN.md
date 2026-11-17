@@ -3,37 +3,7 @@
 Identity chosen by the user: a neutral, compact system utility. Values live in
 `src/lib/styles/tokens.css`; this file says how to use them. Only the user changes the identity.
 
-Development builds offer a small Tweak button at the bottom of the panel, loaded only under
-`import.meta.env.DEV`. It opens the tweak window: an ordinary resizable window that can stay open on
-another monitor while the panel behaves exactly as in production (no pin, nothing inert, the page
-untouched). Every change applies live to the panel, even hidden: CSSOM token updates in both color
-schemes, typography and geometry, without changing the source or CSP; colors also reach the natively
-drawn edge handle. The options scroll independently from an always-visible WCAG AA/AAA table (stacked below the options
-in narrow windows). Collapsible groups collect typography, colors, layout, CSS transitions, native
-motion, the edge handle, the tab shape, and presets/export. Numeric controls apply on input with bounded steppers
-and Up/Down keys; Shift multiplies the step by ten. Colors use HSB by default, with a swatch beside
-the CSS/hex field and an alpha control; untouched source spellings remain unchanged.
-Each font-family token has a keyboard-accessible filtering combobox (Up/Down, Enter, Escape): curated stacks first, then the
-installed families, each quoted with a sans-serif or monospace fallback. The Slides section sets a
-duration and a `cubic-bezier` curve for each slide (panel open, panel close, handle in, handle out)
-with presets, including overshooting `back` curves, four numbers and a draggable curve editor; each
-slide reads its motion when it starts; an ongoing slide keeps its starting motion. The separate
-`--duration` token affects CSS transitions, not these native slides. The Edge handle section sets the
-activation height (100-1000% of the tab), the reveal radius (10-1000% of the tab) and the rush speed
-(500-20000 logical pixels per second). The Tab shape section sets the tab's depth (4-64 logical
-pixels), height (40-400) and curve height (at most half the height), which resize the panel's window
-and its click region at the next cursor poll, open or parked, and the wordmark length (10-300
-pixels), a UI-only override. Named presets can be renamed, deleted or overwritten; deletion
-and overwrite require inline confirmation. Storage failure preserves the previous map. Presets keep
-tokens, motions, the edge handle values and the tab shape for A/B switching; a preset saved before
-the tab shape keeps the source shape. Reset restores the source values. The window remembers its
-last state, so a reload or a restart after a Rust change keeps the tweaks once it is open again.
-Export shows the unified diffs to apply: `tokens.css`, the motion constants in `motion.rs`, the
-edge handle and tab size constants in `handle.rs` (one diff) and the wordmark length in
-`EdgeTab.svelte`; release builds keep those constants. Native page geometry
-still uses the fixed Rust bar offset, so bar-size experiments require a matching code change before
-adoption. No identity is selected by the tool; applying a look and screenshot approval remain M10
-work.
+Development builds tune it live in the tweak window; see "Tweak window" at the end.
 
 ## Principles
 
@@ -291,7 +261,7 @@ pinned and unpinned notes differ only in section and starting state.
   above the content, without moving anything.
 - **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
   leftovers, then "Restore pinned items"; in Browser, the permission bar's Block and Allow) → list → note order button → top bar buttons (including
-  Preferences) → resize handle → search bar, reversed with Shift+Tab. Card
+  Preferences) → resize grip → search bar, reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
   entering it without a selection selects the first item. Its only focus indicator is the selected
   card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
@@ -337,109 +307,7 @@ pinned and unpinned notes differ only in section and starting state.
 | Esc                       | Leave editing; next, return to the bar and select its text; from the bar, close                        |
 | Ctrl+Alt+Space (default)  | Open and go to the search bar with its text selected; from the search bar, close                       |
 
-## Preferences
-
-The top bar gear replaces the folder action and opens a third view with quiet General, Appearance, Browser,
-Shortcuts and Trash section buttons, wrapping when the panel is narrow. The page stays loaded but hidden. The gear or Esc returns to the previous
-Notes/Browser tab; either tab also leaves Preferences. The global shortcut returns to Notes and search.
-General contains the folder path, folder picker, optional Vault file, note order, date grouping, relative dates, panel side and a
-"Start with Windows" checkbox. Side and startup changes mirror the tray, including changes made
-from the tray while Preferences is open. Startup is read from Windows, with a disabled control until
-the initial read completes; failures appear in the existing notice and the actual state stays shown. Browser
-shows DuckDuckGo as read-only and a compact Allowed sites list, with a neutral Remove button per
-site. A short hint explains the subdomain scope.
-The empty list explains how to add an exception using the shield. Site permissions follows, in the
-same row style: the site, and below it in muted text the kind and the answer ("Location · Allowed"),
-with a neutral Remove; its hint says answers cover subdomains and that removing one asks again, and
-the empty list says a bar above the page asks when a site needs one. Shortcuts and the Ctrl+/ sheet share one list of panel/list and editor
-keys, deriving formatting keys from the editor bindings; the activation row shows the current
-combination. Shortcuts starts with the activation shortcut: the combination in a field-like box and a
-neutral Change button. Change records: the box asks for a combination and shows the held modifiers, the
-button becomes Cancel, the current global shortcut and panel shortcuts stand aside, and the next
-non-modifier key ends recording; the key shown is the one the layout gives, such as A for the AZERTY
-key at QWERTY's Q. Esc, Tab, leaving or hiding the panel, or 30 seconds without a key cancels. A refused combination (no Ctrl,
-Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts such as ABNT2; a key that is not a
-letter, digit, F1–F24, arrow, Space or navigation key on the current layout) or one taken by another app keeps the previous shortcut and explains why in the
-danger color below the hint. If the saved combination cannot be registered at startup, the default is
-used and a dismissible warning notice under the top bar names both. From anywhere in Notes (including search and editing), Ctrl+/ opens
-a quiet, scrollable in-webview dialog using the existing surface and line tokens, without a shadow
-or dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
-previous focus, including the editor cursor. No native popup takes panel focus. Appearance offers
-System (default), Light and Dark theme radio buttons, applied immediately and remembered on this
-computer; it also shows the panel width, how to resize it and a reset. Folder choice and width reset
-use neutral buttons. The active section has an accessible name without repeating the tab
-label as a heading. Sections scroll inside the panel, use the same insets and tokens, and have no new colors.
-Opening a page preserves the Notes query.
-
-Vault file shows its path (wrapping when necessary), or a short optional hint, with neutral Choose file
-and Clear buttons. The native picker filters `.cryptomator` files. With a configured vault and a
-notes folder that is not available, the list's empty state, the editor's folder-away notice (including
-missing and unrecognized folders) and the folder setting show Unlock. In the list and Preferences it
-sits beside the neutral Choose folder action. Unlock opens the saved file in its associated app; Cryptomator
-handles authentication, including Windows Hello when configured. A missing vault file shows a nearby
-error asking to choose it again. The existing folder poll restores the list without another action.
-
-Trash explains in one muted paragraph that items the Recycle Bin cannot take stay there 30 days, inside
-the notes folder (encrypted in a vault) and synced with it. Then one row per item, newest first,
-between lines: the name (a note's title without `.md`) and, muted below it, its original folder
-("Notes folder" for the root) and the relative deletion date, with the full date on hover; a neutral
-Restore button on the right. Restoring says "Restored as path." below, since a taken name gives a free
-one such as "name (2)". Under the list, the danger "Empty trash" button asks in the confirmation dialog
-with the item count, confirmed by the danger "Delete for good": the only permanent action, so the
-only question. Empty: "The trash is empty."; while the folder is away, a sentence that the trash
-appears when it is back. An entry whose item cannot be told, as after a sync conflict, shows
-"Unrecognized item" with its place in the trash and no Restore; Empty removes it. The trash is never
-shown in the notes list.
-
-## Panel navigation
-
-The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
-a 6-pixel handle along the inner edge resizes it (double-click restores the default).
-The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
-Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
-Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
-field and "+" action occupy the second bar in both modes. In Browser a quiet shield button sits
-immediately left of the address field, sharing its row without taking space from the top navigation;
-its icon, not its larger hit area, starts at the bar's content edge.
-Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
-site and reloads the page, without a popover. The tooltip and accessible label name the site and
-current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
-field focused; switching tabs retains the page document and history. The native page is clipped two
-logical pixels inside the panel sides and bottom so the focus band remains visible.
-
-The edge handle shows the app identity as a tab that bulges out of the panel's inner edge: 20
-logical pixels deep and 152 tall, joined to the edge by S-curves 28 pixels tall (vertical where they
-meet the edge, rounding into the straight outer side), filled with `--color-bg`, with no line
-between tab and panel. The panel's inner-edge line, 1 px `--color-line`, runs around the tab's
-outline; while the panel has focus, its 2 px `--color-accent` band does instead. The user's wordmark
-(`src-tauri/icons/source/wordmark.svg`) runs along the tab, 52 pixels long, reading from bottom to
-top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered
-between the band and the panel's edge. Edges are antialiased. The panel's WebView draws it with those
-tokens, in a strip of the panel's own window beside the panel. Closed, it slides in from the screen edge,
-vertically centered on the work area, only while the cursor is within 48 logical pixels of the edge
-and of the activation stretch, and slides back out when the cursor leaves; touching the edge within
-a centered stretch of 300% of the tab height, clipped to the work area, opens the panel. Open, it
-slides with the panel and sits outside the inner edge at the same height; clicking it closes the
-panel, even pinned, only when released on its shape, not in the cutouts beside the curves; dragging
-it does nothing. It has no hover state or tooltip and never takes focus.
-
-A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
-page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,
-camera, microphone, clipboard), "example.com wants to use your location." naming the site the answer
-covers and, when a frame of another origin of that site asked, a muted line naming it; then neutral
-Block and Allow buttons, neither primary, so the panel does not lean either way. The page is cut out
-behind it without moving or resizing, as for suggestions, which float over it. Focus stays where it
-was. The panel stays open until an answer; Notes, Preferences, the reader view, closing the panel or
-leaving the page deny it without remembering. Further requests wait and show one at a time. Each
-answer is remembered for the site; other kinds are denied without a bar.
-
-Reader view replaces the page, under the same bars, with its article as a note reads: the title as
-the note header, then text, headings, lists, quotes, code and tables in the reading styles, with the
-panel's insets and its own scroll. Images are left out. The toggle is disabled while the article is
-read; a failure says so under the top bar ("No article text was found on this page."). Links open in
-the page as in notes. The bar keeps the page URL, and "+" saves the whole article. Pressing the
-toggle again, back/forward, opening a page, switching tabs or Preferences return to the page.
+### Search filters
 
 Tag filters in Notes use whitespace-delimited `#tag` tokens. All tags must match a complete
 frontmatter tag, ignoring case and accents, alongside the existing free-text search. Inline body
@@ -465,6 +333,117 @@ Date filters share the tag completion list: `date:` offers Today (`date:today`),
 (`date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`) work without a calendar or chips.
 Invalid or reversed date tokens are ignored and excluded from free text and note names.
 All valid date filters, tag filters and free-text words apply together.
+
+## Preferences
+
+The top bar gear replaces the folder action and opens a third view with quiet General, Appearance,
+Browser, Shortcuts and Trash section buttons, wrapping when the panel is narrow. The page stays loaded
+but hidden. The gear or Esc returns to the previous Notes/Browser tab; either tab also leaves
+Preferences, and the global shortcut returns to Notes and search. Opening a page preserves the Notes
+query. The active section has an accessible name without repeating the tab label as a heading.
+Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Folder
+choice and width reset use neutral buttons.
+
+- **General:** folder path and picker, optional Vault file, note order, date grouping, relative dates,
+  panel side and a "Start with Windows" checkbox. Side and startup mirror the tray, also while
+  Preferences is open. Startup is read from Windows, with the control disabled until that read
+  completes; failures appear in the existing notice and the actual state stays shown.
+- **Vault file:** its path (wrapping when necessary), or a short optional hint, with neutral Choose
+  file and Clear buttons; the native picker filters `.cryptomator` files. With a configured vault and
+  a notes folder that is not available, the list's empty state, the editor's folder-away notice
+  (including missing and unrecognized folders) and the folder setting show Unlock, beside the neutral
+  Choose folder action in the list and Preferences. Unlock opens the saved file in its associated app;
+  Cryptomator handles authentication, including Windows Hello when configured. A missing vault file
+  shows a nearby error asking to choose it again. The existing folder poll restores the list without
+  another action.
+- **Appearance:** System (default), Light and Dark theme radio buttons, applied immediately and
+  remembered on this computer; the panel width, how to resize it and a reset.
+- **Browser:** DuckDuckGo shown read-only, then a compact Allowed sites list with a neutral Remove per
+  site; a short hint explains the subdomain scope, and the empty list explains how to add an exception
+  with the shield. Site permissions follow in the same row style: the site, and below it in muted text
+  the kind and the answer ("Location · Allowed"), with a neutral Remove; the hint says answers cover
+  subdomains and that removing one asks again, and the empty list says a bar above the page asks when
+  a site needs one.
+- **Shortcuts:** starts with the activation shortcut, the combination in a field-like box and a neutral
+  Change button. Change records: the box asks for a combination and shows the held modifiers, the
+  button becomes Cancel, the current global and panel shortcuts stand aside, and the next
+  non-modifier key ends recording; the key shown is the one the layout gives, such as A for the AZERTY
+  key at QWERTY's Q. Esc, Tab, leaving or hiding the panel, or 30 seconds without a key cancels. A
+  refused combination (no Ctrl, Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts
+  such as ABNT2; a key that is not a letter, digit, F1–F24, arrow, Space or navigation key on the
+  current layout) or one taken by another app keeps the previous shortcut and explains why in the
+  danger color below the hint. If the saved combination cannot be registered at startup, the default
+  is used and a dismissible warning notice under the top bar names both. The rest of the section and
+  the Ctrl+/ sheet share one list of panel/list and editor keys, with formatting keys derived from the
+  editor bindings and the activation row showing the current combination.
+- **Shortcut sheet:** from anywhere in Notes (including search and editing), Ctrl+/ opens a quiet,
+  scrollable in-webview dialog using the existing surface and line tokens, without a shadow or
+  dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
+  previous focus, including the editor cursor. No native popup takes panel focus.
+- **Trash:** one muted paragraph says that items the Recycle Bin cannot take stay there 30 days, inside
+  the notes folder (encrypted in a vault) and synced with it. Then one row per item, newest first,
+  between lines: the name (a note's title without `.md`) and, muted below it, its original folder
+  ("Notes folder" for the root) and the relative deletion date, with the full date on hover; a neutral
+  Restore button on the right. Restoring says "Restored as path." below, since a taken name gives a
+  free one such as "name (2)". Under the list, the danger "Empty trash" button asks in the
+  confirmation dialog with the item count, confirmed by the danger "Delete for good": the only
+  permanent action, so the only question. Empty: "The trash is empty."; while the folder is away, a
+  sentence that the trash appears when it is back. An entry whose item cannot be told, as after a sync
+  conflict, shows "Unrecognized item" with its place in the trash and no Restore; Empty removes it.
+  The trash is never shown in the notes list.
+
+## Panel navigation
+
+The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
+controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
+a 6-pixel resize grip along the inner edge resizes it (double-click restores the default).
+The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
+Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
+Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
+field and "+" action occupy the second bar in both modes. In Browser a quiet shield button sits
+immediately left of the address field, sharing its row without taking space from the top navigation;
+its icon, not its larger hit area, starts at the bar's content edge.
+Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
+site and reloads the page, without a popover. The tooltip and accessible label name the site and
+current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
+field focused; switching tabs retains the page document and history. The native page is clipped two
+logical pixels inside the panel sides and bottom so the focus band remains visible.
+
+The edge handle shows the app identity as a tab that bulges out of the panel's inner edge: 20
+logical pixels deep and 152 tall, joined to the edge by S-curves 28 pixels tall (vertical where they
+meet the edge, rounding into the straight outer side), filled with `--color-bg`, with no line
+between tab and panel. The panel's inner-edge line, 1 px `--color-line`, runs around the tab's
+outline; while the panel has focus, its 2 px `--color-accent` band does instead. The user's wordmark
+(`src-tauri/icons/source/wordmark.svg`) runs along the tab, 52 pixels long, reading from bottom to
+top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered
+between the band and the panel's edge. Edges are antialiased. The panel's WebView draws it with those
+tokens, in a strip of the panel's own window beside the panel. Closed, it slides in from the screen edge,
+vertically centered on the work area, only while the cursor is within 400% of the tab height of the
+tab (or beside the activation stretch, where that reaches further), and slides back out when the
+cursor leaves; touching the edge within a centered stretch of 300% of the tab height, clipped to the
+work area, opens the panel after a 150 ms pause. A rush, reaching the edge at 500 logical pixels per
+second or more, opens it at once and skips the handle's slide-in: in real use the pause only slowed
+an intentional move, so the threshold is low on purpose. Open, it
+slides with the panel and sits outside the inner edge at the same height; clicking it closes the
+panel, even pinned, only when released on its shape, not in the cutouts beside the curves; dragging
+it does nothing. It has no hover state or tooltip and never takes focus.
+
+A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
+page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,
+camera, microphone, clipboard), "example.com wants to use your location." naming the site the answer
+covers and, when a frame of another origin of that site asked, a muted line naming it; then neutral
+Block and Allow buttons, neither primary, so the panel does not lean either way. The page is cut out
+behind it without moving or resizing, as for suggestions, which float over it. Focus stays where it
+was. The panel stays open until an answer; Notes, Preferences, the reader view, closing the panel or
+leaving the page deny it without remembering. Further requests wait and show one at a time. Each
+answer is remembered for the site; other kinds are denied without a bar.
+
+Reader view replaces the page, under the same bars, with its article as a note reads: the title as
+the note header, then text, headings, lists, quotes, code and tables in the reading styles, with the
+panel's insets and its own scroll. Images are left out. The toggle is disabled while the article is
+read; a failure says so under the top bar ("No article text was found on this page."). Links open in
+the page as in notes. The bar keeps the page URL, and "+" saves the whole article. Pressing the
+toggle again, back/forward, opening a page, switching tabs or Preferences return to the page.
 
 ## Unified address bar
 
@@ -559,3 +538,35 @@ Copy and cut in the panel (editor, reading views, search bar and other fields) p
 clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.
 Pasting elsewhere keeps the text, not formatting or images. The panel's context menu has no Copy link
 or Copy image. The web page copies as any browser does.
+
+## Tweak window
+
+Development builds only: a small Tweak button at the bottom of the panel opens an ordinary resizable
+window that can stay on another monitor while the panel behaves as in production. Every change
+applies live to the panel, even hidden, in both color schemes; how it reaches the panel and what it
+exports is in "Tweak window" in `docs/ARCHITECTURE.md`. No identity is selected by the tool: a look
+becomes the identity only when the user applies its export.
+
+- **Layout:** options scroll beside an always-visible WCAG AA/AAA contrast table, stacked below them in
+  narrow windows. Collapsible groups: typography, colors, layout, CSS transitions, slides, edge
+  handle, tab shape, presets and export.
+- **Numbers:** apply on input, with bounded steppers and Up/Down keys; Shift multiplies the step by ten.
+- **Colors:** HSB by default, a swatch beside the CSS/hex field and an alpha control; untouched source
+  spellings stay unchanged.
+- **Fonts:** each font-family token has a filtering combobox (Up/Down, Enter, Esc): curated stacks first,
+  then installed families, each quoted with a sans-serif or monospace fallback.
+- **Slides:** a duration and a `cubic-bezier` curve for the panel opening and closing and the handle
+  sliding in and out, with presets (including overshooting `back` curves), four numbers and a
+  draggable curve editor. A slide reads its motion when it starts. `--duration` affects only CSS
+  transitions.
+- **Edge handle:** activation height (100–1000% of the tab), reveal radius (10–1000% of the tab) and rush
+  speed (500–20000 logical pixels per second).
+- **Tab shape:** depth (4–64 logical pixels), height (40–400) and curve height (at most half the
+  height), applied at the next cursor poll, open or parked; the wordmark length (10–300 pixels) is a
+  UI-only override.
+- **Presets:** named sets of tokens, motions, handle values and tab shape for A/B switching; rename,
+  delete or overwrite, the last two with inline confirmation. A storage failure keeps the previous
+  map; a preset saved before the tab shape keeps the source shape. Reset restores the source values.
+  The window remembers its last state across reloads and restarts.
+- **Limits:** the native page's position uses a fixed Rust bar offset, so trying another bar size needs
+  a matching code change before adoption.

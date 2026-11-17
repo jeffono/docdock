@@ -5,6 +5,9 @@ detail each stage when it is next.
 
 ## In progress
 
+- Audit cleanup (`advanced`): branches `docs-audit`, `rust-notes-cleanup`, `rust-window-cleanup` and
+  `ui-cleanup`; then a discreet notice for skipped unreadable subfolders and one dialog style.
+
 ## Completed
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
@@ -74,6 +77,10 @@ In no defined order:
 - Screenshots.
 - Dictation with local models, downloaded separately from the installer.
 - Plugins: require a recorded decision before starting.
+- Web suggestions while searching notes (level 2 of decision 0006): an option, off by default, to
+  query the engine on every keystroke after a short delay and a minimum length.
+- Lower memory while hidden: reduce WebView2 memory use (memory target or priority) while the panel
+  is hidden; see decision 0001.
 - Privacy deterrents, not encryption: Windows Hello to show notes after the panel has been hidden for a
   while, and notes marked private in the frontmatter shown blurred until revealed.
 - Code signing, free options (see `docs/decisions/0008-distribution.md`): SignPath Foundation once the
@@ -95,7 +102,3 @@ Defaults used until you decide otherwise.
 | Close when mouse leaves    | Yes, except when pinned, actively editing or the page has focus             |
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Handle position            | Vertically centered on the work area; not movable                           |
-| Handle activation stretch  | 300% of the tab height, centered on it and clamped to the work area         |
-| Handle reveal area         | Within 400% of the tab height around the tab; hides with the panel          |
-| Rush to the edge           | From 500 logical px/s toward the edge: opens at once, no handle slide-in    |
-| Clicking the open tab      | Closes the panel; dragging it does nothing                                  |

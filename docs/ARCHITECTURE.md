@@ -1,6 +1,6 @@
 # Architecture
 
-Current state and direction of the current stage. What does not yet exist is marked as _planned_.
+How the system works today. Why costly choices were made is in `decisions/`.
 
 ## Structure
 
@@ -10,17 +10,19 @@ src/                     UI (Svelte 5 + Vite)
   lib/ipc.ts             Only entry point that calls Rust
   lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
   lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
-  lib/features/<name>/   Components, state and tests for each feature
+  lib/theme.svelte.ts    Theme setting applied as the root color scheme
+  lib/features/<name>/   Components, state and tests: notes, web, tab (edge tab), preferences,
+                         tweak-panel (development builds only)
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
 src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
+  main_window.rs         Creates the main window and limits its navigation
   panel.rs               Pure panel state machine
   handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
   motion.rs              Slide duration and easing; tunable live in development builds
   dock.rs                Thread connecting cursor, state machine and windows
   tray.rs                Tray: icon, screen side, exit and Windows startup
-  main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
   blocking.rs            Content blocking in the page window: filter lists, engine and hiding scripts
@@ -33,28 +35,39 @@ src-tauri/src/           Backend (Rust)
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes, leaves or returns
+  updates.rs             Update check, download and the exit gate shared with Quit
+  dev.rs                 Tweak window backend, development builds only
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
 ```
 
-Create folders when the first feature needs them.
+## Flow
 
-Preferences and the tray share the screen-side operation in `tray.rs`: save through the existing
-locked atomic settings update, update both tray check marks, and request the panel move. The
-`panel-focus` report synchronizes the Preferences radios, including changes from the tray. A failed
-save still moves for this session, with an error reported to the caller. No settings format changed.
-Preferences keeps Notes mounted but hidden and suspends its keyboard handling; the page window is
-hidden through the same operation used by the Notes tab. Formatting shortcut descriptions live with
-the editor bindings.
+```mermaid
+flowchart LR
+  F["features/*"] --> IPC["lib/ipc.ts"]
+  IPC -- "invoke / events" --> C["commands/"]
+  C --> D["pure rules"]
+  C --> P["platform/ (Win32)"]
+  D --> V[(".md notes folder")]
+```
 
-The tray also exits the app and controls Windows startup; a second instance simply
-exits. Startup is the `DocDock` value in the current user's `Run` key, written by
-`platform/autostart.rs` with the executable path quoted, so a path with spaces can neither break nor
+## Tray and startup
+
+Preferences and the tray share the screen-side operation in `tray.rs`: save through the locked
+atomic settings update, update both tray check marks, and request the panel move. The `panel-focus`
+report synchronizes the Preferences radios, including changes from the tray. A failed save still
+moves for this session, with an error reported to the caller. Preferences keeps Notes mounted but
+hidden and suspends its keyboard handling; the page window is hidden through the same operation used
+by the Notes tab.
+
+The tray also exits the app and controls Windows startup; a second instance simply exits. Startup
+is the `DocDock` value in the current user's `Run` key, written by `platform/autostart.rs` with the executable path quoted, so a path with spaces can neither break nor
 start `C:\Program.exe`. Preferences > General and the tray share the operation in `tray.rs`, which
 rereads the registry after a change, updates the tray check and emits `autostart-changed` to the main
 window. Preferences subscribes before its initial read and removes the listener on leaving; startup
-is never duplicated in `settings.json`. Turning it on or off from either control clears Task Manager's choice in
-`StartupApproved\Run`; a choice made later in Task Manager is respected. At startup, an entry left
+is never duplicated in `settings.json`. Turning it on or off from either control clears Task
+Manager's choice in `StartupApproved\Run`; a choice made later in Task Manager is respected. At startup, an entry left
 unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
 one; an entry for another existing copy is left alone.
 
@@ -68,20 +81,11 @@ thread rereads the taskbar once the burst settles, outside the shell's broadcast
 pointer enters the tray icon or the panel opens, since a scale change does not always reach the
 window; it replaces the icon only if it differs. No timer wakes the idle app.
 
-## Flow
-
-```mermaid
-flowchart LR
-  F["features/*"] --> IPC["lib/ipc.ts"]
-  IPC -- "invoke / events" --> C["commands/"]
-  C --> D["pure rules"]
-  C --> P["platform/ (Win32)"]
-  D --> V[(".md notes folder")]
-```
-
 ## Distribution and updates
 
-Original icon SVGs live in `src-tauri/icons/source/`; `pnpm icons` rebuilds the bundle icons, using exact-size drawings before the 480 master, and the tray glyphs in `src-tauri/icons/tray/`, rendering 40 and 64 from the 48 drawing.
+Original icon SVGs live in `src-tauri/icons/source/`; `pnpm icons` rebuilds the bundle icons, using
+exact-size drawings before the 480 master, and the tray glyphs in `src-tauri/icons/tray/`, rendering
+40 and 64 from the 48 drawing.
 
 NSIS installs for the current Windows user, in English or pt-BR, with a WebView2 bootstrapper when
 needed. Installers have no Windows code signature; see `decisions/0008-distribution.md` for the
@@ -94,6 +98,12 @@ an event asks the main UI to freeze input and finish the editor through its exis
 only its matching acknowledgement allows exit or installation. Busy content operations, save errors
 and conflicts keep the process open. Failed installation restores input and reports a native dialog;
 the next launch retries the download. Windows NSIS relaunches without a process plugin.
+
+To cut a release, align package, Cargo and Tauri versions and `Cargo.lock`, commit, push through
+normal review, then manually run Release on main; the workflow rejects mismatched versions or a stale
+`Cargo.lock` before signing. Inspect the draft's assets and publish it as a regular latest release;
+never publish an older draft as latest after a newer version. Local release builds also need
+`TAURI_SIGNING_PRIVATE_KEY` (file path or contents) and the matching password variable.
 
 ## Language
 
@@ -132,13 +142,13 @@ per-monitor DPI awareness (PMv2).
 - **Side:** right by default, or left, chosen in Preferences or the tray and saved in `settings.json`; a missing or
   unknown value means right. Everything below mirrors on the left. Switching moves the windows at once,
   without animation, keeping the panel open or closed.
-- **Width:** 460 logical pixels by default, dragged from the inner edge (or arrows on the focused
-  handle) and saved as `width` in `settings.json` when the drag ends; a missing or invalid value
+- **Width:** 460 logical pixels by default, dragged from the resize grip on the inner edge (or arrows
+  on the focused grip) and saved as `width` in `settings.json` when the drag ends; a missing or invalid value
   means the default. `dock.rs` clamps it to at least 320 and at most half the monitor's work area,
   so a width saved on a large monitor never covers most of a smaller one. While dragging, the panel
   stays open as if a dialog held it. The page window starts 4 logical pixels in from the inner
-  edge, so with its 2-pixel region inset a 6-pixel strip of the UI, where the handle sits, runs the
-  full height; windows slide at the panel's `x`, each with its own horizontal offset.
+  edge, so with its 2-pixel region inset a 6-pixel strip of the UI, where the resize grip sits,
+  runs the full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
   edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
@@ -230,8 +240,8 @@ per-monitor DPI awareness (PMv2).
   panel opening and closing and 100 ms for the handle sliding in and out. A curve's x stays within 0..1
   and its y may overshoot; the last frame lands exactly on the destination, and an overshoot beyond
   the edge is cut by the monitor clip below.
-- **Tweak window (development builds only):** `dev.rs`, compiled only with `debug_assertions`, opens a
-  separate `tweak` window on the same UI page (`main.ts` mounts the tool there) with a capability
+- **Tweak window (development builds only):** its UI is in "Tweak window" in `docs/DESIGN.md`.
+  `dev.rs`, compiled only with `debug_assertions`, opens a separate `tweak` window on the same UI page (`main.ts` mounts the tool there) with a capability
   added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its
   app commands. The window sends its whole state to the panel as the `tweak-state` event; the panel
   applies tokens through CSSOM, slide motions through `dev_motion` and the edge handle's activation
@@ -240,10 +250,14 @@ per-monitor DPI awareness (PMv2).
   reload. `dock.rs` reads that tuning, or the `handle.rs` constants in release builds, once per cursor
   poll and passes the same snapshot to the pure rules and the window geometry. A new tab size goes
   through the ordinary placement (`Dock::place`): window width, region, the hidden handle's shift and
-  the page, open or parked; then `dock.rs` emits `panel-tab-shape` and the UI redraws the tab. For the font picker the window sends `tweak-fonts-request`; the panel calls
+  the page, open or parked; then `dock.rs` emits `panel-tab-shape` and the UI redraws the tab. For
+  the font picker the window sends `tweak-fonts-request`; the panel calls
   `dev_fonts` and answers with `tweak-fonts`. `platform/fonts.rs` enumerates GDI font families,
   sorted and deduplicated, skipping vertical `@` faces and non-TrueType faces the WebView cannot use.
-  Release builds have neither the module, the commands, the capability nor the frontend code.
+  Export shows unified diffs for the source files release builds read: `tokens.css`, the motion
+  constants in `motion.rs`, the handle and tab constants in `handle.rs` (one diff) and the wordmark
+  length in `EdgeTab.svelte`. Release builds have neither the module, the commands, the capability
+  nor the frontend code.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.
@@ -294,11 +308,9 @@ per-monitor DPI awareness (PMv2).
   WebView2 156, so `Emulation.setUserAgentOverride` also supplies Android/mobile metadata; omitted
   brand/version lists retain the runtime's values. Setup waits for CDP acknowledgement (five-second
   limit), and destroys the blank window on failure, just as for guard/observer installation.
-  The target keeps the override across navigation, reload and renderer replacement (verified after
-  a deliberate renderer crash); a new window installs it again. Real-app checks on DuckDuckGo,
-  GitHub, English Wikipedia and Google Search showed mobile layouts, `Sec-CH-UA-Mobile: ?1`,
-  `Sec-CH-UA-Platform: "Android"` and matching `navigator.userAgentData`. Legacy `navigator.platform`
-  still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
+  The target keeps the override across navigation, reload and renderer replacement; a new window
+  installs it again. Sites see `Sec-CH-UA-Mobile: ?1`, `Sec-CH-UA-Platform: "Android"` and a matching
+  `navigator.userAgentData`; legacy `navigator.platform` still reports `Win32`. No touch or viewport emulation is enabled; hardware capabilities remain
   native. `main` keeps its default identity, and the suggestions HTTP client is unchanged.
 - **Site exceptions:** `blocking::site_key` normalizes HTTP(S) URLs through Tauri's URL parser and
   resolves eTLD+1 through the adblock engine's embedded PSL; IPs and local hosts stay exact.
@@ -368,14 +380,15 @@ per-monitor DPI awareness (PMv2).
   which a `MutationObserver` inserts each class's or id's rules, minus the exceptions, in the
   microtask after the element appears, before it is painted. Under `$generichide` the map is
   empty. Registered as a same-site navigation starts, the script can reach the browser after the
-  new document (measured: shield reloads and g1 → ge.globo.com links), so an unchanged script is
+  new document (seen on shield reloads and same-site links), so an unchanged script is
   kept rather than replaced (its selectors are sorted, so the same URL gives the same source), and
   `web::open` and the shield register theirs and wait up to a second before navigating.
   `browser::document_start` makes one DevTools call at a time: a request waits until the browser
   confirms the wanted script, removals included, and an identifier is forgotten only once its
-  removal is confirmed; a failed call lets the waiters go and the next request retries it. A navigation the page starts to another host of the same site still gets it
-  late; the passes below cover that document as before.
-  On each main-frame `ContentLoading`, `blocking::committed` starts six passes (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
+  removal is confirmed; a failed call lets the waiters go and the next request retries it. A
+  navigation the page starts to another host of the same site still gets it late; the passes below
+  cover that document. On each main-frame `ContentLoading`, `blocking::committed` starts six passes
+  (0, 0, 1, 2, 4 and 8 s apart) on a blocking-pool thread;
   a newer document stops them. Each pass goes through `web::evaluate` (the selection read's isolated
   world, turn-taking and two-second limit) with one fixed function and JSON arguments: it checks
   `location.hostname`, adds its `CSSStyleSheet` to `document.adoptedStyleSheets` again if the page
@@ -451,7 +464,6 @@ per-monitor DPI awareness (PMv2).
   out ends, `dock.rs` emits `panel-hidden` to the UI (the page's `visibilitychange` does not fire for a
   window moved off-screen). The UI then blurs its focused element: WebView2 keeps its inner focus after the
   foreground moves away, so a hover-opened panel would otherwise show a focused bar without focus.
-- **Collapsed panel (_planned_):** WebView2 reduces memory use while hidden.
 - **Monitor changes:** at each cursor poll, the panel re-reads the monitors. If layout, resolution, DPI or
   taskbar changes the chosen monitor, the windows move to the new position without animation.
 
@@ -758,7 +770,7 @@ browser's HTML would carry `note-asset` image addresses that resolve nowhere els
 text copies nothing. Cut deletes only after the write succeeds, and only if nothing changed meanwhile:
 fields through `execCommand("delete")`, which keeps their undo, and the editor through `privateCut`,
 which runs CodeMirror's own copy and cut handlers on synthetic events, so several cursors and
-whole-line copies behave as in CodeMirror (verified in headless Chromium). `platform/clipboard.rs`
+whole-line copies behave as in CodeMirror. `platform/clipboard.rs`
 opens the clipboard as the main window, retrying for about 100 ms while another app holds it, and in
 one transaction sets `CF_UNICODETEXT` with CR-LF line ends plus the registered formats of [Cloud
 Clipboard and Clipboard History Formats](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard-formats):
@@ -771,10 +783,8 @@ sites rather than notes and has no script or channel of ours by design.
 CodeMirror lives in an open ShadowRoot. In style-mod 4.1.4, only a root without `head` uses
 `CSSStyleSheet` and `adoptedStyleSheets`; mounting directly in Document would inject a blocked style
 tag. External CSS links load `content.css` (also imported by the reading view) and editor chrome inside
-the shadow, with `:host` specificity above CodeMirror base styles. Chromium headless verified the production Vite output with the exact CSP header
-from tauri.conf.json: one adopted sheet, zero runtime style tags, no CSP violations, and editor
-creation, edits, conflict resolution and reloads after freezing Object.prototype before app startup.
-WebView2 and native panel focus/Esc still require manual verification.
+the shadow, with `:host` specificity above CodeMirror base styles. The production build thus runs the
+editor under the CSP with one adopted sheet, no runtime style tags, and `Object.prototype` frozen.
 
 **External changes.** Listing a folder starts watching it (`watch.rs`, with `notify`); choosing a folder
 stops the watch, so the next listing starts a fresh one even for the same path. Events are grouped until
@@ -1035,8 +1045,8 @@ it (no new watcher); the UI rereads with `pinned_list` then.
 
 Decisions in [0004](decisions/0004-untrusted-content.md).
 
-- **CSP:** in `tauri.conf.json`, applies only in the production build. In dev, the page comes directly from Vite, without CSP.
-- **`main` window:** `main_window.rs` creates it, navigates only within the UI origin and opens no other window. Links in rendered content do not navigate away from it.
+- **CSP, `main` window navigation, `note-asset` and capabilities:** as decided in
+  [0004](decisions/0004-untrusted-content.md); the CSP applies only in the production build.
 - **Reader view:** page articles are Markdown extracted in Rust and rendered by the same model,
   without a note path, so they never show local images; see
   [0011](decisions/0011-reader-view.md).
@@ -1045,11 +1055,9 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   kind titles, and the editor uses text widgets and line decorations for the same kinds.
 - **Local images:** `http://note-asset.localhost/<relative path>`, served by `notes.rs` only to the `main` window. Remote images are blocked.
 - **Page tracking prevention:** the page profile requests WebView2's balanced level before its first
-  navigation; the `main` profile is unchanged. Strict blocked Google Ad Manager and most ad exchanges
-  even on allowed sites (measured on g1.globo.com: `gpt.js`, `adsbygoogle.js` and Prebid failed with
-  `ERR_BLOCKED_BY_CLIENT`), so the shield could not restore a broken site.
-  Unsupported runtimes or failed settings are logged without blocking pages.
-- **Page window IPC (tested 2026-11-13, Tauri 2.12.5):** Tauri injects its scripts into every WebView
+  navigation (why not strict: [0010](decisions/0010-content-blocking.md)); the `main` profile is
+  unchanged. Unsupported runtimes or failed settings are logged without blocking pages.
+- **Page window IPC (as of Tauri 2.12.5):** Tauri injects its scripts into every WebView
   and every frame, with no per-window opt-out, so pages and their iframes see `window.isTauri`,
   `window.ipc` and `__TAURI_INTERNALS__.invoke`. Every call fails: no capability names the `web`
   window, so Tauri's ACL rejects plugin and core commands from any origin and app commands from remote
@@ -1061,43 +1069,21 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   barrier on Tauri's mock runtime. Plugins must not add `js_init_script`s that change web APIs:
   `tauri-plugin-dialog` replaced the page's `alert` and `confirm`, so the folder and vault pickers and
   the update error message call `rfd` directly, and opener's link script is disabled in `lib.rs`.
-- **Page iframes (tested 2026-11-06, WebView2 156):** before the guard, an iframe reached a registered
-  scheme without a user gesture through `src`, `frames[i].location`, `<a target>`, a form target, its
-  own `location` (also cross-origin and nested), meta refresh and an HTTP redirect. WebView2 raised only
-  `FrameNavigationStarting` and `LaunchingExternalUriScheme`, then showed its "open this app?" prompt with
-  "always allow"; one click launched the app. `http://tauri.localhost` in an iframe loaded the UI as a
-  local origin, where only the `main` label and capability rejected `invoke`. Main-frame links and
-  `location`, and `window.open`, stayed blocked by `on_navigation` and `on_new_window`; Chromium blocked
-  `file:` iframes and cross-origin `top.location` without a gesture.
+- **Page iframes:** without `platform/guard.rs`, an iframe could reach a registered scheme without a
+  user gesture (through `src`, `location`, link or form targets, meta refresh or a redirect), which
+  WebView2 offers to launch after an "always allow" prompt, and could load `http://tauri.localhost` as a
+  local origin; see [0003](decisions/0003-panel-and-web-pages.md). Main-frame navigation and
+  `window.open` are covered by `on_navigation` and `on_new_window`.
 
-### WebView2 note-storage audit
+### Note content on disk
 
-The `main` window uses Tauri's `incognito(true)`; the separate website window retains its normal
-browsing profile. In the locked dependencies, Tauri 2.12.5 forwards this to Wry 0.57.1, which calls
-`ICoreWebView2ControllerOptions::SetIsInPrivateModeEnabled`. Wry falls back to the old controller API
-if Environment10 is unavailable, so InPrivate is defense in depth, not the sole content safeguard.
-Neither window overrides `data_directory`; Tauri's manager defaults it to `app_local_data_dir()`:
-`%LOCALAPPDATA%/com.jeffono.docdock` on Windows, with WebView2 profile data below `EBWebView`.
-
-Source audit: note text arrives through IPC and becomes DOM nodes, not a navigated note document.
-`note-asset` serves local image bytes only to `main` and already sends `Cache-Control: no-store` and
-`X-Content-Type-Options: nosniff`. The response-header regression test covers these. HTTP caching must
-therefore not persist these responses. `rg` found no frontend use of `localStorage`, `sessionStorage`,
-`indexedDB`, `serviceWorker` or `caches.*`; there is no application path persisting note names/text
-through those stores. Code Cache concerns shipped JavaScript, not the note DOM. Website browsing
-cache belongs to remote pages, which cannot load note assets or invoke note commands.
-
-These are source-level findings, not a forensic guarantee for WebView2: GPU/shader caches and crash
-artifacts are runtime-controlled, and no disk inspection was performed while implementing this task.
-InPrivate and no-store do not prove the absence of every transient disk write, OS paging or older
-cache entries; the app does not delete the shared profile (which would erase website sessions).
-Manual verification: with a disposable notes folder, open a uniquely named/text-marked note and PNG,
-inspect the image response headers and DevTools Application stores, close the app and wait for its
-WebView2 processes to exit, then search the UDF's HTTP cache, Code Cache, IndexedDB, Service Worker,
-GPUCache, Local Storage and session storage for the markers and image bytes. Repeat across restart
-and with the vault unavailable; inspect earlier profile data separately. No app instance was started
-for this audit.
-
-References: [Microsoft: user data folders](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/user-data-folder),
-[Microsoft: controller options](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controlleroptions),
-and [Tauri: WebviewWindowBuilder](https://docs.rs/tauri/2.12.5/tauri/webview/struct.WebviewWindowBuilder.html).
+`main` uses Tauri's `incognito(true)` (WebView2 InPrivate, through Wry's controller options; Wry falls
+back to the old controller API without Environment10, so this is defense in depth). The page window
+keeps its normal profile. Neither overrides `data_directory`, so WebView2 data lives under
+`%LOCALAPPDATA%/com.jeffono.docdock/EBWebView`. Note text reaches the UI through IPC and becomes DOM
+nodes, never a navigated document; `note-asset` answers only `main`, with `Cache-Control: no-store`
+and `nosniff` (covered by a test); the UI uses no `localStorage`, `sessionStorage`, IndexedDB, service
+workers or Cache Storage. These are source-level guarantees, not forensic ones: GPU and shader caches,
+crash dumps and OS paging are runtime-controlled, and the app never deletes the shared profile, which
+would erase website sessions. To check on disk, open a marked note and image in a disposable folder,
+quit, and search the profile's caches and stores for the markers.

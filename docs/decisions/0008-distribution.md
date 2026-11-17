@@ -51,13 +51,5 @@ secrets `TAURI_SIGNING_PRIVATE_KEY` (the file contents) and `TAURI_SIGNING_PRIVA
 An update is retried on the next launch if check, download or installation fails. The tray item is
 disabled until a verified download exists. An unresponsive frontend blocks exit rather than risking
 content; force termination by the OS remains outside this guarantee. Ordinary Quit keeps the
-downloaded update unapplied. No notes, preferences, or autostart settings are migrated by this change.
-
-To cut a release, align package, Cargo and Tauri versions and Cargo.lock, commit, push through normal
-review, then manually run Release on main. After the
-workflow succeeds, inspect its draft assets and publish as a regular latest release. Never publish
-an older draft as latest after a newer version.
-
-Local release builds also require `TAURI_SIGNING_PRIVATE_KEY` (file path or contents) and the matching
-password environment variable. The workflow permits manual dispatch from main only, and rejects
-mismatched package/Cargo/Tauri versions or a stale Cargo.lock before signing.
+downloaded update unapplied. The release steps are in "Distribution and updates" in
+`docs/ARCHITECTURE.md`.
