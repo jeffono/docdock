@@ -1142,21 +1142,23 @@ pub fn rename_note(
     base: &str,
     title: (&str, &str),
 ) -> Result<(), Error> {
-    let renamed = rename_note_in(&root(app)?, from, to, base, title);
-    follow(app, from, to, &renamed);
+    let root = root(app)?;
+    let renamed = rename_note_in(&root, from, to, base, title);
+    follow(&root, from, to, &renamed);
     renamed
 }
 pub fn move_note(app: &AppHandle, from: &str, to: &str, base: &str) -> Result<(), Error> {
-    let moved = move_note_in(&root(app)?, from, to, base);
-    follow(app, from, to, &moved);
+    let root = root(app)?;
+    let moved = move_note_in(&root, from, to, base);
+    follow(&root, from, to, &moved);
     moved
 }
 /// Collapsed pinned state inside the notes folder follows a moved note.
-fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
+fn follow(root: &Path, from: &str, to: &str, result: &Result<(), Error>) {
     if matches!(result, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
         // Best effort: the note has moved, and an error here would hide that from the editor, whose
         // next save would bring the old name back. A lost collapsed state only shows the card open.
-        let _ = update_collapsed(app, |collapsed| {
+        let _ = update_collapsed(root, |collapsed| {
             let before = collapsed.len();
             collapsed.retain(|target| target.to_lowercase() != from.to_lowercase());
             if collapsed.len() != before {
@@ -1830,11 +1832,6 @@ struct PinnedCopy {
     folder: PathBuf,
     text: String,
 }
-/// The pinned list's copy in `root`, with its folder held until the handles drop.
-fn copy_path(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
-    let (dir, held) = held_derived_dir(root)?;
-    Ok((dir.join("pinned-copy.json"), held))
-}
 /// The derived-data folder, hidden from listing, search and watcher; never creates the notes root or
 /// follows a link. It is created while `root` is held, and held with every folder above it until the
 /// handles drop: callers keep them until their writes end, so nothing lands elsewhere.
@@ -1857,13 +1854,9 @@ fn read_collapsed(dir: &Path) -> Result<BTreeSet<String>, Error> {
     }
 }
 static COLLAPSED: Mutex<()> = Mutex::new(());
-fn update_collapsed(
-    app: &AppHandle,
-    change: impl FnOnce(&mut BTreeSet<String>),
-) -> Result<(), Error> {
-    let root = root(app)?;
+fn update_collapsed(root: &Path, change: impl FnOnce(&mut BTreeSet<String>)) -> Result<(), Error> {
     let _guard = COLLAPSED.lock().unwrap_or_else(|e| e.into_inner());
-    let (dir, _held) = held_derived_dir(&root)?;
+    let (dir, _held) = held_derived_dir(root)?;
     let mut collapsed = read_collapsed(&dir)?;
     change(&mut collapsed);
     write_atomic(
@@ -1880,9 +1873,21 @@ fn try_migrate_derived(root: &Path, settings: &Path) {
         eprintln!("[pinned] derived-state migration deferred");
     }
 }
+/// Runs as every command opens the notes folder, so it costs one read and one look when there is
+/// nothing left to move.
 fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
+    let bytes = fs::read(settings).unwrap_or_default();
+    let mut value = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+    let collapsed = value
+        .as_ref()
+        .and_then(|value| value.get("collapsed"))
+        .cloned();
+    let legacy = settings.with_file_name("pinned-copy.json");
+    if collapsed.is_none() && !legacy.try_exists()? {
+        return Ok(());
+    }
     // Only into the folder chosen: a locked vault's empty mount point must stay empty.
-    let chosen = load(settings);
+    let chosen: Settings = serde_json::from_slice(&bytes).unwrap_or_default();
     let expected = chosen
         .folder_id
         .filter(|_| chosen.folder.as_deref() == Some(root));
@@ -1890,7 +1895,6 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
         return Ok(());
     }
     let _held = hold_ancestry(root)?;
-    let legacy = settings.with_file_name("pinned-copy.json");
     if legacy.try_exists()? {
         let copy =
             read_copy(&legacy).ok_or_else(|| Error::unexpected("invalid legacy pinned copy"))?;
@@ -1908,15 +1912,10 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
             fs::remove_file(&legacy)?;
         }
     }
-    let Ok(bytes) = fs::read(settings) else {
-        return Ok(());
-    };
-    let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(Error::unexpected)?;
-    if let Some(old) = value.get("collapsed") {
+    if let (Some(value), Some(old)) = (value.as_mut(), collapsed) {
         let (dir, _held) = held_derived_dir(root)?;
         let dest = dir.join("collapsed.json");
-        let targets: BTreeSet<String> =
-            serde_json::from_value(old.clone()).map_err(Error::unexpected)?;
+        let targets: BTreeSet<String> = serde_json::from_value(old).map_err(Error::unexpected)?;
         if !dest.try_exists()? {
             write_atomic(
                 &dest,
@@ -1930,7 +1929,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
             .remove("collapsed");
         write_atomic(
             settings,
-            &serde_json::to_vec(&value).map_err(Error::unexpected)?,
+            &serde_json::to_vec(value).map_err(Error::unexpected)?,
         )?;
     }
     Ok(())
@@ -2021,20 +2020,20 @@ fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
     }
     Ok(())
 }
-fn collapsed(app: &AppHandle) -> Result<BTreeSet<String>, Error> {
-    let (dir, _held) = held_derived_dir(&root(app)?)?;
-    read_collapsed(&dir)
+/// The pinned list of `root` as the UI shows it. Each pinned command opens the notes folder once and
+/// answers this, so the UI needs no second call.
+fn pinned_in(root: &Path) -> Result<Pinned, Error> {
+    let (dir, _held) = held_derived_dir(root)?;
+    pinned_state(root, &dir.join("pinned-copy.json"), &read_collapsed(&dir)?)
 }
 pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
-    let root = root(app)?;
-    let (store, _held) = copy_path(&root)?;
-    pinned_state(&root, &store, &collapsed(app)?)
+    pinned_in(&root(app)?)
 }
 /// `target` is a note's path (it must exist) or an http(s) URL. `title` is the link text.
 pub fn pin(app: &AppHandle, target: &str, title: &str) -> Result<Pinned, Error> {
     let root = root(app)?;
     pin_in(&root, target, title)?;
-    pinned(app)
+    pinned_in(&root)
 }
 fn pin_in(root: &Path, target: &str, title: &str) -> Result<(), Error> {
     let (kind, target) = match pinned_kind(target) {
@@ -2061,11 +2060,12 @@ fn pinned_kind(target: &str) -> Kind {
 }
 /// Works for a missing note too: that is what "remove" is for.
 pub fn unpin(app: &AppHandle, target: &str) -> Result<Pinned, Error> {
-    edit_pinned(&root(app)?, |text| pinned::unpin(text, target))?;
-    update_collapsed(app, |collapsed| {
+    let root = root(app)?;
+    edit_pinned(&root, |text| pinned::unpin(text, target))?;
+    update_collapsed(&root, |collapsed| {
         collapsed.remove(target);
     })?;
-    pinned(app)
+    pinned_in(&root)
 }
 /// Reorder only the version the UI displayed; never silently apply a stale positional intent.
 fn move_pinned_in(root: &Path, target: &str, to: &str, base: &str) -> Result<(), Error> {
@@ -2085,26 +2085,28 @@ fn move_pinned_in(root: &Path, target: &str, to: &str, base: &str) -> Result<(),
     }
 }
 pub fn move_pinned(app: &AppHandle, target: &str, to: &str, base: &str) -> Result<Pinned, Error> {
-    move_pinned_in(&root(app)?, target, to, base)?;
-    pinned(app)
+    let root = root(app)?;
+    move_pinned_in(&root, target, to, base)?;
+    pinned_in(&root)
 }
 pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<Pinned, Error> {
-    update_collapsed(app, |targets| {
+    let root = root(app)?;
+    update_collapsed(&root, |targets| {
         if collapsed {
             targets.insert(target.to_owned());
         } else {
             targets.remove(target);
         }
     })?;
-    pinned(app)
+    pinned_in(&root)
 }
 pub fn restore_pinned(app: &AppHandle) -> Result<Pinned, Error> {
+    let root = root(app)?;
     {
-        let root = root(app)?;
-        let (store, _held) = copy_path(&root)?;
-        restore_pinned_in(&root, &store)?;
+        let (dir, _held) = held_derived_dir(&root)?;
+        restore_pinned_in(&root, &dir.join("pinned-copy.json"))?;
     }
-    pinned(app)
+    pinned_in(&root)
 }
 /// Bound IPC writes and disk use for accidental large clipboard images (10 MiB).
 const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
