@@ -5,10 +5,6 @@ detail each stage when it is next.
 
 ## In progress
 
-- Audit cleanup (`advanced`): branches `docs-audit`, `rust-notes-cleanup`, `rust-window-cleanup`,
-  `ui-cleanup` and `skipped-folders` (a discreet notice for unreadable subfolders, required with
-  `rust-notes-cleanup`).
-
 ## Completed
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
@@ -66,6 +62,10 @@ detail each stage when it is next.
   The native tab (`tab.rs`, `tiny-skia`) was replaced after a spike. Rust tests grew 12% and frontend
   tests 18%, mostly the tweak window's export, presets and validation and the handle's rules.
 - Release 0.3.0: automatic update from 0.2.0 validated.
+- Audit: docs without contradictions or verification narratives, duplicated code consolidated,
+  dev-only and redundant tests removed, `main`'s capability narrowed to events, and unreadable
+  subfolders skipped with a notice that folds into the search bar; see "Notes" in
+  `docs/ARCHITECTURE.md`.
 
 ## Later
 
