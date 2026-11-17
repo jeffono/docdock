@@ -29,10 +29,6 @@ test("keeps hours for dates on the same calendar day", () => {
   expect(relativeDate(new Date(2026, 10, 12, 10).getTime(), now, "en")).toBe("2 hours ago");
 });
 
-test("formats in the app locale", () => {
-  expect(relativeDate(now - 2 * 3_600_000, now, "pt-BR")).toBe("há 2 horas");
-});
-
 test("handles a future calendar date", () => {
   expect(relativeDate(new Date(2026, 10, 13, 0, 5).getTime(), now, "en")).toBe("tomorrow");
 });

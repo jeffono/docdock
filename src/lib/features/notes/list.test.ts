@@ -489,3 +489,13 @@ describe("kept expanded note", () => {
     });
   });
 });
+
+it("date headings stay out of keyboard navigation while the edited note keeps its path", () => {
+  const model = buildList({ ...base, pinned: [item("a.md")], expanded: "c.md", editing: true });
+  const visible = rows(
+    model,
+    "c.md",
+    new Map([["b.md", { key: "today", kind: "today", date: 1 }]]),
+  );
+  expect(navKeys(model, visible)).toEqual(["a.md", "b.md", "c.md"]);
+});
