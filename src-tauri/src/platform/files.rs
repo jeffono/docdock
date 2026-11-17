@@ -32,7 +32,7 @@ pub fn hold_directory(path: &Path) -> io::Result<File> {
     if !metadata.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "Attachment folder cannot be a link",
+            "folder is a link or not a folder",
         ));
     }
     Ok(file)

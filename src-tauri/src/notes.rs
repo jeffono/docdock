@@ -534,7 +534,8 @@ fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
     Ok(write_atomic(path, &bytes)?)
 }
 /// Writes a complete temporary file next to `path` and renames it over `path` in one step. Any failure
-/// leaves the previous file intact. Only for the app's own settings; notes use `replace_note`.
+/// leaves the previous file intact. Only for files the app owns, such as its settings, its caches and
+/// what it derives in the notes folder; notes use `replace_note`, which keeps an external write.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let temp = write_temp(path, bytes)?;
     fs::rename(&temp, path).inspect_err(|_| {
@@ -666,9 +667,6 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     }
     folder(app)
 }
-/// Choosing is the trusted moment: the folder's marker is adopted, or created if it has none, and its
-/// id recorded. Choosing again is how a folder whose marker changed, or a new folder at the same path,
-/// is accepted. An unavailable folder is recorded without an id, and is never created.
 /// The user confirms that the folder at the configured path is the notes folder, as choosing it again
 /// would, without leaving an editor whose text waits for it.
 pub fn trust(app: &AppHandle) -> Result<Option<Folder>, Error> {
@@ -683,6 +681,9 @@ fn trust_in(config: &Path) -> Result<(), Error> {
         _ => Err(Error::FolderUnavailable),
     }
 }
+/// Choosing is the trusted moment: the folder's marker is adopted, or created if it has none, and its
+/// id recorded. Choosing again is how a folder whose marker changed, or a new folder at the same path,
+/// is accepted. An unavailable folder is recorded without an id, and is never created.
 fn choose_in(config: &Path, path: PathBuf) -> Result<(), Error> {
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
     let id = match folder_availability(&path) {
@@ -2362,7 +2363,6 @@ mod tests {
             .status
             .success()
     }
-    // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
     #[test]
     fn invalid_site_exceptions_do_not_discard_other_preferences() {
         let settings: Settings =
@@ -2382,6 +2382,7 @@ mod tests {
         assert_eq!(settings.allowed_sites, ["example.com"]);
     }
 
+    // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
     #[test]
     fn vault_refuses_other_extensions() {
         let t = Temp::new();
