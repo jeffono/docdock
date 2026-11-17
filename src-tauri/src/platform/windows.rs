@@ -192,23 +192,16 @@ impl PanelWindow {
     /// Sizes the window to `rect` at `x`, above other windows, without activating it. Columns
     /// outside `clip` are cut.
     pub fn place(&mut self, rect: Rect, clip: Rect, x: i32) {
+        self.set_rect(rect, clip);
+        place_windows(&[self], x);
+    }
+
+    /// Takes `rect` and `clip` for the next [`place_windows`], which applies them.
+    pub fn set_rect(&mut self, rect: Rect, clip: Rect) {
         self.clip = clip;
         self.top = rect.top;
         self.width = rect.right - rect.left;
         self.height = rect.bottom - rect.top;
-        self.clip(x);
-        let result = unsafe {
-            SetWindowPos(
-                self.hwnd(),
-                Some(HWND_TOPMOST),
-                x + self.offset,
-                self.top,
-                self.width,
-                self.height,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
-        };
-        log_failure("SetWindowPos", result);
     }
 
     fn hwnd(&self) -> HWND {
@@ -300,6 +293,32 @@ impl PanelWindow {
         eprintln!("[panel] activate: ok={activated}");
         activated
     }
+}
+
+/// Sizes and shows windows at `x`, in this order above other windows, in one transaction: separate
+/// moves can reach the screen in different frames, leaving the tab behind a resized panel.
+pub fn place_windows(windows: &[&PanelWindow], x: i32) {
+    let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
+    let placed = || unsafe {
+        let mut batch = BeginDeferWindowPos(windows.len() as i32)?;
+        for window in windows {
+            window.clip(x);
+            let (left, top) = (x + window.offset, window.top);
+            let (width, height) = (window.width, window.height);
+            batch = DeferWindowPos(
+                batch,
+                window.hwnd(),
+                Some(HWND_TOPMOST),
+                left,
+                top,
+                width,
+                height,
+                flags,
+            )?;
+        }
+        EndDeferWindowPos(batch)
+    };
+    log_failure("DeferWindowPos", placed());
 }
 
 /// Moves windows to `x` in one transaction so the page stays attached to the panel.

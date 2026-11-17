@@ -265,7 +265,7 @@ impl Dock {
         } else {
             self.parked_x
         };
-        self.window.place(self.rect, monitor.bounds, self.x);
+        self.window.set_rect(self.rect, monitor.bounds);
         platform::handle::set_frame(monitor.dpi, self.side);
         // The handle settles where it was going.
         if self.handle_slide.take().is_some() && self.handle_presence == Presence::Hidden {
@@ -274,14 +274,27 @@ impl Dock {
         }
         self.handle_shift = 0;
         if self.handle_shown {
-            self.place_handle();
+            self.handle.set_offset(self.handle_offset());
+            let tab = handle::window_rect(&self.monitor, self.rect, self.side);
+            self.handle.set_rect(tab, monitor.bounds);
         }
+        let mut page = None;
         if self.web_visible
             && let Some(web) = &mut self.web
         {
             web.overlay(monitor.dpi, self.overlay_height, self.x);
-            place_page(web, &monitor, self.rect, self.side, self.x);
+            let rect = web_rect(&monitor, self.rect, self.side);
+            web.set_offset(rect.left - self.rect.left);
+            web.set_rect(rect, monitor.bounds);
+            page = Some(&*web);
         }
+        // Resizing moves the panel, its tab and its page: together, so none trails the others.
+        let mut windows = vec![&self.window];
+        if self.handle_shown {
+            windows.push(&self.handle);
+        }
+        windows.extend(page);
+        platform::place_windows(&windows, self.x);
     }
 
     /// The handle's window outside the panel's inner edge, pushed out by its shift.
