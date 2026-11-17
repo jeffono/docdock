@@ -720,18 +720,35 @@ pub fn shown_change(root: &Path, path: &Path) -> bool {
 }
 /// Visits every file and folder below `dir`, each folder before what it holds, skipping hidden
 /// folders; `visit` hears whether the entry is a folder. `is_dir` and `is_file` are false for symlinks
-/// and junctions, so they are never followed.
-fn walk(dir: &Path, visit: &mut impl FnMut(&fs::DirEntry, bool)) -> Result<(), Error> {
-    for entry in fs::read_dir(dir)? {
+/// and junctions, so they are never followed. A subfolder that cannot be read, such as one without
+/// permission or `System Volume Information` at a drive root, hides only what it holds: it is
+/// answered instead of failing the walk. `dir` itself failing is an error.
+fn walk(dir: &Path, visit: &mut impl FnMut(&fs::DirEntry, bool)) -> Result<Vec<PathBuf>, Error> {
+    let mut skipped = Vec::new();
+    walk_entries(fs::read_dir(dir)?, visit, &mut skipped)?;
+    Ok(skipped)
+}
+fn walk_entries(
+    entries: fs::ReadDir,
+    visit: &mut impl FnMut(&fs::DirEntry, bool),
+    skipped: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    for entry in entries {
         let entry = entry?;
         let ty = entry.file_type()?;
-        if ty.is_dir() {
-            if !entry.file_name().to_string_lossy().starts_with('.') {
-                visit(&entry, true);
-                walk(&entry.path(), visit)?;
-            }
-        } else if ty.is_file() {
+        if ty.is_file() {
             visit(&entry, false);
+        } else if ty.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
+            let path = entry.path();
+            match fs::read_dir(&path) {
+                Ok(inner) => {
+                    visit(&entry, true);
+                    if walk_entries(inner, visit, skipped).is_err() {
+                        skipped.push(path);
+                    }
+                }
+                Err(_) => skipped.push(path),
+            }
         }
     }
     Ok(())
@@ -751,11 +768,18 @@ fn relative(root: &Path, path: &Path) -> String {
         .to_string_lossy()
         .replace('\\', "/")
 }
+/// The notes below a folder, and the subfolders that could not be read.
+#[derive(Serialize)]
+pub struct Listing {
+    notes: Vec<Note>,
+    /// As `/` paths relative to the notes folder, sorted as notes are.
+    skipped: Vec<String>,
+}
 /// The dates come from the listing itself: on Windows a directory entry carries them, so a large
 /// folder costs no extra call per note.
-fn list(root: &Path) -> Result<Vec<Note>, Error> {
+fn list(root: &Path) -> Result<Listing, Error> {
     let mut notes = Vec::new();
-    walk(root, &mut |entry, folder| {
+    let skipped = walk(root, &mut |entry, folder| {
         let path = entry.path();
         if folder || !markdown(&path) {
             return;
@@ -777,13 +801,15 @@ fn list(root: &Path) -> Result<Vec<Note>, Error> {
         });
     })?;
     sort_paths(&mut notes, |note| &note.path);
-    Ok(notes)
+    let mut skipped: Vec<String> = skipped.iter().map(|path| relative(root, path)).collect();
+    sort_paths(&mut skipped, |path| path);
+    Ok(Listing { notes, skipped })
 }
 /// Listing is what the UI does on opening a folder, so it also starts watching it.
 pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
     let root = root(app)?;
     crate::watch::ensure(app, &root);
-    list(&root)
+    Ok(list(&root)?.notes)
 }
 fn internal_path(path: &Path) -> bool {
     path.components().any(|component| {
@@ -1176,8 +1202,8 @@ fn follow(root: &Path, from: &str, to: &str, result: &Result<(), Error>) {
         });
     }
 }
-/// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders and
-/// links are left out.
+/// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders,
+/// links and folders that cannot be read are left out.
 fn folders_in(root: &Path) -> Result<Vec<String>, Error> {
     let mut found = Vec::new();
     walk(root, &mut |entry, folder| {
@@ -2337,6 +2363,27 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    /// Refuses listing a folder to everyone, by SID, until dropped; declared after `Temp`, so the
+    /// folder can be deleted.
+    struct Unlistable(PathBuf);
+    impl Unlistable {
+        fn new(dir: &Path) -> Self {
+            assert!(icacls(dir, &["/deny", "*S-1-1-0:(RD)"]));
+            Self(dir.to_owned())
+        }
+    }
+    impl Drop for Unlistable {
+        fn drop(&mut self) {
+            icacls(&self.0, &["/remove:d", "*S-1-1-0"]);
+        }
+    }
+    fn icacls(dir: &Path, args: &[&str]) -> bool {
+        std::process::Command::new("icacls")
+            .arg(dir)
+            .args(args)
+            .output()
+            .is_ok_and(|out| out.status.success())
+    }
     fn mklink(flags: &[&str], link: &Path, target: &Path) -> bool {
         std::process::Command::new("cmd")
             .args(["/C", "mklink"])
@@ -2448,12 +2495,41 @@ mod tests {
             fs::write(t.0.join(p), "").unwrap();
         }
         fs::write(t.0.join(".ponto.md"), "").unwrap();
-        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let paths: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(paths, [".ponto.md", "A.md", "sub/b.md", "z.MD"]);
         // The watcher reports changes to what is listed and nothing inside hidden folders.
         let shown = |p: &str| shown_change(&t.0, &t.0.join(p));
         assert!(shown(".ponto.md") && shown("sub/b.md") && shown("sub"));
         assert!(!shown(".oculta/segredo.md") && !shown("a.md.1-2.docdock-tmp"));
+    }
+    #[test]
+    fn a_subfolder_that_cannot_be_read_is_skipped_and_reported() {
+        let t = Temp::new();
+        for dir in ["locked/inner", "sub"] {
+            fs::create_dir_all(t.0.join(dir)).unwrap();
+        }
+        for note in ["a.md", "locked/b.md", "sub/c.md"] {
+            fs::write(t.0.join(note), "").unwrap();
+        }
+        let _refused = Unlistable::new(&t.0.join("locked"));
+        let listing = list(&t.0).unwrap();
+        let paths: Vec<_> = listing.notes.into_iter().map(|n| n.path).collect();
+        assert_eq!(paths, ["a.md", "sub/c.md"]);
+        assert_eq!(listing.skipped, ["locked"]);
+        assert_eq!(folders_in(&t.0).unwrap(), ["sub"]);
+    }
+    #[test]
+    fn a_notes_folder_that_cannot_be_read_fails_the_listing() {
+        let t = Temp::new();
+        let notes = t.0.join("notes");
+        fs::create_dir(&notes).unwrap();
+        let _refused = Unlistable::new(&notes);
+        assert!(list(&notes).is_err());
     }
     #[test]
     fn bulk_read_skips_unreadable_notes_and_returns_the_rest() {
@@ -2572,7 +2648,7 @@ mod tests {
         fs::create_dir(&fora).unwrap();
         fs::write(fora.join("segredo.md"), "x").unwrap();
         assert!(mklink(&["/J"], &notas.join("atalho"), &fora));
-        assert!(list(&notas).unwrap().is_empty());
+        assert!(list(&notas).unwrap().notes.is_empty());
         assert!(resolve(&notas, "atalho/segredo.md", markdown).is_err());
     }
     #[test]
@@ -2840,7 +2916,12 @@ mod tests {
         assert_eq!(fs::read_to_string(&p).unwrap(), "original");
         assert_eq!(fs::read_dir(&t.0).unwrap().count(), 2);
         assert_eq!(fs::read_to_string(&leftover).unwrap(), "novo");
-        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let paths: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(paths, ["a.md"]);
     }
     #[test]
@@ -3295,7 +3376,12 @@ mod tests {
             fs::read_to_string(trash_of(&t.0).join(&id).join("a.md")).unwrap(),
             "secret"
         );
-        let listed: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let listed: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(listed, ["b.md"]);
     }
     #[test]
@@ -3732,7 +3818,12 @@ mod tests {
         let t = Temp::new();
         fs::write(t.0.join("note.md"), "text").unwrap();
         assert_eq!(rename(&t.0, "note.md", "Note.md"), Ok(()));
-        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let paths: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(paths, ["Note.md"]);
     }
     #[test]
@@ -4323,18 +4414,8 @@ mod tests {
         let t = Temp::new();
         let notes = t.0.join("notes");
         fs::create_dir(&notes).unwrap();
-        let icacls = |args: &[&str]| {
-            std::process::Command::new("icacls")
-                .arg(&notes)
-                .args(args)
-                .output()
-                .is_ok_and(|out| out.status.success())
-        };
-        // Everyone, by SID: refused to list the folder.
-        assert!(icacls(&["/deny", "*S-1-1-0:(RD)"]));
-        let state = folder_availability(&notes);
-        assert!(icacls(&["/remove:d", "*S-1-1-0"]));
-        assert_eq!(state, Availability::Unavailable);
+        let _refused = Unlistable::new(&notes);
+        assert_eq!(folder_availability(&notes), Availability::Unavailable);
     }
     #[test]
     fn choosing_a_folder_adopts_its_marker() {
