@@ -834,7 +834,6 @@ function slide(_node: HTMLElement, { from, to }: { from: DOMRect; to: DOMRect })
 }
 
 let pinning = false;
-/** `refocus`: the toggle came from the editor, which can lose focus when its card changes section. */
 async function pinOrUnpin(card: Card) {
   if (pinning) return;
   pinning = true;
