@@ -2257,7 +2257,10 @@ fn modified(path: &Path) -> u64 {
 fn leftovers_in(root: &Path) -> Result<Vec<Leftover>, Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     let mut found = Vec::new();
-    walk(root, &mut |entry, _| {
+    walk(root, &mut |entry, folder| {
+        if folder {
+            return;
+        }
         let path = entry.path();
         if let Some(note) = leftover_note(&path) {
             found.push(Leftover {
@@ -4302,6 +4305,17 @@ mod tests {
         save(&p, &settings("b")).unwrap();
         assert_eq!(read_settings(&p), Some(t.0.join("b")));
         assert_eq!(fs::read_dir(&t.0).unwrap().count(), 1);
+    }
+    /// Catches the shared walker handing folders to the leftover scan: a folder named like a backup
+    /// was listed as recoverable, and restoring it could only fail.
+    #[test]
+    fn a_folder_named_like_a_backup_is_not_a_leftover() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("a.md.7-1.docdock-bak")).unwrap();
+        fs::write(t.0.join("b.md.7-2.docdock-bak"), "b").unwrap();
+        let found = leftovers_in(&t.0).unwrap();
+        let paths: Vec<_> = found.iter().map(|l| &*l.path).collect();
+        assert_eq!(paths, ["b.md.7-2.docdock-bak"]);
     }
     #[test]
     fn restores_leftovers_without_overwriting() {
