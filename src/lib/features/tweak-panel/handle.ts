@@ -11,12 +11,21 @@ export const handleFields = [
     constant: "ACTIVATION_PERCENT",
     label: "Activation height (% of the tab)",
     range: [100, 1000],
+    step: 10,
   },
   {
-    key: "revealDistance",
-    constant: "REVEAL_DISTANCE",
-    label: "Reveal distance (logical px)",
-    range: [1, 500],
+    key: "revealPercent",
+    constant: "REVEAL_PERCENT",
+    label: "Reveal radius (% of the tab)",
+    range: [10, 1000],
+    step: 10,
+  },
+  {
+    key: "rushSpeed",
+    constant: "RUSH_SPEED",
+    label: "Rush speed (logical px/s)",
+    range: [500, 20000],
+    step: 100,
   },
 ] as const;
 

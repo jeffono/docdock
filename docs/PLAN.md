@@ -127,5 +127,6 @@ Defaults used until you decide otherwise.
 | Page over full-screen apps | Works in windowed and borderless full-screen; exclusive-mode games excluded |
 | Handle position            | Vertically centered on the work area; not movable                           |
 | Handle activation stretch  | 300% of the tab height, centered on it and clamped to the work area         |
-| Handle reveal distance     | Cursor within a few dozen pixels of the edge, near the handle               |
+| Handle reveal area         | Within 400% of the tab height around the tab; hides with the panel          |
+| Rush to the edge           | From 3000 logical px/s toward the edge: opens at once, no handle slide-in   |
 | Clicking the open tab      | Closes the panel; dragging it does nothing                                  |

@@ -31,25 +31,35 @@ pub fn dev_motion(motions: crate::motion::Motions) {
     crate::motion::tune(motions);
 }
 
-static ACTIVATION: AtomicU32 = AtomicU32::new(crate::handle::ACTIVATION_PERCENT);
-static REVEAL: AtomicU32 = AtomicU32::new(crate::handle::REVEAL_DISTANCE);
+static ACTIVATION: AtomicU32 = AtomicU32::new(crate::handle::TUNING.activation);
+static REVEAL: AtomicU32 = AtomicU32::new(crate::handle::TUNING.reveal);
+static RUSH: AtomicU32 = AtomicU32::new(crate::handle::TUNING.rush);
 
-/// The tuned activation stretch (percent of the tab height) and reveal distance (logical pixels).
-pub fn handle_tuning() -> (u32, u32) {
-    (
-        ACTIVATION.load(Ordering::Relaxed),
-        REVEAL.load(Ordering::Relaxed),
-    )
+/// The tuned edge handle values.
+pub fn handle_tuning() -> crate::handle::Tuning {
+    crate::handle::Tuning {
+        activation: ACTIVATION.load(Ordering::Relaxed),
+        reveal: REVEAL.load(Ordering::Relaxed),
+        rush: RUSH.load(Ordering::Relaxed),
+    }
 }
 
 /// The panel applies the tweak window's edge handle values, from the next cursor poll on.
 #[tauri::command]
-pub fn dev_handle(activation_percent: u32, reveal_distance: u32) -> Result<(), String> {
-    if !(100..=1000).contains(&activation_percent) || !(1..=500).contains(&reveal_distance) {
+pub fn dev_handle(
+    activation_percent: u32,
+    reveal_percent: u32,
+    rush_speed: u32,
+) -> Result<(), String> {
+    if !(100..=1000).contains(&activation_percent)
+        || !(10..=1000).contains(&reveal_percent)
+        || !(500..=20000).contains(&rush_speed)
+    {
         return Err("Handle values out of range".into());
     }
     ACTIVATION.store(activation_percent, Ordering::Relaxed);
-    REVEAL.store(reveal_distance, Ordering::Relaxed);
+    REVEAL.store(reveal_percent, Ordering::Relaxed);
+    RUSH.store(rush_speed, Ordering::Relaxed);
     Ok(())
 }
 

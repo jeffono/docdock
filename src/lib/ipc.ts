@@ -86,8 +86,11 @@ export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_
 export type Curve = [number, number, number, number];
 export type Motion = { duration: number; curve: Curve };
 export type Motions = { open: Motion; close: Motion; handleIn: Motion; handleOut: Motion };
-/** The edge handle's activation stretch (percent of the tab height) and reveal distance (logical px). */
-export type HandleTuning = { activationPercent: number; revealDistance: number };
+/**
+ * The edge handle's activation stretch and reveal radius (percent of the tab height) and the speed
+ * toward the edge (logical px/s) that opens the panel at once.
+ */
+export type HandleTuning = { activationPercent: number; revealPercent: number; rushSpeed: number };
 
 // Development builds only: release builds have neither the commands nor the tweak window.
 export const devMotion = (motions: Motions) => invoke<void>("dev_motion", { motions });

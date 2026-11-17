@@ -28,7 +28,8 @@ export function receive(event: unknown): Received {
   if (validHandle(handle))
     received.handle = {
       activationPercent: handle.activationPercent,
-      revealDistance: handle.revealDistance,
+      revealPercent: handle.revealPercent,
+      rushSpeed: handle.rushSpeed,
     };
   return received;
 }

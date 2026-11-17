@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter};
 use crate::handle::{self, Presence};
 use crate::motion::{self, Kind, Motion};
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
-use crate::platform::{self, Activation, Monitor, PanelWindow, Rect};
+use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
 
 const POLL: Duration = Duration::from_millis(50);
 /// Default width in logical pixels; on the monitor it becomes `width * dpi / 96`.
@@ -148,6 +148,7 @@ fn monitor_change(current: &Monitor, monitors: Vec<Monitor>, side: Side) -> Opti
 struct Slide {
     from: i32,
     to: i32,
+    kind: Kind,
     motion: Motion,
     started: Instant,
     last_frame: Instant,
@@ -161,11 +162,21 @@ impl Slide {
         Self {
             from,
             to,
+            kind,
             motion: motion::current(kind),
             started: now,
             last_frame: now,
             frames: 0,
             longest_frame: Duration::ZERO,
+        }
+    }
+
+    /// A slide in step with `leader`: same motion and start, so both land on the same frame.
+    fn along(from: i32, to: i32, leader: &Slide) -> Self {
+        Self {
+            motion: leader.motion,
+            started: leader.started,
+            ..Self::new(from, to, leader.kind)
         }
     }
 
@@ -203,6 +214,11 @@ struct Dock {
     /// from the edge when it appears and back out before hiding.
     handle_shift: i32,
     handle_slide: Option<Slide>,
+    reveal: handle::Reveal,
+    /// The last polled cursor, to measure its speed toward the edge.
+    last_cursor: Option<(Point, Instant)>,
+    /// The cursor heads for the edge fast enough to open the panel without waiting.
+    rushing: bool,
     web_visible: bool,
     overlay_height: u32,
     side: Side,
@@ -287,10 +303,9 @@ impl Dock {
 
     fn update_handle(&mut self) {
         platform::handle::set_pinned(self.panel.state == State::Pinned);
-        let revealed = platform::cursor_pos().is_some_and(|cursor| {
-            let (percent, reveal) = handle_tuning();
-            handle::revealed(cursor, &self.monitor, self.side, percent, reveal)
-        });
+        let near = platform::cursor_pos()
+            .is_some_and(|cursor| handle::near(cursor, &self.monitor, self.side, handle_tuning()));
+        let revealed = self.reveal.step(near, self.rushing);
         let ready = platform::handle::ready();
         let presence = handle::presence(ready, self.is_open(), self.slide.is_some(), revealed);
         if presence != self.handle_presence {
@@ -321,12 +336,19 @@ impl Dock {
             .as_ref()
             .map_or(self.handle_shift, |slide| slide.to);
         if heading != target {
-            let kind = if target == 0 {
-                Kind::HandleIn
+            let (kind, panel) = if target == 0 {
+                (Kind::HandleIn, Kind::Open)
             } else {
-                Kind::HandleOut
+                (Kind::HandleOut, Kind::Close)
             };
-            self.handle_slide = Some(Slide::new(self.handle_shift, target, kind));
+            // Going the panel's way, it moves in step with it: a hidden handle comes in with the
+            // opening panel instead of sliding in on its own, and leaves with the closing one.
+            self.handle_slide = Some(match &self.slide {
+                Some(slide) if slide.kind == panel => {
+                    Slide::along(self.handle_shift, target, slide)
+                }
+                _ => Slide::new(self.handle_shift, target, kind),
+            });
         }
     }
 
@@ -451,12 +473,19 @@ impl Dock {
             });
         }
         self.track_focus();
+        let tuning = handle_tuning();
+        let now = Instant::now();
+        self.rushing = self.last_cursor.is_some_and(|(from, then)| {
+            let elapsed = now - then;
+            handle::rushing(from, cursor, elapsed, &self.monitor, self.side, tuning.rush)
+        });
+        self.last_cursor = Some((cursor, now));
         let zone = handle::cursor_zone(
             cursor,
             &self.monitor,
             self.rect,
             self.side,
-            handle_tuning().0,
+            tuning.activation,
         );
         // A user typing on the page can move the mouse away without losing the panel. The page does
         // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
@@ -472,8 +501,9 @@ impl Dock {
             zone,
             dialog: self.dialog || self.resizing || crate::permissions::asking(),
             focus,
+            rush: zone == CursorZone::Edge && self.rushing,
         };
-        let action = self.panel.step(tick, Instant::now());
+        let action = self.panel.step(tick, now);
         self.apply(action);
         self.report_focus(focus);
         self.report_shown();
@@ -592,6 +622,7 @@ impl Dock {
                 }
             }
             Action::Hide => {
+                self.reveal.hold();
                 self.release_focus();
                 self.set_enabled(false);
                 self.slide = Some(Slide::new(self.x, self.parked_x, Kind::Close));
@@ -698,6 +729,9 @@ pub fn start(
         handle_shown: false,
         handle_shift: 0,
         handle_slide: None,
+        reveal: handle::Reveal::default(),
+        last_cursor: None,
+        rushing: false,
         web_visible: false,
         overlay_height: 0,
         side,
@@ -717,13 +751,13 @@ pub fn start(
     std::thread::spawn(move || dock.run(requests));
 }
 
-/// The activation stretch (percent of the tab height) and the reveal distance: constants in
-/// release builds, live values from the development tweak window otherwise.
-fn handle_tuning() -> (u32, u32) {
+/// The edge handle's constants in release builds, live values from the development tweak window
+/// otherwise.
+fn handle_tuning() -> handle::Tuning {
     #[cfg(debug_assertions)]
     return crate::dev::handle_tuning();
     #[cfg(not(debug_assertions))]
-    (handle::ACTIVATION_PERCENT, handle::REVEAL_DISTANCE)
+    handle::TUNING
 }
 
 #[cfg(test)]
