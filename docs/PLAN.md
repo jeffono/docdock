@@ -5,19 +5,9 @@ detail each stage when it is next.
 
 ## In progress
 
-- M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`; `tweak-polish` and
-  `handle-reveal` merged, batched placement and capture-excluded tab added). The user checked it
-  manually; then the look chosen with the tweak window goes to the defaults. Native page bar offset
-  still ignores `--size-bar`.
-- Branch `webview-tab` (from `m10`): the tab drawn by the panel's WebView, rebuilt from the spike
-  `tab-spike` (worktree `~/.t3/worktrees/docdock/t3-b05596e9-03bccc18f7a51521`, throwaway). Reviewed
-  by another provider and checked manually by the user. Measured against the native tab (release
-  builds, 125%, medians of two alternating runs, app and WebView2 processes): parked, working set
-  +3 MB, dedicated GPU memory +3 MB, but private memory +12 MB, above the 5 MB criterion; open, private
-  +19 MB and GPU +9 MB. Per process (second measurement, parked +9 MB in total): the Rust host +5.5 MB
-  private both parked and open, and the WebView2 GPU process +5 MB private and +4.5 MB GPU parked,
-  +11.5 and +9 MB open; the others are unchanged. Awaiting the user's decision before merging into
-  `m10`.
+- M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`; `tweak-polish`,
+  `handle-reveal` and `webview-tab` merged). The user checked it manually; then the look chosen with
+  the tweak window goes to the defaults. Native page bar offset still ignores `--size-bar`.
 
 ## Next
 
@@ -51,9 +41,10 @@ handle that opens the panel.
   draws the inner-edge line or focus band around the tab. Parked, the window lets every click
   through, and the tab's shift pushes the whole panel. `tab.rs`, `platform/handle.rs`, `tiny-skia`
   and the look IPC are gone; Rust sends the tab's size and drag tolerance. Menus, dialogs, editor
-  tooltips and the Preferences width keep to the panel. To check: a flash when toggling
-  `WS_EX_LAYERED`, dark `color-scheme` painting the transparent strip, Windows 10, and RAM and GPU
-  with the panel parked within 5 MB of the native tab.
+  tooltips and the Preferences width keep to the panel. Measured parked against the native tab
+  (release, 125%): private memory +9 to +12 MB, from the Rust host (+5.5 MB, likely the transparent
+  window's surface) and the WebView2 GPU process (+5 MB, +4.5 MB GPU); open, the GPU process +11.5 MB.
+  The user accepted the cost for the exact edge, no resize lag and one window to maintain.
 
 ## Completed
 
