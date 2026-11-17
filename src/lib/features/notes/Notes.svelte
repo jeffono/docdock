@@ -87,6 +87,7 @@ import {
   isMissing,
   isUntitled,
   jumpSection,
+  keptNote,
   type Level,
   move,
   movedPath,
@@ -426,20 +427,15 @@ const results = $derived.by(() => {
 });
 const kept = $derived.by(() => {
   void indexVersion;
-  if (!expanded || results.hits.some((hit) => hit.path === expanded)) return null;
-  const listed = notes.some((note) => note.path === expanded);
-  if (!listed && !contents[expanded] && !(editing && expanded === selected)) return null;
-  const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-  const entry = listed ? folderIndex.index.get(expanded) : undefined;
-  return {
-    path: expanded,
-    title: entry?.title ?? name,
-    tags: entry?.tags ?? [],
-    url: entry?.url,
-    modified: entry?.modified ?? 0,
-    snippet: null,
-    gone: !listed && ready,
-  };
+  return keptNote({
+    expanded,
+    hits: results.hits,
+    notes,
+    hasContent: !!contents[expanded],
+    editing: editing && expanded === selected,
+    ready,
+    index: folderIndex.index,
+  });
 });
 const model = $derived.by(() => {
   const built = buildList({

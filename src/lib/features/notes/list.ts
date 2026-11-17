@@ -38,6 +38,33 @@ export type ListModel = {
 
 export const isMissing = (entry: Card | Missing): entry is Missing => "target" in entry;
 
+/** Preserve an expanded note's last content when it disappears, including an empty unsaved editor. */
+export function keptNote(input: {
+  expanded: string;
+  hits: Hit[];
+  notes: { path: string }[];
+  hasContent: boolean;
+  editing: boolean;
+  ready: boolean;
+  index: ReadonlyMap<string, Pick<Hit, "title" | "tags" | "url" | "modified">>;
+}): (Hit & { gone: boolean }) | null {
+  const { expanded, hits, notes, hasContent, editing, ready, index } = input;
+  if (!expanded || hits.some((hit) => hit.path === expanded)) return null;
+  const listed = notes.some((note) => note.path === expanded);
+  if (!listed && !hasContent && !editing) return null;
+  const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+  const entry = listed ? index.get(expanded) : undefined;
+  return {
+    path: expanded,
+    title: entry?.title ?? name,
+    tags: entry?.tags ?? [],
+    url: entry?.url,
+    modified: entry?.modified ?? 0,
+    snippet: null,
+    gone: !listed && ready,
+  };
+}
+
 export function buildList(input: {
   hits: Hit[];
   exactTitle: boolean;
