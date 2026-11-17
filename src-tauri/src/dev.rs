@@ -72,7 +72,7 @@ pub fn dev_handle(
 /// Whether the tweak window's tab can be drawn and shaped: within the ranges it offers, its two
 /// curves fitting in its height.
 fn valid_tab(tab: Logical) -> bool {
-    (4..=64).contains(&tab.depth) && (40..=400).contains(&tab.height) && tab.curve * 2 <= tab.height
+    (4..=64).contains(&tab.depth) && (40..=400).contains(&tab.height) && tab.curve <= tab.height / 2
 }
 
 /// The panel takes the tweak window's tab shape at its next cursor poll: it resizes its window,

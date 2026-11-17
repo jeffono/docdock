@@ -29,6 +29,7 @@ import {
   panelSetPinned,
   panelTabShape,
   type TabShape,
+  type TabSize,
   webHistory,
   webReader,
   webSetVisible,
@@ -85,15 +86,20 @@ onMount(() => {
     error = t("error.clipboard");
   };
   window.addEventListener("clipboard-failed", clipboardFailed);
-  void panelTabShape()
-    .then((shape) => {
-      tab = shape;
-    })
-    .catch(() => {});
-  // The tab is drawn at the size Rust shaped the window to, never ahead of it.
+  // The tab is drawn at the size Rust shaped the window to, never ahead of it. Listening starts
+  // before the query, and a size reported meanwhile wins over the query's older answer.
+  let reported: TabSize | undefined;
   const reshaped = onPanelTabShape((size) => {
+    reported = size;
     if (tab) tab = { ...tab, ...size };
   });
+  void reshaped
+    .catch(() => {})
+    .then(() => panelTabShape())
+    .then((shape) => {
+      tab = { ...shape, ...reported };
+    })
+    .catch(() => {});
   const activationChanged = watchActivation();
   void action(loadActivation());
   let exiting = false;
