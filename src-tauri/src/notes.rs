@@ -718,21 +718,31 @@ pub fn shown_change(root: &Path, path: &Path) -> bool {
         .is_some_and(|e| e == TEMP_SUFFIX || e == BACKUP_SUFFIX);
     !hidden && !working
 }
-/// Visits every file below `dir`, skipping hidden folders. `is_dir` and `is_file` are false for
-/// symlinks and junctions, so they are never followed.
-fn walk(dir: &Path, visit: &mut impl FnMut(PathBuf)) -> Result<(), Error> {
+/// Visits every file and folder below `dir`, each folder before what it holds, skipping hidden
+/// folders; `visit` hears whether the entry is a folder. `is_dir` and `is_file` are false for symlinks
+/// and junctions, so they are never followed.
+fn walk(dir: &Path, visit: &mut impl FnMut(&fs::DirEntry, bool)) -> Result<(), Error> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let ty = entry.file_type()?;
         if ty.is_dir() {
             if !entry.file_name().to_string_lossy().starts_with('.') {
+                visit(&entry, true);
                 walk(&entry.path(), visit)?;
             }
         } else if ty.is_file() {
-            visit(entry.path());
+            visit(&entry, false);
         }
     }
     Ok(())
+}
+/// Sorts `/` paths as the UI lists them: ignoring case, then exactly, so the order never depends on
+/// the disk's.
+fn sort_paths<T>(items: &mut [T], path: impl Fn(&T) -> &str) {
+    items.sort_by_cached_key(|item| {
+        let path = path(item);
+        (path.to_lowercase(), path.to_owned())
+    });
 }
 /// The path the UI uses: relative to `root`, with `/`.
 fn relative(root: &Path, path: &Path) -> String {
@@ -741,33 +751,32 @@ fn relative(root: &Path, path: &Path) -> String {
         .to_string_lossy()
         .replace('\\', "/")
 }
+/// The dates come from the listing itself: on Windows a directory entry carries them, so a large
+/// folder costs no extra call per note.
 fn list(root: &Path) -> Result<Vec<Note>, Error> {
     let mut notes = Vec::new();
-    walk(root, &mut |path| {
-        if markdown(&path) {
-            notes.push(Note {
-                path: relative(root, &path),
-                name: path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned(),
-                created: fs::metadata(&path)
-                    .and_then(|m| m.created())
-                    .ok()
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or_else(|| modified(&path)),
-                modified: modified(&path),
-            });
+    walk(root, &mut |entry, folder| {
+        let path = entry.path();
+        if folder || !markdown(&path) {
+            return;
         }
+        let metadata = entry.metadata().ok();
+        let modified = metadata.as_ref().and_then(|m| millis(m.modified()));
+        notes.push(Note {
+            path: relative(root, &path),
+            name: path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            created: metadata
+                .and_then(|m| millis(m.created()))
+                .or(modified)
+                .unwrap_or(0),
+            modified: modified.unwrap_or(0),
+        });
     })?;
-    notes.sort_by(|a, b| {
-        a.path
-            .to_lowercase()
-            .cmp(&b.path.to_lowercase())
-            .then(a.path.cmp(&b.path))
-    });
+    sort_paths(&mut notes, |note| &note.path);
     Ok(notes)
 }
 /// Listing is what the UI does on opening a folder, so it also starts watching it.
@@ -1170,20 +1179,13 @@ fn follow(root: &Path, from: &str, to: &str, result: &Result<(), Error>) {
 /// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders and
 /// links are left out.
 fn folders_in(root: &Path) -> Result<Vec<String>, Error> {
-    fn visit(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result<(), Error> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
-            {
-                found.push(relative(root, &entry.path()));
-                visit(root, &entry.path(), found)?;
-            }
-        }
-        Ok(())
-    }
     let mut found = Vec::new();
-    visit(root, root, &mut found)?;
-    found.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+    walk(root, &mut |entry, folder| {
+        if folder {
+            found.push(relative(root, &entry.path()));
+        }
+    })?;
+    sort_paths(&mut found, |path| path);
     Ok(found)
 }
 #[derive(serde::Serialize)]
@@ -2202,24 +2204,30 @@ fn leftover_note(path: &Path) -> Option<PathBuf> {
 fn is_leftover(path: &Path) -> bool {
     leftover_note(path).is_some()
 }
+/// Milliseconds since the Unix epoch, if the time is known.
+fn millis(time: io::Result<std::time::SystemTime>) -> Option<u64> {
+    let since = time.ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some(since.as_millis() as u64)
+}
 fn modified(path: &Path) -> u64 {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_millis() as u64)
+    millis(fs::metadata(path).and_then(|m| m.modified())).unwrap_or(0)
 }
 /// Taken under the save lock: a save in progress owns its backup for a moment, and that is not a
 /// leftover.
 fn leftovers_in(root: &Path) -> Result<Vec<Leftover>, Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     let mut found = Vec::new();
-    walk(root, &mut |path| {
+    walk(root, &mut |entry, _| {
+        let path = entry.path();
         if let Some(note) = leftover_note(&path) {
             found.push(Leftover {
                 path: relative(root, &path),
                 note: relative(root, &note),
-                modified: modified(&path),
+                modified: entry
+                    .metadata()
+                    .ok()
+                    .and_then(|m| millis(m.modified()))
+                    .unwrap_or(0),
             });
         }
     })?;
