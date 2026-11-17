@@ -148,6 +148,21 @@ const ready = $derived(folder?.state === "available");
 let notes = $state<Note[]>([]);
 /** The last listing as read: what it left out of a skipped folder is unread, not gone. */
 let listing = $state.raw<Listing>({ notes: [], skipped: [] });
+/**
+ * The notice naming the skipped folders, or only its icon in the bar. Remembered until the app quits,
+ * so a refresh never brings back what the user put away.
+ */
+let skippedOpen = $state(true);
+/** Keeps keyboard focus on the control that replaces the one just pressed. */
+async function showSkipped(open: boolean) {
+  const focused = !!document.activeElement?.closest(".skipped, .skipped-toggle");
+  skippedOpen = open;
+  await tick();
+  if (focused)
+    document
+      .querySelector<HTMLElement>(open ? ".skipped button" : ".skipped-toggle button")
+      ?.focus();
+}
 let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
@@ -2068,6 +2083,10 @@ onMount(() => {
         placeholder={t("notes.searchPlaceholder")}
       />
       <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
+      <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->
+      {#if !browser && ready && listing.skipped.length > 0 && !skippedOpen}
+        <span class="skipped-toggle"><IconButton quiet icon="alert" label={t("skipped.show")} onclick={() => showSkipped(true)} /></span>
+      {/if}
     </div>
   {#if completionItems.length}
     <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
@@ -2115,6 +2134,15 @@ onMount(() => {
         {warning}
         {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={() => { warning = ""; }} />{/snippet}
       </Notice>
+    {/if}
+    {#if ready && listing.skipped.length > 0 && skippedOpen}
+      <div class="skipped">
+        <Notice icon="alert">
+          {t("skipped.notice")}
+          {#each listing.skipped as path (path)}<span class="skipped-path">{path}</span>{/each}
+          {#snippet actions()}<IconButton quiet icon="x" label={t("skipped.hide")} onclick={() => showSkipped(false)} />{/snippet}
+        </Notice>
+      </div>
     {/if}
     {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>
@@ -2441,6 +2469,15 @@ onMount(() => {
     height: var(--size-bar);
     align-items: center;
     padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
+  }
+
+  .skipped-toggle {
+    display: contents;
+  }
+
+  .skipped-path {
+    display: block;
+    color: var(--color-muted);
   }
 
   .leftovers {

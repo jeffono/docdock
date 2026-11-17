@@ -214,6 +214,10 @@ const en = {
   "leftovers.notice":
     "Interrupted saves left these copies. Restoring turns each one into a note; nothing is deleted.",
   "leftovers.restore": "Restore {note}",
+  "skipped.notice":
+    "Some folders could not be opened, so their notes may be missing or out of date.",
+  "skipped.hide": "Hide notice",
+  "skipped.show": "Show folders that could not be opened",
   "web.openAddress": "Open {text}",
   "web.search": "Search the web: {text}",
   "web.address": "Page address",
@@ -520,6 +524,10 @@ const ptBR: Record<MessageKey, string> = {
   "leftovers.notice":
     "Salvamentos interrompidos deixaram estas cópias. Restaurar transforma cada uma em nota; nada é apagado.",
   "leftovers.restore": "Restaurar {note}",
+  "skipped.notice":
+    "Algumas pastas não puderam ser abertas, então as notas delas podem faltar ou estar desatualizadas.",
+  "skipped.hide": "Ocultar aviso",
+  "skipped.show": "Mostrar pastas que não puderam ser abertas",
   "web.openAddress": "Abrir {text}",
   "web.search": "Buscar na web: {text}",
   "web.address": "Endereço da página",
