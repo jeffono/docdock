@@ -11,8 +11,10 @@ detail each stage when it is next.
   still ignores `--size-bar`.
 - Branch `webview-tab` (from `m10`): the tab drawn by the panel's WebView, rebuilt from the spike
   `tab-spike` (worktree `~/.t3/worktrees/docdock/t3-b05596e9-03bccc18f7a51521`, throwaway). Reviewed
-  by another provider and checked manually by the user; awaiting the RAM/GPU measurement before
-  merging into `m10`.
+  by another provider and checked manually by the user. Measured against the native tab (release
+  builds, 125%, medians of two alternating runs, app and WebView2 processes): parked, working set
+  +3 MB, dedicated GPU memory +3 MB, but private memory +12 MB, above the 5 MB criterion; open, private
+  +19 MB and GPU +9 MB. Awaiting the user's decision before merging into `m10`.
 
 ## Next
 
