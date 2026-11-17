@@ -43,48 +43,48 @@ struct Settings {
     /// Remembered answers to the page window's permission requests.
     #[serde(default, deserialize_with = "permissions_or_default")]
     site_permissions: Vec<crate::permissions::Remembered>,
-    #[serde(default, deserialize_with = "theme_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     theme: Theme,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     search_engine: crate::web::SearchEngine,
-    #[serde(default, deserialize_with = "order_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     note_order: NoteOrder,
-    #[serde(default, deserialize_with = "bool_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     group_by_date: bool,
-    #[serde(default, deserialize_with = "bool_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     relative_dates: bool,
     /// Wins over `group_by_date`; two flags keep settings written before folder grouping valid.
-    #[serde(default, deserialize_with = "bool_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     group_by_folder: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
     /// Optional Cryptomator entry point, a preference independent of note content.
     #[serde(
         default,
-        deserialize_with = "text_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     vault_file: Option<String>,
-    #[serde(default, deserialize_with = "side_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     side: Side,
     /// Panel width in logical pixels; absent for the default.
     #[serde(
         default,
-        deserialize_with = "width_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     width: Option<u32>,
     /// Activation shortcut as shown, such as `Ctrl+Alt+Space`; absent for the default.
     #[serde(
         default,
-        deserialize_with = "text_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     activation_shortcut: Option<String>,
     /// The id in the notes folder's marker (`MARKER`), recorded when it was chosen.
     #[serde(
         default,
-        deserialize_with = "text_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     folder_id: Option<String>,
@@ -106,14 +106,17 @@ impl Theme {
         }
     }
 }
-fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
-    Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+/// A field that does not parse reads as its default: one bad or future value in `settings.json` must
+/// not make the others, such as the notes folder, unreadable.
+fn lenient<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(
+    value: D,
+) -> Result<T, D::Error> {
+    Ok(T::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 /// Keeps each valid entry on its own: one bad element must not erase the others on the next save,
 /// and an edited entry that is not already a site key would silently widen or move its scope.
 fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, D::Error> {
-    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
-        .unwrap_or_default();
+    let entries: Vec<serde_json::Value> = lenient(value)?;
     let mut sites = Vec::new();
     for entry in entries.iter().filter_map(serde_json::Value::as_str) {
         if crate::blocking::site_key(&format!("https://{entry}/")).as_deref() == Some(entry) {
@@ -125,9 +128,7 @@ fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, 
 fn permissions_or_default<'de, D: Deserializer<'de>>(
     value: D,
 ) -> Result<Vec<crate::permissions::Remembered>, D::Error> {
-    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
-        .unwrap_or_default();
-    Ok(crate::permissions::from_settings(entries))
+    Ok(crate::permissions::from_settings(lenient(value)?))
 }
 pub fn site_permissions(app: &AppHandle) -> Vec<crate::permissions::Remembered> {
     config(app)
@@ -172,9 +173,6 @@ pub enum NoteOrder {
     CreatedAsc,
     CreatedDesc,
 }
-fn order_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<NoteOrder, D::Error> {
-    Ok(NoteOrder::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
 pub fn note_order(app: &AppHandle) -> Result<NoteOrder, Error> {
     Ok(load(&config(app)?).note_order)
 }
@@ -186,9 +184,6 @@ pub fn relative_dates(app: &AppHandle) -> Result<bool, Error> {
 }
 pub fn set_relative_dates(app: &AppHandle, enabled: bool) -> Result<(), Error> {
     update(app, |settings| settings.relative_dates = enabled)
-}
-fn bool_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
-    Ok(bool::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -216,17 +211,6 @@ pub fn set_grouping(app: &AppHandle, grouping: Grouping) -> Result<(), Error> {
         settings.group_by_date = grouping == Grouping::Date;
         settings.group_by_folder = grouping == Grouping::Folder;
     })
-}
-/// An unknown side must not make the folder unreadable.
-fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
-    Ok(Side::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
-/// An invalid width must not make the folder unreadable either.
-fn width_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<u32>, D::Error> {
-    Ok(Option::<u32>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
-fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
-    Ok(Option::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 #[derive(Serialize)]
 pub struct Folder {
@@ -2363,16 +2347,37 @@ mod tests {
             .status
             .success()
     }
-    #[test]
-    fn invalid_site_exceptions_do_not_discard_other_preferences() {
-        let settings: Settings =
-            serde_json::from_str(r#"{"allowed_sites":42,"folder":"notes","theme":"dark"}"#)
-                .unwrap();
-        assert!(settings.allowed_sites.is_empty());
-        assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        assert_eq!(settings.theme, Theme::Dark);
-    }
 
+    #[test]
+    fn a_field_that_does_not_parse_reads_as_its_default_and_keeps_the_others() {
+        let defaults = serde_json::to_value(Settings {
+            folder: Some("notes".into()),
+            ..Settings::default()
+        })
+        .unwrap();
+        let flags = ["null", "42", "{}", "[]", r#""true""#].as_slice();
+        for (field, values) in [
+            ("allowed_sites", ["42", "{}"].as_slice()),
+            ("site_permissions", &["42", "{}"]),
+            ("theme", &["null", "42", "{}", "true", r#""future-theme""#]),
+            ("search_engine", &["42", "{}"]),
+            ("note_order", &["null", "42", "{}", r#""future-order""#]),
+            ("group_by_date", flags),
+            ("relative_dates", flags),
+            ("group_by_folder", flags),
+            ("vault_file", &["42", "{}", "[]"]),
+            ("side", &[r#""top""#, "42"]),
+            ("width", &[r#""wide""#, "-1", "{}"]),
+            ("activation_shortcut", &["42", "{}", "[]"]),
+            ("folder_id", &["42", "{}"]),
+        ] {
+            for value in values {
+                let json = format!(r#"{{"folder":"notes","{field}":{value}}}"#);
+                let settings: Settings = serde_json::from_str(&json).unwrap();
+                assert_eq!(serde_json::to_value(settings).unwrap(), defaults, "{json}");
+            }
+        }
+    }
     #[test]
     fn site_exceptions_keep_valid_entries_and_drop_widened_ones() {
         let settings: Settings = serde_json::from_str(
@@ -2432,13 +2437,6 @@ mod tests {
             return;
         }
         assert_eq!(validate_vault_file(&link), Err(Error::InvalidVaultFile));
-    }
-    #[test]
-    fn malformed_vault_preference_preserves_other_settings() {
-        let settings: Settings =
-            serde_json::from_str(r#"{"vault_file":42,"relative_dates":true}"#).unwrap();
-        assert!(settings.vault_file.is_none());
-        assert!(settings.relative_dates);
     }
     #[test]
     fn list_filters_and_sorts() {
@@ -2881,66 +2879,6 @@ mod tests {
             "# Pins\r\n- [B](b.md)\r\n<!-- keep -->\n- [A](a.md)"
         );
         assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
-    }
-    #[test]
-    fn invalid_note_order_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "\"future-order\""] {
-            let settings: Settings =
-                serde_json::from_str(&format!(r#"{{"folder":"notes","note_order":{value}}}"#))
-                    .unwrap();
-            assert_eq!(settings.note_order, NoteOrder::ModifiedDesc);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn invalid_theme_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "[]", "true", "\"future-theme\""] {
-            let settings: Settings = serde_json::from_str(&format!(
-                r#"{{"folder":"notes","note_order":"created-asc","theme":{value}}}"#
-            ))
-            .unwrap();
-            assert_eq!(settings.theme, Theme::System);
-            assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn invalid_grouping_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "\"true\"", "[]"] {
-            let settings: Settings = serde_json::from_str(&format!(
-                r#"{{"folder":"notes","note_order":"created-asc","group_by_date":{value}}}"#
-            ))
-            .unwrap();
-            assert_eq!(settings.grouping(), Grouping::None);
-            assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn older_settings_keep_absolute_dates() {
-        let settings: Settings = serde_json::from_str(r#"{"group_by_date":true}"#).unwrap();
-        assert!(!settings.relative_dates);
-    }
-    #[test]
-    fn invalid_relative_dates_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "[]", "\"true\""] {
-            let settings: Settings =
-                serde_json::from_str(&format!(r#"{{"folder":"notes","relative_dates":{value}}}"#))
-                    .unwrap();
-            assert!(!settings.relative_dates);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn invalid_activation_shortcut_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "[]"] {
-            let settings: Settings = serde_json::from_str(&format!(
-                r#"{{"folder":"notes","activation_shortcut":{value}}}"#
-            ))
-            .unwrap();
-            assert_eq!(settings.activation_shortcut, None);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
     }
     #[test]
     fn folder_grouping_wins_and_older_settings_keep_date_grouping() {
@@ -4251,11 +4189,6 @@ mod tests {
         save(&p, &settings("b")).unwrap();
         assert_eq!(read_settings(&p), Some(t.0.join("b")));
         assert_eq!(load(&p).side, Side::Left);
-        // Older files have no side; an unknown side or width reads as the default and keeps the folder.
-        fs::write(&p, r#"{"folder":"x","side":"top","width":"wide"}"#).unwrap();
-        assert_eq!(load(&p).side, Side::Right);
-        assert_eq!(load(&p).width, None);
-        assert_eq!(read_settings(&p), Some(PathBuf::from("x")));
     }
     #[test]
     fn restores_leftovers_without_overwriting() {
