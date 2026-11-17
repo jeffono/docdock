@@ -67,9 +67,9 @@ start `C:\Program.exe`. Preferences > General and the tray share the operation i
 rereads the registry after a change, updates the tray check and emits `autostart-changed` to the main
 window. Preferences subscribes before its initial read and removes the listener on leaving; startup
 is never duplicated in `settings.json`. Turning it on or off from either control clears Task
-Manager's choice in `StartupApproved\Run`; a choice made later in Task Manager is respected. At startup, an entry left
-unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
-one; an entry for another existing copy is left alone.
+Manager's choice in `StartupApproved\Run`; a choice made later in Task Manager is respected. At startup,
+an unquoted entry, or one naming an executable that no longer exists, is pointed at the running one;
+an entry for another existing copy is left alone.
 
 The tray icon is a monochrome glyph embedded in the binary: black for a light taskbar, white for a
 dark one, following `SystemUsesLightTheme` rather than the apps theme. Its size is the small icon
@@ -121,10 +121,11 @@ covers its WebView2 children and the app's DOM-rendered menus. It runs after cre
 is still hidden, before note or page content is shown, including every recreation of the page window.
 `WDA_EXCLUDEFROMCAPTURE` is tried first; Windows before 10 2004 refuses it and gets `WDA_MONITOR`, a
 black window in captures. This is best effort: failures are only logged, and only capture APIs that
-honor display affinity respect it. There is no preference, so the user's own screenshots of the panel
-are blank too. System folder pickers and update dialogs show no note content and are left alone; new
-browser windows are denied. Known gap: Chromium-native popups, such as the default context menu (which
-can show selected text in "Search the web for") and page `<select>` lists, are separate windows in the
+honor display affinity respect it. There is no preference; capture policy is in
+[0009](decisions/0009-note-privacy.md). System folder pickers and update dialogs show no note content
+and are left alone; new browser windows are denied. Known gap: Chromium-native popups, such as the
+default context menu (which can show selected text in "Search the web for") and page `<select>` lists,
+are separate windows in the
 WebView2 process that the app's affinity does not reach.
 
 `panel.rs` is a pure state machine, without Win32 access:
@@ -284,10 +285,9 @@ per-monitor DPI awareness (PMv2).
   `platform/browser.rs` observes SourceChanged, DocumentTitleChanged and HistoryChanged on the WebView2
   UI thread and emits `web-state` (URL, title, back/forward availability) to main. The page sends no
   messages to Rust. The panel thread emits `web-visible` after switching visibility. UI metadata is text.
-  The unified bar shows the current URL, with a separate draft while typing. `suggestions.ts` supplies
-  pure intent, entries and default selection rules; notes, Create and web actions share arrow/Enter
-  selection. Notes queries stay local; choosing Search the web enters `?` mode. URL-like text offers
-  Open explicitly; only an http(s) prefix makes Open the default over notes/Create.
+  The unified bar keeps a separate draft while typing. `suggestions.ts` supplies pure intent, entries
+  and default selection rules for the shared arrow/Enter selection; visible behavior is in
+  "Unified address bar" in `docs/DESIGN.md`.
   In browser or `?` mode, Rust queries DuckDuckGo after a short debounce (minimum two characters).
   A generation discards stale responses, including A → B → A. `ureq` uses a two-second timeout, no
   cookies/referer or redirects; JSON is capped at 32 KiB, eight unique phrases of 200 characters,
@@ -296,7 +296,7 @@ per-monitor DPI awareness (PMv2).
   SourceChanged records actual http(s) visits, not submitted input, through a serialized atomic update
   of `address-history.json` in app_config_dir. Most recent first, deduplicated, 300 entries; corrupt
   history starts empty. Matching addresses precede engine phrases. The primary Open/Search action
-  remains first for Enter. Browser suggestions float over the page. `web_overlay` sends their measured height to the panel
+  remains first for Enter. `web_overlay` sends the suggestions' measured height to the panel
   thread; `platform/windows.rs` combines a top cutout with monitor clipping and a two-logical-pixel
   side/bottom inset using `SetWindowRgn`. Bounds and viewport never change for suggestions. The stored
   cutouts are reapplied during every slide frame and DPI relocation; Windows owns successful regions.
@@ -317,12 +317,10 @@ per-monitor DPI awareness (PMv2).
   `settings.json.allowed_sites` uses the existing locked atomic preferences writer. Startup loads
   a memory copy; changes serialize separately and publish only after a successful save. Request
   handlers check the top-level source against memory, never disk. Allowed documents skip cosmetic
-  hiding as well as network filtering, including third-party requests. The shield left of the address
-  toggles directly; Preferences > Browser removes exceptions. Changes cancel current cosmetic
+  hiding as well as network filtering, including third-party requests. Changes cancel current cosmetic
   passes and, when the page's site matches, replace its document-start script and then reload it.
-  Profile-wide WebView2 tracking prevention stays on at the balanced level, which blocks only
-  trackers known to be harmful; ads and common trackers are left to the engine, so allowing a site
-  restores them.
+  Profile-wide tracking prevention follows [0010](decisions/0010-content-blocking.md); its setup is
+  under "Untrusted content".
 - **Site permissions:** decisions in [0012](decisions/0012-site-permissions.md).
   `platform/permission.rs` handles `PermissionRequested` on the page window only, installed with the
   guard before the first navigation: each request gets a deferral, `SavesInProfile` false and
@@ -343,10 +341,10 @@ per-monitor DPI awareness (PMv2).
   and the on-screen epoch, a counter that is odd while the page is on screen and changes on every show
   and hide. While one waits, `permissions::asking` counts as a dialog in the panel's tick, so
   neither the cursor nor focus moving elsewhere closes it; Esc in the search bar and the shortcut
-  still do. A main-frame `NavigationStarting` denies what waits without remembering. The bar never takes
-  focus: the page keeps it until the user clicks the panel. `permission_answer` settles that request
-  and every waiting one for the same site and kind on the UI thread, if the document and epoch are
-  still those it was asked in; otherwise it denies everything waiting, without remembering. It then saves
+  still do. A main-frame `NavigationStarting` denies what waits without remembering.
+  `permission_answer` settles that request and every waiting one for the same site and kind on the
+  UI thread, if the document and epoch are still those it was asked in; otherwise it denies everything
+  waiting, without remembering. It then saves
   `settings.json.site_permissions` with the locked atomic writer and updates the memory copy only
   after the save, as site exceptions do; the handler reads only memory. Reading settings keeps each
   valid entry alone, drops sites that are not already site keys, and keeps Block when a site and kind
@@ -374,13 +372,13 @@ per-monitor DPI awareness (PMv2).
   The script carries the host's selectors and exceptions from `url_cosmetic_resources` and the
   generic class and id rules: at each list install, every `.class` or `#id` leading a `##` selector
   is asked to `hidden_class_id_selectors`, which keeps the engine the judge of what is generic
-  (about 28,000 keys, 480 KB). Building the script takes about 3 ms on the UI thread (debug
-  build). It runs before the page's scripts in every frame and acts only in the top frame of the
-  expected host: it adopts a sheet with the host's selectors and builds a map (about 10 ms) from
-  which a `MutationObserver` inserts each class's or id's rules, minus the exceptions, in the
-  microtask after the element appears, before it is painted. Under `$generichide` the map is
+  (about 28,000 keys, 480 KB). The script is built on the UI thread. It runs before the page's
+  scripts in every frame and acts only in the top frame of the expected host: it adopts a sheet
+  with the host's selectors and builds a map from which a `MutationObserver` inserts each class's
+  or id's rules, minus the exceptions, in the microtask after the element appears, before it is
+  painted. Under `$generichide` the map is
   empty. Registered as a same-site navigation starts, the script can reach the browser after the
-  new document (seen on shield reloads and same-site links), so an unchanged script is
+  new document, so an unchanged script is
   kept rather than replaced (its selectors are sorted, so the same URL gives the same source), and
   `web::open` and the shield register theirs and wait up to a second before navigating.
   `browser::document_start` makes one DevTools call at a time: a request waits until the browser
@@ -491,24 +489,18 @@ and the `notes-changed` reread is the trigger. Title and tags come from `markdow
 ([0007](decisions/0007-one-markdown-parser.md)); the title falls back to the file name, and the body is
 the text after the frontmatter. Matching ignores case and accents (per-character folding, so offsets
 map back to the original text) and requires every word somewhere in title, tags or body, as substrings.
-The pure `query.ts` parser separates free text and typed tag tokens with source ranges. Only standalone
-`#tag` words are filters; JSON-quoted tags support spaces and quotes. Hashes inside words/URLs and
-heading markers remain text. Every filter must equal a frontmatter tag under the same case/accent
-folding, and every free-text word must still match. Body hashtags are not metadata.
+The pure `query.ts` parser separates free text and typed tag tokens with source ranges; token and
+matching rules are in "Search filters" in `docs/DESIGN.md`.
 `queryCompletion` supplies a tag context with replacement range and prefix; `folderTags` derives
 case/accent-deduplicated prefix suggestions from the current index, excluding root `_pinned.md`.
 The Notes bar owns caret, selection, dismissal and focus effects; accepting replaces just that token.
 No tag index is persisted. Listing/watcher sync and folder reset update both hits and suggestions.
-Filter queries suppress automatic Create and web suggestions, which receive only the free text;
-explicit creation uses only free text (untitled if empty) and seeds the `#tag` filters as frontmatter
-tags, so the note stays in the filtered list; the editor opens such a note with the caret after them.
-Tag completion ignores only its active token while open; all other filters still apply. Folder tag
-suggestions use cached folded keys; the first 50 in alphabetical order are shown. Creation serializes
-parsed tags with the existing YAML scalar writer, ignoring date tokens.
+Folder tag suggestions use cached folded keys; the first 50 in alphabetical order are shown.
+Creation serializes parsed tags with the existing YAML scalar writer, ignoring date tokens.
 
 Date tokens extend the same `query.ts` parser and completion ranges. Pure `query-date.ts` takes an
 explicit `now`, resolves presets and partial ISO ranges to local calendar boundaries, and uses an
-exclusive upper bound after the entire final day/month/year. Invalid and reversed tokens are ignored.
+exclusive upper bound after the entire final day/month/year.
 The search index derives its filter date from valid frontmatter `created`, then `date`, else modified
 time; the existing scalar parser handles single/double quotes. Full ISO timestamps preserve offsets;
 date-only values use local midnight. This does not change date display, filesystem creation dates,
@@ -517,8 +509,7 @@ ordering or grouping. Searches refresh on the existing 30-second grouping clock.
 Order: title equal to the query, title starting with it, a word in the title, a word in a tag, body only;
 ties newest first. `search` also says whether a title equals the query (`exactTitle`, which decides
 whether the UI offers "Create"), and gives each body match a short snippet of plain text with offsets for
-highlighting, never HTML. An empty query lists every note by modified time. With 2000 notes of about
-5 KB, building takes about 70–120 ms and a query a few ms; the full text index (FTS5) is not needed.
+highlighting, never HTML. An empty query lists every note by modified time before `order.ts` sorting.
 
 **Saving.** `notes_open` returns the raw text and a version: a hash of the file's bytes,
 opaque to the UI and valid only within one run. `notes_save(path, content, base)` validates the path like
@@ -592,7 +583,7 @@ delete for good (no Recycle Bin on the volume, as on a network share, a file ove
 bin set to remove files at once) the note stays and recycling answers `Unsupported`; the shell also
 cannot parse a vault path mounted by WinFsp, which answers the same. The note then goes to the trash.
 Without the sink, `FOF_ALLOWUNDO` with `FOF_NO_UI` (which includes `FOF_NOCONFIRMATION`) deletes such a
-file for good without asking, verified on a Cryptomator vault mounted through WinFsp.
+file for good without asking.
 `SHQueryRecycleBinW` is not used to decide: it says nothing about the bin's size limit or the "remove
 files immediately" setting, and the sink sees the shell's own decision for each item. The sink also
 reports where the file landed in the Recycle Bin; its bytes are read from there, so Undo keeps exactly
@@ -602,9 +593,9 @@ keeps nothing and answers that Undo is not possible. Meanwhile the path is reser
 to it answer a conflict, so a late save of an editor cannot recreate the note and a new note takes the
 next name. Undo (`notes_undo_delete`) writes the copy back with the empty-base recreation, never over
 a file that took the name (`restoreTaken`, Undo stays available); the Recycle Bin keeps its own copy.
-Restoring from the Recycle Bin itself was not used: finding the item depends on the bin's internal
-layout. A note over 2 MB is refused where the Recycle Bin would take it, since it is too large for
-that copy: `platform::recyclable` asks the shell first, cancelling the operation before its first item,
+Finding an item in the Recycle Bin depends on the bin's internal layout. A note over 2 MB is refused
+where the Recycle Bin would take it, since it is too large for that copy: `platform::recyclable` asks
+the shell first, cancelling the operation before its first item,
 and a note the bin would refuse goes to the trash, which needs no copy. Pinned
 items are removed after the move (`pinnedNotRemoved` if they cannot be, the delete stands); Undo puts
 back the exact previous `_pinned.md` if it did not change since, else pins the items again at the end
@@ -654,8 +645,7 @@ vault mounted by WinFsp. What cannot be removed now, such as while the vault loc
 Names DocDock did not make are left to Empty. Being under `.docdock`, the trash is skipped by listing,
 search, tags, folder labels and the watcher, which reports the move as a deletion; paths into it are
 internal and refused. Attachments stay beside a deleted note, as with the Recycle Bin; a deleted
-folder takes its own along. A synced notes folder syncs the trash too: in a vault, encrypted like the
-rest.
+folder takes its own along. Trash privacy policy is in [0009](decisions/0009-note-privacy.md).
 
 **Atomic writes.** Each write creates its files next to the target with unique names,
 `<name>.<pid>-<n>.docdock-tmp` and `.docdock-bak`; the extension is not `.md`, so listing ignores
@@ -857,7 +847,7 @@ The folder then cannot be renamed or deleted meanwhile, and a vault asks before 
 availability poll and `notes_folder` apply the same check. `root` answers `folderUnavailable`,
 `folderMissing` or `folderUnrecognized` without touching the disk further, and no write path creates
 the folder or its parents (saves, recreation, pinned edits and restore, folder creation, pasted images,
-leftovers, moves); a regression test runs them against a missing folder under a missing parent.
+leftovers, moves).
 `notes_folder` and `notes_list` run off the main thread, since an offline share can take seconds to
 answer.
 
@@ -898,28 +888,22 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
 - **Data:** one `search.ts` index, synced after each `notes_list`, serialized; `pinned_list` after each
   `notes-changed`. A card in preview or expanded needs its raw text, read with `notes_open` into
   `contents` and refreshed on `notes-changed`; entries nobody shows are dropped. Web items of
-  `_pinned.md` appear in file order as one-line cards with the link label and host; no preview or
-  network fetch is needed. Click or Enter opens the page through the save guard, and the bookmark
-  removes it. Web cards ignore collapsed state and participate in the same selection model.
+  `_pinned.md` need no network fetch and open through the save guard. Web cards ignore collapsed state
+  and participate in the same selection model; their presentation is in "Web pins" in `docs/DESIGN.md`.
 - **State:** one `expanded` path, kept in memory until collapsed or another card expands;
   `panel-hidden` leaves editing through its save guard without resetting expansion, query or scroll.
-  Only user input empties the query, including after note creation or opening a page.
   `selection` for the arrows, reset by typing, with the first match (else "Create") selected while a
   query exists. Line against open of a pinned card goes through `pinned_set_collapsed`; expanding a
   collapsed card also opens it.
 - **Keyboard:** one `listKey` handles the list keys from the bar's keydown, in capture phase, and from a
   window listener for keys typed anywhere else except a text field or the editor (found through
-  `composedPath`, since the editor sits in a shadow root). → and ← in the bar act on the selected card only
-  with the caret at the end of the text. Esc goes in layers: while editing, it leaves editing (from the
-  editor through its keymap, or from a button) and the list takes focus; next, it focuses the bar and
-  selects its text without scrolling or clearing the query; from the bar it calls `panel_close`.
-  `escapeAction` in `list.ts` decides these layers independently of the query. Selection changes
-  reveal cards from Notes rather than on card mount, keeping scroll when leaving editing remounts
-  the reading card. A missing pinned item is selectable; Enter or Delete removes it. Ctrl+D ignores key
-  repeat and a toggle in flight. Outside a field, a printable key
-  other than Space focuses the bar, which then receives it; Ctrl+F focuses the bar and selects its text
-  from anywhere but a field. ↑ and ↓ on an expanded selected card ask `arrowScroll` (pure, in `list.ts`)
-  whether to scroll the list about three lines or move the selection; Alt moves directly. Without a
+  `composedPath`, since the editor sits in a shadow root). `escapeAction` in `list.ts` decides the Esc
+  layers in "Note list" in `docs/DESIGN.md`, independently of the query; the editor uses its keymap to
+  leave editing, and the final layer calls `panel_close`. Selection changes reveal cards from Notes
+  rather than on card mount, keeping scroll when leaving editing remounts
+  the reading card. Ctrl+D ignores key repeat and a toggle in flight. ↑ and ↓ on an expanded selected
+  card ask `arrowScroll` (pure, in `list.ts`) whether to scroll the list about three lines or move the
+  selection; Alt moves directly. Without a
   folder only Esc is handled, so buttons keep Enter.
 - **Editing:** the edited card is the expanded one. `buildList` keeps it as a card while editing even
   when the search hides it (first in its section) or its pinned note goes missing. `rows` flattens both
@@ -938,17 +922,15 @@ and `Highlight.svelte` (snippet text and matches as separate nodes, never HTML).
   and expands the note in edit mode. An
   unavailable folder/page or pending capture disables the action; errors use the existing notice.
 - **Note page action:** the search index carries the parsed http(s) `url:` separately from web-pin
-  card URLs, so notes keep their expand/edit behavior. Their header offers Open page through the same
-  guarded `openPage` path as links, flushing edits before opening. Other schemes are ignored.
-- **Existing page pins:** `_pinned.md` web entries still open and can be removed from their cards;
-  new captures use the note pin action after saving through "+".
-- **Pin button:** a bookmark `IconButton` "Pin note to top" in pinned cards and in expanded cards, distinct
-  from the header's "Pin panel" thumbtack. Card actions use its `quiet` prop; the bookmark fills when
-  pressed. The root `_pinned.md` entry is skipped by `search` for both empty and nonempty queries.
-- **Links:** rendered-note http(s) links open in the panel; Ctrl+click and mailto use the validated
-  external-open command. Anchors keep scrolling within the note. Main navigation rules stay strict.
-- **Rendering:** expanded cards reuse `renderNote` with no height limit; the sticky header relies on the
-  list being the only scroller. Previews cap at about eight lines and fade only when clipped.
+  card URLs. Open page uses the same guarded `openPage` path as links, flushing edits before opening.
+- **Pin button:** card actions use `IconButton`'s `quiet` prop. The root `_pinned.md` entry is skipped by
+  `search` for both empty and nonempty queries; the visible actions are in "Note list" in
+  `docs/DESIGN.md`.
+- **Links:** rendered-note links use the validated page/external-open commands under
+  [0004](decisions/0004-untrusted-content.md). Anchors keep scrolling within the note.
+- **Rendering:** expanded cards reuse `renderNote`; the sticky header relies on the list being the only
+  scroller. Previews fade only when clipped; card states and preview limits are in "Note list" in
+  `docs/DESIGN.md`.
 
 ## Theme
 
@@ -964,8 +946,8 @@ is WebView2's default and is not overridden by the app's CSS tokens.
 ## Note order
 
 The UI's `order.ts` sorts only unfiltered hits before `buildList`: displayed title, modified or
-created time, ascending or descending, with path as a deterministic tie-breaker. The default preserves
-modified descending. Nonempty queries retain search relevance and pinned entries retain file order.
+created time, ascending or descending, with path as a deterministic tie-breaker. Defaults and visible
+ordering rules are in "Order" under "Note list" in `docs/DESIGN.md`.
 `notes_list` includes filesystem creation time (Windows birth time), falling back to modified when
 unavailable; notes are never changed to store dates. The `note_order` field in the existing atomic
 settings file is updated under the settings mutex. Missing, malformed or unknown order values default without
@@ -993,8 +975,8 @@ leading `./` and any `#fragment` dropped) or an http(s) URL; images, other schem
 that are not list items are ignored, as are lines inside fenced code blocks and HTML comments.
 Edits change item lines without reconstructing markdown: each line slot keeps
 its terminator (CRLF, LF, CR, mixed) and everything that is not an item stays byte for byte.
-Pinning adds one `- [title](path)` line after the last item, or at the end of the file if there is
-none, with the file's first line terminator (LF in an empty file); an item already pinned (notes compare
+Pinning adds one `- [title](path)` line at the position and with the terminator specified in
+[0005](decisions/0005-pinned-items.md) (LF in an empty file); an item already pinned (notes compare
 case-insensitively, URLs in their written, escaped form) changes nothing. Unpinning removes every line
 pointing to the target. Moving rotates item bodies among item slots, so headings and prose between items and even an
 unterminated final line stay in place. Duplicate target lines are preserved; the first match moves.
@@ -1022,7 +1004,7 @@ holding only that item, and the next read replaces the copy.
 **Private derived state.** `.docdock/` is a hidden directory, excluded by the existing listing,
 search and watcher rules. State writes use synced sibling temporary files and atomic rename, holding
 ancestry handles against junctions and mount replacement; they never create the notes root or its
-parents. `_pinned.md` remains ordinary, human-readable markdown.
+parents.
 
 On first access to the chosen folder, once its marker matches the recorded id, legacy AppData
 `pinned-copy.json` migrates only if its recorded folder matches. The destination is written before
@@ -1065,9 +1047,8 @@ Decisions in [0004](decisions/0004-untrusted-content.md).
   load, or `note-asset`) reach `lib.rs`'s `main_only`, which rejects any other WebView label. A `null`
   origin, as in a `data:` iframe, is rejected before the ACL, and a raw `fetch` to `ipc.localhost`
   lacks Tauri's invoke key. The channel-data command bypasses the ACL but reads only the calling
-  WebView's queue, and the app uses no channels. `tests/page_ipc.rs` runs the real capabilities and
-  barrier on Tauri's mock runtime. Plugins must not add `js_init_script`s that change web APIs:
-  `tauri-plugin-dialog` replaced the page's `alert` and `confirm`, so the folder and vault pickers and
+  WebView's queue, and the app uses no channels. Plugins must not add `js_init_script`s that change web
+  APIs: `tauri-plugin-dialog` replaces the page's `alert` and `confirm`, so the folder and vault pickers and
   the update error message call `rfd` directly, and opener's link script is disabled in `lib.rs`.
 - **Page iframes:** without `platform/guard.rs`, an iframe could reach a registered scheme without a
   user gesture (through `src`, `location`, link or form targets, meta refresh or a redirect), which
@@ -1082,8 +1063,7 @@ back to the old controller API without Environment10, so this is defense in dept
 keeps its normal profile. Neither overrides `data_directory`, so WebView2 data lives under
 `%LOCALAPPDATA%/com.jeffono.docdock/EBWebView`. Note text reaches the UI through IPC and becomes DOM
 nodes, never a navigated document; `note-asset` answers only `main`, with `Cache-Control: no-store`
-and `nosniff` (covered by a test); the UI uses no `localStorage`, `sessionStorage`, IndexedDB, service
+and `nosniff`; the UI uses no `localStorage`, `sessionStorage`, IndexedDB, service
 workers or Cache Storage. These are source-level guarantees, not forensic ones: GPU and shader caches,
 crash dumps and OS paging are runtime-controlled, and the app never deletes the shared profile, which
-would erase website sessions. To check on disk, open a marked note and image in a disposable folder,
-quit, and search the profile's caches and stores for the markers.
+would erase website sessions.
