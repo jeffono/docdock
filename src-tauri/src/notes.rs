@@ -1682,7 +1682,7 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
     let (item, restored) = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let canonical = root.canonicalize()?;
-        let dir = canonical.join(DERIVED).join(trash::DIR);
+        let dir = trash_path(&canonical)?;
         let _held_trash = hold_ancestry(&dir).map_err(|error| trash_error(&dir, error))?;
         // The entry's folders stay held from the moment they are read until the item has moved.
         let (source, path, folder, held_source) =
@@ -1835,13 +1835,18 @@ pub fn purge_trash(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Ok(root) = root(&app) else { return };
-        if let Ok(canonical) = root.canonicalize() {
-            trash::purge(&canonical.join(DERIVED).join(trash::DIR), trash::now_ms());
+        if let Ok(dir) = trash_path(&root) {
+            trash::purge(&dir, trash::now_ms());
         }
     });
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
+/// In `DERIVED`: the last version of `_pinned.md` read, to restore it if it is deleted. Before it
+/// moved there, it sat under the same name beside `settings.json`.
+const PINNED_COPY_FILE: &str = "pinned-copy.json";
+/// In `DERIVED`: the pinned items shown as one line. It once was the `collapsed` key of the settings.
+const COLLAPSED_FILE: &str = "collapsed.json";
 /// A read, a line edit and a write that keep losing to external writes give up after this many tries.
 const PINNED_TRIES: usize = 3;
 
@@ -1882,7 +1887,7 @@ fn held_derived_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
     Ok((dir, held))
 }
 fn read_collapsed(dir: &Path) -> Result<BTreeSet<String>, Error> {
-    match fs::read(dir.join("collapsed.json")) {
+    match fs::read(dir.join(COLLAPSED_FILE)) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(Error::unexpected),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
         Err(error) => Err(error.into()),
@@ -1895,7 +1900,7 @@ fn update_collapsed(root: &Path, change: impl FnOnce(&mut BTreeSet<String>)) -> 
     let mut collapsed = read_collapsed(&dir)?;
     change(&mut collapsed);
     write_atomic(
-        &dir.join("collapsed.json"),
+        &dir.join(COLLAPSED_FILE),
         &serde_json::to_vec(&collapsed).map_err(Error::unexpected)?,
     )?;
     Ok(())
@@ -1917,7 +1922,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
         .as_ref()
         .and_then(|value| value.get("collapsed"))
         .cloned();
-    let legacy = settings.with_file_name("pinned-copy.json");
+    let legacy = settings.with_file_name(PINNED_COPY_FILE);
     if collapsed.is_none() && !legacy.try_exists()? {
         return Ok(());
     }
@@ -1936,7 +1941,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
         // A copy for an earlier folder stays until that folder is selected and available again.
         if copy.folder == root {
             let (dir, _held) = held_derived_dir(root)?;
-            let dest = dir.join("pinned-copy.json");
+            let dest = dir.join(PINNED_COPY_FILE);
             if !dest.try_exists()? {
                 write_atomic(
                     &dest,
@@ -1949,7 +1954,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
     }
     if let (Some(value), Some(old)) = (value.as_mut(), collapsed) {
         let (dir, _held) = held_derived_dir(root)?;
-        let dest = dir.join("collapsed.json");
+        let dest = dir.join(COLLAPSED_FILE);
         let targets: BTreeSet<String> = serde_json::from_value(old).map_err(Error::unexpected)?;
         if !dest.try_exists()? {
             write_atomic(
@@ -2061,7 +2066,7 @@ fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
 /// answers this, so the UI needs no second call.
 fn pinned_in(root: &Path) -> Result<Pinned, Error> {
     let (dir, _held) = held_derived_dir(root)?;
-    pinned_state(root, &dir.join("pinned-copy.json"), &read_collapsed(&dir)?)
+    pinned_state(root, &dir.join(PINNED_COPY_FILE), &read_collapsed(&dir)?)
 }
 pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
     pinned_in(&root(app)?)
@@ -2141,7 +2146,7 @@ pub fn restore_pinned(app: &AppHandle) -> Result<Pinned, Error> {
     let root = root(app)?;
     {
         let (dir, _held) = held_derived_dir(&root)?;
-        restore_pinned_in(&root, &dir.join("pinned-copy.json"))?;
+        restore_pinned_in(&root, &dir.join(PINNED_COPY_FILE))?;
     }
     pinned_in(&root)
 }
@@ -2984,7 +2989,7 @@ mod tests {
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
         let root = t.0.join("notes");
         fs::create_dir(&root).unwrap();
-        let store = held_derived_dir(&root).unwrap().0.join("pinned-copy.json");
+        let store = held_derived_dir(&root).unwrap().0.join(PINNED_COPY_FILE);
         (root, store)
     }
     fn no_collapsed() -> BTreeSet<String> {
@@ -4070,7 +4075,7 @@ mod tests {
             &root,
             serde_json::json!({ "collapsed": ["secret.md"], "theme": "dark" }),
         );
-        let legacy = settings.with_file_name("pinned-copy.json");
+        let legacy = settings.with_file_name(PINNED_COPY_FILE);
         fs::write(
             &legacy,
             serde_json::to_vec(&PinnedCopy {
@@ -4113,7 +4118,7 @@ mod tests {
     fn unavailable_migration_keeps_sources_and_creates_nothing() {
         let t = Temp::new();
         let settings = t.0.join("settings.json");
-        let legacy = t.0.join("pinned-copy.json");
+        let legacy = t.0.join(PINNED_COPY_FILE);
         // Invalid bytes prove the copy was not read/deserialized while the folder was away.
         fs::write(&legacy, "unread legacy content").unwrap();
         fs::write(&settings, r#"{"collapsed":["secret.md"]}"#).unwrap();
@@ -4176,7 +4181,7 @@ mod tests {
         let (root, store) = pinned_setup(&t);
         let settings = chosen(&t, &root, serde_json::json!({ "collapsed": ["old.md"] }));
         let dir = store.parent().unwrap();
-        fs::write(dir.join("collapsed.json"), r#"["new.md"]"#).unwrap();
+        fs::write(dir.join(COLLAPSED_FILE), r#"["new.md"]"#).unwrap();
         migrate_derived(&root, &settings).unwrap();
         assert_eq!(
             read_collapsed(dir).unwrap(),
@@ -4188,7 +4193,7 @@ mod tests {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
         let settings = chosen(&t, &root, serde_json::json!({}));
-        let legacy = settings.with_file_name("pinned-copy.json");
+        let legacy = settings.with_file_name(PINNED_COPY_FILE);
         fs::write(
             &legacy,
             serde_json::to_vec(&PinnedCopy {
@@ -4216,7 +4221,7 @@ mod tests {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
         let settings = chosen(&t, &root, serde_json::json!({}));
-        let legacy = t.0.join("pinned-copy.json");
+        let legacy = t.0.join(PINNED_COPY_FILE);
         fs::write(
             &legacy,
             serde_json::to_vec(&PinnedCopy {
@@ -4279,7 +4284,7 @@ mod tests {
         assert!(
             !pinned_state(
                 &other,
-                &held_derived_dir(&other).unwrap().0.join("pinned-copy.json"),
+                &held_derived_dir(&other).unwrap().0.join(PINNED_COPY_FILE),
                 &no_collapsed()
             )
             .unwrap()
@@ -4287,7 +4292,7 @@ mod tests {
         );
         restore_pinned_in(
             &other,
-            &held_derived_dir(&other).unwrap().0.join("pinned-copy.json"),
+            &held_derived_dir(&other).unwrap().0.join(PINNED_COPY_FILE),
         )
         .unwrap();
         assert!(!other.join(PINNED).exists());
@@ -4517,7 +4522,7 @@ mod tests {
     #[test]
     fn nothing_creates_a_notes_folder_that_is_not_there() {
         let t = Temp::new();
-        let store = t.0.join("config").join("pinned-copy.json");
+        let store = t.0.join("config").join(PINNED_COPY_FILE);
         let png = b"\x89PNG\r\n\x1a\n";
         for root in [t.0.join("vault").join("notes"), t.0.join("notes")] {
             keep_copy(&store, &root, "- [a](a.md)\n");
