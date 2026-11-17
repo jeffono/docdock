@@ -142,7 +142,7 @@ per-monitor DPI awareness (PMv2).
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
   edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
-  outside that monitor are ignored. A rush skips the pause: the cursor reaching the edge at 3000
+  outside that monitor are ignored. A rush skips the pause: the cursor reaching the edge at 500
   logical pixels per second or more toward it, measured between the last two polls, opens the panel
   at once. The rules are pure functions in `handle.rs`.
 - **Edge handle:** the panel's tab, drawn by the panel's own WebView (`features/tab/EdgeTab.svelte`).
@@ -226,8 +226,8 @@ per-monitor DPI awareness (PMv2).
   the source. The page window covers the band below the top bars.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
-  time, along a CSS-style `cubic-bezier` curve solved in `motion.rs`: 150 ms of cubic ease-in-out for
-  each kind of slide (panel open, panel close, handle in, handle out). A curve's x stays within 0..1
+  time, along a CSS-style `cubic-bezier` curve solved in `motion.rs`: cubic ease-in-out, 150 ms for the
+  panel opening and closing and 100 ms for the handle sliding in and out. A curve's x stays within 0..1
   and its y may overshoot; the last frame lands exactly on the destination, and an overshoot beyond
   the edge is cut by the monitor clip below.
 - **Tweak window (development builds only):** `dev.rs`, compiled only with `debug_assertions`, opens a

@@ -168,8 +168,8 @@ impl Motions {
 // The curve is the usual cubic-bezier fit of a cubic ease-in-out.
 const OPEN: Motion = Motion::new(150, [0.65, 0.0, 0.35, 1.0]);
 const CLOSE: Motion = Motion::new(150, [0.65, 0.0, 0.35, 1.0]);
-const HANDLE_IN: Motion = Motion::new(150, [0.65, 0.0, 0.35, 1.0]);
-const HANDLE_OUT: Motion = Motion::new(150, [0.65, 0.0, 0.35, 1.0]);
+const HANDLE_IN: Motion = Motion::new(100, [0.65, 0.0, 0.35, 1.0]);
+const HANDLE_OUT: Motion = Motion::new(100, [0.65, 0.0, 0.35, 1.0]);
 
 const MOTIONS: Motions = Motions {
     open: OPEN,

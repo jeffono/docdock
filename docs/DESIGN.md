@@ -91,7 +91,8 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## Motion
 
-- The panel and the edge handle slide in 150 ms with a cubic ease-in-out, defined in `motion.rs`.
+- The panel slides in 150 ms and the edge handle in 100 ms, with a cubic ease-in-out, defined in
+  `motion.rs`.
   Hover uses `--duration`.
 - Nothing animates for decoration or delays access. The one exception that calls for attention is the
   delete notice's entrance and Undo pulse, described under Deleting.

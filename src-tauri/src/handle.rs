@@ -23,7 +23,7 @@ pub const ACTIVATION_PERCENT: u32 = 300;
 /// How near the tab the cursor must come for the handle to show, as a percentage of the tab height.
 pub const REVEAL_PERCENT: u32 = 400;
 /// Speed toward the edge, in logical pixels per second, from which an approach is a rush.
-pub const RUSH_SPEED: u32 = 3000;
+pub const RUSH_SPEED: u32 = 500;
 const BASE_DPI: u32 = 96;
 
 /// The values the development tweak window changes live; release builds use the constants.
@@ -582,6 +582,9 @@ mod tests {
         }
     }
 
+    /// The rule's threshold in these cases, apart from the tuned default.
+    const SPEED: u32 = 3000;
+
     /// 300 logical pixels in one 50 ms poll is 6000 per second: a flick.
     #[test]
     fn a_flick_toward_the_edge_rushes() {
@@ -594,7 +597,7 @@ mod tests {
                 poll,
                 &MONITOR,
                 side,
-                RUSH_SPEED,
+                SPEED,
             )
         };
         assert!(rush(3389, 3839, Side::Right));
@@ -609,7 +612,7 @@ mod tests {
             ..to
         };
         let poll = Duration::from_millis(50);
-        rushing(from, to, poll, &monitor, Side::Right, RUSH_SPEED)
+        rushing(from, to, poll, &monitor, Side::Right, SPEED)
     }
 
     /// Catches an ordinary approach skipping the handle: 100 logical pixels in a 50 ms poll is
