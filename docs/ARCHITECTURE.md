@@ -442,7 +442,7 @@ per-monitor DPI awareness (PMv2).
   `Target.getTargetInfo` response.
 - **Reader view:** decision in [0011](decisions/0011-reader-view.md). `web_reader` reads the shown
   page through the same isolated-world evaluation, turns, navigation identity and response checks
-  as the selection (`web::read_page`), with a fixed script that copies the DOM node by node into a
+  as the selection (`web::read_page`), with a five-second limit instead of two, a fixed script that copies the DOM node by node into a
   document without a browsing context, skipping scripts, styles, media and embeds, and counts lengths
   before copying: it ends at 100,000 elements or 1,500,000 UTF-16 units. `reader.rs` refuses
   nesting deeper than 512, extracts the article with `dom_smoothie`, writes it as Markdown with
@@ -504,7 +504,8 @@ exclusive upper bound after the entire final day/month/year.
 The search index derives its filter date from valid frontmatter `created`, then `date`, else modified
 time; the existing scalar parser handles single/double quotes. Full ISO timestamps preserve offsets;
 date-only values use local midnight. This does not change date display, filesystem creation dates,
-ordering or grouping. Searches refresh on the existing 30-second grouping clock.
+ordering or grouping. Searches use the local day of the 30-second clock (see "Note order"), so they rerun only when the day
+changes.
 
 Order: title equal to the query, title starting with it, a word in the title, a word in a tag, body only;
 ties newest first. `search` also says whether a title equals the query (`exactTitle`, which decides
@@ -960,8 +961,9 @@ loads and saves the order, grouping and relative dates, sharing a busy state bet
 Preferences. Pure `grouping.ts` moves each folder's notes together for folder groups, and derives folder or date
 headers from already ordered unpinned cards only, using the selected date and local calendar days
 (rather than elapsed hours across DST). Recent ranges take priority over month/year labels. Month
-names use `Intl.DateTimeFormat` with the user's locale. A 30-second clock refreshes local-day boundaries,
-including after resume, and is the `now` of relative dates (pure `relative-date.ts`), which show a time
+names use `Intl.DateTimeFormat` with the user's locale. A 30-second clock, which also catches a resume,
+is the `now` of relative dates; searches and date headers take only its local day (midnight), so
+they recompute when the day changes, not on every tick. Relative dates (pure `relative-date.ts`) show a time
 up to five minutes ahead of it as now, so a note saved since the last tick never reads as future. `rows` inserts headers into the existing flat keyed block; card/editor keys
 and `navKeys` stay unchanged, so headers never become arrow targets. Search and name order suppress
 headers without changing the saved choice.

@@ -161,8 +161,8 @@ pinned and unpinned notes differ only in section and starting state.
   keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
 - **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
   eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
-  editing (expanded, with the editor). Only line versus open is remembered across app restarts, per
-  computer. Hiding the panel leaves editing through its save guard, keeping the card expanded.
+  editing (expanded, with the editor). Only line versus open is remembered across app restarts, with the
+  notes folder, so it follows the folder to other computers. Hiding the panel leaves editing through its save guard, keeping the card expanded.
   The expanded card and list scroll survive hiding and focus loss; only collapsing the card or
   expanding another changes the expanded note. Selection navigation and explicit opening may reveal
   a card, but returning to the search bar does not scroll the list.
