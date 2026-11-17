@@ -1,4 +1,4 @@
-import { get, writable } from "svelte/store";
+import { get, type Writable, writable } from "svelte/store";
 import {
   type Grouping,
   type NoteOrder,
@@ -27,36 +27,18 @@ export function loadNoteOrder() {
     });
   return loaded;
 }
-export async function setRelativeDates(enabled: boolean) {
+async function setPreference<T>(value: T, save: (value: T) => Promise<void>, store: Writable<T>) {
   if (get(noteOrderBusy)) return;
   noteOrderBusy.set(true);
   try {
     await loadNoteOrder();
-    await notesSetRelativeDates(enabled);
-    relativeDates.set(enabled);
+    await save(value);
+    store.set(value);
   } finally {
     noteOrderBusy.set(false);
   }
 }
-export async function setGrouping(value: Grouping) {
-  if (get(noteOrderBusy)) return;
-  noteOrderBusy.set(true);
-  try {
-    await loadNoteOrder();
-    await notesSetGrouping(value);
-    grouping.set(value);
-  } finally {
-    noteOrderBusy.set(false);
-  }
-}
-export async function setNoteOrder(value: NoteOrder) {
-  if (get(noteOrderBusy)) return;
-  noteOrderBusy.set(true);
-  try {
-    await loadNoteOrder();
-    await notesSetOrder(value);
-    noteOrder.set(value);
-  } finally {
-    noteOrderBusy.set(false);
-  }
-}
+export const setRelativeDates = (enabled: boolean) =>
+  setPreference(enabled, notesSetRelativeDates, relativeDates);
+export const setGrouping = (value: Grouping) => setPreference(value, notesSetGrouping, grouping);
+export const setNoteOrder = (value: NoteOrder) => setPreference(value, notesSetOrder, noteOrder);

@@ -601,11 +601,7 @@ async function refresh(value: NotesFolder | null) {
   expanded = "";
   selection = "";
   if (value?.state !== "available") return;
-  const [list, directoryList] = await listSnapshot();
-  if (current !== generation) return;
-  notes = list;
-  folders = directoryList;
-  await sync(list);
+  await relist(() => current !== generation);
   if (current !== generation) return;
   const state = await pinnedList();
   if (current !== generation) return;
@@ -620,16 +616,22 @@ async function listSnapshot() {
   return [list, folderLabels(list, directories)] as const;
 }
 
+/** Ignore a snapshot if the active folder changed while it was being read. */
+async function relist(stale = () => false) {
+  const [list, directoryList] = await listSnapshot();
+  if (stale()) return;
+  notes = list;
+  folders = directoryList;
+  await sync(list);
+}
+
 async function restore(path: string) {
   try {
     error = "";
     if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
-    const [list, directoryList] = await listSnapshot();
-    notes = list;
-    folders = directoryList;
-    await sync(list);
+    await relist();
     expanded = note;
     selection = note;
   } catch (e) {
@@ -678,10 +680,7 @@ async function create(text: string, content = "") {
       const name = noteFileName(text, taken);
       const result = await notesSave(name, content, "");
       if (result.status === "saved") {
-        const [list, directoryList] = await listSnapshot();
-        notes = list;
-        folders = directoryList;
-        await sync(list);
+        await relist();
         expanded = name;
         selection = name;
         // Leaving the reader view first, so hiding the page returns to Notes.
@@ -1458,11 +1457,7 @@ async function reload() {
         () => {},
       );
   }
-  const [list, directoryList] = await listSnapshot();
-  if (stale()) return;
-  notes = list;
-  folders = directoryList;
-  await sync(list);
+  await relist(stale);
   if (stale()) return;
   const state = await pinnedList();
   if (stale()) return;
@@ -1995,6 +1990,11 @@ onMount(() => {
 });
 </script>
 
+{#snippet webSuggestion(entry: WebEntry, inList: boolean, current: boolean)}
+  <button class="suggestion" class:in-list={inList} class:selected={active === entry.key} tabindex="-1" aria-current={current && active === entry.key || undefined} onclick={() => activateWeb(entry)}
+    {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+{/snippet}
+
 <svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
@@ -2070,8 +2070,7 @@ onMount(() => {
   {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
-        <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+        {@render webSuggestion(entry, false, true)}
       {/each}
     </div>
   {/if}
@@ -2208,15 +2207,13 @@ onMount(() => {
       {/each}
       {#if shownWebItems.length}<div class="section-heading"><h2>{t("list.web")}</h2></div>{/if}
       {#each shownWebItems as entry (entry.key)}
-        <button class="suggestion in-list" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+        {@render webSuggestion(entry, true, true)}
       {/each}
       {#if ready && !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}
-      <button class="suggestion" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+      {@render webSuggestion(entry, false, false)}
     {/each}
     <div class="empty">
       <p>{folder && folder.state !== "available" ? t(folderNotice(folder.state)) : t("notes.chooseHint")}</p>
