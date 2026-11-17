@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Listing, Note, PinnedItem } from "../../ipc";
-import { listingState, renamedKnown, shownPinned, unreadKnown, withoutRemoved } from "./listing";
+import {
+  listingState,
+  renamedKnown,
+  settledRead,
+  shownPinned,
+  unreadKnown,
+  withoutRemoved,
+} from "./listing";
 
 const note = (path: string, modified = 1): Note => ({ path, name: path, modified, created: 1 });
 const paths = (notes: Note[]) => notes.map((n) => n.path).sort();
@@ -99,4 +106,52 @@ it("a pinned note in a skipped folder is not missing: shown if known, otherwise 
     pin("Work/b.md", false),
     pin("gone.md", true),
   ]);
+});
+
+// Catches a listing taken before a rename or delete putting the old path back, where a skipped
+// folder would then keep it.
+describe("a listing read while a known note is renamed or deleted", () => {
+  /** Lists `first` once, held until released, then `later`; counts the changes as the list does. */
+  function lister(first: Listing, later: Listing) {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    let changes = 0;
+    const read = settledRead(
+      async () => {
+        reads++;
+        if (reads > 1) return later;
+        await held;
+        return first;
+      },
+      () => changes,
+    );
+    return { read, release, change: () => changes++, reads: () => reads };
+  }
+  const readable: Listing = { notes: [note("Work/a.md")], skipped: [] };
+  const locked: Listing = { notes: [], skipped: ["Work"] };
+
+  it("is read again after a rename, so the new path stays", async () => {
+    const listing = lister(readable, locked);
+    let known = [note("Work/a.md")];
+    known = renamedKnown(known, [["Work/a.md", "Work/b.md"]]);
+    listing.change();
+    listing.release();
+    const found = await listing.read;
+    expect(listing.reads()).toBe(2);
+    expect(paths(withUnread(known, found))).toEqual(["Work/b.md"]);
+  });
+
+  it("is read again after a delete, so the note stays gone", async () => {
+    const listing = lister(readable, locked);
+    let known = [note("Work/a.md")];
+    known = withoutRemoved(known, "Work/a.md");
+    listing.change();
+    listing.release();
+    const found = await listing.read;
+    expect(listing.reads()).toBe(2);
+    expect(withUnread(known, found)).toEqual([]);
+  });
 });

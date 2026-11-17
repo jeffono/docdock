@@ -70,3 +70,15 @@ export function shownPinned(items: PinnedItem[], skipped: string[], known: Note[
     return paths.has(item.target) ? [{ ...item, missing: false }] : [];
   });
 }
+
+/**
+ * Reads until no rename or delete of a known note landed during the read: `version` counts them. A
+ * listing taken before one would put the old path back, and a skipped folder would then keep it.
+ */
+export async function settledRead<T>(read: () => Promise<T>, version: () => number): Promise<T> {
+  for (;;) {
+    const started = version();
+    const result = await read();
+    if (version() === started) return result;
+  }
+}

@@ -99,7 +99,14 @@ import {
   rows,
   shallower,
 } from "./list";
-import { listingState, renamedKnown, shownPinned, unreadKnown, withoutRemoved } from "./listing";
+import {
+  listingState,
+  renamedKnown,
+  settledRead,
+  shownPinned,
+  unreadKnown,
+  withoutRemoved,
+} from "./listing";
 import MovePicker from "./MovePicker.svelte";
 import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
@@ -446,11 +453,15 @@ async function sync(list: Note[], retained: Note[] = []): Promise<void> {
   indexVersion++;
 }
 
+/** Renames and deletes applied to the known notes; a listing read across one is read again. */
+let knownChanges = 0;
+
 /**
  * Forgets a note or folder the app deleted. A skipped folder would otherwise keep it, since deleting
  * works where listing does not.
  */
 function forgetRemoved(path: string) {
+  knownChanges++;
   notes = withoutRemoved(notes, path);
   void folderIndex.edit((index) => forgetEntries(index, path)).then(() => indexVersion++);
 }
@@ -653,7 +664,10 @@ async function refresh(value: NotesFolder | null) {
  * secondary: a failure must not hide readable notes.
  */
 async function relist(stale = () => false) {
-  const [found, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
+  const [found, directories] = await settledRead(
+    () => Promise.all([notesList(), notesFolders().catch(() => [])]),
+    () => knownChanges,
+  );
   if (stale()) return;
   const retained = unreadKnown(notes, found);
   listing = found;
@@ -1529,6 +1543,7 @@ let again = false;
 function changed(changes: NotesChanges) {
   if (changes.renames.length) {
     // A note kept from an unreadable folder follows the rename; a listing cannot tell it.
+    knownChanges++;
     notes = renamedKnown(notes, changes.renames);
     void folderIndex
       .edit((index) => renameEntries(index, changes.renames))
