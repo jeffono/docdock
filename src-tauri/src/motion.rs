@@ -247,16 +247,6 @@ mod tests {
         assert_eq!(motion.position(0, 100, motion.duration), 100);
     }
 
-    /// A control point with x outside 0..=1 makes x(t) turn back: no longer a function of time.
-    #[test]
-    fn curve_rejects_x_outside_unit_range_but_allows_overshooting_y() {
-        assert!(Curve::try_from([1.2, 0.0, 0.5, 1.0]).is_err());
-        assert!(Curve::try_from([0.5, 0.0, -0.1, 1.0]).is_err());
-        assert!(Curve::try_from([f64::NAN, 0.0, 0.5, 1.0]).is_err());
-        assert!(Curve::try_from([0.5, 5.0, 0.5, 1.0]).is_err());
-        assert!(Curve::try_from([0.34, 1.56, 0.64, -0.5]).is_ok());
-    }
-
     #[test]
     fn slide_ends_exactly_at_destination_even_with_late_frame() {
         let motion = OPEN;

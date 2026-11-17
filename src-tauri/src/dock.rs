@@ -795,13 +795,13 @@ mod tests {
 
     #[test]
     fn panel_stays_on_outermost_monitor_of_its_side() {
-        let principal = monitor(0, 3840);
-        let pair = vec![principal, monitor(3840, 7680)];
+        let primary = monitor(0, 3840);
+        let pair = vec![primary, monitor(3840, 7680)];
         let chosen = edge_monitor(pair.clone(), Side::Right).unwrap();
         assert_eq!(chosen.bounds.right, 7680);
-        assert_eq!(edge_monitor(pair, Side::Left).unwrap(), principal);
-        let pair = vec![monitor(-3840, 0), principal];
-        assert_eq!(edge_monitor(pair.clone(), Side::Right).unwrap(), principal);
+        assert_eq!(edge_monitor(pair, Side::Left).unwrap(), primary);
+        let pair = vec![monitor(-3840, 0), primary];
+        assert_eq!(edge_monitor(pair.clone(), Side::Right).unwrap(), primary);
         let chosen = edge_monitor(pair, Side::Left).unwrap();
         assert_eq!(chosen.bounds.left, -3840);
         // Stacked monitors tie on both sides: the primary wins in any order.
@@ -809,33 +809,33 @@ mod tests {
             bounds: Rect {
                 top: 2160,
                 bottom: 4320,
-                ..principal.bounds
+                ..primary.bounds
             },
-            ..principal
+            ..primary
         };
         for side in [Side::Right, Side::Left] {
             assert_eq!(
-                edge_monitor(vec![principal, below], side).unwrap(),
-                principal
+                edge_monitor(vec![primary, below], side).unwrap(),
+                primary
             );
             assert_eq!(
-                edge_monitor(vec![below, principal], side).unwrap(),
-                principal
+                edge_monitor(vec![below, primary], side).unwrap(),
+                primary
             );
         }
     }
 
     #[test]
     fn swapping_monitors_while_app_is_open_moves_panel() {
-        let atual = monitor(3840, 7680);
-        let invertido = vec![monitor(-3840, 0), monitor(0, 3840)];
-        let novo = monitor_change(&atual, invertido, Side::Right).unwrap();
-        assert_eq!(novo.bounds.right, 3840);
-        let pair = vec![monitor(0, 3840), atual];
-        assert!(monitor_change(&atual, pair.clone(), Side::Right).is_none());
-        assert!(monitor_change(&atual, Vec::new(), Side::Right).is_none());
-        let novo = monitor_change(&atual, pair, Side::Left).unwrap();
-        assert_eq!(novo.bounds.left, 0);
+        let current = monitor(3840, 7680);
+        let reversed = vec![monitor(-3840, 0), monitor(0, 3840)];
+        let changed = monitor_change(&current, reversed, Side::Right).unwrap();
+        assert_eq!(changed.bounds.right, 3840);
+        let pair = vec![monitor(0, 3840), current];
+        assert!(monitor_change(&current, pair.clone(), Side::Right).is_none());
+        assert!(monitor_change(&current, Vec::new(), Side::Right).is_none());
+        let changed = monitor_change(&current, pair, Side::Left).unwrap();
+        assert_eq!(changed.bounds.left, 0);
     }
 
     #[test]

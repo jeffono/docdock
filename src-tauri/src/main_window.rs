@@ -49,18 +49,18 @@ mod tests {
     fn only_navigates_within_ui_origin() {
         const DEV: Option<&str> = Some("http://localhost:1420");
         assert!(stays("http://tauri.localhost/", None));
-        assert!(stays("http://tauri.localhost/index.html#nota", None));
+        assert!(stays("http://tauri.localhost/index.html#note", None));
         assert!(stays("http://localhost:1420/src/App.svelte", DEV));
         for url in [
             "https://example.com/",
             "https://tauri.localhost/",
             "http://tauri.localhost:8080/",
             "http://tauri.localhost@example.com/",
-            "http://note-asset.localhost/foto.png",
+            "http://note-asset.localhost/photo.png",
             "http://localhost:1420/",
             "file:///C:/Windows/win.ini",
             "about:blank",
-            "data:text/html,oi",
+            "data:text/html,hello",
         ] {
             assert!(!stays(url, None), "{url}");
         }

@@ -1,8 +1,6 @@
-//! Capture protection belongs to top-level HWNDs: Tauri's (not WebView2's child HWNDs) and the
-//! edge handle's, which shows the panel's edge.
+//! Capture protection belongs to Tauri's top-level HWNDs, not WebView2's child HWNDs.
 
 use tauri::WebviewWindow;
-use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_MONITOR,
 };
@@ -11,14 +9,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// failures are logged, since a capture API can never guarantee content protection.
 pub fn exclude_from_capture(window: &WebviewWindow) {
     let label = window.label();
-    match window.hwnd() {
-        Ok(hwnd) => exclude_hwnd(hwnd, label),
-        Err(error) => eprintln!("[capture] {label}: HWND unavailable: {error}"),
-    }
-}
-
-/// [`exclude_from_capture`] for a window Tauri does not own.
-pub fn exclude_hwnd(hwnd: HWND, label: &str) {
+    let hwnd = match window.hwnd() {
+        Ok(hwnd) => hwnd,
+        Err(error) => {
+            eprintln!("[capture] {label}: HWND unavailable: {error}");
+            return;
+        }
+    };
     // Windows before 10 2004 refuses WDA_EXCLUDEFROMCAPTURE; WDA_MONITOR shows black instead.
     let Err(error) = (unsafe { SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) }) else {
         return;

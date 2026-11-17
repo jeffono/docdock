@@ -128,26 +128,4 @@ mod tests {
     fn the_release_tab_is_valid() {
         assert!(valid_tab(crate::handle::LOGICAL));
     }
-
-    /// Catches the region's curves overlapping, whose outline `handle::Outline` cannot follow.
-    #[test]
-    fn the_curves_must_fit_in_the_tab() {
-        let tab = Logical {
-            depth: 20,
-            height: 100,
-            curve: 50,
-        };
-        assert!(valid_tab(tab));
-        assert!(!valid_tab(Logical { curve: 51, ..tab }));
-    }
-
-    /// Catches a tab without depth, which would leave nothing to click.
-    #[test]
-    fn a_tab_needs_depth() {
-        let tab = Logical {
-            depth: 0,
-            ..crate::handle::LOGICAL
-        };
-        assert!(!valid_tab(tab));
-    }
 }

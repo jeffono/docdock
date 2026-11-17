@@ -54,7 +54,7 @@ pub enum Outcome {
     Ask(Prompt),
 }
 
-pub fn lookup(remembered: &[Remembered], site: &str, kind: Kind) -> Option<Decision> {
+fn lookup(remembered: &[Remembered], site: &str, kind: Kind) -> Option<Decision> {
     remembered
         .iter()
         .find(|entry| entry.site == site && entry.kind == kind)
@@ -62,7 +62,7 @@ pub fn lookup(remembered: &[Remembered], site: &str, kind: Kind) -> Option<Decis
 }
 
 /// Replaces the choice for `site` and `kind`, or forgets it with `None`.
-pub fn remember(list: &mut Vec<Remembered>, site: &str, kind: Kind, decision: Option<Decision>) {
+fn remember(list: &mut Vec<Remembered>, site: &str, kind: Kind, decision: Option<Decision>) {
     list.retain(|entry| entry.site != site || entry.kind != kind);
     if let Some(decision) = decision {
         list.push(Remembered {
@@ -101,7 +101,7 @@ fn other_origin(origin: &str, top: &str) -> Option<String> {
 /// Decides a request from `origin`, a frame of the page at `top`, for `kind` (`None`: a kind the panel
 /// never asks about). The page's site decides; a frame of another site never uses or asks for the
 /// page's permissions. Without a remembered choice, only a page on screen (`shown`) asks.
-pub fn decide(
+fn decide(
     remembered: &[Remembered],
     shown: bool,
     kind: Option<Kind>,
