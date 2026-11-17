@@ -178,7 +178,9 @@ export const vaultUnlock = () => invoke<void>("vault_unlock");
 export const notesChoose = () => invoke<NotesFolder | null>("notes_choose");
 /** Confirms the folder at the configured path, as choosing it again would; an open editor stays. */
 export const notesTrust = () => invoke<NotesFolder | null>("notes_trust");
-export const notesList = () => invoke<Note[]>("notes_list");
+/** `skipped`: folders that could not be read, relative with `/`; not shown yet. */
+export const notesList = () =>
+  invoke<{ notes: Note[]; skipped: string[] }>("notes_list").then((listing) => listing.notes);
 /** `version` is opaque: pass it back to `notesSave` as `base`. */
 export type OpenNote = {
   text: string;
