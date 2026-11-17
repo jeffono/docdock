@@ -5,8 +5,6 @@ detail each stage when it is next.
 
 ## In progress
 
-- Release 0.3.0 with M10 and validate the automatic update from 0.2.0.
-
 ## Completed
 
 - M0 — Panel proven and approved with Tauri; see `docs/decisions/0003-panel-and-web-pages.md`.
@@ -63,6 +61,7 @@ detail each stage when it is next.
   see "Motion" in `docs/DESIGN.md` and "Trigger" and "Expansion" in `docs/ARCHITECTURE.md`.
   The native tab (`tab.rs`, `tiny-skia`) was replaced after a spike. Rust tests grew 12% and frontend
   tests 18%, mostly the tweak window's export, presets and validation and the handle's rules.
+- Release 0.3.0: automatic update from 0.2.0 validated.
 
 ## Later
 
