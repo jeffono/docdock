@@ -5,8 +5,9 @@ detail each stage when it is next.
 
 ## In progress
 
-- Audit cleanup (`advanced`): branches `docs-audit`, `rust-notes-cleanup`, `rust-window-cleanup` and
-  `ui-cleanup`; then a discreet notice for skipped unreadable subfolders and one dialog style.
+- Audit cleanup (`advanced`): branches `docs-audit`, `rust-notes-cleanup`, `rust-window-cleanup`,
+  `ui-cleanup` and `skipped-folders` (a discreet notice for unreadable subfolders, required with
+  `rust-notes-cleanup`).
 
 ## Completed
 
