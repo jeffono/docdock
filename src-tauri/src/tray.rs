@@ -258,34 +258,22 @@ pub fn select_side(
 mod tests {
     use super::*;
 
-    fn size_for(needed: u32) -> u32 {
-        SIZES[size_index(needed)]
-    }
-
     #[test]
-    fn common_scales_get_their_exact_size() {
-        // 100%, 125%, 150%, 200% and 300%.
-        for needed in [16, 20, 24, 32, 48] {
-            assert_eq!(size_for(needed), needed);
+    fn size_index_selects_the_smallest_sufficient_glyph_or_the_largest() {
+        for (needed, expected) in [
+            (0, 16),
+            (16, 16),
+            (20, 20),
+            (24, 24),
+            (32, 32),
+            (48, 48),
+            (28, 30),
+            (36, 40),
+            (56, 64),
+            (80, 64),
+        ] {
+            assert_eq!(SIZES[size_index(needed)], expected, "needed: {needed}");
         }
-    }
-
-    #[test]
-    fn scales_between_sizes_get_the_next_larger() {
-        // 175%, 225% and 350%.
-        assert_eq!(size_for(28), 30);
-        assert_eq!(size_for(36), 40);
-        assert_eq!(size_for(56), 64);
-    }
-
-    #[test]
-    fn scales_beyond_the_largest_get_the_largest() {
-        assert_eq!(size_for(80), 64);
-    }
-
-    #[test]
-    fn an_unreadable_size_gets_the_smallest() {
-        assert_eq!(size_for(0), 16);
     }
 
     #[test]

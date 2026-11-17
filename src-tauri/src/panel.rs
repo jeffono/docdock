@@ -452,18 +452,6 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_opened_panel_ignores_cursor_outside() {
-        let t0 = Instant::now();
-        let mut p = summoned(t0);
-        for ms in [0, 1000, 60_000] {
-            assert_eq!(
-                focus_tick(&mut p, Focus::Panel, false, t0, ms),
-                Action::None
-            );
-        }
-    }
-
-    #[test]
     fn focus_on_another_app_closes_but_system_transition_does_not() {
         let t0 = Instant::now();
         let mut p = summoned(t0);

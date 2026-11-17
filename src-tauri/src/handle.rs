@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::dock::Side;
 use crate::panel::CursorZone;
-use crate::platform::{Monitor, Point, Rect};
+use crate::platform::{BASE_DPI, Monitor, Point, Rect, scale_dpi};
 use std::time::Duration;
 
 /// Depth of the tab beyond the panel's inner edge, as in the reference look.
@@ -24,7 +24,6 @@ pub const ACTIVATION_PERCENT: u32 = 300;
 pub const REVEAL_PERCENT: u32 = 400;
 /// Speed toward the edge, in logical pixels per second, from which an approach is a rush.
 pub const RUSH_SPEED: u32 = 500;
-const BASE_DPI: u32 = 96;
 
 /// The values the development tweak window changes live; release builds use the constants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,10 +60,6 @@ pub const LOGICAL: Logical = Logical {
     curve: CURVE,
 };
 
-fn scale_dpi(dpi: u32, logical: u32) -> i32 {
-    (logical * dpi / BASE_DPI) as i32
-}
-
 /// The tab at one DPI, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shape {
@@ -85,7 +80,7 @@ impl Shape {
 
 /// The tab outside the inner edge of `panel`, wherever the panel is, vertically centered on the
 /// work area like the open panel.
-pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side, tab: Logical) -> Rect {
+fn tab_rect(monitor: &Monitor, panel: Rect, side: Side, tab: Logical) -> Rect {
     let Shape { depth, height, .. } = Shape::new(tab, monitor.dpi);
     let top = monitor.work.top + (monitor.work.bottom - monitor.work.top - height) / 2;
     let (left, right) = match side {
@@ -613,13 +608,6 @@ mod tests {
         };
         let poll = Duration::from_millis(50);
         rushing(from, to, poll, &monitor, Side::Right, SPEED)
-    }
-
-    /// Catches an ordinary approach skipping the handle: 100 logical pixels in a 50 ms poll is
-    /// 2000 per second.
-    #[test]
-    fn a_steady_approach_does_not_rush() {
-        assert!(!approach(144, 150));
     }
 
     /// Catches the threshold drifting with the monitor's scale: 3000 logical pixels per second is

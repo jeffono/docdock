@@ -9,16 +9,15 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, ICoreWebView2_11,
     ICoreWebView2AcceleratorKeyPressedEventArgs2,
 };
-use webview2_com::{
-    AcceleratorKeyPressedEventHandler, CoTaskMemPWSTR, ContextMenuRequestedEventHandler,
-};
+use webview2_com::{AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VIRTUAL_KEY, VK_ADD, VK_BROWSER_BACK, VK_BROWSER_FORWARD, VK_CONTROL, VK_F5,
     VK_F12, VK_LEFT, VK_MENU, VK_NUMPAD0, VK_OEM_MINUS, VK_OEM_PLUS, VK_RIGHT, VK_SHIFT,
     VK_SUBTRACT, VK_TAB,
 };
-use windows::core::{Interface, PWSTR};
+use windows::core::Interface;
 
+use super::text;
 use crate::error::Error;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -210,9 +209,8 @@ pub fn filter(window: &WebviewWindow, owner: Owner) -> Result<(), Error> {
                 described.push(if kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR {
                     None
                 } else {
-                    let mut name = PWSTR::null();
-                    item.Name(&mut name)?;
-                    Some(CoTaskMemPWSTR::from(name).to_string())
+                    let name = text(|value| item.Name(value))?;
+                    Some(name)
                 });
             }
             for index in menu_removals(owner, &described) {
@@ -241,11 +239,7 @@ pub fn filter(window: &WebviewWindow, owner: Owner) -> Result<(), Error> {
     if owner == Owner::Ui {
         return Ok(());
     }
-    match receiver.recv() {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(Error::unexpected(format!("key filter: {error}"))),
-        Err(_) => Err(Error::unexpected("key filter not installed")),
-    }
+    super::installed(receiver, None, "key filter", "key filter not installed")
 }
 
 #[cfg(test)]

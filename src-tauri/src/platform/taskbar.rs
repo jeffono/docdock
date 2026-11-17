@@ -54,15 +54,18 @@ static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
 /// Calls `changed` on `window`'s thread whenever a setting, the display or a DPI changes, or
 /// Explorer restarts (`TaskbarCreated`, after which the glyph may be stale). Theme changes arrive
 /// as `WM_SETTINGCHANGE` ("ImmersiveColorSet"); a scale change on the taskbar's monitor usually
-/// changes the work area too, but not always, so the caller also rechecks now and then.
+/// changes the work area too, but not always, so the tray also rechecks on user interaction.
 /// `window` must be a top-level window, which receives these broadcasts even while hidden.
 pub fn on_change(window: isize, changed: impl Fn() + 'static) -> Result<(), String> {
     TASKBAR_CREATED.get_or_init(|| unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) });
     let data = Box::into_raw(Box::new(Box::new(changed) as Callback));
+    // SAFETY: the subclass owns this Box after success, until WM_NCDESTROY; on failure
+    // no callback owns it and we reclaim it below. The callback runs on this window's thread.
     let added = unsafe { SetWindowSubclass(HWND(window as _), Some(subclass), 0, data as usize) };
     if added.as_bool() {
         Ok(())
     } else {
+        // SAFETY: installation failed, so ownership never passed to the subclass.
         drop(unsafe { Box::from_raw(data) });
         Err("failed to subclass the window".into())
     }
@@ -76,6 +79,8 @@ unsafe extern "system" fn subclass(
     id: usize,
     data: usize,
 ) -> LRESULT {
+    // SAFETY: on_change supplies a live Box<Callback> as reference data. It stays alive
+    // until WM_NCDESTROY removes this subclass and reconstructs the Box exactly once.
     let callback = data as *mut Callback;
     match message {
         WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => unsafe { (*callback)() },

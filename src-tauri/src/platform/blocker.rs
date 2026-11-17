@@ -19,12 +19,12 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL, ICoreWebView2_22,
 };
 use webview2_com::{
-    CoTaskMemPWSTR, ContentLoadingEventHandler, NavigationStartingEventHandler,
-    WebResourceRequestedEventHandler,
+    ContentLoadingEventHandler, NavigationStartingEventHandler, WebResourceRequestedEventHandler,
 };
 use windows::Win32::System::Com::IStream;
-use windows::core::{HSTRING, Interface, PWSTR};
+use windows::core::{HSTRING, Interface};
 
+use super::text;
 use crate::error::Error;
 use crate::platform::browser;
 
@@ -85,9 +85,7 @@ pub fn install(
             // Also raised for each redirect, so the script follows the final host.
             let starting = NavigationStartingEventHandler::create(Box::new(move |page, args| {
                 if let (Some(page), Some(args)) = (page, args) {
-                    let mut uri = PWSTR::null();
-                    args.Uri(&mut uri)?;
-                    let uri = CoTaskMemPWSTR::from(uri).to_string();
+                    let uri = text(|value| args.Uri(value))?;
                     let script = starting(&uri);
                     *target.borrow_mut() = uri;
                     if let Err(error) = browser::document_start(&page, script, mpsc::channel().0) {
@@ -102,17 +100,11 @@ pub fn install(
                         return Ok(());
                     };
                     let request = args.Request()?;
-                    let mut uri = PWSTR::null();
-                    request.Uri(&mut uri)?;
-                    let url = CoTaskMemPWSTR::from(uri).to_string();
-                    let mut method = PWSTR::null();
-                    request.Method(&mut method)?;
-                    let method = CoTaskMemPWSTR::from(method).to_string();
+                    let url = text(|value| request.Uri(value))?;
+                    let method = text(|value| request.Method(value))?;
                     let mut context = COREWEBVIEW2_WEB_RESOURCE_CONTEXT::default();
                     args.ResourceContext(&mut context)?;
-                    let mut source = PWSTR::null();
-                    page.Source(&mut source)?;
-                    let source = CoTaskMemPWSTR::from(source).to_string();
+                    let source = text(|value| page.Source(value))?;
                     let request = Request {
                         kind: kind(context, *main.borrow() == url),
                         url: &url,
@@ -132,9 +124,8 @@ pub fn install(
                 }));
             let loading = ContentLoadingEventHandler::create(Box::new(move |page, _| {
                 if let Some(page) = page {
-                    let mut source = PWSTR::null();
-                    page.Source(&mut source)?;
-                    committed(CoTaskMemPWSTR::from(source).to_string());
+                    let source = text(|value| page.Source(value))?;
+                    committed(source);
                 }
                 Ok(())
             }));
@@ -158,11 +149,7 @@ pub fn install(
         };
         let _ = sender.send(install());
     })?;
-    match receiver.recv() {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(Error::unexpected(format!("page blocker: {error}"))),
-        Err(_) => Err(Error::unexpected("page blocker not installed")),
-    }
+    super::installed(receiver, None, "page blocker", "page blocker not installed")
 }
 
 /// How long a navigation the app starts waits for its document-start script.

@@ -30,3 +30,40 @@ pub use self::windows::{
     foreground_window, monitors, place_windows, primary_button_down, restore_focus, slide_windows,
     ui_language, wait_frame,
 };
+
+/// Windows logical pixels are defined at 96 DPI.
+pub const BASE_DPI: u32 = 96;
+
+/// Logical pixels to physical pixels, truncating as the window layout does.
+pub fn scale_dpi(dpi: u32, logical: u32) -> i32 {
+    (logical * dpi / BASE_DPI) as i32
+}
+
+/// Reads a WebView2 string and releases its COM task allocation after conversion.
+fn text(
+    read: impl FnOnce(&mut ::windows::core::PWSTR) -> ::windows::core::Result<()>,
+) -> ::windows::core::Result<String> {
+    let mut value = ::windows::core::PWSTR::null();
+    let result = read(&mut value);
+    let value = webview2_com::CoTaskMemPWSTR::from(value);
+    result?;
+    Ok(value.to_string())
+}
+
+/// Waits off the WebView2 UI thread for installation or its asynchronous acknowledgement.
+fn installed(
+    receiver: std::sync::mpsc::Receiver<::windows::core::Result<()>>,
+    timeout: Option<std::time::Duration>,
+    label: &str,
+    missing: &str,
+) -> Result<(), crate::error::Error> {
+    let result = match timeout {
+        Some(timeout) => receiver.recv_timeout(timeout).ok(),
+        None => receiver.recv().ok(),
+    };
+    match result {
+        Some(Ok(())) => Ok(()),
+        Some(Err(error)) => Err(crate::error::Error::unexpected(format!("{label}: {error}"))),
+        None => Err(crate::error::Error::unexpected(missing)),
+    }
+}

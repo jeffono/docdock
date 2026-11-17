@@ -11,7 +11,7 @@ mod i18n;
 mod main_window;
 mod motion;
 mod notes;
-pub mod panel;
+mod panel;
 mod permissions;
 mod pinned;
 mod platform;
