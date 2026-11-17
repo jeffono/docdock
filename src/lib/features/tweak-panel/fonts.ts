@@ -66,3 +66,9 @@ export function fontStack(family: string, mono: boolean) {
   }).join("");
   return `"${quoted}", ${mono ? '"Cascadia Mono", Consolas, monospace' : '"Segoe UI", system-ui, sans-serif'}`;
 }
+/** Filtering keeps installed names and curated stacks in their original order. */
+export function filterFonts(choices: string[], query: string) {
+  return choices.filter((stack) =>
+    stack.split(",")[0].toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
+}

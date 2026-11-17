@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fontStack, fontsReply } from "./fonts";
+import { filterFonts, fontStack, fontsReply } from "./fonts";
 
 describe("installed font stacks", () => {
   it("keeps punctuation inside the family rather than adding CSS families", () => {
@@ -22,4 +22,11 @@ describe("fontsReply", () => {
   it("passes the panel's error on", () => {
     expect(fontsReply({ error: "no fonts" })).toEqual(new Error("no fonts"));
   });
+});
+
+it("filters font names case insensitively without matching fallback families", () => {
+  expect(filterFonts(['"Segoe UI", system-ui', "Georgia, serif"], "  seGOe ")).toEqual([
+    '"Segoe UI", system-ui',
+  ]);
+  expect(filterFonts(["Georgia, serif"], "serif")).toEqual([]);
 });
