@@ -49,7 +49,7 @@ pub enum Request {
     Shortcut,
     /// Side chosen in the tray.
     SetSide(Side),
-    /// The open panel's tab was clicked.
+    /// The tab the UI draws was clicked; only the resting open panel's tab counts.
     Tab,
     /// Logical width from the UI's resize handle, `None` for the default. `done` ends a drag and
     /// saves it; until then the panel stays open as if a dialog held it.
@@ -202,16 +202,17 @@ impl Slide {
 
 struct Dock {
     app: AppHandle,
+    /// The panel's window, wider than the panel by the tab its WebView draws on the inner side.
     window: PanelWindow,
+    /// The panel's window lets every click through, as it does parked.
+    click_through: bool,
     /// Web page window, if present.
     web: Option<PanelWindow>,
-    /// The edge handle, which becomes the open panel's tab and slides with it.
-    handle: PanelWindow,
+    /// The edge handle: the tab beside the panel, which the panel's WebView draws.
     handle_presence: Presence,
-    /// The handle's window is on screen, which outlasts its presence while it slides out.
-    handle_shown: bool,
-    /// How far the handle is pushed out beyond its place, toward the screen edge: it slides in
-    /// from the edge when it appears and back out before hiding.
+    /// How far the handle is pushed out beyond its place, toward the screen edge, and the panel's
+    /// windows with it: it slides in from the edge when it appears and back out when it hides, so
+    /// a hidden handle takes the parked panel's tab beyond the screen edge.
     handle_shift: i32,
     handle_slide: Option<Slide>,
     reveal: handle::Reveal,
@@ -265,24 +266,22 @@ impl Dock {
         } else {
             self.parked_x
         };
-        self.window.set_rect(self.rect, monitor.bounds);
-        platform::handle::set_frame(monitor.dpi, self.side);
+        // A close cut short here still parks the panel, which lets clicks through as after a slide.
+        self.set_click_through(self.x == self.parked_x);
         // The handle settles where it was going.
-        if self.handle_slide.take().is_some() && self.handle_presence == Presence::Hidden {
-            self.handle_shown = false;
-            self.handle.hide();
-        }
-        self.handle_shift = 0;
-        if self.handle_shown {
-            self.handle.set_offset(self.handle_offset());
-            let tab = handle::window_rect(&self.monitor, self.rect, self.side);
-            self.handle.set_rect(tab, monitor.bounds);
-        }
+        self.handle_slide = None;
+        self.handle_shift = if self.handle_presence == Presence::Hidden {
+            self.away()
+        } else {
+            0
+        };
+        self.frame_window();
+        let x = self.window_x();
         let mut page = None;
         if self.web_visible
             && let Some(web) = &mut self.web
         {
-            web.overlay(monitor.dpi, self.overlay_height, self.x);
+            web.overlay(monitor.dpi, self.overlay_height, x);
             let rect = web_rect(&monitor, self.rect, self.side);
             web.set_offset(rect.left - self.rect.left);
             web.set_rect(rect, monitor.bounds);
@@ -290,60 +289,51 @@ impl Dock {
         }
         // Resizing moves the panel, its tab and its page: together, so none trails the others.
         let mut windows = vec![&self.window];
-        if self.handle_shown {
-            windows.push(&self.handle);
-        }
         windows.extend(page);
-        platform::place_windows(&windows, self.x);
+        platform::place_windows(&windows, x);
     }
 
-    /// The handle's window outside the panel's inner edge, pushed out by its shift.
-    fn handle_offset(&self) -> i32 {
-        let tab = handle::window_rect(&self.monitor, self.rect, self.side);
-        let outward = match self.side {
-            Side::Right => self.handle_shift,
-            Side::Left => -self.handle_shift,
-        };
-        tab.left - self.rect.left + outward
+    /// Sizes the panel's window to the panel and the strip beside it where the tab shows, and
+    /// shapes it to their outline.
+    fn frame_window(&mut self) {
+        let framed = handle::framed_rect(&self.monitor, self.rect, self.side);
+        self.window.set_offset(framed.left - self.rect.left);
+        self.window
+            .set_outline(handle::Outline::new(&self.monitor, self.rect, self.side));
+        self.window.set_rect(framed, self.monitor.bounds);
     }
 
-    /// Places the tab outside the panel's inner edge, sliding with it at `x`; this also shows it.
-    fn place_handle(&mut self) {
-        let tab = handle::window_rect(&self.monitor, self.rect, self.side);
-        self.handle.set_offset(self.handle_offset());
-        self.handle.place(tab, self.monitor.bounds, self.x);
+    /// Where the panel's windows are: the panel's `x`, pushed out by the handle's shift.
+    fn window_x(&self) -> i32 {
+        match self.side {
+            Side::Right => self.x + self.handle_shift,
+            Side::Left => self.x - self.handle_shift,
+        }
+    }
+
+    /// Out of sight beyond the screen edge, whether the panel is parked or not: the tab's depth.
+    fn away(&self) -> i32 {
+        handle::Shape::new(self.monitor.dpi).depth
+    }
+
+    fn set_click_through(&mut self, through: bool) {
+        if self.click_through != through {
+            self.click_through = through;
+            self.window.set_click_through(through);
+        }
     }
 
     fn update_handle(&mut self) {
-        platform::handle::set_pinned(self.panel.state == State::Pinned);
         let near = platform::cursor_pos()
             .is_some_and(|cursor| handle::near(cursor, &self.monitor, self.side, handle_tuning()));
         let revealed = self.reveal.step(near, self.rushing);
-        let ready = platform::handle::ready();
-        let presence = handle::presence(ready, self.is_open(), self.slide.is_some(), revealed);
-        if presence != self.handle_presence {
-            self.handle_presence = presence;
-            // Clicks pass through before it shows, and are taken only by an enabled tab.
-            let tab = presence == Presence::Tab;
-            self.handle.set_click_through(!tab);
-            self.handle.set_enabled(tab);
-        }
-        // Out of sight beyond the screen edge, whether the panel is parked or not: the tab's depth.
-        let away = handle::tab_rect(&self.monitor, self.rect, self.side);
-        let away = away.right - away.left;
+        let presence = handle::presence(self.is_open(), self.slide.is_some(), revealed);
+        self.handle_presence = presence;
         let target = if presence == Presence::Hidden {
-            away
+            self.away()
         } else {
             0
         };
-        if !self.handle_shown {
-            if presence == Presence::Hidden {
-                return;
-            }
-            self.handle_shown = true;
-            self.handle_shift = away;
-            self.place_handle();
-        }
         let heading = self
             .handle_slide
             .as_ref()
@@ -382,9 +372,10 @@ impl Dock {
             Request::AttachWeb(raw) => {
                 let rect = web_rect(&self.monitor, self.rect, self.side);
                 let bounds = self.monitor.bounds;
-                let mut web = PanelWindow::prepare(raw, rect, bounds, self.x, Activation::OnClick);
-                web.overlay(self.monitor.dpi, self.overlay_height, self.x);
-                place_page(&mut web, &self.monitor, self.rect, self.side, self.x);
+                let x = self.window_x();
+                let mut web = PanelWindow::prepare(raw, rect, bounds, x, Activation::OnClick);
+                web.overlay(self.monitor.dpi, self.overlay_height, x);
+                place_page(&mut web, &self.monitor, self.rect, self.side, x);
                 web.set_enabled(self.is_open());
                 self.web = Some(web);
                 self.web_visible = true;
@@ -392,6 +383,7 @@ impl Dock {
                 Action::None
             }
             Request::SetWebVisible(visible) => {
+                let x = self.window_x();
                 if let Some(mut web) = self.web.filter(PanelWindow::exists) {
                     if !visible {
                         if web.is_foreground() {
@@ -399,8 +391,8 @@ impl Dock {
                         }
                         web.hide();
                     } else {
-                        web.overlay(self.monitor.dpi, self.overlay_height, self.x);
-                        place_page(&mut web, &self.monitor, self.rect, self.side, self.x);
+                        web.overlay(self.monitor.dpi, self.overlay_height, x);
+                        place_page(&mut web, &self.monitor, self.rect, self.side, x);
                         web.set_enabled(self.is_open());
                     }
                     self.web = Some(web);
@@ -414,8 +406,9 @@ impl Dock {
             }
             Request::SetWebOverlay(height) => {
                 self.overlay_height = height;
+                let x = self.window_x();
                 if let Some(web) = &mut self.web {
-                    web.overlay(self.monitor.dpi, height, self.x);
+                    web.overlay(self.monitor.dpi, height, x);
                 }
                 Action::None
             }
@@ -441,6 +434,8 @@ impl Dock {
                 self.relocate(monitor);
                 Action::None
             }
+            // A tab sliding under the cursor, or the closed panel's, takes no click.
+            Request::Tab if self.handle_presence != Presence::Tab => Action::None,
             Request::Tab => {
                 let pinned = self.panel.state == State::Pinned;
                 let action = self.panel.step(
@@ -541,7 +536,6 @@ impl Dock {
         };
         if self.reported != Some(report) {
             self.reported = Some(report);
-            platform::handle::set_focused(report.focused);
             // A recording the UI abandons must not leave the activation shortcut released.
             if !report.focused {
                 crate::shortcut::end_recording(&self.app);
@@ -604,6 +598,7 @@ impl Dock {
     }
 
     fn show(&mut self) {
+        self.set_click_through(false);
         self.set_enabled(true);
         self.window.raise();
         crate::tray::check_glyph(&self.app);
@@ -647,49 +642,42 @@ impl Dock {
 
     /// Draws a frame if a slide is in progress.
     fn animate(&mut self) {
+        if self.slide.is_none() && self.handle_slide.is_none() {
+            return;
+        }
         let now = Instant::now();
-        let mut handle_done = false;
         if let Some(slide) = &mut self.handle_slide {
             let (shift, done) = slide.advance(now);
             self.handle_shift = shift;
-            handle_done = done;
-            self.handle.set_offset(self.handle_offset());
-            // Alone, it moves here; with the panel, it moves in the panel's batch below.
-            if self.slide.is_none() {
-                platform::slide_windows(&[self.handle], self.x);
+            if done {
+                self.handle_slide = None;
             }
         }
-        if handle_done {
-            self.handle_slide = None;
-            if self.handle_presence == Presence::Hidden {
-                self.handle_shown = false;
-                self.handle.hide();
-            }
-        }
-        let mut windows = self.windows();
-        if self.handle_shown {
-            windows.push(self.handle);
-        }
-        let Some(slide) = &mut self.slide else {
+        // The panel and the handle's shift move the same windows, in one batch.
+        let landed = self.slide.as_mut().and_then(|slide| {
+            let (x, done) = slide.advance(now);
+            self.x = x;
+            done.then_some(x)
+        });
+        let windows = self.windows();
+        platform::slide_windows(&windows, self.window_x());
+        let Some(x) = landed else {
             return;
         };
-        let (x, done) = slide.advance(now);
-        platform::slide_windows(&windows, x);
-        self.x = x;
-        if done {
-            let label = if x == self.parked_x { "close" } else { "open" };
-            slide.report(label);
-            self.slide = None;
-            if x == self.parked_x {
-                // The UI folds its expanded card back to a preview while nobody sees it, and a
-                // deleted note can no longer be undone.
-                crate::notes::forget_deleted();
-                crate::notes::purge_trash(&self.app);
-                crate::shortcut::end_recording(&self.app);
-                let _ = self.app.emit_to("main", "panel-hidden", ());
-            }
-            self.update_handle();
+        let parked = x == self.parked_x;
+        if let Some(slide) = self.slide.take() {
+            slide.report(if parked { "close" } else { "open" });
         }
+        if parked {
+            self.set_click_through(true);
+            // The UI folds its expanded card back to a preview while nobody sees it, and a
+            // deleted note can no longer be undone.
+            crate::notes::forget_deleted();
+            crate::notes::purge_trash(&self.app);
+            crate::shortcut::end_recording(&self.app);
+            let _ = self.app.emit_to("main", "panel-hidden", ());
+        }
+        self.update_handle();
     }
 
     fn run(mut self, requests: Receiver<Request>) {
@@ -716,12 +704,11 @@ impl Dock {
     }
 }
 
-/// Prepares the window off-screen and starts the panel thread. `raw_handle` is the hidden edge
-/// handle window.
+/// Prepares the window off-screen, its tab hidden and letting clicks through, and starts the panel
+/// thread.
 pub fn start(
     app: AppHandle,
     raw_window: isize,
-    raw_handle: isize,
     requests: Receiver<Request>,
     side: Side,
     width: Option<u32>,
@@ -731,15 +718,13 @@ pub fn start(
     let parked_x = parked_x(&monitor, side, rect);
     let bounds = monitor.bounds;
     let window = PanelWindow::prepare(raw_window, rect, bounds, parked_x, Activation::OnRequest);
-    platform::handle::set_frame(monitor.dpi, side);
     eprintln!("[panel] {side:?} of monitor {monitor:?}, panel {rect:?}");
-    let dock = Dock {
+    let mut dock = Dock {
         app,
         window,
+        click_through: false,
         web: None,
-        handle: PanelWindow::new(raw_handle),
         handle_presence: Presence::Hidden,
-        handle_shown: false,
         handle_shift: 0,
         handle_slide: None,
         reveal: handle::Reveal::default(),
@@ -761,6 +746,7 @@ pub fn start(
         escape_spent: false,
         slide: None,
     };
+    dock.place(monitor);
     std::thread::spawn(move || dock.run(requests));
 }
 

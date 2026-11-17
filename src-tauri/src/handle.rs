@@ -1,8 +1,11 @@
 //! Pure rules for the edge handle: where it sits, when it shows and which stretch of the edge opens
 //! the panel. Coordinates are physical pixels; sizes are logical and scale with the monitor's DPI.
 //!
-//! The handle is the panel's tab: it slides with the panel, outside its inner edge, so with the
-//! panel parked beyond the screen it rests on the edge itself.
+//! The handle is the panel's tab, which the panel's own WebView draws in a strip as deep as the tab
+//! beside the panel: it slides with the panel, outside its inner edge, so with the panel parked
+//! beyond the screen it rests on the edge itself.
+
+use serde::Serialize;
 
 use crate::dock::Side;
 use crate::panel::CursorZone;
@@ -10,13 +13,11 @@ use crate::platform::{Monitor, Point, Rect};
 use std::time::Duration;
 
 /// Depth of the tab beyond the panel's inner edge, as in the reference look.
-const WIDTH: u32 = 20;
+const DEPTH: u32 = 20;
 /// Tab height, its two curves included.
 const HEIGHT: u32 = 152;
 /// Height of each S-curve joining the panel's edge to the tab's outer side.
 const CURVE: u32 = 28;
-/// Length of the wordmark along the tab.
-const WORDMARK: u32 = 52;
 /// Activation height as a percentage of the tab height.
 pub const ACTIVATION_PERCENT: u32 = 300;
 /// How near the tab the cursor must come for the handle to show, as a percentage of the tab height.
@@ -42,51 +43,39 @@ pub const TUNING: Tuning = Tuning {
     rush: RUSH_SPEED,
 };
 
+/// The tab's size in logical pixels, which the UI draws it at: the window region below follows
+/// the same outline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Logical {
+    pub depth: u32,
+    pub height: u32,
+    pub curve: u32,
+}
+
+pub const LOGICAL: Logical = Logical {
+    depth: DEPTH,
+    height: HEIGHT,
+    curve: CURVE,
+};
+
 fn scale_dpi(dpi: u32, logical: u32) -> i32 {
     (logical * dpi / BASE_DPI) as i32
 }
 
-/// The tab's drawing at one DPI, in physical pixels, as if the panel were on the right: the tab
-/// grows left from the panel's edge at `x = depth`, and the window reaches `overlap` into it: just
-/// the columns of the panel's line and focus band, which it repaints along the curves so no seam
-/// shows, and no further, so the panel's resize strip beyond them keeps its clicks.
+/// The tab at one DPI, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shape {
     pub depth: i32,
-    pub overlap: i32,
     pub height: i32,
     pub curve: f32,
-    /// The panel's 1 px CSS border: Chromium floors border widths to device pixels, at least 1.
-    pub line: i32,
-    /// The panel's 2 px focus band, a positioned box whose edges Chromium rounds to pixels.
-    pub band: i32,
-    pub wordmark: f32,
 }
 
 impl Shape {
     pub fn new(dpi: u32) -> Self {
-        let scale = dpi as f32 / BASE_DPI as f32;
-        let band = ((2 * dpi + BASE_DPI / 2) / BASE_DPI) as i32;
         Self {
-            depth: scale_dpi(dpi, WIDTH),
-            overlap: band,
+            depth: scale_dpi(dpi, DEPTH),
             height: scale_dpi(dpi, HEIGHT),
-            curve: CURVE as f32 * scale,
-            line: (dpi / BASE_DPI).max(1) as i32,
-            band,
-            wordmark: WORDMARK as f32 * scale,
-        }
-    }
-
-    pub fn width(&self) -> i32 {
-        self.depth + self.overlap
-    }
-
-    /// The window's columns that show the tab, without the strip over the panel.
-    pub fn tab_columns(&self, side: Side) -> std::ops::Range<i32> {
-        match side {
-            Side::Right => 0..self.depth,
-            Side::Left => self.overlap..self.width(),
+            curve: CURVE as f32 * dpi as f32 / BASE_DPI as f32,
         }
     }
 }
@@ -94,15 +83,11 @@ impl Shape {
 /// The tab outside the inner edge of `panel`, wherever the panel is, vertically centered on the
 /// work area like the open panel.
 pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
-    let Shape {
-        depth: width,
-        height,
-        ..
-    } = Shape::new(monitor.dpi);
+    let Shape { depth, height, .. } = Shape::new(monitor.dpi);
     let top = monitor.work.top + (monitor.work.bottom - monitor.work.top - height) / 2;
     let (left, right) = match side {
-        Side::Right => (panel.left - width, panel.left),
-        Side::Left => (panel.right, panel.right + width),
+        Side::Right => (panel.left - depth, panel.left),
+        Side::Left => (panel.right, panel.right + depth),
     };
     Rect {
         left,
@@ -112,19 +97,113 @@ pub fn tab_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
     }
 }
 
-/// The tab's window: the tab plus the strip of the panel's edge it covers.
-pub fn window_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
-    let tab = tab_rect(monitor, panel, side);
-    let overlap = Shape::new(monitor.dpi).overlap;
+/// The panel's own window: the panel widened by the tab's depth on its inner side, where its
+/// WebView draws the tab.
+pub fn framed_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
+    let depth = Shape::new(monitor.dpi).depth;
     match side {
         Side::Right => Rect {
-            right: tab.right + overlap,
-            ..tab
+            left: panel.left - depth,
+            ..panel
         },
         Side::Left => Rect {
-            left: tab.left - overlap,
-            ..tab
+            right: panel.right + depth,
+            ..panel
         },
+    }
+}
+
+/// What of the widened window shows and takes clicks: the panel and the tab's outline, row by row,
+/// a pixel wider than the outline so its antialiased edge shows. Elsewhere the window is
+/// transparent, and clicks reach the windows below.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outline {
+    side: Side,
+    shape: Shape,
+    /// Panel width without the tab.
+    width: i32,
+    /// Window height.
+    height: i32,
+    /// The tab's top row in window coordinates.
+    top: i32,
+}
+
+impl Outline {
+    pub fn new(monitor: &Monitor, panel: Rect, side: Side) -> Self {
+        Self {
+            side,
+            shape: Shape::new(monitor.dpi),
+            width: panel.right - panel.left,
+            height: panel.bottom - panel.top,
+            top: tab_rect(monitor, panel, side).top - panel.top,
+        }
+    }
+
+    /// Distance from the tab's outer side to its boundary `y` rows into the tab: the panel's edge
+    /// (`depth`) beyond the tab, 0 along its outer side, and the S-curves between.
+    fn boundary(&self, y: f32) -> f32 {
+        let Shape {
+            depth,
+            height,
+            curve,
+        } = self.shape;
+        let (depth, height) = (depth as f32, height as f32);
+        let y = y.min(height - y);
+        if y <= 0.0 {
+            return depth;
+        }
+        if y >= curve {
+            return 0.0;
+        }
+        // The curve from (depth, 0) through (depth, c/2) and (0, c/2) to (0, c), as the UI draws
+        // it: y(t) = c(1.5t(1−t) + t³) rises with t, so bisect for it.
+        let (mut low, mut high) = (0.0_f32, 1.0_f32);
+        for _ in 0..24 {
+            let t = (low + high) / 2.0;
+            if curve * (1.5 * t * (1.0 - t) + t * t * t) < y {
+                low = t;
+            } else {
+                high = t;
+            }
+        }
+        let t = (low + high) / 2.0;
+        depth * (1.0 - t) * (1.0 - t) * (1.0 + 2.0 * t)
+    }
+
+    /// Window rectangles, rows of equal extent merged. One row of slack above and below covers the
+    /// UI centering the tab on a fraction of a pixel.
+    pub fn rects(&self) -> Vec<Rect> {
+        let depth = self.shape.depth;
+        let half = self.shape.height as f32 / 2.0;
+        let mut rects: Vec<Rect> = Vec::new();
+        for row in 0..self.height {
+            let (from, to) = ((row - self.top - 1) as f32, (row - self.top + 2) as f32);
+            // The outermost point of the boundary within these rows.
+            let outer = if to <= half {
+                self.boundary(to)
+            } else if from >= half {
+                self.boundary(from)
+            } else {
+                0.0
+            };
+            let reach = depth - outer.floor() as i32;
+            let (left, right) = match self.side {
+                Side::Right => (depth - reach, depth + self.width),
+                Side::Left => (0, self.width + reach),
+            };
+            match rects.last_mut() {
+                Some(last) if last.left == left && last.right == right && last.bottom == row => {
+                    last.bottom = row + 1;
+                }
+                _ => rects.push(Rect {
+                    left,
+                    top: row,
+                    right,
+                    bottom: row + 1,
+                }),
+            }
+        }
+        rects
     }
 }
 
@@ -251,7 +330,7 @@ impl Reveal {
     }
 }
 
-/// How the handle window behaves.
+/// How the handle behaves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presence {
     Hidden,
@@ -263,42 +342,14 @@ pub enum Presence {
 
 /// The handle shows while the panel is open or opening, and otherwise only while revealed: closing,
 /// it leaves with the panel. Only the tab of the open panel at rest takes clicks: a tab sliding
-/// under the cursor, or the closed panel's handle, never does. Nothing shows before the UI reports
-/// its look (`ready`).
-pub fn presence(ready: bool, open: bool, sliding: bool, revealed: bool) -> Presence {
-    if !ready || !(open || revealed) {
+/// under the cursor, or the closed panel's handle, never does.
+pub fn presence(open: bool, sliding: bool, revealed: bool) -> Presence {
+    if !(open || revealed) {
         Presence::Hidden
     } else if open && !sliding {
         Presence::Tab
     } else {
         Presence::Through
-    }
-}
-
-/// A press on the tab: it stays a click only while the pointer never leaves the drag
-/// tolerance (`slop`), so dragging away and back before releasing does nothing.
-#[derive(Debug, Clone, Copy)]
-pub struct Press {
-    origin: Point,
-    dragged: bool,
-}
-
-impl Press {
-    pub fn new(origin: Point) -> Self {
-        Self {
-            origin,
-            dragged: false,
-        }
-    }
-
-    pub fn moved(&mut self, to: Point, slop: Point) {
-        self.dragged |=
-            (to.x - self.origin.x).abs() > slop.x || (to.y - self.origin.y).abs() > slop.y;
-    }
-
-    pub fn is_click(mut self, release: Point, slop: Point) -> bool {
-        self.moved(release, slop);
-        !self.dragged
     }
 }
 
@@ -656,26 +707,44 @@ mod tests {
             ((true, false, true), Tab),
         ] {
             let (open, sliding, revealed) = state;
-            assert_eq!(
-                presence(true, open, sliding, revealed),
-                expected,
-                "{state:?}"
-            );
-            assert_eq!(
-                presence(false, open, sliding, revealed),
-                Hidden,
-                "{state:?}"
-            );
+            assert_eq!(presence(open, sliding, revealed), expected, "{state:?}");
         }
     }
 
+    // Catches the widened window swallowing clicks beside the tab, or clipping its outline.
     #[test]
-    fn dragging_away_and_back_is_not_a_click() {
-        let slop = Point { x: 4, y: 4 };
-        let mut press = Press::new(Point { x: 10, y: 40 });
-        press.moved(Point { x: 10, y: 90 }, slop);
-        press.moved(Point { x: 10, y: 40 }, slop);
-        assert!(!press.is_click(Point { x: 10, y: 40 }, slop));
-        assert!(Press::new(Point { x: 10, y: 40 }).is_click(Point { x: 12, y: 41 }, slop));
+    fn the_window_region_hugs_the_tab() {
+        for side in [Side::Right, Side::Left] {
+            let panel = open_panel(side);
+            let outline = Outline::new(&MONITOR, panel, side);
+            let (depth, width) = (outline.shape.depth, outline.width);
+            let rects = outline.rects();
+            let row = |y: i32| {
+                let rect = rects
+                    .iter()
+                    .find(|r| (r.top..r.bottom).contains(&y))
+                    .unwrap();
+                (rect.left, rect.right)
+            };
+            // Away from the tab only the panel; along its outer side the whole depth.
+            let (panel_only, full) = match side {
+                Side::Right => ((depth, depth + width), (0, depth + width)),
+                Side::Left => ((0, width), (0, width + depth)),
+            };
+            assert_eq!(row(0), panel_only);
+            assert_eq!(row(outline.top - 2), panel_only);
+            assert_eq!(row(outline.top + outline.shape.height / 2), full);
+            // Halfway down a curve the boundary is halfway out, give or take the slack row.
+            let middle = row(outline.top + outline.shape.curve as i32 / 2);
+            let reach = match side {
+                Side::Right => depth - middle.0,
+                Side::Left => middle.1 - width,
+            };
+            assert!(
+                (depth / 2 - 2..=depth / 2 + 6).contains(&reach),
+                "{side:?} {reach}"
+            );
+            assert_eq!(rects.last().unwrap().bottom, outline.height);
+        }
     }
 }

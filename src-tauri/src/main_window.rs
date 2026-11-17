@@ -29,6 +29,8 @@ pub fn create(app: &App) -> tauri::Result<WebviewWindow> {
         .initialization_script(FREEZE_PROTOTYPE)
         .on_navigation(move |url| stays_in_ui(url, &ui))
         .on_new_window(|_, _| NewWindowResponse::Deny)
+        // Beside the panel, a strip as deep as the edge tab shows only the tab the UI draws there.
+        .transparent(true)
         .build()?;
     crate::platform::exclude_from_capture(&window);
     Ok(window)

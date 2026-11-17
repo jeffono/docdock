@@ -77,10 +77,14 @@ export const panelResize = (width: number | null, done: boolean) =>
     done,
   });
 
-/** The edge handle is drawn natively: it takes the theme's tokens resolved to sRGB channels. */
-type Rgb = [number, number, number];
-export type HandleLook = { background: Rgb; line: Rgb; accent: Rgb; text: Rgb; muted: Rgb };
-export const panelHandleLook = (look: HandleLook) => invoke<void>("panel_handle_look", { look });
+/**
+ * The edge tab's size in logical pixels, which the window's region follows, and the system drag
+ * tolerance each way in physical pixels.
+ */
+export type TabShape = { depth: number; height: number; curve: number; drag: [number, number] };
+export const panelTabShape = () => invoke<TabShape>("panel_tab_shape");
+/** The edge tab was clicked; Rust takes it only from the open panel at rest. */
+export const panelTab = () => invoke<void>("panel_tab");
 
 /** How a slide moves: milliseconds and `cubic-bezier` control points `[x1, y1, x2, y2]`. */
 export type Curve = [number, number, number, number];

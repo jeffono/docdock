@@ -1,7 +1,6 @@
 // Development builds only. In the panel: the button that opens the tweak window, and the receiver
 // that applies the window's state. Nothing here holds the panel open or changes its behavior.
 import { mount, unmount } from "svelte";
-import { reportHandleLook } from "../../handle-look";
 import {
   devFonts,
   devHandle,
@@ -24,8 +23,6 @@ function apply(event: unknown) {
   for (const name of Object.keys(tokens)) if (!(name in state.tokens)) style.removeProperty(name);
   for (const [name, value] of Object.entries(state.tokens)) style.setProperty(name, value);
   tokens = state.tokens;
-  // The edge handle is drawn natively from the colors.
-  reportHandleLook();
   // Each command runs only when its section changed.
   const nextMotion = JSON.stringify(state.motion);
   if (nextMotion !== motion) {
