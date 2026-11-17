@@ -837,15 +837,22 @@ fn checked(relative: &str, allowed: fn(&Path) -> bool) -> Result<&Path, Error> {
 /// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
 /// the folder can change the requested extension to a different real extension.
 fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, Error> {
+    resolve_below(&root.canonicalize()?, relative, allowed)
+}
+/// `resolve` with `root` already canonical, for a caller that resolves many paths.
+fn resolve_below(
+    root: &Path,
+    relative: &str,
+    allowed: fn(&Path) -> bool,
+) -> Result<PathBuf, Error> {
     let path = checked(relative, allowed)?;
-    let root = root.canonicalize()?;
     let target = root.join(path).canonicalize()?;
-    if !target.starts_with(&root) || !target.is_file() || !allowed(&target) {
+    if !target.starts_with(root) || !target.is_file() || !allowed(&target) {
         return Err(Error::OutsideFolder);
     }
     if internal_path(
         target
-            .strip_prefix(&root)
+            .strip_prefix(root)
             .map_err(|_| Error::OutsideFolder)?,
     ) {
         return Err(Error::InvalidPath);
@@ -886,10 +893,13 @@ pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
 /// Reads many notes at once for the search index, with the same path rules as `open`. A note that
 /// cannot be read (gone, too large, not UTF-8, outside the folder) is left out; the rest are returned.
 fn read_many(root: &Path, paths: &[String]) -> Vec<NoteText> {
+    let Ok(root) = root.canonicalize() else {
+        return Vec::new();
+    };
     paths
         .iter()
         .filter_map(|relative| {
-            let path = resolve(root, relative, markdown).ok()?;
+            let path = resolve_below(&root, relative, markdown).ok()?;
             let text = read_note(&path).ok()?;
             Some(NoteText {
                 path: relative.clone(),
@@ -2010,10 +2020,12 @@ fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Resu
     };
     keep_copy(store, root, &text);
     drop(guard);
+    let canonical = root.canonicalize()?;
     let items = pinned::parse(&text)
         .into_iter()
         .map(|item| PinnedItem {
-            missing: item.kind == Kind::Note && resolve(root, &item.target, markdown).is_err(),
+            missing: item.kind == Kind::Note
+                && resolve_below(&canonical, &item.target, markdown).is_err(),
             collapsed: collapsed.contains(&item.target),
             item,
         })
