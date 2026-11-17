@@ -5,46 +5,7 @@ detail each stage when it is next.
 
 ## In progress
 
-- M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`; `tweak-polish`,
-  `handle-reveal` and `webview-tab` merged). The user checked it manually; then the look chosen with
-  the tweak window goes to the defaults. Native page bar offset still ignores `--size-bar`.
-
-## Next
-
-M10 — Identity: official icon, a dev-only tweak panel to explore the look in the real app, and an edge
-handle that opens the panel.
-
-- [x] App icon (`standard`). Hand-drawn SVGs per size, from the user's files, go to
-  `src-tauri/icons/source/` with a script that rebuilds everything derived. `icon.ico` takes the
-  drawn 16, 20, 24, 30, 32, 48 and 256 and renders 36, 40 and 64 from the 480 master; the PNGs in
-  `tauri.conf.json` are regenerated. Only the user changes the drawings.
-- [x] Tray icon (`advanced`). Monochrome glyphs (black for a light taskbar, white for a dark one) at the
-  size for the monitor's scale (16, 20, 24, 32, 48; 40 and 64 rendered), switched when the
-  taskbar theme changes. The taskbar theme (`SystemUsesLightTheme`) is separate from the apps theme.
-  Today `tray.rs` uses the colored window icon. Manual check at 100%, 125% and 150%, light and dark.
-- [ ] Tweak panel (`standard`; keeping the panel open is `advanced`). Development builds only, loaded
-  behind `import.meta.env.DEV` and absent from the release bundle. Edits `tokens.css` variables
-  live through CSSOM, which CSP allows: both `light-dark` values of each color with the WCAG
-  contrast shown for text and background pairs, system fonts (including Segoe UI Variable),
-  font sizes, spacing, radius and control sizes. Named presets switch A/B, and an export gives the
-  `tokens.css` diff to apply. A separate window tweaks while the panel behaves as in production. A chosen look goes to
-  `tokens.css` and `docs/DESIGN.md` with a screenshot for approval.
-- [x] Edge handle (`advanced`). Only a short stretch of the edge around a handle opens the panel,
-  instead of the whole column, to avoid accidental openings. The handle appears only while the
-  cursor is near. A window at the edge must not take clicks from scrollbars or maximized window
-  buttons, so it stays click-through and is shown only on proximity. When the panel is open, the
-  handle becomes a tab outside its inner edge with the app identity (vertical "DocDock" or the
-  icon). The trigger rule lives in pure functions with tests; visual behavior gets a manual
-  verification script. See the defaults in "Open questions".
-- [x] Tab in the panel's WebView (`advanced`). The main window is transparent and wider by the tab
-  depth on the inner side, shaped by `SetWindowRgn` to the panel and the tab's outline; one SVG path
-  draws the inner-edge line or focus band around the tab. Parked, the window lets every click
-  through, and the tab's shift pushes the whole panel. `tab.rs`, `platform/handle.rs`, `tiny-skia`
-  and the look IPC are gone; Rust sends the tab's size and drag tolerance. Menus, dialogs, editor
-  tooltips and the Preferences width keep to the panel. Measured parked against the native tab
-  (release, 125%): private memory +9 to +12 MB, from the Rust host (+5.5 MB, likely the transparent
-  window's surface) and the WebView2 GPU process (+5 MB, +4.5 MB GPU); open, the GPU process +11.5 MB.
-  The user accepted the cost for the exact edge, no resize lag and one window to maintain.
+- Release 0.3.0 with M10 and validate the automatic update from 0.2.0.
 
 ## Completed
 
@@ -95,6 +56,13 @@ handle that opens the panel.
   remembered per site; see `docs/decisions/0012-site-permissions.md`. Rust tests grew 23%, on site
   matching, the engine cache, reader bounds, early hiding state, page IPC and permission requests.
 - Release 0.2.0: first SemVer version; automatic update from 0.1.0-beta.3 validated.
+- M10 — Identity: hand-drawn app icon with a rebuild script, monochrome tray glyphs that follow the
+  taskbar's theme and scale, an edge handle (a 300% activation stretch, a 400% reveal area, a rush
+  that opens at once) whose tab is drawn by the panel's own transparent WebView, and a debug-only
+  tweak window for tokens, slides, the handle and the tab's shape with presets and exported diffs;
+  see "Motion" in `docs/DESIGN.md` and "Trigger" and "Expansion" in `docs/ARCHITECTURE.md`.
+  The native tab (`tab.rs`, `tiny-skia`) was replaced after a spike. Rust tests grew 12% and frontend
+  tests 18%, mostly the tweak window's export, presets and validation and the handle's rules.
 
 ## Later
 
@@ -130,5 +98,5 @@ Defaults used until you decide otherwise.
 | Handle position            | Vertically centered on the work area; not movable                           |
 | Handle activation stretch  | 300% of the tab height, centered on it and clamped to the work area         |
 | Handle reveal area         | Within 400% of the tab height around the tab; hides with the panel          |
-| Rush to the edge           | From 3000 logical px/s toward the edge: opens at once, no handle slide-in   |
+| Rush to the edge           | From 500 logical px/s toward the edge: opens at once, no handle slide-in    |
 | Clicking the open tab      | Closes the panel; dragging it does nothing                                  |
