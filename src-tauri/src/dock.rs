@@ -563,6 +563,7 @@ impl Dock {
     fn show(&mut self) {
         self.set_enabled(true);
         self.window.raise();
+        crate::tray::check_glyph(&self.app);
         // Summoning an open panel only gives it focus.
         if self.x != self.rect.left || self.slide.is_some() {
             self.slide = Some(Slide::new(self.x, self.rect.left, Kind::Open));

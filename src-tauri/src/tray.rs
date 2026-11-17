@@ -1,12 +1,12 @@
 //! Tray: its icon, and the screen side and autostart controls it shares with Preferences.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 use tauri::image::Image;
 use tauri::include_image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{TrayIcon, TrayIconBuilder};
+use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::dock::{Request, Side};
@@ -16,6 +16,8 @@ use crate::platform::{autostart, taskbar};
 
 struct SideItems([(Side, CheckMenuItem<Wry>); 2]);
 struct AutostartItem(CheckMenuItem<Wry>);
+/// Asks for the glyph to be read again.
+struct GlyphCheck(Sender<()>);
 
 /// `window` is a top-level window whose messages tell when the taskbar's theme or scale changes.
 pub fn setup(
@@ -75,6 +77,9 @@ pub fn setup(
         ],
     )?;
     let shown = glyph();
+    let (changes, received) = mpsc::channel();
+    let hover = changes.clone();
+    app.manage(GlyphCheck(changes.clone()));
     let tray = TrayIconBuilder::new()
         .icon(glyph_image(shown))
         .menu(&menu)
@@ -106,9 +111,13 @@ pub fn setup(
             }
             _ => {}
         })
+        .on_tray_icon_event(move |_, event| {
+            if let TrayIconEvent::Enter { .. } = event {
+                let _ = hover.send(());
+            }
+        })
         .build(app)?;
     // Without this, the glyph keeps the theme and scale it started with.
-    let (changes, received) = mpsc::channel();
     std::thread::spawn(move || follow_taskbar(&tray, shown, &received));
     if let Err(error) = taskbar::on_change(window, move || {
         let _ = changes.send(());
@@ -173,20 +182,23 @@ fn glyph_image((light, index): Glyph) -> Image<'static> {
 
 /// How long settings messages must stop before the taskbar is read again.
 const SETTLE: Duration = Duration::from_millis(250);
-/// Not every scale change on the taskbar's monitor reaches a top-level window (an auto-hidden
-/// taskbar keeps the work area), so the glyph is also checked this often. Reading it is cheap.
-const RECHECK: Duration = Duration::from_secs(3);
+
+/// Reads the glyph again. Not every scale change on the taskbar's monitor reaches a top-level window
+/// (an auto-hidden taskbar keeps the work area), so the glyph is also read when the user turns to the
+/// app (the pointer enters the tray icon, the panel opens) instead of on a timer that would keep
+/// waking an idle app.
+pub fn check_glyph(app: &AppHandle) {
+    if let Some(check) = app.try_state::<GlyphCheck>() {
+        let _ = check.0.send(());
+    }
+}
 
 /// Replaces the glyph when the taskbar's theme or scale changed. Messages come in bursts, mostly
 /// about something else, and the shell may be the one broadcasting them: the glyph is read once they
 /// settle, off the window's thread, and sent to the shell only if it differs.
 fn follow_taskbar(tray: &TrayIcon, mut shown: Glyph, changes: &Receiver<()>) {
-    loop {
-        match changes.recv_timeout(RECHECK) {
-            Ok(()) => while changes.recv_timeout(SETTLE).is_ok() {},
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => return,
-        }
+    while changes.recv().is_ok() {
+        while changes.recv_timeout(SETTLE).is_ok() {}
         let glyph = glyph();
         if glyph == shown {
             continue;

@@ -65,9 +65,9 @@ size (`SM_CXSMICON`) at the DPI of the monitor holding `Shell_TrayWnd`, rounded 
 glyph by a pure function. `platform/taskbar.rs` subclasses the main window, which as a top-level
 window receives `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE`, `WM_DPICHANGED` and `TaskbarCreated`; a theme
 change arrives as "ImmersiveColorSet" and a taskbar scale change usually as a work area change. A
-thread rereads the taskbar once the burst settles, outside the shell's broadcast, and also every
-3 seconds, since a scale change does not always reach the window; it replaces the icon only if it
-differs.
+thread rereads the taskbar once the burst settles, outside the shell's broadcast, and also when the
+pointer enters the tray icon or the panel opens, since a scale change does not always reach the
+window; it replaces the icon only if it differs. No timer wakes the idle app.
 
 ## Flow
 
