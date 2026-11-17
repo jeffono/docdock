@@ -322,9 +322,21 @@ function resizeKey(event: KeyboardEvent) {
   event.preventDefault();
   void action(panelResize(width + (event.key === wider ? step : -step), true));
 }
-function togglePin() {
-  pinned = !pinned;
-  panelSetPinned(pinned);
+let pinBusy = false;
+async function togglePin() {
+  if (pinBusy) return;
+  pinBusy = true;
+  const previous = pinned;
+  pinned = !previous;
+  error = "";
+  try {
+    await panelSetPinned(pinned);
+  } catch (e) {
+    pinned = previous;
+    error = errorText(e);
+  } finally {
+    pinBusy = false;
+  }
 }
 </script>
 
