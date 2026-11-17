@@ -471,7 +471,14 @@ per-monitor DPI awareness (PMv2).
 recursively, excluding hidden folders, symlinks and junctions. A subfolder that cannot be read is
 skipped, keeping the notes already read in it, and `notes_list` answers `{ notes, skipped }` with
 those folders' relative `/` paths; `notes_folders` and the leftover scan skip them too. Only a notes
-folder that cannot be read fails, as described in "Folder away". Opening validates the path and checks that the
+folder that cannot be read fails, as described in "Folder away". The UI tells a note it did not get
+apart from a deleted one with the pure rules in `features/notes/listing.ts`: a known note under a
+skipped folder (case-insensitive, any depth) is unread, not gone, so it keeps its index entry, text,
+pin, expansion and editor, is never re-read by the index sync and never reaches `missing()`; a
+pinned item Rust reports `missing` there is not offered for removal. Kept notes follow renames and
+moves (watcher pairs and the app's own), and a delete made by the app drops them with everything
+below. A security change on the folder reaches the watcher, and while folders are skipped the list
+is read again whenever the panel hides, so a folder that opens again returns without a timer. Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
 which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title,
 http(s) url and tag scalars, flow lists and block lists are extracted as plain text by

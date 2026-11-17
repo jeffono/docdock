@@ -101,6 +101,13 @@ pinned and unpinned notes differ only in section and starting state.
   one saved choice: name (display title), modified or created, ascending or descending. The default is
   modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
   Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
+- **Unreadable folders:** when some folders inside the notes folder cannot be opened, an amber
+  `Notice` with an alert icon under the search bar says "Some folders could not be opened, so their
+  notes may be missing or out of date.", with the folders' paths in muted text below. Notes already
+  known from those folders stay as they were. Its quiet close button folds it into a quiet alert
+  icon at the end of the search bar, after "+", which reopens it (Space, since Enter acts on the
+  selection); the bar keeps its height, so the list never moves. The choice lasts for the session.
+  The notice leaves by itself once every folder opens again.
 - **Folder away:** a notes folder the app cannot reach replaces the list with the empty state: one
   sentence, the folder path in muted text and Choose folder. "Unavailable" names the usual causes (a
   locked vault, an unplugged drive, an offline share) and says the folder opens again when it is back;
@@ -259,7 +266,7 @@ pinned and unpinned notes differ only in section and starting state.
   stays shown; the shortcut then takes focus back. Without focus (hover only), it closes when the cursor leaves. While the panel or its
   page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
   above the content, without moving anything.
-- **Tab stops:** search bar → add note (+) → recovery actions when shown (Undo after a delete, "Restore" on
+- **Tab stops:** search bar → add note (+) → unreadable folders icon when folded → recovery actions when shown (Undo after a delete, "Restore" on
   leftovers, then "Restore pinned items"; in Browser, the permission bar's Block and Allow) → list → note order button → top bar buttons (including
   Preferences) → resize grip → search bar, reversed with Shift+Tab. Card
   controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
