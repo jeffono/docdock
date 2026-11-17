@@ -1673,7 +1673,8 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
         let landed = {
             let (_held_parent, _held_source) = (held_parent, held_source);
             let into = canonical.join(parent);
-            place(&source, &into, name, folder, |candidate| {
+            let numbered = |n| format!(" ({n})");
+            place(&source, &into, name, folder, numbered, |candidate| {
                 !folder && reserved(root, &relative(&canonical, candidate))
             })?
         };
@@ -1737,13 +1738,16 @@ fn ensure_folders(root: &Path, relative: &Path) -> Result<Vec<fs::File>, Error> 
     }
     Ok(held)
 }
-/// Moves `source` into `folder` as `name`, or the first free numbered name, such as `name (2).md` or
-/// `folder (2)`, never over anything; `taken` refuses a name besides those on disk.
+/// Moves `source` into `folder` as `name`, never over anything. If that is taken, the first free name
+/// among those `numbered` gives for 2 to 100, put between stem and extension, such as `name (2).md`
+/// or `folder (2)`; the stem is cut so the whole fits the name limit. `taken` refuses a name besides
+/// those on disk, such as one a Recycle Bin Undo reserves.
 fn place(
     source: &Path,
     folder: &Path,
     name: &std::ffi::OsStr,
     is_folder: bool,
+    numbered: impl Fn(u32) -> String,
     taken: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, Error> {
     let file = Path::new(name);
@@ -1755,7 +1759,7 @@ fn place(
         let candidate = if n == 1 {
             folder.join(name)
         } else {
-            let tail = format!(" ({n}){extension}");
+            let tail = format!("{}{extension}", numbered(n));
             let mut numbered =
                 platform::fit_name(stem, platform::MAX_NAME.saturating_sub(tail.len()));
             numbered.push(tail);
@@ -1770,7 +1774,7 @@ fn place(
             Err(error) => return Err(error.into()),
         }
     }
-    Err(Error::unexpected("no free name to restore the item"))
+    Err(Error::unexpected("no free name"))
 }
 /// Deletes for good the entries `ids` of the notes folder's own trash: those the user saw listed.
 fn empty_trash_in(root: &Path, ids: &[String]) -> Result<(), Error> {
@@ -2149,27 +2153,25 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<
     }
     held.push(platform::hold_directory(&folder).map_err(|_| Error::AttachmentFolderUnsafe)?);
     let temp = write_temp(&folder.join("pasted"), bytes)?;
-    let result = (|| {
-        for n in 1u64.. {
-            let suffix = if n == 1 {
-                String::new()
-            } else {
-                format!("-{n}")
-            };
-            let name = format!("pasted-{stamp}{suffix}.{ext}");
-            let target = folder.join(&name);
-            match platform::move_new(&temp, &target) {
-                Ok(()) => return Ok(format!("attachments/{name}")),
-                Err(_) if exists(&target) => continue,
-                Err(e) => return Err(e.into()),
-            }
+    let name = format!("pasted-{stamp}.{ext}");
+    let placed = place(
+        &temp,
+        &folder,
+        name.as_ref(),
+        false,
+        |n| format!("-{n}"),
+        |_| false,
+    );
+    match placed {
+        Ok(target) => Ok(format!(
+            "attachments/{}",
+            target.file_name().unwrap_or_default().to_string_lossy()
+        )),
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            Err(error)
         }
-        unreachable!()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
     }
-    result
 }
 pub fn paste_image(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<String, Error> {
     paste_image_in(&root(app)?, path, bytes, &platform::paste_timestamp())
@@ -2228,32 +2230,23 @@ pub fn leftovers(app: &AppHandle) -> Result<Vec<Leftover>, Error> {
     leftovers_in(&root(app)?)
 }
 /// Renames a leftover to its note's name or, if that is taken, to `<stem> (<label>).md`,
-/// `<stem> (<label> 2).md` and so on. Never overwrites and never deletes. Returns the new note's path.
+/// `<stem> (<label> 2).md` and so on, as `place` does. Never overwrites, never deletes and never takes
+/// a name a Recycle Bin Undo reserves. Returns the new note's path.
 fn restore_in(root: &Path, leftover: &str, label: &str) -> Result<String, Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-    let root = root.canonicalize()?;
-    let source = resolve(&root, leftover, is_leftover)?;
+    let canonical = root.canonicalize()?;
+    let source = resolve(&canonical, leftover, is_leftover)?;
     let note = leftover_note(&source).ok_or(Error::InvalidPath)?;
-    let stem = note.file_stem().unwrap_or_default();
-    for n in 1..=100 {
-        let target = match n {
-            1 => note.clone(),
-            _ => {
-                let mut name = stem.to_os_string();
-                name.push(match n {
-                    2 => format!(" ({label}).md"),
-                    _ => format!(" ({label} {}).md", n - 1),
-                });
-                note.with_file_name(name)
-            }
-        };
-        match platform::move_new(&source, &target) {
-            Ok(()) => return Ok(relative(&root, &target)),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Err(Error::unexpected("no free name to restore the note"))
+    let (folder, name) = (note.parent(), note.file_name());
+    let (folder, name) = folder.zip(name).ok_or(Error::InvalidPath)?;
+    let numbered = |n| match n {
+        2 => format!(" ({label})"),
+        _ => format!(" ({label} {})", n - 1),
+    };
+    let target = place(&source, folder, name, false, numbered, |candidate| {
+        reserved(root, &relative(&canonical, candidate))
+    })?;
+    Ok(relative(&canonical, &target))
 }
 pub fn restore(app: &AppHandle, leftover: &str) -> Result<String, Error> {
     let label = match *app.state::<Locale>() {
@@ -4238,6 +4231,20 @@ mod tests {
         assert_eq!(fs::read_to_string(t.0.join("a (r).md")).unwrap(), "antiga");
         assert_eq!(fs::read_to_string(t.0.join("a (r 2).md")).unwrap(), "outra");
         assert!(leftovers_in(&t.0).unwrap().is_empty());
+    }
+    #[test]
+    fn a_restored_leftover_does_not_take_a_name_a_recycle_bin_undo_reserves() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "recycled").unwrap();
+        fs::write(t.0.join("a.md.7-1.docdock-bak"), "backup").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        assert_eq!(
+            restore_in(&t.0, "a.md.7-1.docdock-bak", "r"),
+            Ok("a (r).md".into())
+        );
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "recycled");
     }
     #[test]
     fn a_folder_is_missing_only_when_its_parent_lists_without_it() {
