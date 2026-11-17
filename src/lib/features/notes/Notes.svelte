@@ -4,6 +4,7 @@ import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
+  type Listing,
   type Note,
   type NotesChanges,
   type NotesFolder,
@@ -98,6 +99,7 @@ import {
   rows,
   shallower,
 } from "./list";
+import { listingState, shownPinned, withUnread } from "./listing";
 import MovePicker from "./MovePicker.svelte";
 import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
@@ -139,7 +141,13 @@ $effect(() => {
 let folder = $state<NotesFolder | null>(null);
 /** The folder can be read; otherwise the list holds no note, except an editor's unsaved text. */
 const ready = $derived(folder?.state === "available");
+/**
+ * The listed notes, and the known ones in subfolders the last listing could not read: they are kept as
+ * they were, never taken for deleted.
+ */
 let notes = $state<Note[]>([]);
+/** The last listing as read: what it left out of a skipped folder is unread, not gone. */
+let listing = $state.raw<Listing>({ notes: [], skipped: [] });
 let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
@@ -437,12 +445,13 @@ const kept = $derived.by(() => {
     index: folderIndex.index,
   });
 });
+const pinnedItems = $derived(shownPinned(pinned.items, listing.skipped, notes));
 const model = $derived.by(() => {
   const built = buildList({
     hits: orderHits(results.hits, notes, $noteOrder, query),
     exactTitle: results.exactTitle,
     query,
-    pinned: pinned.items,
+    pinned: pinnedItems,
     expanded,
     kept,
     editing,
@@ -510,7 +519,7 @@ function cardFor(path: string): Card | undefined {
 
 // Preview and expanded cards need their text.
 const wanted = $derived([
-  ...pinned.items
+  ...pinnedItems
     .filter((i) => i.kind === "note" && !i.missing && !i.collapsed)
     .map((i) => i.target),
   ...(expanded ? [expanded] : []),
@@ -546,7 +555,8 @@ $effect(() => {
 });
 
 async function reloadContents(current: number) {
-  const listed = new Set(notes.map((note) => note.path));
+  // A note kept from a folder that could not be read keeps its last content.
+  const listed = new Set(listing.notes.map((note) => note.path));
   const keep = new Set([...wanted, selected]);
   for (const path of Object.keys(contents)) if (!keep.has(path)) delete contents[path];
   await Promise.all(
@@ -570,6 +580,7 @@ async function reloadContents(current: number) {
  */
 function forget() {
   notes = [];
+  listing = { notes: [], skipped: [] };
   folders = [];
   removed = null;
   leftovers = [];
@@ -606,19 +617,17 @@ async function refresh(value: NotesFolder | null) {
   if (current === generation) leftovers = found;
 }
 
-/** Folder enumeration is secondary: a failure must not hide readable notes. */
-async function listSnapshot() {
-  const [list, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
-  return [list, folderLabels(list, directories)] as const;
-}
-
-/** Ignore a snapshot if the active folder changed while it was being read. */
+/**
+ * Ignore a snapshot if the active folder changed while it was being read. Folder enumeration is
+ * secondary: a failure must not hide readable notes.
+ */
 async function relist(stale = () => false) {
-  const [list, directoryList] = await listSnapshot();
+  const [found, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
   if (stale()) return;
-  notes = list;
-  folders = directoryList;
-  await sync(list);
+  listing = found;
+  notes = withUnread(notes, found);
+  folders = folderLabels(notes, directories);
+  await sync(notes);
 }
 
 async function restore(path: string) {
@@ -1463,7 +1472,10 @@ async function reload() {
   if (stale()) return;
   const path = selected;
   if (!path) return;
-  if (!notes.some((note) => note.path === path)) {
+  const found = listingState(path, listing);
+  // Its folder could not be read: the note may be there, so the editor stays as it is.
+  if (found === "unread") return;
+  if (found === "gone") {
     if (editing) editor?.missing();
     return;
   }
@@ -1955,6 +1967,9 @@ onMount(() => {
     panelSession++;
     stopScrolling();
     void leaveEditor();
+    // A folder that could not be read may send no event when it can be again, such as when a lock
+    // ends: the next opening shows a fresh listing.
+    if (listing.skipped.length) changed({ renames: [] });
     // WebView2 keeps its inner focus after Windows moves the foreground away: without this, a
     // hover-opened panel would show a focused bar and caret while it has no focus.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
