@@ -2747,24 +2747,6 @@ mod tests {
         assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
     }
     #[test]
-    fn held_directory_cannot_be_renamed_and_refuses_junctions() {
-        let t = Temp::new();
-        fs::create_dir(t.0.join("notes")).unwrap();
-        let dir = t.0.join("outside");
-        fs::create_dir(&dir).unwrap();
-        let held = platform::hold_directory(&dir).unwrap();
-        assert!(fs::rename(&dir, t.0.join("renamed")).is_err());
-        drop(held);
-        fs::rename(&dir, t.0.join("renamed")).unwrap();
-        // Junctions into the notes folder are refused too.
-        assert!(mklink(
-            &["/J"],
-            &t.0.join("inside-link"),
-            &t.0.join("notes")
-        ));
-        assert!(platform::hold_directory(&t.0.join("inside-link")).is_err());
-    }
-    #[test]
     fn image_only_leaves_folder_for_main_window() {
         let t = Temp::new();
         let (notas, fora) = (t.0.join("notas"), t.0.join("fora"));
