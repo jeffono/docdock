@@ -410,7 +410,7 @@ pub fn notes_grouping(app: AppHandle) -> Result<crate::notes::Grouping, Error> {
 pub fn notes_set_grouping(app: AppHandle, grouping: crate::notes::Grouping) -> Result<(), Error> {
     crate::notes::set_grouping(&app, grouping)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pinned_move(
     app: AppHandle,
     target: String,
