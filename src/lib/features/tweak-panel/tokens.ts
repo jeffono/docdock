@@ -66,7 +66,7 @@ export function contrast(foreground: string, background: string, canvasColor: st
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 1;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) return "unavailable";
+  if (!context) return null;
   const luminance = (color?: string) => {
     context.clearRect(0, 0, 1, 1);
     for (const fill of [canvasColor, background, color]) {
@@ -85,5 +85,5 @@ export function contrast(foreground: string, background: string, canvasColor: st
   const fg = luminance(foreground);
   const bg = luminance();
   const ratio = (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
-  return `${ratio.toFixed(2)}:1 · ${ratio >= 4.5 ? "AA" : ratio >= 3 ? "large text only" : "fails AA"}`;
+  return { ratio: ratio.toFixed(2), aa: ratio >= 4.5, aaa: ratio >= 7 };
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 import { handleDefaults, handleFields, validHandle } from "./handle";
+import NumberField from "./NumberField.svelte";
 import { status, tweak } from "./state.svelte";
 
 function set(key: (typeof handleFields)[number]["key"], value: number) {
@@ -16,6 +17,6 @@ function set(key: (typeof handleFields)[number]["key"], value: number) {
 <details><summary>Edge handle</summary>
   <p>Applies from the next cursor move. Release builds keep the constants in handle.rs: {handleDefaults.activationPercent}% activation, {handleDefaults.revealDistance} px reveal distance.</p>
   {#each handleFields as { key, label, range }}
-    <label class="token">{label}<input type="number" min={range[0]} max={range[1]} step={key === "activationPercent" ? 10 : 1} value={tweak.handle[key]} onchange={(e) => set(key, e.currentTarget.valueAsNumber)} /></label>
+    <label class="token">{label}<NumberField label={label} min={range[0]} max={range[1]} step={key === "activationPercent" ? 10 : 1} value={tweak.handle[key]} onchange={(value) => set(key, value)} /></label>
   {/each}
 </details>

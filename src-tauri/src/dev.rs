@@ -70,7 +70,7 @@ pub async fn dev_tweak_window(app: AppHandle) -> Result<(), String> {
     let ui = crate::main_window::ui_url(app.config().build.dev_url.as_ref());
     WebviewWindowBuilder::new(&app, TWEAK, WebviewUrl::App("index.html".into()))
         .title("DocDock tweaks")
-        .inner_size(440.0, 860.0)
+        .inner_size(880.0, 860.0)
         .min_inner_size(320.0, 320.0)
         .theme(crate::notes::theme(&app).native())
         .on_navigation(move |url| crate::main_window::stays_in_ui(url, &ui))

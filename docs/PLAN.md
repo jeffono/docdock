@@ -5,6 +5,10 @@ detail each stage when it is next.
 
 ## In progress
 
+- Branch `tweak-polish` (from `m10`): scrollable tweak groups, persistent WCAG column, live numeric
+  controls, HSB colors, font combobox and preset management; awaiting manual visual verification
+  and screenshot approval. Native page bar offset remains fixed as documented in `docs/DESIGN.md`.
+
 - M10 integrated on local branch `m10` (worktree `../docdock-wt/m10`), awaiting the user's manual
   check: tray icon at 100%, 125% and 150% with light and dark taskbar; edge handle behavior and
   screenshot approval of the tab; a look chosen with the tweak window.

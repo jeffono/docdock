@@ -8,12 +8,19 @@ Development builds offer a small Tweak button at the bottom of the panel, loaded
 another monitor while the panel behaves exactly as in production (no pin, nothing inert, the page
 untouched). Every change applies live to the panel, even hidden: CSSOM token updates in both color
 schemes, typography and geometry, without changing the source or CSP; colors also reach the natively
-drawn edge handle. Each font-family token has a searchable picker: curated stacks first, then the
+drawn edge handle. The options scroll independently from an always-visible WCAG AA/AAA table (stacked below the options
+in narrow windows). Collapsible groups collect typography, colors, layout, CSS transitions, native
+motion, the edge handle, and presets/export. Numeric controls apply on input with bounded steppers
+and Up/Down keys; Shift multiplies the step by ten. Colors use HSB by default, with a swatch beside
+the CSS/hex field and an alpha control; untouched source spellings remain unchanged.
+Each font-family token has a keyboard-accessible filtering combobox (Up/Down, Enter, Escape): curated stacks first, then the
 installed families, each quoted with a sans-serif or monospace fallback. The Slides section sets a
 duration and a `cubic-bezier` curve for each slide (panel open, panel close, handle in, handle out)
 with presets, including overshooting `back` curves, four numbers and a draggable curve editor; each
-slide reads its motion when it starts. The Edge handle section sets the activation height (100-1000%
-of the tab) and the reveal distance (1-500 logical pixels). Named presets keep tokens, motions and
+slide reads its motion when it starts; an ongoing slide keeps its starting motion. The separate
+`--duration` token affects CSS transitions, not these native slides. The Edge handle section sets the activation height (100-1000%
+of the tab) and the reveal distance (1-500 logical pixels). Named presets can be renamed, deleted or overwritten; deletion and overwrite require inline
+confirmation. Storage failure preserves the previous map. Presets keep tokens, motions and
 the edge handle values for A/B switching; Reset restores the source values. The window remembers its
 last state, so a reload or a restart after a Rust change keeps the tweaks once it is open again.
 Export shows the unified diffs to apply: `tokens.css`, the motion constants in `motion.rs` and the

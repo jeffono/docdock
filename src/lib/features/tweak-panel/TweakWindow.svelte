@@ -30,18 +30,23 @@ onMount(() => {
 <main>
   <h1>Tweaks · DEV</h1>
   <p>Applies live to the panel, even while it is hidden, which otherwise behaves as in production. Changes stay until the panel reloads, which asks this window again.</p>
-  <Presets />
   {#if status.error}<p role="alert">{status.error}</p>{/if}
-  <TokenGroups />
-  <MotionSection />
-  <HandleControls />
-  <Contrast />
-  <Export />
-  <p>Bar height previews CSS only; the native page offset is fixed. Verify a chosen size in the app.</p>
+  <div class="columns">
+    <section class="options" aria-label="Tweak options">
+      <TokenGroups /><MotionSection /><HandleControls />
+      <details><summary>Presets and export</summary><Presets /><Export /></details>
+      <p>Bar height previews CSS only; the native page offset is fixed. Verify a chosen size in the app.</p>
+    </section>
+    <aside aria-label="WCAG contrast"><Contrast /></aside>
+  </div>
 </main>
 
 <style>
-  main { padding: var(--space-3); font-size: var(--font-size-sm); }
+  main { height: 100dvh; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; padding: var(--space-3); font-size: var(--font-size-sm); }
+  .columns { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-3); }
+  .options, aside { overflow: auto; min-height: 0; padding: var(--space-1); }
+  aside { border-left: 1px solid var(--color-line); }
+  @media (max-width: 600px) { .columns { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 3fr) minmax(0, 2fr); } aside { border-left: 0; border-top: 1px solid var(--color-line); } }
   h1 { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
   p { color: var(--color-muted); margin: var(--space-2) 0; }
   [role="alert"] { color: var(--color-danger); }

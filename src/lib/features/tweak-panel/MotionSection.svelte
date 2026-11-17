@@ -2,6 +2,7 @@
 import Button from "../../ui/Button.svelte";
 import CurveEditor from "./CurveEditor.svelte";
 import { type Curve, curveName, curves, kinds, limits, type Motion, validMotion } from "./motion";
+import NumberField from "./NumberField.svelte";
 import { status, tweak } from "./state.svelte";
 
 function set(key: (typeof kinds)[number]["key"], motion: Motion) {
@@ -19,13 +20,13 @@ function point(curve: Curve, index: number, value: number): Curve {
 }
 </script>
 
-<details><summary>Slides · panel and edge handle</summary>
-  <p>Each slide reads its motion when it starts. Release builds keep the constants in motion.rs.</p>
+<details><summary>Motion - native slides</summary>
+  <p>Edits apply while typing. Each slide reads its motion when it starts; an ongoing slide finishes with its starting values. CSS transitions use the separate --duration token. Release builds keep the constants in motion.rs.</p>
   {#each kinds as { key, label }}
     {@const motion = tweak.motion[key]}
     <fieldset>
       <legend>{label}</legend>
-      <label class="token">Duration (ms)<input type="number" min={limits.duration[0]} max={limits.duration[1]} step="10" value={motion.duration} onchange={(e) => set(key, { ...motion, duration: e.currentTarget.valueAsNumber })} /></label>
+      <label class="token">Duration (ms)<NumberField label={`${label} duration`} min={limits.duration[0]} max={limits.duration[1]} step={10} value={motion.duration} onchange={(duration) => set(key, { ...motion, duration })} /></label>
       <label class="token">Curve
         <select value={curveName(motion.curve)} onchange={(e) => { if (e.currentTarget.value in curves) set(key, { ...motion, curve: [...curves[e.currentTarget.value]] as Curve }); }}>
           <option value="">Custom</option>
@@ -34,7 +35,7 @@ function point(curve: Curve, index: number, value: number): Curve {
       </label>
       <div class="points">
         {#each ["x1", "y1", "x2", "y2"] as name, i}
-          <label>{name}<input type="number" step="0.01" min={i % 2 === 0 ? limits.x[0] : limits.y[0]} max={i % 2 === 0 ? limits.x[1] : limits.y[1]} value={motion.curve[i]} onchange={(e) => set(key, { ...motion, curve: point(motion.curve, i, e.currentTarget.valueAsNumber) })} /></label>
+          <label>{name}<NumberField label={`${label} ${name}`} step={0.01} min={i % 2 === 0 ? limits.x[0] : limits.y[0]} max={i % 2 === 0 ? limits.x[1] : limits.y[1]} value={motion.curve[i]} onchange={(value) => set(key, { ...motion, curve: point(motion.curve, i, value) })} /></label>
         {/each}
       </div>
       <CurveEditor curve={motion.curve} label={`${label} curve`} onchange={(curve) => set(key, { ...motion, curve })} />
