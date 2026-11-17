@@ -10,9 +10,9 @@ detail each stage when it is next.
   manually; then the look chosen with the tweak window goes to the defaults. Native page bar offset
   still ignores `--size-bar`.
 - Branch `webview-tab` (from `m10`): the tab drawn by the panel's WebView, rebuilt from the spike
-  `tab-spike` (worktree `~/.t3/worktrees/docdock/t3-b05596e9-03bccc18f7a51521`, throwaway); awaiting
-  the user's manual check, the RAM/GPU measurement and a review by another provider before merging
-  into `m10`.
+  `tab-spike` (worktree `~/.t3/worktrees/docdock/t3-b05596e9-03bccc18f7a51521`, throwaway). Reviewed
+  by another provider and checked manually by the user; awaiting the RAM/GPU measurement before
+  merging into `m10`.
 
 ## Next
 
