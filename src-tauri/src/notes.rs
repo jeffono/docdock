@@ -1365,15 +1365,32 @@ fn trash_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
     held.push(trash);
     Ok((dir, held))
 }
-/// Remembers the pinned items a delete removed, so Undo can bring them back with the item.
-fn keep_pinned(
+/// Removes the pinned items of `path`, a deleted note or folder, with `unpin`, and remembers them so
+/// Undo can bring them back with the item. If the list cannot change, the answer is
+/// `PinnedNotRemoved`: the item is deleted all the same.
+fn unpin_deleted(
     root: &Path,
     path: &str,
     folder: bool,
     removal: &Removal,
-    change: Option<(String, String)>,
-) {
-    let Some(change) = change else { return };
+    unpin: impl Fn(&str) -> String,
+) -> Result<(), Error> {
+    let change = std::cell::RefCell::new(None);
+    edit_pinned(root, |text| {
+        let edited = unpin(text);
+        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
+        edited
+    })
+    .map_err(|_| {
+        eprintln!("[delete] pinned items not removed");
+        Error::PinnedNotRemoved {
+            undo: removal.undo,
+            trash: removal.trash.clone(),
+        }
+    })?;
+    let Some(change) = change.into_inner() else {
+        return Ok(());
+    };
     let mut state = deleted();
     if let Some(id) = &removal.trash {
         state.trashed.push(Trashed {
@@ -1389,6 +1406,7 @@ fn keep_pinned(
     {
         entry.pinned = Some(change);
     }
+    Ok(())
 }
 /// Deletes a folder and everything in it at once: an empty one is removed, any other goes to the
 /// Recycle Bin, or the notes folder's own trash where the Recycle Bin cannot take it. An entry arriving
@@ -1436,25 +1454,14 @@ fn delete_folder_in(
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
         Removal { undo: false, trash }
     };
-    let change = std::cell::RefCell::new(None);
-    edit_pinned(root, |text| {
-        let edited = pinned::parse(text)
+    unpin_deleted(root, relative, true, &removal, |text| {
+        pinned::parse(text)
             .iter()
             .filter(|item| item.kind == Kind::Note && inside_folder(&item.target, relative))
             .fold(text.to_owned(), |text, item| {
                 pinned::unpin(&text, &item.target)
-            });
-        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
-        edited
-    })
-    .map_err(|_| {
-        eprintln!("[delete folder] pinned items not removed");
-        Error::PinnedNotRemoved {
-            undo: false,
-            trash: removal.trash.clone(),
-        }
+            })
     })?;
-    keep_pinned(root, relative, true, &removal, change.into_inner());
     Ok(removal)
 }
 pub fn delete_folder(app: &AppHandle, path: &str) -> Result<Removal, Error> {
@@ -1592,20 +1599,9 @@ fn delete_note_in(
             }
         }
     };
-    let change = std::cell::RefCell::new(None);
-    edit_pinned(root, |text| {
-        let edited = pinned::unpin(text, relative);
-        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
-        edited
-    })
-    .map_err(|_| {
-        eprintln!("[delete] pinned items not removed");
-        Error::PinnedNotRemoved {
-            undo: removal.undo,
-            trash: removal.trash.clone(),
-        }
+    unpin_deleted(root, relative, false, &removal, |text| {
+        pinned::unpin(text, relative)
     })?;
-    keep_pinned(root, relative, false, &removal, change.into_inner());
     Ok(removal)
 }
 /// Writes a note deleted to the Recycle Bin back at its path, never over a file that took the name
