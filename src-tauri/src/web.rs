@@ -54,7 +54,7 @@ fn navigate_here(app: &AppHandle, url: Url) {
         && let Some(window) = app.get_webview_window(LABEL)
         && let Err(error) = window.navigate(url)
     {
-        eprintln!("[panel] navigation: {error}");
+        eprintln!("[web] navigation: {error}");
     }
 }
 
@@ -170,32 +170,38 @@ pub struct PageSelection {
 }
 
 #[derive(serde::Deserialize)]
-struct Evaluated {
-    result: Remote,
+struct Evaluated<T> {
+    result: Remote<T>,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum Remote {
-    /// The script's array of two strings, such as title and selection.
-    Object { value: (String, String) },
+enum Remote<T> {
+    Object {
+        value: T,
+    },
     #[serde(other)]
     Other,
+}
+
+/// Bounded, typed object value from Runtime.evaluate; all other response types are refused.
+pub fn object_value<T: serde::de::DeserializeOwned>(json: &str, max: usize) -> Option<T> {
+    if json.len() > max {
+        return None;
+    }
+    match serde_json::from_str::<Evaluated<T>>(json) {
+        Ok(Evaluated {
+            result: Remote::Object { value },
+        }) => Some(value),
+        _ => None,
+    }
 }
 
 /// The two strings of a `Runtime.evaluate` response whose script returns `[string, string]`, if it
 /// is at most `max` bytes. The page cannot reach the script's world but owns the text it reads, so
 /// anything else is refused.
 pub fn two_strings(json: &str, max: usize) -> Option<(String, String)> {
-    if json.len() > max {
-        return None;
-    }
-    match serde_json::from_str(json) {
-        Ok(Evaluated {
-            result: Remote::Object { value },
-        }) => Some(value),
-        _ => None,
-    }
+    object_value(json, max)
 }
 
 /// Without controls, trimmed and cut at Chromium's limit for native titles.
@@ -224,7 +230,7 @@ fn decode_page(json: &str) -> Option<(String, String)> {
 /// Blocks the calling thread, never the WebView2 UI thread.
 pub fn read_page(
     app: &AppHandle,
-    script: &'static str,
+    script: impl Into<String>,
     timeout: Duration,
 ) -> Result<Option<(String, Option<String>)>, Error> {
     let Some(window) = app.get_webview_window(LABEL) else {
@@ -268,18 +274,132 @@ pub fn selection(app: &AppHandle) -> Result<Option<PageSelection>, Error> {
 /// while a navigation is in flight or when the page does not answer within `SELECTION_TIMEOUT`.
 /// Blocks the calling thread, never the WebView2 UI thread.
 pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
-    let window = app.get_webview_window(LABEL)?;
-    let _turn = READING.lock().unwrap_or_else(PoisonError::into_inner);
-    let deadline = Instant::now() + SELECTION_TIMEOUT;
-    let reply = crate::platform::browser::read(&window, expression).ok()?;
-    let wait = || reply.recv_timeout(deadline.saturating_duration_since(Instant::now()));
-    let Ok(Read::Page { .. }) = wait() else {
-        return None;
+    read_page(app, expression, SELECTION_TIMEOUT)
+        .ok()?
+        .and_then(|(_, json)| json)
+}
+
+/// Only the supported engine is persisted; unknown values use the privacy default.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchEngine {
+    #[default]
+    #[serde(other)]
+    DuckDuckGo,
+}
+
+const HISTORY_CAP: usize = 300;
+static HISTORY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn visited(mut entries: Vec<String>, raw: &str) -> Vec<String> {
+    let Ok(url) = parse_url(raw) else {
+        return entries;
     };
-    match wait() {
-        Ok(Read::Script(json)) => Some(json),
-        _ => None,
+    let url = url.to_string();
+    if url.len() > 4096 {
+        return entries;
     }
+    entries.retain(|entry| entry != &url);
+    entries.insert(0, url);
+    entries.truncate(HISTORY_CAP);
+    entries
+}
+
+fn decode_history(bytes: &[u8]) -> Vec<String> {
+    if bytes.len() > 2 * 1024 * 1024 {
+        return vec![];
+    }
+    let entries: Vec<String> = serde_json::from_slice(bytes).unwrap_or_default();
+    // Normalize and deduplicate while keeping most-recent order.
+    let mut clean = Vec::new();
+    for entry in entries {
+        if entry.len() <= 4096
+            && let Ok(url) = parse_url(&entry)
+        {
+            let url = url.to_string();
+            if !clean.contains(&url) {
+                clean.push(url);
+            }
+            if clean.len() == HISTORY_CAP {
+                break;
+            }
+        }
+    }
+    clean
+}
+
+pub fn addresses(app: &AppHandle, visit: Option<&str>) -> Vec<String> {
+    let _guard = HISTORY.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(dir) = app.path().app_config_dir() else {
+        return vec![];
+    };
+    let path = dir.join("address-history.json");
+    let bytes = crate::blocking::read_bounded(&path, 2 * 1024 * 1024).unwrap_or_default();
+    let mut entries = decode_history(&bytes);
+    if let Some(url) = visit {
+        let updated = visited(entries.clone(), url);
+        if updated != entries {
+            entries = updated;
+            if std::fs::create_dir_all(dir).is_ok()
+                && let Ok(bytes) = serde_json::to_vec(&entries)
+            {
+                let _ = crate::notes::write_atomic(&path, &bytes);
+            }
+        }
+    }
+    entries
+}
+
+fn phrases(value: serde_json::Value) -> Vec<String> {
+    let Some(items) = value.as_array() else {
+        return vec![];
+    };
+    let mut result = Vec::new();
+    for item in items.iter().take(50) {
+        if let Some(text) = item.get("phrase").and_then(|v| v.as_str()) {
+            let text = text.trim();
+            if !text.is_empty()
+                && text.chars().count() <= 200
+                && !text.chars().any(char::is_control)
+                && !result.iter().any(|s| s == text)
+            {
+                result.push(text.to_owned());
+                if result.len() == 8 {
+                    break;
+                }
+            }
+        }
+    }
+    result
+}
+
+/// No cookie store, referer or redirects; bounded body and time, with quiet offline fallback.
+pub fn suggestions(app: &AppHandle, query: &str) -> Vec<String> {
+    if query.chars().count() < 2 || query.len() > 800 {
+        return vec![];
+    }
+    let endpoint = match crate::notes::search_engine(app) {
+        SearchEngine::DuckDuckGo => "https://duckduckgo.com/ac/",
+    };
+    let mut url = Url::parse(endpoint).expect("constant endpoint");
+    url.query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("type", "json");
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(2)))
+        .max_redirects(0)
+        .build()
+        .into();
+    let fetch = || -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut response = agent.get(url.as_str()).call()?;
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(32 * 1024)
+            .read_to_vec()?;
+        Ok(phrases(serde_json::from_slice(&bytes)?))
+    };
+    fetch().unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -392,141 +512,7 @@ mod tests {
             "a\nb\nc\nd"
         );
     }
-}
 
-/// Only the supported engine is persisted; unknown values use the privacy default.
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SearchEngine {
-    #[default]
-    #[serde(other)]
-    DuckDuckGo,
-}
-
-const HISTORY_CAP: usize = 300;
-static HISTORY: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn visited(mut entries: Vec<String>, raw: &str) -> Vec<String> {
-    let Ok(url) = parse_url(raw) else {
-        return entries;
-    };
-    let url = url.to_string();
-    if url.len() > 4096 {
-        return entries;
-    }
-    entries.retain(|entry| entry != &url);
-    entries.insert(0, url);
-    entries.truncate(HISTORY_CAP);
-    entries
-}
-
-fn decode_history(bytes: &[u8]) -> Vec<String> {
-    if bytes.len() > 2 * 1024 * 1024 {
-        return vec![];
-    }
-    let entries: Vec<String> = serde_json::from_slice(bytes).unwrap_or_default();
-    // Normalize and deduplicate while keeping most-recent order.
-    let mut clean = Vec::new();
-    for entry in entries {
-        if entry.len() <= 4096
-            && let Ok(url) = parse_url(&entry)
-        {
-            let url = url.to_string();
-            if !clean.contains(&url) {
-                clean.push(url);
-            }
-            if clean.len() == HISTORY_CAP {
-                break;
-            }
-        }
-    }
-    clean
-}
-
-pub fn addresses(app: &AppHandle, visit: Option<&str>) -> Vec<String> {
-    let _guard = HISTORY.lock().unwrap_or_else(|e| e.into_inner());
-    let Ok(dir) = app.path().app_config_dir() else {
-        return vec![];
-    };
-    let path = dir.join("address-history.json");
-    use std::io::Read;
-    let bytes = std::fs::File::open(&path)
-        .and_then(|file| {
-            let mut bytes = Vec::new();
-            file.take(2 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-            Ok(bytes)
-        })
-        .unwrap_or_default();
-    let mut entries = decode_history(&bytes);
-    if let Some(url) = visit {
-        let updated = visited(entries.clone(), url);
-        if updated != entries {
-            entries = updated;
-            if std::fs::create_dir_all(dir).is_ok()
-                && let Ok(bytes) = serde_json::to_vec(&entries)
-            {
-                let _ = crate::notes::write_atomic(&path, &bytes);
-            }
-        }
-    }
-    entries
-}
-
-fn phrases(value: serde_json::Value) -> Vec<String> {
-    let Some(items) = value.as_array() else {
-        return vec![];
-    };
-    let mut result = Vec::new();
-    for item in items.iter().take(50) {
-        if let Some(text) = item.get("phrase").and_then(|v| v.as_str()) {
-            let text = text.trim();
-            if !text.is_empty()
-                && text.chars().count() <= 200
-                && !text.chars().any(char::is_control)
-                && !result.iter().any(|s| s == text)
-            {
-                result.push(text.to_owned());
-                if result.len() == 8 {
-                    break;
-                }
-            }
-        }
-    }
-    result
-}
-
-/// No cookie store, referer or redirects; bounded body and time, with quiet offline fallback.
-pub fn suggestions(app: &AppHandle, query: &str) -> Vec<String> {
-    if query.chars().count() < 2 || query.len() > 800 {
-        return vec![];
-    }
-    let endpoint = match crate::notes::search_engine(app) {
-        SearchEngine::DuckDuckGo => "https://duckduckgo.com/ac/",
-    };
-    let mut url = Url::parse(endpoint).expect("constant endpoint");
-    url.query_pairs_mut()
-        .append_pair("q", query)
-        .append_pair("type", "json");
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(std::time::Duration::from_secs(2)))
-        .max_redirects(0)
-        .build()
-        .into();
-    let fetch = || -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let mut response = agent.get(url.as_str()).call()?;
-        let bytes = response
-            .body_mut()
-            .with_config()
-            .limit(32 * 1024)
-            .read_to_vec()?;
-        Ok(phrases(serde_json::from_slice(&bytes)?))
-    };
-    fetch().unwrap_or_default()
-}
-
-#[cfg(test)]
-mod address_tests {
-    use super::*;
     #[test]
     fn revisiting_moves_address_to_front_without_duplicates() {
         assert_eq!(

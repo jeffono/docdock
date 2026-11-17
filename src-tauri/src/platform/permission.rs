@@ -17,12 +17,12 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2Profile4,
 };
 use webview2_com::{
-    CoTaskMemPWSTR, GetNonDefaultPermissionSettingsCompletedHandler,
-    NavigationStartingEventHandler, PermissionRequestedEventHandler,
-    SetPermissionStateCompletedHandler,
+    GetNonDefaultPermissionSettingsCompletedHandler, NavigationStartingEventHandler,
+    PermissionRequestedEventHandler, SetPermissionStateCompletedHandler,
 };
-use windows::core::{HSTRING, Interface, PWSTR};
+use windows::core::{HSTRING, Interface};
 
+use super::text;
 use crate::error::Error;
 use crate::permissions::Kind;
 
@@ -92,14 +92,6 @@ fn kind(kind: COREWEBVIEW2_PERMISSION_KIND) -> Option<Kind> {
         COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ => Some(Kind::ClipboardRead),
         _ => None,
     }
-}
-
-fn text(
-    read: impl FnOnce(&mut PWSTR) -> windows::core::Result<()>,
-) -> windows::core::Result<String> {
-    let mut value = PWSTR::null();
-    read(&mut value)?;
-    Ok(CoTaskMemPWSTR::from(value).to_string())
 }
 
 /// How long the page window waits for the profile's saved choices to be reset.
@@ -234,11 +226,12 @@ pub fn install(
             let _ = reply.send(Err(error));
         }
     })?;
-    match receiver.recv_timeout(RESET_WAIT) {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(Error::unexpected(format!("page permissions: {error}"))),
-        Err(_) => Err(Error::unexpected("page permissions not reset")),
-    }
+    super::installed(
+        receiver,
+        Some(RESET_WAIT),
+        "page permissions",
+        "page permissions not reset",
+    )
 }
 
 #[cfg(test)]

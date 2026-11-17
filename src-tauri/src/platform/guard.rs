@@ -4,11 +4,10 @@ use std::sync::mpsc;
 
 use tauri::WebviewWindow;
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_18;
-use webview2_com::{
-    CoTaskMemPWSTR, LaunchingExternalUriSchemeEventHandler, NavigationStartingEventHandler,
-};
-use windows::core::{Interface, PWSTR};
+use webview2_com::{LaunchingExternalUriSchemeEventHandler, NavigationStartingEventHandler};
+use windows::core::Interface;
 
+use super::text;
 use crate::error::Error;
 
 /// Cancels subframe navigations that `frame_allowed` rejects, and every external scheme launch
@@ -21,9 +20,8 @@ pub fn guard(window: &WebviewWindow, frame_allowed: fn(&str) -> bool) -> Result<
             let page = view.controller().CoreWebView2()?;
             let frames = NavigationStartingEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
-                    let mut uri = PWSTR::null();
-                    args.Uri(&mut uri)?;
-                    if !frame_allowed(&CoTaskMemPWSTR::from(uri).to_string()) {
+                    let uri = text(|value| args.Uri(value))?;
+                    if !frame_allowed(&uri) {
                         args.SetCancel(true)?;
                     }
                 }
@@ -43,9 +41,5 @@ pub fn guard(window: &WebviewWindow, frame_allowed: fn(&str) -> bool) -> Result<
         };
         let _ = sender.send(install());
     })?;
-    match receiver.recv() {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(Error::unexpected(format!("page guard: {error}"))),
-        Err(_) => Err(Error::unexpected("page guard not installed")),
-    }
+    super::installed(receiver, None, "page guard", "page guard not installed")
 }

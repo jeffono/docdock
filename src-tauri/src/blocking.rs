@@ -195,7 +195,7 @@ fn load(cache: Option<&[u8]>, key: &[u8; 8], lists: Vec<String>) -> Option<(Engi
     build(lists).map(|engine| (engine, true))
 }
 
-fn read_bounded(path: &Path, limit: u64) -> Option<Vec<u8>> {
+pub(crate) fn read_bounded(path: &Path, limit: u64) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
         .and_then(|file| file.take(limit + 1).read_to_end(&mut bytes))
@@ -534,32 +534,10 @@ const COSMETIC_SCRIPT: &str = "((state, host, hide, last) => {
   return [take(hiding.fresh[0]), take(hiding.fresh[1])];
 })";
 
-#[derive(serde::Deserialize)]
-struct Evaluated {
-    result: Remote,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum Remote {
-    /// Class names, then ids.
-    Object { value: (Vec<String>, Vec<String>) },
-    #[serde(other)]
-    Other,
-}
-
 /// New class names and ids from a pass's `Runtime.evaluate` response; None for anything else,
 /// including the null of a document on another host.
 fn decode_seen(json: &str) -> Option<(Vec<String>, Vec<String>)> {
-    if json.len() > SEEN_MAX_JSON {
-        return None;
-    }
-    match serde_json::from_str(json) {
-        Ok(Evaluated {
-            result: Remote::Object { value },
-        }) => Some(value),
-        _ => None,
-    }
+    crate::web::object_value(json, SEEN_MAX_JSON)
 }
 
 /// Changes with each main-frame document, so its passes stop when the next one commits.

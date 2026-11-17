@@ -12,13 +12,14 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2Profile3, ICoreWebView2Settings2,
 };
 use webview2_com::{
-    CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, ContentLoadingEventHandler,
+    CallDevToolsProtocolMethodCompletedHandler, ContentLoadingEventHandler,
     DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
     HistoryChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     SourceChangedEventHandler,
 };
-use windows::core::{BOOL, HSTRING, Interface, PWSTR};
+use windows::core::{BOOL, HSTRING, Interface};
 
+use super::text;
 use crate::error::Error;
 
 /// Keep the installed engine's versions; only change its desktop identity.
@@ -58,9 +59,8 @@ pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
                 eprintln!("[web] balanced tracking prevention: {error}");
             }
             let settings = page.Settings()?.cast::<ICoreWebView2Settings2>()?;
-            let mut default = PWSTR::null();
-            settings.UserAgent(&mut default)?;
-            let mobile = mobile_user_agent(&CoTaskMemPWSTR::from(default).to_string())
+            let default = text(|value| settings.UserAgent(value))?;
+            let mobile = mobile_user_agent(&default)
                 .ok_or_else(|| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))?;
             settings.SetUserAgent(&HSTRING::from(&mobile))?;
             // Omitted brand/version lists use the runtime's own values. No engine version or
@@ -89,11 +89,12 @@ pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
             let _ = sender.send(Err(error));
         }
     })?;
-    match receiver.recv_timeout(std::time::Duration::from_secs(5)) {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(Error::unexpected(format!("page mobile identity: {error}"))),
-        Err(_) => Err(Error::unexpected("page mobile identity not installed")),
-    }
+    super::installed(
+        receiver,
+        Some(std::time::Duration::from_secs(5)),
+        "page mobile identity",
+        "page mobile identity not installed",
+    )
 }
 
 /// Main-frame navigations of the page window, so a result can be tied to one document even across
@@ -164,12 +165,8 @@ struct PageState {
 
 fn report(app: &tauri::AppHandle, page: &ICoreWebView2) -> windows::core::Result<()> {
     unsafe {
-        let mut url = PWSTR::null();
-        page.Source(&mut url)?;
-        let url = CoTaskMemPWSTR::from(url).to_string();
-        let mut title = PWSTR::null();
-        page.DocumentTitle(&mut title)?;
-        let title = CoTaskMemPWSTR::from(title).to_string();
+        let url = text(|value| page.Source(value))?;
+        let title = text(|value| page.DocumentTitle(value))?;
         let (mut back, mut forward) = (BOOL::default(), BOOL::default());
         page.CanGoBack(&mut back)?;
         page.CanGoForward(&mut forward)?;
@@ -201,9 +198,7 @@ pub fn observe(window: &WebviewWindow) -> Result<(), Error> {
             let handle = app.clone();
             let source = SourceChangedEventHandler::create(Box::new(move |page, _| {
                 if let Some(page) = page {
-                    let mut source = PWSTR::null();
-                    page.Source(&mut source)?;
-                    let url = CoTaskMemPWSTR::from(source).to_string();
+                    let url = text(|value| page.Source(value))?;
                     let app = handle.clone();
                     tauri::async_runtime::spawn_blocking(move || {
                         crate::web::addresses(&app, Some(&url));
@@ -262,11 +257,12 @@ pub fn observe(window: &WebviewWindow) -> Result<(), Error> {
         };
         let _ = sender.send(install());
     })?;
-    match receiver.recv() {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(Error::unexpected(format!("page observers: {error}"))),
-        Err(_) => Err(Error::unexpected("page observers not installed")),
-    }
+    super::installed(
+        receiver,
+        None,
+        "page observers",
+        "page observers not installed",
+    )
 }
 
 pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
@@ -386,9 +382,8 @@ fn unique_context(
     let sink = found.clone();
     let created = DevToolsProtocolEventReceivedEventHandler::create(Box::new(move |_, args| {
         if let Some(args) = args {
-            let mut event = PWSTR::null();
-            unsafe { args.ParameterObjectAsJson(&mut event)? };
-            let event = parse(&CoTaskMemPWSTR::from(event).to_string());
+            let event = text(|value| unsafe { args.ParameterObjectAsJson(value) })?;
+            let event = parse(&event);
             if let Some(context) = world_context(&event, &frame, id) {
                 sink.borrow_mut().push(context);
             }
@@ -657,13 +652,12 @@ fn unchanged(page: &ICoreWebView2, document: &Document) -> bool {
 }
 
 unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
-    let mut url = PWSTR::null();
-    unsafe { page.Source(&mut url)? };
-    Ok(CoTaskMemPWSTR::from(url).to_string())
+    text(|value| unsafe { page.Source(value) })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[test]
     fn a_script_the_browser_lost_counts_as_removed() {
         let remove = Change::Remove("1".into());
@@ -677,8 +671,6 @@ mod tests {
         ));
         assert!(!confirmed(&Change::Add("x".into()), true, message));
     }
-
-    use super::*;
 
     #[test]
     fn mobile_identity_preserves_the_installed_engine_versions() {
