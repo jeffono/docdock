@@ -72,7 +72,7 @@ import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
 import { folderAction, folderNotice } from "./folder-state";
-import { dateHeadings } from "./grouping";
+import { dateHeadings, folderOf } from "./grouping";
 import { movedLinks } from "./links";
 import {
   arrowScroll,
@@ -84,7 +84,6 @@ import {
   entryKey,
   escapeAction,
   folderLabels,
-  folderOf,
   isMissing,
   isUntitled,
   jumpSection,

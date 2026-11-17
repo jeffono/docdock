@@ -1,7 +1,7 @@
 // The note list as a pure model: which cards and rows exist, in which order, and what each keyboard
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
-import { type DateGroup, type FolderGroup, folderCompare } from "./grouping";
+import { type DateGroup, type FolderGroup, folderCompare, folderOf } from "./grouping";
 import { filterQuery } from "./query";
 import type { Hit } from "./search";
 
@@ -356,19 +356,14 @@ export function isUntitled(path: string): boolean {
  * case-only change keeps it.
  */
 export function renamedPath(from: string, title: string, paths: Iterable<string>): string {
-  const folderOf = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
-  const folder = folderOf(from);
+  const dirPrefix = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
+  const folder = dirPrefix(from);
   const taken: string[] = [];
   for (const path of paths) {
-    const sibling = folderOf(path).toLowerCase() === folder.toLowerCase();
+    const sibling = dirPrefix(path).toLowerCase() === folder.toLowerCase();
     if (sibling && path.toLowerCase() !== from.toLowerCase()) taken.push(path.slice(folder.length));
   }
   return folder + noteFileName(title, taken);
-}
-
-/** The folder of a note path, without the trailing `/`; "" for the root. */
-export function folderOf(path: string): string {
-  return path.slice(0, Math.max(0, path.lastIndexOf("/")));
 }
 
 /**
