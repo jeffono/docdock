@@ -47,7 +47,6 @@ pub fn main_only<R: tauri::Runtime>(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
-        commands::app_version,
         commands::vault_file,
         commands::vault_choose,
         commands::vault_clear,

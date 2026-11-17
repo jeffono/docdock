@@ -1,6 +1,6 @@
 //! Native-only update download and a fail-closed save handshake before either kind of exit.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use tauri::menu::MenuItem;
@@ -76,7 +76,7 @@ pub fn start(app: &AppHandle) {
                 .build()?;
             if let Some(update) = updater.check().await? {
                 let bytes = update.download(|_, _| {}, || {}).await?;
-                app.state::<Mutex<State>>().lock().unwrap().downloaded = Some((update, bytes));
+                locked(&app).downloaded = Some((update, bytes));
                 app.state::<UpdateItem>().0.set_enabled(true)?;
             }
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
@@ -89,13 +89,20 @@ pub fn start(app: &AppHandle) {
     });
 }
 
+/// A panic while holding the state leaves it consistent enough to keep the exit handshake working.
+fn locked(app: &AppHandle) -> MutexGuard<'_, State> {
+    app.state::<Mutex<State>>()
+        .inner()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
 pub fn exit_allowed(app: &AppHandle) -> bool {
-    app.state::<Mutex<State>>().lock().unwrap().exit.allowed
+    locked(app).exit.allowed
 }
 
 pub fn request_exit(app: &AppHandle, update: bool) {
-    let state = app.state::<Mutex<State>>();
-    let mut state = state.lock().unwrap();
+    let mut state = locked(app);
     if update && state.downloaded.is_none() {
         return;
     }
@@ -118,17 +125,11 @@ pub fn request_exit(app: &AppHandle, update: bool) {
 #[tauri::command]
 pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
     let action = {
-        let state = app.state::<Mutex<State>>();
-        let mut state = state.lock().unwrap();
+        let mut state = locked(&app);
         state.exit.finish(id, saved)
     };
     let update = match action {
-        Some(true) => app
-            .state::<Mutex<State>>()
-            .lock()
-            .unwrap()
-            .downloaded
-            .take(),
+        Some(true) => locked(&app).downloaded.take(),
         Some(false) => {
             app.exit(0);
             return;
@@ -163,7 +164,7 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
             });
         }
     }
-    app.state::<Mutex<State>>().lock().unwrap().exit.allowed = false;
+    locked(&app).exit.allowed = false;
     let _ = app.state::<UpdateItem>().0.set_enabled(false);
     let _ = app.emit_to("main", "exit-cancelled", ());
 }

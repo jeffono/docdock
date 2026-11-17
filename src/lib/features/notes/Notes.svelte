@@ -4,6 +4,7 @@ import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
   type Leftover,
+  type Listing,
   type Note,
   type NotesChanges,
   type NotesFolder,
@@ -98,6 +99,14 @@ import {
   rows,
   shallower,
 } from "./list";
+import {
+  listingState,
+  renamedKnown,
+  settledRead,
+  shownPinned,
+  unreadKnown,
+  withoutRemoved,
+} from "./listing";
 import MovePicker from "./MovePicker.svelte";
 import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
@@ -115,7 +124,14 @@ import {
 import { datePresets } from "./query-date";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
-import { FolderIndex, folderTags, isPinnedList, search } from "./search";
+import {
+  FolderIndex,
+  folderTags,
+  forgetEntries,
+  isPinnedList,
+  renameEntries,
+  search,
+} from "./search";
 
 let {
   browser = false,
@@ -139,7 +155,28 @@ $effect(() => {
 let folder = $state<NotesFolder | null>(null);
 /** The folder can be read; otherwise the list holds no note, except an editor's unsaved text. */
 const ready = $derived(folder?.state === "available");
+/**
+ * The listed notes, and the known ones in subfolders the last listing could not read: they are kept as
+ * they were, never taken for deleted.
+ */
 let notes = $state<Note[]>([]);
+/** The last listing as read: what it left out of a skipped folder is unread, not gone. */
+let listing = $state.raw<Listing>({ notes: [], skipped: [] });
+/**
+ * The notice naming the skipped folders, or only its icon in the bar. Remembered until the app quits,
+ * so a refresh never brings back what the user put away.
+ */
+let skippedOpen = $state(true);
+/** Keeps keyboard focus on the control that replaces the one just pressed. */
+async function showSkipped(open: boolean) {
+  const focused = !!document.activeElement?.closest(".skipped, .skipped-toggle");
+  skippedOpen = open;
+  await tick();
+  if (focused)
+    document
+      .querySelector<HTMLElement>(open ? ".skipped button" : ".skipped-toggle button")
+      ?.focus();
+}
 let folders = $state<string[]>([]);
 let error = $state("");
 let query = $state("");
@@ -411,9 +448,22 @@ const completionItems = $derived.by(() => {
   return completionContext ? completionChoices(query, completionContext, values) : [];
 });
 
-async function sync(list: Note[]): Promise<void> {
-  await folderIndex.sync(list);
+async function sync(list: Note[], retained: Note[] = []): Promise<void> {
+  await folderIndex.sync(list, retained);
   indexVersion++;
+}
+
+/** Renames and deletes applied to the known notes; a listing read across one is read again. */
+let knownChanges = 0;
+
+/**
+ * Forgets a note or folder the app deleted. A skipped folder would otherwise keep it, since deleting
+ * works where listing does not.
+ */
+function forgetRemoved(path: string) {
+  knownChanges++;
+  notes = withoutRemoved(notes, path);
+  void folderIndex.edit((index) => forgetEntries(index, path)).then(() => indexVersion++);
 }
 
 const results = $derived.by(() => {
@@ -437,12 +487,13 @@ const kept = $derived.by(() => {
     index: folderIndex.index,
   });
 });
+const pinnedItems = $derived(shownPinned(pinned.items, listing.skipped, notes));
 const model = $derived.by(() => {
   const built = buildList({
     hits: orderHits(results.hits, notes, $noteOrder, query),
     exactTitle: results.exactTitle,
     query,
-    pinned: pinned.items,
+    pinned: pinnedItems,
     expanded,
     kept,
     editing,
@@ -510,7 +561,7 @@ function cardFor(path: string): Card | undefined {
 
 // Preview and expanded cards need their text.
 const wanted = $derived([
-  ...pinned.items
+  ...pinnedItems
     .filter((i) => i.kind === "note" && !i.missing && !i.collapsed)
     .map((i) => i.target),
   ...(expanded ? [expanded] : []),
@@ -546,7 +597,8 @@ $effect(() => {
 });
 
 async function reloadContents(current: number) {
-  const listed = new Set(notes.map((note) => note.path));
+  // A note kept from a folder that could not be read keeps its last content.
+  const listed = new Set(listing.notes.map((note) => note.path));
   const keep = new Set([...wanted, selected]);
   for (const path of Object.keys(contents)) if (!keep.has(path)) delete contents[path];
   await Promise.all(
@@ -570,6 +622,7 @@ async function reloadContents(current: number) {
  */
 function forget() {
   notes = [];
+  listing = { notes: [], skipped: [] };
   folders = [];
   removed = null;
   leftovers = [];
@@ -606,19 +659,21 @@ async function refresh(value: NotesFolder | null) {
   if (current === generation) leftovers = found;
 }
 
-/** Folder enumeration is secondary: a failure must not hide readable notes. */
-async function listSnapshot() {
-  const [list, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
-  return [list, folderLabels(list, directories)] as const;
-}
-
-/** Ignore a snapshot if the active folder changed while it was being read. */
+/**
+ * Ignore a snapshot if the active folder changed while it was being read. Folder enumeration is
+ * secondary: a failure must not hide readable notes.
+ */
 async function relist(stale = () => false) {
-  const [list, directoryList] = await listSnapshot();
+  const [found, directories] = await settledRead(
+    () => Promise.all([notesList(), notesFolders().catch(() => [])]),
+    () => knownChanges,
+  );
   if (stale()) return;
-  notes = list;
-  folders = directoryList;
-  await sync(list);
+  const retained = unreadKnown(notes, found);
+  listing = found;
+  notes = [...found.notes, ...retained];
+  folders = folderLabels(notes, directories);
+  await sync(found.notes, retained);
 }
 
 async function restore(path: string) {
@@ -1172,6 +1227,7 @@ async function deleteNote(card: Card) {
     const { undo, trash, problem } = await removal(notesDelete(path));
     removed = { path, title, folder: false, trash, undo: undo && session === panelSession };
     renamedAway.add(path);
+    forgetRemoved(path);
     delete contents[path];
     if (expanded === path) expanded = "";
     if (selection === path || active === path) selection = next;
@@ -1362,6 +1418,7 @@ async function deleteFolder() {
       delete contents[note.path];
       if (expanded === note.path) expanded = "";
     }
+    forgetRemoved(path);
     list?.focus({ preventScroll: true });
     changed({ renames: [] });
     error = problem;
@@ -1463,7 +1520,10 @@ async function reload() {
   if (stale()) return;
   const path = selected;
   if (!path) return;
-  if (!notes.some((note) => note.path === path)) {
+  const found = listingState(path, listing);
+  // Its folder could not be read: the note may be there, so the editor stays as it is.
+  if (found === "unread") return;
+  if (found === "gone") {
     if (editing) editor?.missing();
     return;
   }
@@ -1481,6 +1541,14 @@ let again = false;
 
 /** One reload at a time; changes during it cause one more. */
 function changed(changes: NotesChanges) {
+  if (changes.renames.length) {
+    // A note kept from an unreadable folder follows the rename; a listing cannot tell it.
+    knownChanges++;
+    notes = renamedKnown(notes, changes.renames);
+    void folderIndex
+      .edit((index) => renameEntries(index, changes.renames))
+      .then(() => indexVersion++);
+  }
   for (const [from, to] of changes.renames) {
     if (opening === from) opening = null;
     renamedAway.add(from);
@@ -1955,6 +2023,9 @@ onMount(() => {
     panelSession++;
     stopScrolling();
     void leaveEditor();
+    // A folder that could not be read may send no event when it can be again, such as when a lock
+    // ends: the next opening shows a fresh listing.
+    if (listing.skipped.length) changed({ renames: [] });
     // WebView2 keeps its inner focus after Windows moves the foreground away: without this, a
     // hover-opened panel would show a focused bar and caret while it has no focus.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -2053,6 +2124,10 @@ onMount(() => {
         placeholder={t("notes.searchPlaceholder")}
       />
       <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
+      <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->
+      {#if !browser && ready && listing.skipped.length > 0 && !skippedOpen}
+        <span class="skipped-toggle"><IconButton quiet icon="alert" label={t("skipped.show")} onclick={() => showSkipped(true)} /></span>
+      {/if}
     </div>
   {#if completionItems.length}
     <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
@@ -2100,6 +2175,15 @@ onMount(() => {
         {warning}
         {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={() => { warning = ""; }} />{/snippet}
       </Notice>
+    {/if}
+    {#if ready && listing.skipped.length > 0 && skippedOpen}
+      <div class="skipped">
+        <Notice icon="alert">
+          {t("skipped.notice")}
+          {#each listing.skipped as path (path)}<span class="skipped-path">{path}</span>{/each}
+          {#snippet actions()}<IconButton quiet icon="x" label={t("skipped.hide")} onclick={() => showSkipped(false)} />{/snippet}
+        </Notice>
+      </div>
     {/if}
     {#if leftovers.length > 0}
       <section class="leftovers" aria-label={t("leftovers.label")}>
@@ -2426,6 +2510,15 @@ onMount(() => {
     height: var(--size-bar);
     align-items: center;
     padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
+  }
+
+  .skipped-toggle {
+    display: contents;
+  }
+
+  .skipped-path {
+    display: block;
+    color: var(--color-muted);
   }
 
   .leftovers {

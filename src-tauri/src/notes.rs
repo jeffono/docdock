@@ -43,48 +43,48 @@ struct Settings {
     /// Remembered answers to the page window's permission requests.
     #[serde(default, deserialize_with = "permissions_or_default")]
     site_permissions: Vec<crate::permissions::Remembered>,
-    #[serde(default, deserialize_with = "theme_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     theme: Theme,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     search_engine: crate::web::SearchEngine,
-    #[serde(default, deserialize_with = "order_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     note_order: NoteOrder,
-    #[serde(default, deserialize_with = "bool_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     group_by_date: bool,
-    #[serde(default, deserialize_with = "bool_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     relative_dates: bool,
     /// Wins over `group_by_date`; two flags keep settings written before folder grouping valid.
-    #[serde(default, deserialize_with = "bool_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     group_by_folder: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<PathBuf>,
     /// Optional Cryptomator entry point, a preference independent of note content.
     #[serde(
         default,
-        deserialize_with = "text_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     vault_file: Option<String>,
-    #[serde(default, deserialize_with = "side_or_default")]
+    #[serde(default, deserialize_with = "lenient")]
     side: Side,
     /// Panel width in logical pixels; absent for the default.
     #[serde(
         default,
-        deserialize_with = "width_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     width: Option<u32>,
     /// Activation shortcut as shown, such as `Ctrl+Alt+Space`; absent for the default.
     #[serde(
         default,
-        deserialize_with = "text_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     activation_shortcut: Option<String>,
     /// The id in the notes folder's marker (`MARKER`), recorded when it was chosen.
     #[serde(
         default,
-        deserialize_with = "text_or_default",
+        deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
     folder_id: Option<String>,
@@ -106,14 +106,17 @@ impl Theme {
         }
     }
 }
-fn theme_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Theme, D::Error> {
-    Ok(Theme::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
+/// A field that does not parse reads as its default: one bad or future value in `settings.json` must
+/// not make the others, such as the notes folder, unreadable.
+fn lenient<'de, D: Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(
+    value: D,
+) -> Result<T, D::Error> {
+    Ok(T::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 /// Keeps each valid entry on its own: one bad element must not erase the others on the next save,
 /// and an edited entry that is not already a site key would silently widen or move its scope.
 fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, D::Error> {
-    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
-        .unwrap_or_default();
+    let entries: Vec<serde_json::Value> = lenient(value)?;
     let mut sites = Vec::new();
     for entry in entries.iter().filter_map(serde_json::Value::as_str) {
         if crate::blocking::site_key(&format!("https://{entry}/")).as_deref() == Some(entry) {
@@ -125,9 +128,7 @@ fn sites_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Vec<String>, 
 fn permissions_or_default<'de, D: Deserializer<'de>>(
     value: D,
 ) -> Result<Vec<crate::permissions::Remembered>, D::Error> {
-    let entries = Vec::<serde_json::Value>::deserialize(serde_json::Value::deserialize(value)?)
-        .unwrap_or_default();
-    Ok(crate::permissions::from_settings(entries))
+    Ok(crate::permissions::from_settings(lenient(value)?))
 }
 pub fn site_permissions(app: &AppHandle) -> Vec<crate::permissions::Remembered> {
     config(app)
@@ -172,9 +173,6 @@ pub enum NoteOrder {
     CreatedAsc,
     CreatedDesc,
 }
-fn order_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<NoteOrder, D::Error> {
-    Ok(NoteOrder::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
 pub fn note_order(app: &AppHandle) -> Result<NoteOrder, Error> {
     Ok(load(&config(app)?).note_order)
 }
@@ -186,9 +184,6 @@ pub fn relative_dates(app: &AppHandle) -> Result<bool, Error> {
 }
 pub fn set_relative_dates(app: &AppHandle, enabled: bool) -> Result<(), Error> {
     update(app, |settings| settings.relative_dates = enabled)
-}
-fn bool_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<bool, D::Error> {
-    Ok(bool::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -216,17 +211,6 @@ pub fn set_grouping(app: &AppHandle, grouping: Grouping) -> Result<(), Error> {
         settings.group_by_date = grouping == Grouping::Date;
         settings.group_by_folder = grouping == Grouping::Folder;
     })
-}
-/// An unknown side must not make the folder unreadable.
-fn side_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Side, D::Error> {
-    Ok(Side::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
-/// An invalid width must not make the folder unreadable either.
-fn width_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<u32>, D::Error> {
-    Ok(Option::<u32>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
-}
-fn text_or_default<'de, D: Deserializer<'de>>(value: D) -> Result<Option<String>, D::Error> {
-    Ok(Option::<String>::deserialize(serde_json::Value::deserialize(value)?).unwrap_or_default())
 }
 #[derive(Serialize)]
 pub struct Folder {
@@ -534,7 +518,8 @@ fn save(path: &Path, settings: &Settings) -> Result<(), Error> {
     Ok(write_atomic(path, &bytes)?)
 }
 /// Writes a complete temporary file next to `path` and renames it over `path` in one step. Any failure
-/// leaves the previous file intact. Only for the app's own settings; notes use `replace_note`.
+/// leaves the previous file intact. Only for files the app owns, such as its settings, its caches and
+/// what it derives in the notes folder; notes use `replace_note`, which keeps an external write.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let temp = write_temp(path, bytes)?;
     fs::rename(&temp, path).inspect_err(|_| {
@@ -601,19 +586,27 @@ pub fn vault_file(app: &AppHandle) -> Result<Option<String>, Error> {
 pub fn clear_vault_file(app: &AppHandle) -> Result<(), Error> {
     update(app, |settings| settings.vault_file = None)
 }
+/// A file dialog owned by the panel, which stays shown until the guard drops. Owned, the picker stays
+/// above the panel and does not open a second picker.
+fn dialog(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+) -> Result<(DialogGuard, rfd::FileDialog), Error> {
+    requests
+        .send(Request::SetDialog(true))
+        .map_err(Error::unexpected)?;
+    let guard = DialogGuard(requests.clone());
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| Error::unexpected("main window missing"))?;
+    Ok((guard, rfd::FileDialog::new().set_parent(&window)))
+}
 pub fn choose_vault_file(
     app: &AppHandle,
     requests: &Sender<Request>,
 ) -> Result<Option<String>, Error> {
-    requests
-        .send(Request::SetDialog(true))
-        .map_err(Error::unexpected)?;
-    let _guard = DialogGuard(requests.clone());
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::unexpected("main window missing"))?;
-    if let Some(path) = rfd::FileDialog::new()
-        .set_parent(&window)
+    let (_guard, dialog) = dialog(app, requests)?;
+    if let Some(path) = dialog
         .add_filter("Cryptomator", &["cryptomator"])
         .pick_file()
     {
@@ -651,24 +644,14 @@ pub fn unlock_vault(app: &AppHandle) -> Result<(), Error> {
     platform::external::open_file(app, &target.to_string_lossy())
 }
 pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Folder>, Error> {
-    requests
-        .send(Request::SetDialog(true))
-        .map_err(Error::unexpected)?;
-    let _guard = DialogGuard(requests.clone());
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::unexpected("main window missing"))?;
-    // Owned by the panel, the picker stays above it and does not open a second picker.
-    if let Some(path) = rfd::FileDialog::new().set_parent(&window).pick_folder() {
+    let (_guard, dialog) = dialog(app, requests)?;
+    if let Some(path) = dialog.pick_folder() {
         choose_in(&config(app)?, path)?;
         crate::watch::stop();
         purge_trash(app);
     }
     folder(app)
 }
-/// Choosing is the trusted moment: the folder's marker is adopted, or created if it has none, and its
-/// id recorded. Choosing again is how a folder whose marker changed, or a new folder at the same path,
-/// is accepted. An unavailable folder is recorded without an id, and is never created.
 /// The user confirms that the folder at the configured path is the notes folder, as choosing it again
 /// would, without leaving an editor whose text waits for it.
 pub fn trust(app: &AppHandle) -> Result<Option<Folder>, Error> {
@@ -683,6 +666,9 @@ fn trust_in(config: &Path) -> Result<(), Error> {
         _ => Err(Error::FolderUnavailable),
     }
 }
+/// Choosing is the trusted moment: the folder's marker is adopted, or created if it has none, and its
+/// id recorded. Choosing again is how a folder whose marker changed, or a new folder at the same path,
+/// is accepted. An unavailable folder is recorded without an id, and is never created.
 fn choose_in(config: &Path, path: PathBuf) -> Result<(), Error> {
     let _guard = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
     let id = match folder_availability(&path) {
@@ -712,7 +698,7 @@ fn root_in(config: &Path) -> Result<Root, Error> {
 fn root(app: &AppHandle) -> Result<Root, Error> {
     root_in(&config(app)?)
 }
-fn markdown(path: &Path) -> bool {
+pub(crate) fn markdown(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
@@ -733,60 +719,95 @@ pub fn shown_change(root: &Path, path: &Path) -> bool {
         .is_some_and(|e| e == TEMP_SUFFIX || e == BACKUP_SUFFIX);
     !hidden && !working
 }
-/// Visits every file below `dir`, skipping hidden folders. `is_dir` and `is_file` are false for
-/// symlinks and junctions, so they are never followed.
-fn walk(dir: &Path, visit: &mut impl FnMut(PathBuf)) -> Result<(), Error> {
-    for entry in fs::read_dir(dir)? {
+/// Visits every file and folder below `dir`, each folder before what it holds, skipping hidden
+/// folders; `visit` hears whether the entry is a folder. `is_dir` and `is_file` are false for symlinks
+/// and junctions, so they are never followed. A subfolder that cannot be read, such as one without
+/// permission or `System Volume Information` at a drive root, hides only what it holds: it is
+/// answered instead of failing the walk. `dir` itself failing is an error.
+fn walk(dir: &Path, visit: &mut impl FnMut(&fs::DirEntry, bool)) -> Result<Vec<PathBuf>, Error> {
+    let mut skipped = Vec::new();
+    walk_entries(fs::read_dir(dir)?, visit, &mut skipped)?;
+    Ok(skipped)
+}
+fn walk_entries(
+    entries: fs::ReadDir,
+    visit: &mut impl FnMut(&fs::DirEntry, bool),
+    skipped: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    for entry in entries {
         let entry = entry?;
         let ty = entry.file_type()?;
-        if ty.is_dir() {
-            if !entry.file_name().to_string_lossy().starts_with('.') {
-                walk(&entry.path(), visit)?;
+        if ty.is_file() {
+            visit(&entry, false);
+        } else if ty.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
+            let path = entry.path();
+            match fs::read_dir(&path) {
+                Ok(inner) => {
+                    visit(&entry, true);
+                    if walk_entries(inner, visit, skipped).is_err() {
+                        skipped.push(path);
+                    }
+                }
+                Err(_) => skipped.push(path),
             }
-        } else if ty.is_file() {
-            visit(entry.path());
         }
     }
     Ok(())
 }
+/// Sorts `/` paths as the UI lists them: ignoring case, then exactly, so the order never depends on
+/// the disk's.
+fn sort_paths<T>(items: &mut [T], path: impl Fn(&T) -> &str) {
+    items.sort_by_cached_key(|item| {
+        let path = path(item);
+        (path.to_lowercase(), path.to_owned())
+    });
+}
 /// The path the UI uses: relative to `root`, with `/`.
-fn relative(root: &Path, path: &Path) -> String {
+pub(crate) fn relative(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
 }
-fn list(root: &Path) -> Result<Vec<Note>, Error> {
+/// The notes below a folder, and the subfolders that could not be read.
+#[derive(Serialize)]
+pub struct Listing {
+    notes: Vec<Note>,
+    /// As `/` paths relative to the notes folder, sorted as notes are.
+    skipped: Vec<String>,
+}
+/// The dates come from the listing itself: on Windows a directory entry carries them, so a large
+/// folder costs no extra call per note.
+fn list(root: &Path) -> Result<Listing, Error> {
     let mut notes = Vec::new();
-    walk(root, &mut |path| {
-        if markdown(&path) {
-            notes.push(Note {
-                path: relative(root, &path),
-                name: path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned(),
-                created: fs::metadata(&path)
-                    .and_then(|m| m.created())
-                    .ok()
-                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or_else(|| modified(&path)),
-                modified: modified(&path),
-            });
+    let skipped = walk(root, &mut |entry, folder| {
+        let path = entry.path();
+        if folder || !markdown(&path) {
+            return;
         }
+        let metadata = entry.metadata().ok();
+        let modified = metadata.as_ref().and_then(|m| millis(m.modified()));
+        notes.push(Note {
+            path: relative(root, &path),
+            name: path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            created: metadata
+                .and_then(|m| millis(m.created()))
+                .or(modified)
+                .unwrap_or(0),
+            modified: modified.unwrap_or(0),
+        });
     })?;
-    notes.sort_by(|a, b| {
-        a.path
-            .to_lowercase()
-            .cmp(&b.path.to_lowercase())
-            .then(a.path.cmp(&b.path))
-    });
-    Ok(notes)
+    sort_paths(&mut notes, |note| &note.path);
+    let mut skipped: Vec<String> = skipped.iter().map(|path| relative(root, path)).collect();
+    sort_paths(&mut skipped, |path| path);
+    Ok(Listing { notes, skipped })
 }
 /// Listing is what the UI does on opening a folder, so it also starts watching it.
-pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
+pub fn list_for(app: &AppHandle) -> Result<Listing, Error> {
     let root = root(app)?;
     crate::watch::ensure(app, &root);
     list(&root)
@@ -817,15 +838,22 @@ fn checked(relative: &str, allowed: fn(&Path) -> bool) -> Result<&Path, Error> {
 /// `allowed` applies to both the request and canonical target: an 8.3 short name or symlink inside
 /// the folder can change the requested extension to a different real extension.
 fn resolve(root: &Path, relative: &str, allowed: fn(&Path) -> bool) -> Result<PathBuf, Error> {
+    resolve_below(&root.canonicalize()?, relative, allowed)
+}
+/// `resolve` with `root` already canonical, for a caller that resolves many paths.
+fn resolve_below(
+    root: &Path,
+    relative: &str,
+    allowed: fn(&Path) -> bool,
+) -> Result<PathBuf, Error> {
     let path = checked(relative, allowed)?;
-    let root = root.canonicalize()?;
     let target = root.join(path).canonicalize()?;
-    if !target.starts_with(&root) || !target.is_file() || !allowed(&target) {
+    if !target.starts_with(root) || !target.is_file() || !allowed(&target) {
         return Err(Error::OutsideFolder);
     }
     if internal_path(
         target
-            .strip_prefix(&root)
+            .strip_prefix(root)
             .map_err(|_| Error::OutsideFolder)?,
     ) {
         return Err(Error::InvalidPath);
@@ -866,10 +894,13 @@ pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
 /// Reads many notes at once for the search index, with the same path rules as `open`. A note that
 /// cannot be read (gone, too large, not UTF-8, outside the folder) is left out; the rest are returned.
 fn read_many(root: &Path, paths: &[String]) -> Vec<NoteText> {
+    let Ok(root) = root.canonicalize() else {
+        return Vec::new();
+    };
     paths
         .iter()
         .filter_map(|relative| {
-            let path = resolve(root, relative, markdown).ok()?;
+            let path = resolve_below(&root, relative, markdown).ok()?;
             let text = read_note(&path).ok()?;
             Some(NoteText {
                 path: relative.clone(),
@@ -1157,21 +1188,23 @@ pub fn rename_note(
     base: &str,
     title: (&str, &str),
 ) -> Result<(), Error> {
-    let renamed = rename_note_in(&root(app)?, from, to, base, title);
-    follow(app, from, to, &renamed);
+    let root = root(app)?;
+    let renamed = rename_note_in(&root, from, to, base, title);
+    follow(&root, from, to, &renamed);
     renamed
 }
 pub fn move_note(app: &AppHandle, from: &str, to: &str, base: &str) -> Result<(), Error> {
-    let moved = move_note_in(&root(app)?, from, to, base);
-    follow(app, from, to, &moved);
+    let root = root(app)?;
+    let moved = move_note_in(&root, from, to, base);
+    follow(&root, from, to, &moved);
     moved
 }
 /// Collapsed pinned state inside the notes folder follows a moved note.
-fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
+fn follow(root: &Path, from: &str, to: &str, result: &Result<(), Error>) {
     if matches!(result, Ok(()) | Err(Error::PinnedNotRenamed { .. })) {
         // Best effort: the note has moved, and an error here would hide that from the editor, whose
         // next save would bring the old name back. A lost collapsed state only shows the card open.
-        let _ = update_collapsed(app, |collapsed| {
+        let _ = update_collapsed(root, |collapsed| {
             let before = collapsed.len();
             collapsed.retain(|target| target.to_lowercase() != from.to_lowercase());
             if collapsed.len() != before {
@@ -1180,23 +1213,16 @@ fn follow(app: &AppHandle, from: &str, to: &str, result: &Result<(), Error>) {
         });
     }
 }
-/// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders and
-/// links are left out.
+/// Every folder below `root` that listing visits, as `/` paths sorted as notes are: hidden folders,
+/// links and folders that cannot be read are left out.
 fn folders_in(root: &Path) -> Result<Vec<String>, Error> {
-    fn visit(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result<(), Error> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
-            {
-                found.push(relative(root, &entry.path()));
-                visit(root, &entry.path(), found)?;
-            }
-        }
-        Ok(())
-    }
     let mut found = Vec::new();
-    visit(root, root, &mut found)?;
-    found.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+    walk(root, &mut |entry, folder| {
+        if folder {
+            found.push(relative(root, &entry.path()));
+        }
+    })?;
+    sort_paths(&mut found, |path| path);
     Ok(found)
 }
 #[derive(serde::Serialize)]
@@ -1339,15 +1365,32 @@ fn trash_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
     held.push(trash);
     Ok((dir, held))
 }
-/// Remembers the pinned items a delete removed, so Undo can bring them back with the item.
-fn keep_pinned(
+/// Removes the pinned items of `path`, a deleted note or folder, with `unpin`, and remembers them so
+/// Undo can bring them back with the item. If the list cannot change, the answer is
+/// `PinnedNotRemoved`: the item is deleted all the same.
+fn unpin_deleted(
     root: &Path,
     path: &str,
     folder: bool,
     removal: &Removal,
-    change: Option<(String, String)>,
-) {
-    let Some(change) = change else { return };
+    unpin: impl Fn(&str) -> String,
+) -> Result<(), Error> {
+    let change = std::cell::RefCell::new(None);
+    edit_pinned(root, |text| {
+        let edited = unpin(text);
+        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
+        edited
+    })
+    .map_err(|_| {
+        eprintln!("[delete] pinned items not removed");
+        Error::PinnedNotRemoved {
+            undo: removal.undo,
+            trash: removal.trash.clone(),
+        }
+    })?;
+    let Some(change) = change.into_inner() else {
+        return Ok(());
+    };
     let mut state = deleted();
     if let Some(id) = &removal.trash {
         state.trashed.push(Trashed {
@@ -1363,6 +1406,7 @@ fn keep_pinned(
     {
         entry.pinned = Some(change);
     }
+    Ok(())
 }
 /// Deletes a folder and everything in it at once: an empty one is removed, any other goes to the
 /// Recycle Bin, or the notes folder's own trash where the Recycle Bin cannot take it. An entry arriving
@@ -1410,25 +1454,14 @@ fn delete_folder_in(
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
         Removal { undo: false, trash }
     };
-    let change = std::cell::RefCell::new(None);
-    edit_pinned(root, |text| {
-        let edited = pinned::parse(text)
+    unpin_deleted(root, relative, true, &removal, |text| {
+        pinned::parse(text)
             .iter()
             .filter(|item| item.kind == Kind::Note && inside_folder(&item.target, relative))
             .fold(text.to_owned(), |text, item| {
                 pinned::unpin(&text, &item.target)
-            });
-        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
-        edited
-    })
-    .map_err(|_| {
-        eprintln!("[delete folder] pinned items not removed");
-        Error::PinnedNotRemoved {
-            undo: false,
-            trash: removal.trash.clone(),
-        }
+            })
     })?;
-    keep_pinned(root, relative, true, &removal, change.into_inner());
     Ok(removal)
 }
 pub fn delete_folder(app: &AppHandle, path: &str) -> Result<Removal, Error> {
@@ -1566,20 +1599,9 @@ fn delete_note_in(
             }
         }
     };
-    let change = std::cell::RefCell::new(None);
-    edit_pinned(root, |text| {
-        let edited = pinned::unpin(text, relative);
-        *change.borrow_mut() = (edited != text).then(|| (text.to_owned(), edited.clone()));
-        edited
-    })
-    .map_err(|_| {
-        eprintln!("[delete] pinned items not removed");
-        Error::PinnedNotRemoved {
-            undo: removal.undo,
-            trash: removal.trash.clone(),
-        }
+    unpin_deleted(root, relative, false, &removal, |text| {
+        pinned::unpin(text, relative)
     })?;
-    keep_pinned(root, relative, false, &removal, change.into_inner());
     Ok(removal)
 }
 /// Writes a note deleted to the Recycle Bin back at its path, never over a file that took the name
@@ -1660,7 +1682,7 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
     let (item, restored) = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let canonical = root.canonicalize()?;
-        let dir = canonical.join(DERIVED).join(trash::DIR);
+        let dir = trash_path(&canonical)?;
         let _held_trash = hold_ancestry(&dir).map_err(|error| trash_error(&dir, error))?;
         // The entry's folders stay held from the moment they are read until the item has moved.
         let (source, path, folder, held_source) =
@@ -1688,7 +1710,8 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
         let landed = {
             let (_held_parent, _held_source) = (held_parent, held_source);
             let into = canonical.join(parent);
-            place(&source, &into, name, folder, |candidate| {
+            let numbered = |n| format!(" ({n})");
+            place(&source, &into, name, folder, numbered, |candidate| {
                 !folder && reserved(root, &relative(&canonical, candidate))
             })?
         };
@@ -1752,13 +1775,16 @@ fn ensure_folders(root: &Path, relative: &Path) -> Result<Vec<fs::File>, Error> 
     }
     Ok(held)
 }
-/// Moves `source` into `folder` as `name`, or the first free numbered name, such as `name (2).md` or
-/// `folder (2)`, never over anything; `taken` refuses a name besides those on disk.
+/// Moves `source` into `folder` as `name`, never over anything. If that is taken, the first free name
+/// among those `numbered` gives for 2 to 100, put between stem and extension, such as `name (2).md`
+/// or `folder (2)`; the stem is cut so the whole fits the name limit. `taken` refuses a name besides
+/// those on disk, such as one a Recycle Bin Undo reserves.
 fn place(
     source: &Path,
     folder: &Path,
     name: &std::ffi::OsStr,
     is_folder: bool,
+    numbered: impl Fn(u32) -> String,
     taken: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, Error> {
     let file = Path::new(name);
@@ -1770,7 +1796,7 @@ fn place(
         let candidate = if n == 1 {
             folder.join(name)
         } else {
-            let tail = format!(" ({n}){extension}");
+            let tail = format!("{}{extension}", numbered(n));
             let mut numbered =
                 platform::fit_name(stem, platform::MAX_NAME.saturating_sub(tail.len()));
             numbered.push(tail);
@@ -1785,15 +1811,16 @@ fn place(
             Err(error) => return Err(error.into()),
         }
     }
-    Err(Error::unexpected("no free name to restore the item"))
+    Err(Error::unexpected("no free name"))
 }
 /// Deletes for good the entries `ids` of the notes folder's own trash: those the user saw listed.
 fn empty_trash_in(root: &Path, ids: &[String]) -> Result<(), Error> {
     let dir = trash_path(root)?;
     let result = trash::empty(&dir, ids);
+    // An entry that could not be deleted keeps the pinned items its Undo puts back.
     deleted()
         .trashed
-        .retain(|t| t.root != root || !ids.contains(&t.id));
+        .retain(|t| t.root != root || !ids.contains(&t.id) || exists(&dir.join(&t.id)));
     result.map_err(|error| Error::EmptyFailed {
         detail: error.to_string(),
     })
@@ -1808,13 +1835,18 @@ pub fn purge_trash(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Ok(root) = root(&app) else { return };
-        if let Ok(canonical) = root.canonicalize() {
-            trash::purge(&canonical.join(DERIVED).join(trash::DIR), trash::now_ms());
+        if let Ok(dir) = trash_path(&root) {
+            trash::purge(&dir, trash::now_ms());
         }
     });
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
+/// In `DERIVED`: the last version of `_pinned.md` read, to restore it if it is deleted. Before it
+/// moved there, it sat under the same name beside `settings.json`.
+const PINNED_COPY_FILE: &str = "pinned-copy.json";
+/// In `DERIVED`: the pinned items shown as one line. It once was the `collapsed` key of the settings.
+const COLLAPSED_FILE: &str = "collapsed.json";
 /// A read, a line edit and a write that keep losing to external writes give up after this many tries.
 const PINNED_TRIES: usize = 3;
 
@@ -1840,11 +1872,6 @@ struct PinnedCopy {
     folder: PathBuf,
     text: String,
 }
-/// The pinned list's copy in `root`, with its folder held until the handles drop.
-fn copy_path(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
-    let (dir, held) = held_derived_dir(root)?;
-    Ok((dir.join("pinned-copy.json"), held))
-}
 /// The derived-data folder, hidden from listing, search and watcher; never creates the notes root or
 /// follows a link. It is created while `root` is held, and held with every folder above it until the
 /// handles drop: callers keep them until their writes end, so nothing lands elsewhere.
@@ -1860,24 +1887,20 @@ fn held_derived_dir(root: &Path) -> Result<(PathBuf, Vec<fs::File>), Error> {
     Ok((dir, held))
 }
 fn read_collapsed(dir: &Path) -> Result<BTreeSet<String>, Error> {
-    match fs::read(dir.join("collapsed.json")) {
+    match fs::read(dir.join(COLLAPSED_FILE)) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(Error::unexpected),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
         Err(error) => Err(error.into()),
     }
 }
 static COLLAPSED: Mutex<()> = Mutex::new(());
-fn update_collapsed(
-    app: &AppHandle,
-    change: impl FnOnce(&mut BTreeSet<String>),
-) -> Result<(), Error> {
-    let root = root(app)?;
+fn update_collapsed(root: &Path, change: impl FnOnce(&mut BTreeSet<String>)) -> Result<(), Error> {
     let _guard = COLLAPSED.lock().unwrap_or_else(|e| e.into_inner());
-    let (dir, _held) = held_derived_dir(&root)?;
+    let (dir, _held) = held_derived_dir(root)?;
     let mut collapsed = read_collapsed(&dir)?;
     change(&mut collapsed);
     write_atomic(
-        &dir.join("collapsed.json"),
+        &dir.join(COLLAPSED_FILE),
         &serde_json::to_vec(&collapsed).map_err(Error::unexpected)?,
     )?;
     Ok(())
@@ -1890,9 +1913,21 @@ fn try_migrate_derived(root: &Path, settings: &Path) {
         eprintln!("[pinned] derived-state migration deferred");
     }
 }
+/// Runs as every command opens the notes folder, so it costs one read and one look when there is
+/// nothing left to move.
 fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
+    let bytes = fs::read(settings).unwrap_or_default();
+    let mut value = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+    let collapsed = value
+        .as_ref()
+        .and_then(|value| value.get("collapsed"))
+        .cloned();
+    let legacy = settings.with_file_name(PINNED_COPY_FILE);
+    if collapsed.is_none() && !legacy.try_exists()? {
+        return Ok(());
+    }
     // Only into the folder chosen: a locked vault's empty mount point must stay empty.
-    let chosen = load(settings);
+    let chosen: Settings = serde_json::from_slice(&bytes).unwrap_or_default();
     let expected = chosen
         .folder_id
         .filter(|_| chosen.folder.as_deref() == Some(root));
@@ -1900,14 +1935,13 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
         return Ok(());
     }
     let _held = hold_ancestry(root)?;
-    let legacy = settings.with_file_name("pinned-copy.json");
     if legacy.try_exists()? {
         let copy =
             read_copy(&legacy).ok_or_else(|| Error::unexpected("invalid legacy pinned copy"))?;
         // A copy for an earlier folder stays until that folder is selected and available again.
         if copy.folder == root {
             let (dir, _held) = held_derived_dir(root)?;
-            let dest = dir.join("pinned-copy.json");
+            let dest = dir.join(PINNED_COPY_FILE);
             if !dest.try_exists()? {
                 write_atomic(
                     &dest,
@@ -1918,15 +1952,10 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
             fs::remove_file(&legacy)?;
         }
     }
-    let Ok(bytes) = fs::read(settings) else {
-        return Ok(());
-    };
-    let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(Error::unexpected)?;
-    if let Some(old) = value.get("collapsed") {
+    if let (Some(value), Some(old)) = (value.as_mut(), collapsed) {
         let (dir, _held) = held_derived_dir(root)?;
-        let dest = dir.join("collapsed.json");
-        let targets: BTreeSet<String> =
-            serde_json::from_value(old.clone()).map_err(Error::unexpected)?;
+        let dest = dir.join(COLLAPSED_FILE);
+        let targets: BTreeSet<String> = serde_json::from_value(old).map_err(Error::unexpected)?;
         if !dest.try_exists()? {
             write_atomic(
                 &dest,
@@ -1940,7 +1969,7 @@ fn migrate_derived(root: &Path, settings: &Path) -> Result<(), Error> {
             .remove("collapsed");
         write_atomic(
             settings,
-            &serde_json::to_vec(&value).map_err(Error::unexpected)?,
+            &serde_json::to_vec(value).map_err(Error::unexpected)?,
         )?;
     }
     Ok(())
@@ -1993,10 +2022,12 @@ fn pinned_state(root: &Path, store: &Path, collapsed: &BTreeSet<String>) -> Resu
     };
     keep_copy(store, root, &text);
     drop(guard);
+    let canonical = root.canonicalize()?;
     let items = pinned::parse(&text)
         .into_iter()
         .map(|item| PinnedItem {
-            missing: item.kind == Kind::Note && resolve(root, &item.target, markdown).is_err(),
+            missing: item.kind == Kind::Note
+                && resolve_below(&canonical, &item.target, markdown).is_err(),
             collapsed: collapsed.contains(&item.target),
             item,
         })
@@ -2031,20 +2062,20 @@ fn restore_pinned_in(root: &Path, store: &Path) -> Result<(), Error> {
     }
     Ok(())
 }
-fn collapsed(app: &AppHandle) -> Result<BTreeSet<String>, Error> {
-    let (dir, _held) = held_derived_dir(&root(app)?)?;
-    read_collapsed(&dir)
+/// The pinned list of `root` as the UI shows it. Each pinned command opens the notes folder once and
+/// answers this, so the UI needs no second call.
+fn pinned_in(root: &Path) -> Result<Pinned, Error> {
+    let (dir, _held) = held_derived_dir(root)?;
+    pinned_state(root, &dir.join(PINNED_COPY_FILE), &read_collapsed(&dir)?)
 }
 pub fn pinned(app: &AppHandle) -> Result<Pinned, Error> {
-    let root = root(app)?;
-    let (store, _held) = copy_path(&root)?;
-    pinned_state(&root, &store, &collapsed(app)?)
+    pinned_in(&root(app)?)
 }
 /// `target` is a note's path (it must exist) or an http(s) URL. `title` is the link text.
 pub fn pin(app: &AppHandle, target: &str, title: &str) -> Result<Pinned, Error> {
     let root = root(app)?;
     pin_in(&root, target, title)?;
-    pinned(app)
+    pinned_in(&root)
 }
 fn pin_in(root: &Path, target: &str, title: &str) -> Result<(), Error> {
     let (kind, target) = match pinned_kind(target) {
@@ -2071,11 +2102,12 @@ fn pinned_kind(target: &str) -> Kind {
 }
 /// Works for a missing note too: that is what "remove" is for.
 pub fn unpin(app: &AppHandle, target: &str) -> Result<Pinned, Error> {
-    edit_pinned(&root(app)?, |text| pinned::unpin(text, target))?;
-    update_collapsed(app, |collapsed| {
+    let root = root(app)?;
+    edit_pinned(&root, |text| pinned::unpin(text, target))?;
+    update_collapsed(&root, |collapsed| {
         collapsed.remove(target);
     })?;
-    pinned(app)
+    pinned_in(&root)
 }
 /// Reorder only the version the UI displayed; never silently apply a stale positional intent.
 fn move_pinned_in(root: &Path, target: &str, to: &str, base: &str) -> Result<(), Error> {
@@ -2095,26 +2127,28 @@ fn move_pinned_in(root: &Path, target: &str, to: &str, base: &str) -> Result<(),
     }
 }
 pub fn move_pinned(app: &AppHandle, target: &str, to: &str, base: &str) -> Result<Pinned, Error> {
-    move_pinned_in(&root(app)?, target, to, base)?;
-    pinned(app)
+    let root = root(app)?;
+    move_pinned_in(&root, target, to, base)?;
+    pinned_in(&root)
 }
 pub fn set_collapsed(app: &AppHandle, target: &str, collapsed: bool) -> Result<Pinned, Error> {
-    update_collapsed(app, |targets| {
+    let root = root(app)?;
+    update_collapsed(&root, |targets| {
         if collapsed {
             targets.insert(target.to_owned());
         } else {
             targets.remove(target);
         }
     })?;
-    pinned(app)
+    pinned_in(&root)
 }
 pub fn restore_pinned(app: &AppHandle) -> Result<Pinned, Error> {
+    let root = root(app)?;
     {
-        let root = root(app)?;
-        let (store, _held) = copy_path(&root)?;
-        restore_pinned_in(&root, &store)?;
+        let (dir, _held) = held_derived_dir(&root)?;
+        restore_pinned_in(&root, &dir.join(PINNED_COPY_FILE))?;
     }
-    pinned(app)
+    pinned_in(&root)
 }
 /// Bound IPC writes and disk use for accidental large clipboard images (10 MiB).
 const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
@@ -2148,10 +2182,7 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<
         return Err(Error::AttachmentFolderUnsafe);
     }
     // Lock canonical ancestry so no component can be swapped for a junction during the write.
-    let mut held = Vec::new();
-    for dir in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
-        held.push(platform::hold_directory(dir).map_err(|_| Error::AttachmentFolderUnsafe)?);
-    }
+    let mut held = hold_ancestry(parent).map_err(|_| Error::AttachmentFolderUnsafe)?;
     // Revalidate after locking: resolve may have raced with an ancestor rename.
     if resolve(root, path, markdown)? != note {
         return Err(Error::AttachmentFolderUnsafe);
@@ -2164,27 +2195,25 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<
     }
     held.push(platform::hold_directory(&folder).map_err(|_| Error::AttachmentFolderUnsafe)?);
     let temp = write_temp(&folder.join("pasted"), bytes)?;
-    let result = (|| {
-        for n in 1u64.. {
-            let suffix = if n == 1 {
-                String::new()
-            } else {
-                format!("-{n}")
-            };
-            let name = format!("pasted-{stamp}{suffix}.{ext}");
-            let target = folder.join(&name);
-            match platform::move_new(&temp, &target) {
-                Ok(()) => return Ok(format!("attachments/{name}")),
-                Err(_) if exists(&target) => continue,
-                Err(e) => return Err(e.into()),
-            }
+    let name = format!("pasted-{stamp}.{ext}");
+    let placed = place(
+        &temp,
+        &folder,
+        name.as_ref(),
+        false,
+        |n| format!("-{n}"),
+        |_| false,
+    );
+    match placed {
+        Ok(target) => Ok(format!(
+            "attachments/{}",
+            target.file_name().unwrap_or_default().to_string_lossy()
+        )),
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            Err(error)
         }
-        unreachable!()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
     }
-    result
 }
 pub fn paste_image(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<String, Error> {
     paste_image_in(&root(app)?, path, bytes, &platform::paste_timestamp())
@@ -2215,24 +2244,33 @@ fn leftover_note(path: &Path) -> Option<PathBuf> {
 fn is_leftover(path: &Path) -> bool {
     leftover_note(path).is_some()
 }
+/// Milliseconds since the Unix epoch, if the time is known.
+fn millis(time: io::Result<std::time::SystemTime>) -> Option<u64> {
+    let since = time.ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some(since.as_millis() as u64)
+}
 fn modified(path: &Path) -> u64 {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_millis() as u64)
+    millis(fs::metadata(path).and_then(|m| m.modified())).unwrap_or(0)
 }
 /// Taken under the save lock: a save in progress owns its backup for a moment, and that is not a
 /// leftover.
 fn leftovers_in(root: &Path) -> Result<Vec<Leftover>, Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     let mut found = Vec::new();
-    walk(root, &mut |path| {
+    walk(root, &mut |entry, folder| {
+        if folder {
+            return;
+        }
+        let path = entry.path();
         if let Some(note) = leftover_note(&path) {
             found.push(Leftover {
                 path: relative(root, &path),
                 note: relative(root, &note),
-                modified: modified(&path),
+                modified: entry
+                    .metadata()
+                    .ok()
+                    .and_then(|m| millis(m.modified()))
+                    .unwrap_or(0),
             });
         }
     })?;
@@ -2243,32 +2281,23 @@ pub fn leftovers(app: &AppHandle) -> Result<Vec<Leftover>, Error> {
     leftovers_in(&root(app)?)
 }
 /// Renames a leftover to its note's name or, if that is taken, to `<stem> (<label>).md`,
-/// `<stem> (<label> 2).md` and so on. Never overwrites and never deletes. Returns the new note's path.
+/// `<stem> (<label> 2).md` and so on, as `place` does. Never overwrites, never deletes and never takes
+/// a name a Recycle Bin Undo reserves. Returns the new note's path.
 fn restore_in(root: &Path, leftover: &str, label: &str) -> Result<String, Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-    let root = root.canonicalize()?;
-    let source = resolve(&root, leftover, is_leftover)?;
+    let canonical = root.canonicalize()?;
+    let source = resolve(&canonical, leftover, is_leftover)?;
     let note = leftover_note(&source).ok_or(Error::InvalidPath)?;
-    let stem = note.file_stem().unwrap_or_default();
-    for n in 1..=100 {
-        let target = match n {
-            1 => note.clone(),
-            _ => {
-                let mut name = stem.to_os_string();
-                name.push(match n {
-                    2 => format!(" ({label}).md"),
-                    _ => format!(" ({label} {}).md", n - 1),
-                });
-                note.with_file_name(name)
-            }
-        };
-        match platform::move_new(&source, &target) {
-            Ok(()) => return Ok(relative(&root, &target)),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Err(Error::unexpected("no free name to restore the note"))
+    let (folder, name) = (note.parent(), note.file_name());
+    let (folder, name) = folder.zip(name).ok_or(Error::InvalidPath)?;
+    let numbered = |n| match n {
+        2 => format!(" ({label})"),
+        _ => format!(" ({label} {})", n - 1),
+    };
+    let target = place(&source, folder, name, false, numbered, |candidate| {
+        reserved(root, &relative(&canonical, candidate))
+    })?;
+    Ok(relative(&canonical, &target))
 }
 pub fn restore(app: &AppHandle, leftover: &str) -> Result<String, Error> {
     let label = match *app.state::<Locale>() {
@@ -2351,6 +2380,27 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    /// Refuses listing a folder to everyone, by SID, until dropped; declared after `Temp`, so the
+    /// folder can be deleted.
+    struct Unlistable(PathBuf);
+    impl Unlistable {
+        fn new(dir: &Path) -> Self {
+            assert!(icacls(dir, &["/deny", "*S-1-1-0:(RD)"]));
+            Self(dir.to_owned())
+        }
+    }
+    impl Drop for Unlistable {
+        fn drop(&mut self) {
+            icacls(&self.0, &["/remove:d", "*S-1-1-0"]);
+        }
+    }
+    fn icacls(dir: &Path, args: &[&str]) -> bool {
+        std::process::Command::new("icacls")
+            .arg(dir)
+            .args(args)
+            .output()
+            .is_ok_and(|out| out.status.success())
+    }
     fn mklink(flags: &[&str], link: &Path, target: &Path) -> bool {
         std::process::Command::new("cmd")
             .args(["/C", "mklink"])
@@ -2362,17 +2412,37 @@ mod tests {
             .status
             .success()
     }
-    // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
-    #[test]
-    fn invalid_site_exceptions_do_not_discard_other_preferences() {
-        let settings: Settings =
-            serde_json::from_str(r#"{"allowed_sites":42,"folder":"notes","theme":"dark"}"#)
-                .unwrap();
-        assert!(settings.allowed_sites.is_empty());
-        assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        assert_eq!(settings.theme, Theme::Dark);
-    }
 
+    #[test]
+    fn a_field_that_does_not_parse_reads_as_its_default_and_keeps_the_others() {
+        let defaults = serde_json::to_value(Settings {
+            folder: Some("notes".into()),
+            ..Settings::default()
+        })
+        .unwrap();
+        let flags = ["null", "42", "{}", "[]", r#""true""#].as_slice();
+        for (field, values) in [
+            ("allowed_sites", ["42", "{}"].as_slice()),
+            ("site_permissions", &["42", "{}"]),
+            ("theme", &["null", "42", "{}", "true", r#""future-theme""#]),
+            ("search_engine", &["42", "{}"]),
+            ("note_order", &["null", "42", "{}", r#""future-order""#]),
+            ("group_by_date", flags),
+            ("relative_dates", flags),
+            ("group_by_folder", flags),
+            ("vault_file", &["42", "{}", "[]"]),
+            ("side", &[r#""top""#, "42"]),
+            ("width", &[r#""wide""#, "-1", "{}"]),
+            ("activation_shortcut", &["42", "{}", "[]"]),
+            ("folder_id", &["42", "{}"]),
+        ] {
+            for value in values {
+                let json = format!(r#"{{"folder":"notes","{field}":{value}}}"#);
+                let settings: Settings = serde_json::from_str(&json).unwrap();
+                assert_eq!(serde_json::to_value(settings).unwrap(), defaults, "{json}");
+            }
+        }
+    }
     #[test]
     fn site_exceptions_keep_valid_entries_and_drop_widened_ones() {
         let settings: Settings = serde_json::from_str(
@@ -2382,6 +2452,7 @@ mod tests {
         assert_eq!(settings.allowed_sites, ["example.com"]);
     }
 
+    // Catch arbitrary-file launches through an edited setting or a picker with the filter bypassed.
     #[test]
     fn vault_refuses_other_extensions() {
         let t = Temp::new();
@@ -2433,13 +2504,6 @@ mod tests {
         assert_eq!(validate_vault_file(&link), Err(Error::InvalidVaultFile));
     }
     #[test]
-    fn malformed_vault_preference_preserves_other_settings() {
-        let settings: Settings =
-            serde_json::from_str(r#"{"vault_file":42,"relative_dates":true}"#).unwrap();
-        assert!(settings.vault_file.is_none());
-        assert!(settings.relative_dates);
-    }
-    #[test]
     fn list_filters_and_sorts() {
         let t = Temp::new();
         fs::create_dir(t.0.join(".oculta")).unwrap();
@@ -2448,12 +2512,44 @@ mod tests {
             fs::write(t.0.join(p), "").unwrap();
         }
         fs::write(t.0.join(".ponto.md"), "").unwrap();
-        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let paths: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(paths, [".ponto.md", "A.md", "sub/b.md", "z.MD"]);
-        // The watcher reports changes to what is listed and nothing inside hidden folders.
-        let shown = |p: &str| shown_change(&t.0, &t.0.join(p));
+    }
+    #[test]
+    fn the_watcher_reports_changes_to_what_is_listed_only() {
+        let root = Path::new(r"C:\notes");
+        let shown = |p: &str| shown_change(root, &root.join(p));
         assert!(shown(".ponto.md") && shown("sub/b.md") && shown("sub"));
         assert!(!shown(".oculta/segredo.md") && !shown("a.md.1-2.docdock-tmp"));
+    }
+    #[test]
+    fn a_subfolder_that_cannot_be_read_is_skipped_and_reported() {
+        let t = Temp::new();
+        for dir in ["locked/inner", "sub"] {
+            fs::create_dir_all(t.0.join(dir)).unwrap();
+        }
+        for note in ["a.md", "locked/b.md", "sub/c.md"] {
+            fs::write(t.0.join(note), "").unwrap();
+        }
+        let _refused = Unlistable::new(&t.0.join("locked"));
+        let listing = list(&t.0).unwrap();
+        let paths: Vec<_> = listing.notes.into_iter().map(|n| n.path).collect();
+        assert_eq!(paths, ["a.md", "sub/c.md"]);
+        assert_eq!(listing.skipped, ["locked"]);
+        assert_eq!(folders_in(&t.0).unwrap(), ["sub"]);
+    }
+    #[test]
+    fn a_notes_folder_that_cannot_be_read_fails_the_listing() {
+        let t = Temp::new();
+        let notes = t.0.join("notes");
+        fs::create_dir(&notes).unwrap();
+        let _refused = Unlistable::new(&notes);
+        assert!(list(&notes).is_err());
     }
     #[test]
     fn bulk_read_skips_unreadable_notes_and_returns_the_rest() {
@@ -2572,7 +2668,7 @@ mod tests {
         fs::create_dir(&fora).unwrap();
         fs::write(fora.join("segredo.md"), "x").unwrap();
         assert!(mklink(&["/J"], &notas.join("atalho"), &fora));
-        assert!(list(&notas).unwrap().is_empty());
+        assert!(list(&notas).unwrap().notes.is_empty());
         assert!(resolve(&notas, "atalho/segredo.md", markdown).is_err());
     }
     #[test]
@@ -2655,24 +2751,6 @@ mod tests {
             Err(Error::AttachmentFolderUnsafe)
         );
         assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
-    }
-    #[test]
-    fn held_directory_cannot_be_renamed_and_refuses_junctions() {
-        let t = Temp::new();
-        fs::create_dir(t.0.join("notes")).unwrap();
-        let dir = t.0.join("outside");
-        fs::create_dir(&dir).unwrap();
-        let held = platform::hold_directory(&dir).unwrap();
-        assert!(fs::rename(&dir, t.0.join("renamed")).is_err());
-        drop(held);
-        fs::rename(&dir, t.0.join("renamed")).unwrap();
-        // Junctions into the notes folder are refused too.
-        assert!(mklink(
-            &["/J"],
-            &t.0.join("inside-link"),
-            &t.0.join("notes")
-        ));
-        assert!(platform::hold_directory(&t.0.join("inside-link")).is_err());
     }
     #[test]
     fn image_only_leaves_folder_for_main_window() {
@@ -2840,7 +2918,12 @@ mod tests {
         assert_eq!(fs::read_to_string(&p).unwrap(), "original");
         assert_eq!(fs::read_dir(&t.0).unwrap().count(), 2);
         assert_eq!(fs::read_to_string(&leftover).unwrap(), "novo");
-        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let paths: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(paths, ["a.md"]);
     }
     #[test]
@@ -2882,66 +2965,6 @@ mod tests {
         assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
     }
     #[test]
-    fn invalid_note_order_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "\"future-order\""] {
-            let settings: Settings =
-                serde_json::from_str(&format!(r#"{{"folder":"notes","note_order":{value}}}"#))
-                    .unwrap();
-            assert_eq!(settings.note_order, NoteOrder::ModifiedDesc);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn invalid_theme_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "[]", "true", "\"future-theme\""] {
-            let settings: Settings = serde_json::from_str(&format!(
-                r#"{{"folder":"notes","note_order":"created-asc","theme":{value}}}"#
-            ))
-            .unwrap();
-            assert_eq!(settings.theme, Theme::System);
-            assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn invalid_grouping_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "\"true\"", "[]"] {
-            let settings: Settings = serde_json::from_str(&format!(
-                r#"{{"folder":"notes","note_order":"created-asc","group_by_date":{value}}}"#
-            ))
-            .unwrap();
-            assert_eq!(settings.grouping(), Grouping::None);
-            assert_eq!(settings.note_order, NoteOrder::CreatedAsc);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn older_settings_keep_absolute_dates() {
-        let settings: Settings = serde_json::from_str(r#"{"group_by_date":true}"#).unwrap();
-        assert!(!settings.relative_dates);
-    }
-    #[test]
-    fn invalid_relative_dates_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "[]", "\"true\""] {
-            let settings: Settings =
-                serde_json::from_str(&format!(r#"{{"folder":"notes","relative_dates":{value}}}"#))
-                    .unwrap();
-            assert!(!settings.relative_dates);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
-    fn invalid_activation_shortcut_does_not_discard_other_settings() {
-        for value in ["null", "42", "{}", "[]"] {
-            let settings: Settings = serde_json::from_str(&format!(
-                r#"{{"folder":"notes","activation_shortcut":{value}}}"#
-            ))
-            .unwrap();
-            assert_eq!(settings.activation_shortcut, None);
-            assert_eq!(settings.folder, Some(PathBuf::from("notes")));
-        }
-    }
-    #[test]
     fn folder_grouping_wins_and_older_settings_keep_date_grouping() {
         let read = |json: &str| serde_json::from_str::<Settings>(json).unwrap().grouping();
         assert_eq!(read(r#"{"group_by_date":true}"#), Grouping::Date);
@@ -2954,7 +2977,7 @@ mod tests {
     fn pinned_setup(t: &Temp) -> (PathBuf, PathBuf) {
         let root = t.0.join("notes");
         fs::create_dir(&root).unwrap();
-        let store = held_derived_dir(&root).unwrap().0.join("pinned-copy.json");
+        let store = held_derived_dir(&root).unwrap().0.join(PINNED_COPY_FILE);
         (root, store)
     }
     fn no_collapsed() -> BTreeSet<String> {
@@ -3355,7 +3378,12 @@ mod tests {
             fs::read_to_string(trash_of(&t.0).join(&id).join("a.md")).unwrap(),
             "secret"
         );
-        let listed: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let listed: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(listed, ["b.md"]);
     }
     #[test]
@@ -3408,6 +3436,25 @@ mod tests {
             restore_trashed_in(&root, &id, true),
             Err(Error::TrashItemMissing)
         );
+    }
+    #[test]
+    fn an_entry_that_fails_to_empty_keeps_its_pinned_items_for_undo() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::write(root.join("a.md"), "body").unwrap();
+        let list = "- [A](a.md)\n";
+        fs::write(root.join(PINNED), list).unwrap();
+        let id = trash_note(&root, "a.md");
+        // An open handle without delete sharing makes the removal fail.
+        let open =
+            std::os::windows::fs::OpenOptionsExt::share_mode(fs::OpenOptions::new().read(true), 0)
+                .open(trash_of(&root).join(&id).join("a.md"))
+                .unwrap();
+        assert!(empty_trash_in(&root, std::slice::from_ref(&id)).is_err());
+        drop(open);
+        assert_eq!(restore_trashed_in(&root, &id, true), Ok("a.md".into()));
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), list);
     }
     #[test]
     fn undo_brings_a_trashed_folder_back_with_its_content_and_pins() {
@@ -3773,7 +3820,12 @@ mod tests {
         let t = Temp::new();
         fs::write(t.0.join("note.md"), "text").unwrap();
         assert_eq!(rename(&t.0, "note.md", "Note.md"), Ok(()));
-        let paths: Vec<_> = list(&t.0).unwrap().into_iter().map(|n| n.path).collect();
+        let paths: Vec<_> = list(&t.0)
+            .unwrap()
+            .notes
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
         assert_eq!(paths, ["Note.md"]);
     }
     #[test]
@@ -4011,7 +4063,7 @@ mod tests {
             &root,
             serde_json::json!({ "collapsed": ["secret.md"], "theme": "dark" }),
         );
-        let legacy = settings.with_file_name("pinned-copy.json");
+        let legacy = settings.with_file_name(PINNED_COPY_FILE);
         fs::write(
             &legacy,
             serde_json::to_vec(&PinnedCopy {
@@ -4054,7 +4106,7 @@ mod tests {
     fn unavailable_migration_keeps_sources_and_creates_nothing() {
         let t = Temp::new();
         let settings = t.0.join("settings.json");
-        let legacy = t.0.join("pinned-copy.json");
+        let legacy = t.0.join(PINNED_COPY_FILE);
         // Invalid bytes prove the copy was not read/deserialized while the folder was away.
         fs::write(&legacy, "unread legacy content").unwrap();
         fs::write(&settings, r#"{"collapsed":["secret.md"]}"#).unwrap();
@@ -4117,7 +4169,7 @@ mod tests {
         let (root, store) = pinned_setup(&t);
         let settings = chosen(&t, &root, serde_json::json!({ "collapsed": ["old.md"] }));
         let dir = store.parent().unwrap();
-        fs::write(dir.join("collapsed.json"), r#"["new.md"]"#).unwrap();
+        fs::write(dir.join(COLLAPSED_FILE), r#"["new.md"]"#).unwrap();
         migrate_derived(&root, &settings).unwrap();
         assert_eq!(
             read_collapsed(dir).unwrap(),
@@ -4129,7 +4181,7 @@ mod tests {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
         let settings = chosen(&t, &root, serde_json::json!({}));
-        let legacy = settings.with_file_name("pinned-copy.json");
+        let legacy = settings.with_file_name(PINNED_COPY_FILE);
         fs::write(
             &legacy,
             serde_json::to_vec(&PinnedCopy {
@@ -4157,7 +4209,7 @@ mod tests {
         let t = Temp::new();
         let (root, store) = pinned_setup(&t);
         let settings = chosen(&t, &root, serde_json::json!({}));
-        let legacy = t.0.join("pinned-copy.json");
+        let legacy = t.0.join(PINNED_COPY_FILE);
         fs::write(
             &legacy,
             serde_json::to_vec(&PinnedCopy {
@@ -4220,7 +4272,7 @@ mod tests {
         assert!(
             !pinned_state(
                 &other,
-                &held_derived_dir(&other).unwrap().0.join("pinned-copy.json"),
+                &held_derived_dir(&other).unwrap().0.join(PINNED_COPY_FILE),
                 &no_collapsed()
             )
             .unwrap()
@@ -4228,33 +4280,42 @@ mod tests {
         );
         restore_pinned_in(
             &other,
-            &held_derived_dir(&other).unwrap().0.join("pinned-copy.json"),
+            &held_derived_dir(&other).unwrap().0.join(PINNED_COPY_FILE),
         )
         .unwrap();
         assert!(!other.join(PINNED).exists());
     }
     #[test]
-    fn replaces_configuration() {
+    fn missing_or_corrupt_settings_read_as_the_defaults() {
         let t = Temp::new();
         let p = t.0.join("settings.json");
-        // Missing or corrupt settings read as the defaults.
         assert!(read_settings(&p).is_none());
         fs::write(&p, "{").unwrap();
         assert!(read_settings(&p).is_none());
+    }
+    #[test]
+    fn saving_settings_replaces_the_previous_file() {
+        let t = Temp::new();
+        let p = t.0.join("settings.json");
         let settings = |name| Settings {
             folder: Some(t.0.join(name)),
-            side: Side::Left,
             ..Settings::default()
         };
         save(&p, &settings("a")).unwrap();
         save(&p, &settings("b")).unwrap();
         assert_eq!(read_settings(&p), Some(t.0.join("b")));
-        assert_eq!(load(&p).side, Side::Left);
-        // Older files have no side; an unknown side or width reads as the default and keeps the folder.
-        fs::write(&p, r#"{"folder":"x","side":"top","width":"wide"}"#).unwrap();
-        assert_eq!(load(&p).side, Side::Right);
-        assert_eq!(load(&p).width, None);
-        assert_eq!(read_settings(&p), Some(PathBuf::from("x")));
+        assert_eq!(fs::read_dir(&t.0).unwrap().count(), 1);
+    }
+    /// Catches the shared walker handing folders to the leftover scan: a folder named like a backup
+    /// was listed as recoverable, and restoring it could only fail.
+    #[test]
+    fn a_folder_named_like_a_backup_is_not_a_leftover() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("a.md.7-1.docdock-bak")).unwrap();
+        fs::write(t.0.join("b.md.7-2.docdock-bak"), "b").unwrap();
+        let found = leftovers_in(&t.0).unwrap();
+        let paths: Vec<_> = found.iter().map(|l| &*l.path).collect();
+        assert_eq!(paths, ["b.md.7-2.docdock-bak"]);
     }
     #[test]
     fn restores_leftovers_without_overwriting() {
@@ -4306,6 +4367,20 @@ mod tests {
         assert!(leftovers_in(&t.0).unwrap().is_empty());
     }
     #[test]
+    fn a_restored_leftover_does_not_take_a_name_a_recycle_bin_undo_reserves() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::write(t.0.join("a.md"), "recycled").unwrap();
+        fs::write(t.0.join("a.md.7-1.docdock-bak"), "backup").unwrap();
+        assert_eq!(delete(&t.0, &t.0.join("bin"), "a.md"), Ok(true));
+        assert_eq!(
+            restore_in(&t.0, "a.md.7-1.docdock-bak", "r"),
+            Ok("a (r).md".into())
+        );
+        assert_eq!(undo_delete_in(&t.0, "a.md"), Ok(()));
+        assert_eq!(fs::read_to_string(t.0.join("a.md")).unwrap(), "recycled");
+    }
+    #[test]
     fn a_folder_is_missing_only_when_its_parent_lists_without_it() {
         use Availability::*;
         use Probe::*;
@@ -4355,18 +4430,8 @@ mod tests {
         let t = Temp::new();
         let notes = t.0.join("notes");
         fs::create_dir(&notes).unwrap();
-        let icacls = |args: &[&str]| {
-            std::process::Command::new("icacls")
-                .arg(&notes)
-                .args(args)
-                .output()
-                .is_ok_and(|out| out.status.success())
-        };
-        // Everyone, by SID: refused to list the folder.
-        assert!(icacls(&["/deny", "*S-1-1-0:(RD)"]));
-        let state = folder_availability(&notes);
-        assert!(icacls(&["/remove:d", "*S-1-1-0"]));
-        assert_eq!(state, Availability::Unavailable);
+        let _refused = Unlistable::new(&notes);
+        assert_eq!(folder_availability(&notes), Availability::Unavailable);
     }
     #[test]
     fn choosing_a_folder_adopts_its_marker() {
@@ -4459,7 +4524,7 @@ mod tests {
     #[test]
     fn nothing_creates_a_notes_folder_that_is_not_there() {
         let t = Temp::new();
-        let store = t.0.join("config").join("pinned-copy.json");
+        let store = t.0.join("config").join(PINNED_COPY_FILE);
         let png = b"\x89PNG\r\n\x1a\n";
         for root in [t.0.join("vault").join("notes"), t.0.join("notes")] {
             keep_copy(&store, &root, "- [a](a.md)\n");

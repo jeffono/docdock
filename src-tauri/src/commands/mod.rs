@@ -10,11 +10,6 @@ use crate::error::Error;
 use crate::i18n::Locale;
 use crate::web;
 
-#[tauri::command]
-pub fn app_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
 #[tauri::command(async)]
 pub fn vault_file(app: AppHandle) -> Result<Option<String>, Error> {
     crate::notes::vault_file(&app)
@@ -196,8 +191,9 @@ pub async fn notes_choose(
 pub fn notes_trust(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::trust(&app)
 }
+/// The notes, and the subfolders left out because they could not be read, for a discreet notice.
 #[tauri::command(async)]
-pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
+pub fn notes_list(app: AppHandle) -> Result<crate::notes::Listing, Error> {
     crate::notes::list_for(&app)
 }
 /// `async` moves reading and sanitization off the main thread.
@@ -415,7 +411,7 @@ pub fn notes_grouping(app: AppHandle) -> Result<crate::notes::Grouping, Error> {
 pub fn notes_set_grouping(app: AppHandle, grouping: crate::notes::Grouping) -> Result<(), Error> {
     crate::notes::set_grouping(&app, grouping)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pinned_move(
     app: AppHandle,
     target: String,
