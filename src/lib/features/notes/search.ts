@@ -1,5 +1,6 @@
 // In-memory note search: pure functions, no IPC. The caller supplies the listing and a reader for
 // note texts, and renders the results; snippets are plain text plus offsets, never HTML.
+import { inAny } from "./listing";
 import { frontmatter } from "./markdown";
 import { parseQuery, type QueryCompletion } from "./query";
 import { dateRange, metadataDate } from "./query-date";
@@ -12,6 +13,8 @@ export type Read = { path: string; text: string; modified: number };
 type Entry = {
   path: string;
   title: string;
+  /** The title comes from the frontmatter, not the file name, so a rename keeps it. */
+  titled: boolean;
   tags: string[];
   url?: string | null;
   modified: number;
@@ -72,6 +75,7 @@ function words(query: string): string[] {
 
 function build(listed: Listed, read: Read | null): Entry {
   let title = listed.name,
+    titled = false,
     url: string | null = null,
     tags: string[] = [],
     body = "",
@@ -81,6 +85,7 @@ function build(listed: Listed, read: Read | null): Entry {
     const meta = frontmatter((n) => lines[n - 1], lines.length);
     body = (meta ? lines.slice(meta.end) : lines).join("\n");
     if (meta) {
+      titled = !!meta.title;
       title = meta.title ?? title;
       tags = meta.tags;
       url = meta.url;
@@ -90,18 +95,23 @@ function build(listed: Listed, read: Read | null): Entry {
   return {
     path: listed.path,
     title,
+    titled,
     tags,
     url,
     modified: read?.modified ?? listed.modified,
     body,
     filterDate,
     titleKey: collapse(title),
-    folderKey: fold(listed.path.replace(/\\/g, "/").replace(/(^|\/)[^/]*$/, "")),
+    folderKey: folderKey(listed.path),
     tagKeys: tags.map(fold),
     bodyKey: fold(body),
     aligned: [...body.matchAll(/\P{ASCII}/gu)].every(([c]) => foldChar(c).length === c.length),
     unread: !read,
   };
+}
+
+function folderKey(path: string): string {
+  return fold(path.replace(/\\/g, "/").replace(/(^|\/)[^/]*$/, ""));
 }
 
 function collapse(text: string): string {
@@ -110,13 +120,15 @@ function collapse(text: string): string {
 
 /**
  * Brings `index` in line with the listing: forgets removed notes and rereads, through `read`, only the
- * notes that are new or whose modified time changed. Run one sync at a time: the index changes once the
- * reading is done.
+ * listed notes that are new or whose modified time changed. `retained` notes were left out only because
+ * their folder could not be read: their entries stay as they are, never reread. Run one sync at a time:
+ * the index changes once the reading is done.
  */
 export async function syncIndex(
   index: SearchIndex,
   listed: Listed[],
   read: (paths: string[]) => Promise<Read[]>,
+  retained: Listed[] = [],
 ): Promise<void> {
   const stale = listed.filter((note) => {
     const entry = index.get(note.path);
@@ -126,9 +138,39 @@ export async function syncIndex(
   for (let i = 0; i < stale.length; i += BATCH)
     for (const item of await read(stale.slice(i, i + BATCH).map((note) => note.path)))
       texts.set(item.path, item);
-  const present = new Set(listed.map((note) => note.path));
+  const present = new Set([...listed, ...retained].map((note) => note.path));
   for (const path of index.keys()) if (!present.has(path)) index.delete(path);
   for (const note of stale) index.set(note.path, build(note, texts.get(note.path) ?? null));
+  // Known by name only until its folder can be read.
+  for (const note of retained) if (!index.has(note.path)) index.set(note.path, build(note, null));
+}
+
+/**
+ * Moves entries to their new paths, keeping the text already read; a title taken from the file name
+ * follows it. Applying a pair again, as a repeated event does, changes nothing.
+ */
+export function renameEntries(index: SearchIndex, renames: [string, string][]) {
+  for (const [from, to] of renames) {
+    const entry = index.get(from);
+    if (!entry) continue;
+    index.delete(from);
+    if (index.has(to)) continue;
+    const title = entry.titled
+      ? entry.title
+      : to.slice(to.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+    index.set(to, {
+      ...entry,
+      path: to,
+      title,
+      titleKey: collapse(title),
+      folderKey: folderKey(to),
+    });
+  }
+}
+
+/** Forgets a deleted note, or everything below a deleted folder. */
+export function forgetEntries(index: SearchIndex, path: string) {
+  for (const key of index.keys()) if (inAny(key, [path])) index.delete(key);
 }
 
 /**
@@ -149,9 +191,19 @@ export class FolderIndex {
     this.index = new Map();
   }
 
-  sync(listed: Listed[]): Promise<void> {
+  sync(listed: Listed[], retained: Listed[] = []): Promise<void> {
     const target = this.index;
-    const run = this.#queue.then(() => syncIndex(target, listed, this.#read));
+    return this.#enqueue(() => syncIndex(target, listed, this.#read, retained));
+  }
+
+  /** Changes the index between syncs, so a sync in progress never undoes the change. */
+  edit(change: (index: SearchIndex) => void): Promise<void> {
+    const target = this.index;
+    return this.#enqueue(async () => change(target));
+  }
+
+  #enqueue(task: () => Promise<void>): Promise<void> {
+    const run = this.#queue.then(task);
     this.#queue = run.catch(() => {});
     return run;
   }

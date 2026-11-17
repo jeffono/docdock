@@ -3,8 +3,10 @@ import { creationContent, queryCompletion } from "./query";
 import {
   FolderIndex,
   folderTags,
+  forgetEntries,
   type Listed,
   type Read,
+  renameEntries,
   type SearchIndex,
   search,
   syncIndex,
@@ -225,6 +227,49 @@ describe("syncIndex", () => {
     });
     expect(retried).toBe(true);
     expect(paths(index, "readable")).toEqual(["broken.md"]);
+  });
+});
+
+describe("a note kept from a folder that could not be read", () => {
+  // Catches a retained note reread because its listed time was older than the text read, losing
+  // its body and tags when that read failed.
+  test("keeps its entry untouched by a sync, even with another modified time", async () => {
+    const index: SearchIndex = new Map();
+    // The listing saw time 1; the file changed before its text was read at time 2.
+    await syncIndex(index, [{ path: "Work/a.md", name: "a", modified: 1 }], async () => [
+      { path: "Work/a.md", text: "---\ntags: [plan]\n---\nquarterly goals", modified: 2 },
+    ]);
+    let reads = 0;
+    const failing = async () => {
+      reads++;
+      return [];
+    };
+    await syncIndex(index, [], failing, [{ path: "Work/a.md", name: "a", modified: 1 }]);
+    expect(reads).toBe(0);
+    expect(paths(index, "goals")).toEqual(["Work/a.md"]);
+    expect(paths(index, "#plan")).toEqual(["Work/a.md"]);
+  });
+
+  // Catches a renamed note in a skipped folder dropping out of search.
+  test("is found under its new name, with its text and a title that follows the file", async () => {
+    const index = await indexOf([{ path: "Work/a.md", text: "quarterly goals" }]);
+    renameEntries(index, [["Work/a.md", "Work/b.md"]]);
+    renameEntries(index, [["Work/a.md", "Work/b.md"]]);
+    await syncIndex(index, [], async () => [], [{ path: "Work/b.md", name: "b", modified: 1 }]);
+    expect(paths(index, "goals")).toEqual(["Work/b.md"]);
+    expect(index.get("Work/b.md")?.title).toBe("b");
+  });
+
+  // Catches a deleted note staying searchable while its folder is skipped.
+  test("is forgotten once the app deletes it or its folder", async () => {
+    const index = await indexOf([
+      { path: "Work/a.md", text: "goals" },
+      { path: "Work/Old/b.md", text: "goals" },
+      { path: "Workshop/c.md", text: "goals" },
+    ]);
+    forgetEntries(index, "Work/a.md");
+    forgetEntries(index, "Work/Old");
+    expect(paths(index, "goals")).toEqual(["Workshop/c.md"]);
   });
 });
 

@@ -99,7 +99,7 @@ import {
   rows,
   shallower,
 } from "./list";
-import { listingState, shownPinned, withUnread } from "./listing";
+import { listingState, renamedKnown, shownPinned, unreadKnown, withoutRemoved } from "./listing";
 import MovePicker from "./MovePicker.svelte";
 import { repairTags, retitle } from "./markdown";
 import NoteOrder from "./NoteOrder.svelte";
@@ -117,7 +117,14 @@ import {
 import { datePresets } from "./query-date";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
-import { FolderIndex, folderTags, isPinnedList, search } from "./search";
+import {
+  FolderIndex,
+  folderTags,
+  forgetEntries,
+  isPinnedList,
+  renameEntries,
+  search,
+} from "./search";
 
 let {
   browser = false,
@@ -434,9 +441,18 @@ const completionItems = $derived.by(() => {
   return completionContext ? completionChoices(query, completionContext, values) : [];
 });
 
-async function sync(list: Note[]): Promise<void> {
-  await folderIndex.sync(list);
+async function sync(list: Note[], retained: Note[] = []): Promise<void> {
+  await folderIndex.sync(list, retained);
   indexVersion++;
+}
+
+/**
+ * Forgets a note or folder the app deleted. A skipped folder would otherwise keep it, since deleting
+ * works where listing does not.
+ */
+function forgetRemoved(path: string) {
+  notes = withoutRemoved(notes, path);
+  void folderIndex.edit((index) => forgetEntries(index, path)).then(() => indexVersion++);
 }
 
 const results = $derived.by(() => {
@@ -639,10 +655,11 @@ async function refresh(value: NotesFolder | null) {
 async function relist(stale = () => false) {
   const [found, directories] = await Promise.all([notesList(), notesFolders().catch(() => [])]);
   if (stale()) return;
+  const retained = unreadKnown(notes, found);
   listing = found;
-  notes = withUnread(notes, found);
+  notes = [...found.notes, ...retained];
   folders = folderLabels(notes, directories);
-  await sync(notes);
+  await sync(found.notes, retained);
 }
 
 async function restore(path: string) {
@@ -1196,6 +1213,7 @@ async function deleteNote(card: Card) {
     const { undo, trash, problem } = await removal(notesDelete(path));
     removed = { path, title, folder: false, trash, undo: undo && session === panelSession };
     renamedAway.add(path);
+    forgetRemoved(path);
     delete contents[path];
     if (expanded === path) expanded = "";
     if (selection === path || active === path) selection = next;
@@ -1386,6 +1404,7 @@ async function deleteFolder() {
       delete contents[note.path];
       if (expanded === note.path) expanded = "";
     }
+    forgetRemoved(path);
     list?.focus({ preventScroll: true });
     changed({ renames: [] });
     error = problem;
@@ -1508,6 +1527,13 @@ let again = false;
 
 /** One reload at a time; changes during it cause one more. */
 function changed(changes: NotesChanges) {
+  if (changes.renames.length) {
+    // A note kept from an unreadable folder follows the rename; a listing cannot tell it.
+    notes = renamedKnown(notes, changes.renames);
+    void folderIndex
+      .edit((index) => renameEntries(index, changes.renames))
+      .then(() => indexVersion++);
+  }
   for (const [from, to] of changes.renames) {
     if (opening === from) opening = null;
     renamedAway.add(from);

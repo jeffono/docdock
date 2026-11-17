@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Listing, Note, PinnedItem } from "../../ipc";
-import { listingState, shownPinned, withUnread } from "./listing";
+import { listingState, renamedKnown, shownPinned, unreadKnown, withoutRemoved } from "./listing";
 
 const note = (path: string, modified = 1): Note => ({ path, name: path, modified, created: 1 });
 const paths = (notes: Note[]) => notes.map((n) => n.path).sort();
+/** The notes shown after a listing, as the list composes them. */
+const withUnread = (known: Note[], listing: Listing) => [
+  ...listing.notes,
+  ...unreadKnown(known, listing),
+];
 const pin = (target: string, missing: boolean): PinnedItem => ({
   target,
   title: target,
@@ -57,6 +62,34 @@ it("matches a skipped folder ignoring case, and below it at any depth", () => {
   const listing: Listing = { notes: [], skipped: ["Work/Old"] };
   expect(listingState("work/old/deep/x.md", listing)).toBe("unread");
   expect(listingState("Work/x.md", listing)).toBe("gone");
+});
+
+// Catches a renamed note lost from a skipped folder while its old name stayed retained.
+it("a note renamed before its folder becomes unreadable is kept under its new name", () => {
+  const known = [note("a.md"), note("Work/a.md")];
+  const renames: [string, string][] = [["Work/a.md", "Work/b.md"]];
+  const renamed = renamedKnown(known, renames);
+  // The same event twice, or the app's own notice and the watcher's, changes nothing more.
+  expect(renamedKnown(renamed, renames)).toEqual(renamed);
+  const shown = withUnread(renamed, { notes: [note("a.md")], skipped: ["Work"] });
+  expect(paths(shown)).toEqual(["Work/b.md", "a.md"]);
+  expect(shown.find((n) => n.path === "Work/b.md")?.name).toBe("b");
+});
+
+// Catches a note the app deleted staying listed and searchable because its folder was skipped.
+it("a note or folder the app deleted is not kept by a skipped folder", () => {
+  const known = [note("a.md"), note("Work/a.md"), note("Work/Old/b.md"), note("Work/c.md")];
+  const locked: Listing = { notes: [note("a.md")], skipped: ["Work"] };
+  expect(paths(withUnread(withoutRemoved(known, "Work/a.md"), locked))).toEqual([
+    "Work/Old/b.md",
+    "Work/c.md",
+    "a.md",
+  ]);
+  expect(paths(withUnread(withoutRemoved(known, "Work/Old"), locked))).toEqual([
+    "Work/a.md",
+    "Work/c.md",
+    "a.md",
+  ]);
 });
 
 // Catches a pinned note in an unreadable folder offered for removal as "not found", losing the pin.
