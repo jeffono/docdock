@@ -84,6 +84,8 @@ pub fn create(
             Some(instance),
             None,
         )?;
+        // It shows the panel's edge, so screen captures leave it out like the panel.
+        super::capture::exclude_hwnd(hwnd, "handle");
         // As a layered window it shows nothing until `draw` gives it pixels, once the look arrives.
         let raw = hwnd.0 as isize;
         let _ = WINDOW.set(raw);
