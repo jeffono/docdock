@@ -9,8 +9,16 @@ use tauri::{App, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 #[tauri::command]
 fn probe() {}
 
-/// Commands that succeed in `main` without arguments: one app command and core plugin commands.
-const COMMANDS: [&str; 3] = ["probe", "plugin:app|version", "plugin:app|name"];
+/// Commands that succeed in `main` with these arguments: one app command and the core event
+/// commands its capability grants.
+const COMMANDS: [(&str, &str); 3] = [
+    ("probe", "{}"),
+    (
+        "plugin:event|emit_to",
+        r#"{"target":{"kind":"Any"},"event":"probe"}"#,
+    ),
+    ("plugin:event|unlisten", r#"{"event":"probe","eventId":0}"#),
+];
 const UI: &str = "http://tauri.localhost/";
 /// Origins Tauri treats as local: the UI, `localhost:1420` (the UI in `tauri dev`) and the
 /// registered `note-asset` scheme. A page window that loaded one must still reach nothing.
@@ -36,6 +44,15 @@ fn app() -> (App<MockRuntime>, Window, Window) {
 }
 
 fn invoke(window: &Window, cmd: &str, url: &str) -> Result<InvokeResponseBody, serde_json::Value> {
+    call(window, cmd, "{}", url)
+}
+
+fn call(
+    window: &Window,
+    cmd: &str,
+    args: &str,
+    url: &str,
+) -> Result<InvokeResponseBody, serde_json::Value> {
     get_ipc_response(
         window,
         InvokeRequest {
@@ -43,7 +60,7 @@ fn invoke(window: &Window, cmd: &str, url: &str) -> Result<InvokeResponseBody, s
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: url.parse().unwrap(),
-            body: InvokeBody::default(),
+            body: InvokeBody::Json(serde_json::from_str(args).unwrap()),
             headers: Default::default(),
             invoke_key: INVOKE_KEY.into(),
         },
@@ -53,15 +70,29 @@ fn invoke(window: &Window, cmd: &str, url: &str) -> Result<InvokeResponseBody, s
 #[test]
 fn page_window_reaches_no_command() {
     let (_app, main, web) = app();
-    for cmd in COMMANDS {
-        assert!(invoke(&main, cmd, UI).is_ok(), "{cmd} from main");
+    for (cmd, args) in COMMANDS {
+        assert!(call(&main, cmd, args, UI).is_ok(), "{cmd} from main");
         assert!(
-            invoke(&web, cmd, "https://example.com/").is_err(),
+            call(&web, cmd, args, "https://example.com/").is_err(),
             "{cmd} from a remote page"
         );
         for url in LOCAL {
-            assert!(invoke(&web, cmd, url).is_err(), "{cmd} from {url}");
+            assert!(call(&web, cmd, args, url).is_err(), "{cmd} from {url}");
         }
+    }
+}
+
+/// The panel's capability grants only the event commands the UI uses, so a script injected into it
+/// still cannot reach the other core commands, such as the window and webview ones.
+#[test]
+fn main_reaches_no_core_command_the_ui_does_not_use() {
+    let (_app, main, _) = app();
+    for (cmd, args) in [
+        ("plugin:app|version", "{}"),
+        ("plugin:window|title", "{}"),
+        ("plugin:event|emit", r#"{"event":"probe"}"#),
+    ] {
+        assert!(call(&main, cmd, args, UI).is_err(), "{cmd}");
     }
 }
 
@@ -85,7 +116,10 @@ fn local_origins_reach_app_commands_only_from_main() {
 #[test]
 fn remote_origins_reach_no_command() {
     let (_app, main, _) = app();
-    for cmd in COMMANDS {
-        assert!(invoke(&main, cmd, "https://example.com/").is_err(), "{cmd}");
+    for (cmd, args) in COMMANDS {
+        assert!(
+            call(&main, cmd, args, "https://example.com/").is_err(),
+            "{cmd}"
+        );
     }
 }
