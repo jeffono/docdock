@@ -421,7 +421,7 @@ const results = $derived.by(() => {
   return search(
     folderIndex.index,
     query,
-    groupingDate,
+    new Date(groupingDay),
     completionItems.length ? completionContext : null,
   );
 });
@@ -454,7 +454,8 @@ const model = $derived.by(() => {
   });
   return built;
 });
-let groupingDate = $state(new Date());
+let relativeNow = $state(Date.now());
+const groupingDay = $derived(new Date(relativeNow).setHours(0, 0, 0, 0));
 const headings = $derived(
   dateHeadings(
     model.notes.map((card) => card.hit),
@@ -462,7 +463,7 @@ const headings = $derived(
     $noteOrder,
     $grouping === "date",
     query,
-    groupingDate,
+    new Date(groupingDay),
   ),
 );
 /** Folder groups already name the folder; elsewhere each card shows it before its title. */
@@ -1951,7 +1952,7 @@ function shortcut(event: KeyboardEvent) {
 onMount(() => {
   // Refresh after midnight and after a suspended machine resumes, without remounting cards.
   const clock = window.setInterval(() => {
-    groupingDate = new Date();
+    relativeNow = Date.now();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
@@ -2186,7 +2187,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
-            now={groupingDate.getTime()}
+            now={relativeNow}
             folder={showFolder || card.pinned}
             drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
