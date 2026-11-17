@@ -1780,9 +1780,10 @@ fn place(
 fn empty_trash_in(root: &Path, ids: &[String]) -> Result<(), Error> {
     let dir = trash_path(root)?;
     let result = trash::empty(&dir, ids);
+    // An entry that could not be deleted keeps the pinned items its Undo puts back.
     deleted()
         .trashed
-        .retain(|t| t.root != root || !ids.contains(&t.id));
+        .retain(|t| t.root != root || !ids.contains(&t.id) || exists(&dir.join(&t.id)));
     result.map_err(|error| Error::EmptyFailed {
         detail: error.to_string(),
     })
@@ -3337,6 +3338,25 @@ mod tests {
             restore_trashed_in(&root, &id, true),
             Err(Error::TrashItemMissing)
         );
+    }
+    #[test]
+    fn an_entry_that_fails_to_empty_keeps_its_pinned_items_for_undo() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let (root, _) = pinned_setup(&t);
+        fs::write(root.join("a.md"), "body").unwrap();
+        let list = "- [A](a.md)\n";
+        fs::write(root.join(PINNED), list).unwrap();
+        let id = trash_note(&root, "a.md");
+        // An open handle without delete sharing makes the removal fail.
+        let open =
+            std::os::windows::fs::OpenOptionsExt::share_mode(fs::OpenOptions::new().read(true), 0)
+                .open(trash_of(&root).join(&id).join("a.md"))
+                .unwrap();
+        assert!(empty_trash_in(&root, std::slice::from_ref(&id)).is_err());
+        drop(open);
+        assert_eq!(restore_trashed_in(&root, &id, true), Ok("a.md".into()));
+        assert_eq!(fs::read_to_string(root.join(PINNED)).unwrap(), list);
     }
     #[test]
     fn undo_brings_a_trashed_folder_back_with_its_content_and_pins() {
