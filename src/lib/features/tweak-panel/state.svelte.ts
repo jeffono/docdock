@@ -56,7 +56,8 @@ export function load(preset: unknown) {
   if (validHandle(handle))
     next.handle = {
       activationPercent: handle.activationPercent,
-      revealDistance: handle.revealDistance,
+      revealPercent: handle.revealPercent,
+      rushSpeed: handle.rushSpeed,
     };
   Object.assign(tweak, next);
 }

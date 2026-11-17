@@ -18,9 +18,11 @@ installed families, each quoted with a sans-serif or monospace fallback. The Sli
 duration and a `cubic-bezier` curve for each slide (panel open, panel close, handle in, handle out)
 with presets, including overshooting `back` curves, four numbers and a draggable curve editor; each
 slide reads its motion when it starts; an ongoing slide keeps its starting motion. The separate
-`--duration` token affects CSS transitions, not these native slides. The Edge handle section sets the activation height (100-1000%
-of the tab) and the reveal distance (1-500 logical pixels). Named presets can be renamed, deleted or overwritten; deletion and overwrite require inline
-confirmation. Storage failure preserves the previous map. Presets keep tokens, motions and
+`--duration` token affects CSS transitions, not these native slides. The Edge handle section sets the
+activation height (100-1000% of the tab), the reveal radius (10-1000% of the tab) and the rush speed
+(500-20000 logical pixels per second). Named presets can be renamed, deleted or overwritten; deletion
+and overwrite require inline confirmation. Storage failure preserves the previous map. Presets keep
+tokens, motions and
 the edge handle values for A/B switching; Reset restores the source values. The window remembers its
 last state, so a reload or a restart after a Rust change keeps the tweaks once it is open again.
 Export shows the unified diffs to apply: `tokens.css`, the motion constants in `motion.rs` and the

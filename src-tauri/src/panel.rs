@@ -72,11 +72,13 @@ pub enum State {
 /// State machine input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
-    /// Periodic cursor reading. `dialog` indicates that the native picker is open.
+    /// Periodic cursor reading. `dialog` indicates that the native picker is open. `rush`: the
+    /// cursor came at the edge fast, as `handle::rushing` judges.
     Tick {
         zone: CursorZone,
         dialog: bool,
         focus: Focus,
+        rush: bool,
     },
     Pin,
     Unpin,
@@ -150,6 +152,20 @@ impl Panel {
                     self.state = State::Hidden;
                 }
                 Action::None
+            }
+            // The pause filters a cursor drifting onto the edge; one rushing at it means to open.
+            (
+                State::Hidden | State::Arming { .. },
+                Input::Tick {
+                    zone: CursorZone::Edge,
+                    rush: true,
+                    ..
+                },
+            ) => {
+                self.state = State::Open {
+                    leaving_since: None,
+                };
+                Action::Show
             }
             (
                 State::Hidden,
@@ -266,6 +282,7 @@ mod tests {
             zone,
             dialog,
             focus: Focus::Elsewhere,
+            rush: false,
         };
         p.step(tick, t0 + Duration::from_millis(ms))
     }
@@ -276,6 +293,7 @@ mod tests {
             zone: CursorZone::Outside,
             dialog,
             focus,
+            rush: false,
         };
         p.step(tick, t0 + Duration::from_millis(ms))
     }
@@ -305,6 +323,21 @@ mod tests {
         tick(&mut p, CursorZone::Edge, false, t0, 0);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 100), Action::None);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 150), Action::Show);
+    }
+
+    /// Catches a rush to the edge still waiting out the pause, or a rush elsewhere opening.
+    #[test]
+    fn a_rush_to_the_edge_opens_without_the_pause() {
+        let t0 = Instant::now();
+        let rush = |zone| Input::Tick {
+            zone,
+            dialog: false,
+            focus: Focus::Elsewhere,
+            rush: true,
+        };
+        let mut p = Panel::new(D);
+        assert_eq!(p.step(rush(CursorZone::Outside), t0), Action::None);
+        assert_eq!(p.step(rush(CursorZone::Edge), t0), Action::Show);
     }
 
     #[test]

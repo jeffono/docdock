@@ -143,7 +143,9 @@ per-monitor DPI awareness (PMv2).
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
   the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
   edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
-  outside that monitor are ignored. The rules are pure functions in `handle.rs`.
+  outside that monitor are ignored. A rush skips the pause: the cursor reaching the edge at 3000
+  logical pixels per second or more toward it, measured between the last two polls, opens the panel
+  at once. The rules are pure functions in `handle.rs`.
 - **Edge handle:** a native popup with per-pixel alpha (`platform/handle.rs`), created on the main
   thread, whose event loop pumps its messages, and owned by the panel window so it stays above it.
   It is layered, `WS_EX_NOACTIVATE` and `WS_EX_TOOLWINDOW`, and `WS_EX_TRANSPARENT` while it shows over
@@ -155,10 +157,16 @@ per-monitor DPI awareness (PMv2).
   current line or band those pixels are transparent, so at the tab's height the panel's resize strip
   loses only the columns of its line or band, and a click on them does nothing. It is the panel's tab: placed outside the inner edge at an offset, it slides with the
   panel in the same `DeferWindowPos` batch, so with the panel parked it rests on the screen edge.
-  `handle::presence` decides: hidden, shown click-through (closed with the cursor within 48 logical
-  pixels of the edge and of the handle's ends, or sliding), or the tab (open and at rest), the only
-  state where it is enabled and takes clicks. Appearing, it starts its depth beyond the screen edge
-  and slides in; hiding, it slides back out and only then hides, still click-through. The tab counts
+  `handle::presence` decides: hidden, shown click-through (revealed while closed, or the panel
+  opening), or the tab (open and at rest), the only state where it is enabled and takes clicks. The
+  reveal area is a capsule: every point within 400% of the tab height of the parked tab's outline,
+  stretched along the edge to the activation stretch if that is longer, so the handle shows before
+  the edge opens. `handle::Reveal` keeps it hidden while the cursor rushes toward the edge, never
+  hiding a shown handle, and from the moment the panel starts closing until the cursor leaves the
+  area. Appearing alone, it starts its depth beyond the screen edge and slides in; hiding, it slides
+  back out and only then hides, still click-through. Moving the panel's way, it slides in step with
+  the panel's slide instead, same motion and start: hidden, it comes in with the opening panel, and
+  it leaves with the closing one, both landing on the same frame. The tab counts
   as inside the open panel. A press and release on it within the system drag distance, the release
   on the tab's shape (`tab::hit`, since capture bypasses the alpha hit-testing), sends
   `Request::Tab`: the panel closes as on a close request, even pinned, which emits `panel-pinned` so
@@ -224,7 +232,7 @@ per-monitor DPI awareness (PMv2).
   added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its
   app commands. The window sends its whole state to the panel as the `tweak-state` event; the panel
   applies tokens through CSSOM, slide motions through `dev_motion` and the edge handle's activation
-  percent and reveal distance through `dev_handle`, and asks again with `tweak-request` after a
+  percent, reveal radius and rush speed through `dev_handle`, and asks again with `tweak-request` after a
   reload. `dock.rs` reads that tuning, or the `handle.rs` constants in release builds, and passes it
   to the pure rules. For the font picker the window sends `tweak-fonts-request`; the panel calls
   `dev_fonts` and answers with `tweak-fonts`. `platform/fonts.rs` enumerates GDI font families,
