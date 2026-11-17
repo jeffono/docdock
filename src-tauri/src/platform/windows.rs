@@ -170,8 +170,8 @@ pub struct PanelWindow {
 }
 
 impl PanelWindow {
-    /// A window whose styles are already set, shown and sized by the first [`Self::place`].
-    pub fn new(raw: isize) -> Self {
+    /// A window framed and shown by its caller's first [`place_windows`].
+    fn new(raw: isize) -> Self {
         Self {
             raw,
             clip: Rect {
@@ -190,9 +190,9 @@ impl PanelWindow {
         }
     }
 
-    /// Applies styles and shows the window at its final size and position `x` without activating it.
-    pub fn prepare(raw: isize, rect: Rect, clip: Rect, x: i32, activation: Activation) -> Self {
-        let mut window = Self::new(raw);
+    /// Applies styles and disables the still-hidden window. The caller must frame and place it.
+    pub fn prepare(raw: isize, activation: Activation) -> Self {
+        let window = Self::new(raw);
         window.set_enabled(false);
         unsafe {
             let hwnd = window.hwnd();
@@ -204,15 +204,7 @@ impl PanelWindow {
             };
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
         }
-        window.place(rect, clip, x);
         window
-    }
-
-    /// Sizes the window to `rect` at `x`, above other windows, without activating it. Columns
-    /// outside `clip` are cut.
-    pub fn place(&mut self, rect: Rect, clip: Rect, x: i32) {
-        self.set_rect(rect, clip);
-        place_windows(&[self], x);
     }
 
     /// Takes `rect` and `clip` for the next [`place_windows`], which applies them.

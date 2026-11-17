@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::dock::Side;
 use crate::panel::CursorZone;
-use crate::platform::{Monitor, Point, Rect};
+use crate::platform::{BASE_DPI, Monitor, Point, Rect, scale_dpi};
 use std::time::Duration;
 
 /// Depth of the tab beyond the panel's inner edge, as in the reference look.
@@ -24,7 +24,6 @@ pub const ACTIVATION_PERCENT: u32 = 300;
 pub const REVEAL_PERCENT: u32 = 400;
 /// Speed toward the edge, in logical pixels per second, from which an approach is a rush.
 pub const RUSH_SPEED: u32 = 500;
-const BASE_DPI: u32 = 96;
 
 /// The values the development tweak window changes live; release builds use the constants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,10 +59,6 @@ pub const LOGICAL: Logical = Logical {
     height: HEIGHT,
     curve: CURVE,
 };
-
-fn scale_dpi(dpi: u32, logical: u32) -> i32 {
-    (logical * dpi / BASE_DPI) as i32
-}
 
 /// The tab at one DPI, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -615,6 +610,7 @@ mod tests {
         rushing(from, to, poll, &monitor, Side::Right, SPEED)
     }
 
+    /// Catches an ordinary approach skipping the handle: 100 logical pixels in a 50 ms poll is
     /// Catches the threshold drifting with the monitor's scale: 3000 logical pixels per second is
     /// 150 physical pixels per poll at 100%, 225 at 150% and 300 at 200%.
     #[test]

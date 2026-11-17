@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter};
 use crate::handle::{self, Presence};
 use crate::motion::{self, Kind, Motion};
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
-use crate::platform::{self, Activation, Monitor, PanelWindow, Point, Rect};
+use crate::platform::{self, Activation, BASE_DPI, Monitor, PanelWindow, Point, Rect, scale_dpi};
 
 const POLL: Duration = Duration::from_millis(50);
 /// Default width in logical pixels; on the monitor it becomes `width * dpi / 96`.
@@ -20,7 +20,6 @@ const MIN_WIDTH: u32 = 320;
 /// Extra gap, in logical pixels, between the page and the inner edge: with the page's own 2 px inset it
 /// leaves a 6 px strip of the UI, where the resize handle sits, along the whole panel.
 const HANDLE_GAP: u32 = 4;
-const BASE_DPI: u32 = 96;
 /// Two bars above the page, in logical pixels: twice `--size-bar` in `tokens.css`.
 const WEB_TOP: u32 = 88;
 
@@ -82,7 +81,7 @@ fn clamp_width(monitor: &Monitor, width: Option<u32>) -> u32 {
 
 /// Open panel rectangle, aligned with the work area edge on `side`.
 fn panel_rect(monitor: &Monitor, side: Side, width: Option<u32>) -> Rect {
-    let width = (clamp_width(monitor, width) * monitor.dpi / BASE_DPI) as i32;
+    let width = scale_dpi(monitor.dpi, clamp_width(monitor, width));
     match side {
         Side::Right => Rect {
             left: monitor.work.right - width,
@@ -105,24 +104,29 @@ fn parked_x(monitor: &Monitor, side: Side, panel: Rect) -> i32 {
 
 /// Web page rectangle: the panel minus the top bar and the handle gap on the inner edge.
 fn web_rect(monitor: &Monitor, panel: Rect, side: Side) -> Rect {
-    let gap = (HANDLE_GAP * monitor.dpi / BASE_DPI) as i32;
+    let gap = scale_dpi(monitor.dpi, HANDLE_GAP);
     let (left, right) = match side {
         Side::Right => ((panel.left + gap).min(panel.right - 1), panel.right),
         Side::Left => (panel.left, (panel.right - gap).max(panel.left + 1)),
     };
     Rect {
-        top: (panel.top + (WEB_TOP * monitor.dpi / BASE_DPI) as i32).min(panel.bottom - 1),
+        top: (panel.top + scale_dpi(monitor.dpi, WEB_TOP)).min(panel.bottom - 1),
         left,
         right,
         ..panel
     }
 }
 
-/// Places the page window over the open panel `panel`, sliding with it at `x`.
-fn place_page(web: &mut PanelWindow, monitor: &Monitor, panel: Rect, side: Side, x: i32) {
+/// Frames the page over the panel, retaining its offset for batched placement.
+fn frame_page(web: &mut PanelWindow, monitor: &Monitor, panel: Rect, side: Side) {
     let rect = web_rect(monitor, panel, side);
     web.set_offset(rect.left - panel.left);
-    web.place(rect, monitor.bounds, x);
+    web.set_rect(rect, monitor.bounds);
+}
+
+fn place_page(web: &mut PanelWindow, monitor: &Monitor, panel: Rect, side: Side, x: i32) {
+    frame_page(web, monitor, panel, side);
+    platform::place_windows(&[web], x);
 }
 
 /// Only the outer edge of the outermost monitor on `side` holds the cursor; elsewhere it would cross
@@ -297,9 +301,7 @@ impl Dock {
             && let Some(web) = &mut self.web
         {
             web.overlay(monitor.dpi, self.overlay_height, x);
-            let rect = web_rect(&monitor, self.rect, self.side);
-            web.set_offset(rect.left - self.rect.left);
-            web.set_rect(rect, monitor.bounds);
+            frame_page(web, &monitor, self.rect, self.side);
             page = Some(&*web);
         }
         // Resizing moves the panel, its tab and its page: together, so none trails the others.
@@ -390,12 +392,11 @@ impl Dock {
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
-                let rect = web_rect(&self.monitor, self.rect, self.side);
-                let bounds = self.monitor.bounds;
                 let x = self.window_x();
-                let mut web = PanelWindow::prepare(raw, rect, bounds, x, Activation::OnClick);
+                let mut web = PanelWindow::prepare(raw, Activation::OnClick);
+                frame_page(&mut web, &self.monitor, self.rect, self.side);
                 web.overlay(self.monitor.dpi, self.overlay_height, x);
-                place_page(&mut web, &self.monitor, self.rect, self.side, x);
+                platform::place_windows(&[&web], x);
                 web.set_enabled(self.is_open());
                 self.web = Some(web);
                 self.web_visible = true;
@@ -416,12 +417,9 @@ impl Dock {
                         web.set_enabled(self.is_open());
                     }
                     self.web = Some(web);
-                    self.web_visible = visible;
-                    let _ = self.app.emit_to("main", "web-visible", visible);
-                } else {
-                    self.web_visible = visible;
-                    let _ = self.app.emit_to("main", "web-visible", visible);
                 }
+                self.web_visible = visible;
+                let _ = self.app.emit_to("main", "web-visible", visible);
                 Action::None
             }
             Request::SetWebOverlay(height) => {
@@ -731,8 +729,7 @@ pub fn start(
     let monitor = edge_monitor(platform::monitors(), side).expect("no monitor available");
     let rect = panel_rect(&monitor, side, width);
     let parked_x = parked_x(&monitor, side, rect);
-    let bounds = monitor.bounds;
-    let window = PanelWindow::prepare(raw_window, rect, bounds, parked_x, Activation::OnRequest);
+    let window = PanelWindow::prepare(raw_window, Activation::OnRequest);
     eprintln!("[panel] {side:?} of monitor {monitor:?}, panel {rect:?}");
     let mut dock = Dock {
         app,
@@ -814,14 +811,8 @@ mod tests {
             ..primary
         };
         for side in [Side::Right, Side::Left] {
-            assert_eq!(
-                edge_monitor(vec![primary, below], side).unwrap(),
-                primary
-            );
-            assert_eq!(
-                edge_monitor(vec![below, primary], side).unwrap(),
-                primary
-            );
+            assert_eq!(edge_monitor(vec![primary, below], side).unwrap(), primary);
+            assert_eq!(edge_monitor(vec![below, primary], side).unwrap(), primary);
         }
     }
 
