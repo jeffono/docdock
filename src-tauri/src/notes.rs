@@ -2137,10 +2137,7 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<
         return Err(Error::AttachmentFolderUnsafe);
     }
     // Lock canonical ancestry so no component can be swapped for a junction during the write.
-    let mut held = Vec::new();
-    for dir in parent.ancestors().collect::<Vec<_>>().into_iter().rev() {
-        held.push(platform::hold_directory(dir).map_err(|_| Error::AttachmentFolderUnsafe)?);
-    }
+    let mut held = hold_ancestry(parent).map_err(|_| Error::AttachmentFolderUnsafe)?;
     // Revalidate after locking: resolve may have raced with an ancestor rename.
     if resolve(root, path, markdown)? != note {
         return Err(Error::AttachmentFolderUnsafe);
