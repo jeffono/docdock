@@ -74,6 +74,8 @@ Each plan task has a level; use the cheapest model that can resolve it well.
 | `advanced` | Architecture, Win32, focus, concurrency, security, hard bugs |
 
 - Read only what is necessary. Delegate only when worthwhile: a subagent starts without context.
+- To spread usage limits, delegate `basic` and `standard` tasks to OpenAI models (Codex) and
+  `advanced` ones to Claude Opus. Do not delegate to Antigravity: its permissions misbehave in T3.
 - After two unsuccessful attempts, stop and move up a level instead of persisting.
 
 ## Context and documentation
