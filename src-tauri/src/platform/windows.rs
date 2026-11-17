@@ -101,6 +101,8 @@ unsafe extern "system" fn collect_monitor(
     _: *mut RECT,
     list: LPARAM,
 ) -> BOOL {
+    // SAFETY: monitors passes an exclusive pointer to its live Vec; enumeration calls
+    // this callback synchronously and never retains the pointer.
     unsafe { &mut *(list.0 as *mut Vec<HMONITOR>) }.push(handle);
     true.into()
 }
