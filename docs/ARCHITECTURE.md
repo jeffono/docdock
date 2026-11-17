@@ -468,7 +468,10 @@ per-monitor DPI awareness (PMv2).
 ## Notes
 
 `notes.rs` stores the chosen folder and the screen side in `settings.json`, in the app configuration, and lists `.md` files
-recursively, excluding hidden folders, symlinks and junctions. Opening validates the path and checks that the
+recursively, excluding hidden folders, symlinks and junctions. A subfolder that cannot be read is
+skipped, keeping the notes already read in it, and `notes_list` answers `{ notes, skipped }` with
+those folders' relative `/` paths; `notes_folders` and the leftover scan skip them too. Only a notes
+folder that cannot be read fails, as described in "Folder away". Opening validates the path and checks that the
 canonical target is inside the folder. The native picker keeps the panel open. Rust sends the raw text to the UI,
 which has no filesystem permission. A closed YAML frontmatter block at the start is hidden; title,
 http(s) url and tag scalars, flow lists and block lists are extracted as plain text by
@@ -639,7 +642,8 @@ folder's last change, by this computer's, from when it was made or synced here; 
 clock ran late cannot have its entries purged early elsewhere. Then the purge removes them: at startup, on choosing a folder and when
 the panel hides (`purge_trash`), on a thread of its own, only in the folder that `root` accepts by its
 marker, so never while it is unavailable. "Empty trash" in Preferences (`notes_trash_empty(ids)`)
-removes the entries that were listed and confirmed, not one synced in since. Listing failures that
+removes the entries that were listed and confirmed, not one synced in since; an entry it fails to
+remove keeps the pinned items its Undo would bring back. Listing failures that
 are not a link tell the folder is unavailable, as while a vault locks. Every walk inside the trash (listing, restoring, emptying, purging) holds each folder, without following links, before reading it and until done with it, and every folder the trash or a restore creates is made while the one above it is held and then held itself, so no folder can be swapped for a link meanwhile. Both remove links inside without following them, refuse a trash that is a link (it is
 held with its ancestry, as for writing), and walk the tree themselves: `fs::remove_dir_all` fails on a
 vault mounted by WinFsp. What cannot be removed now, such as while the vault locks, goes next time.
@@ -742,7 +746,8 @@ save completion or another reload.
 raw IPC body with a percent-encoded note path header. Rust validates the note with `resolve`, accepts
 only PNG, JPEG, GIF and WebP magic signatures, and limits attachments to 10 MiB to bound disk use and
 accidental large clipboard writes. It creates `attachments/pasted-YYYYMMDD-HHMMSS.<ext>` beside the note,
-using local time and `-2`, `-3` suffixes for collisions. A synced temporary file becomes the final file
+using local time and `-2`, `-3` suffixes for collisions under the free-name rule trash restores use (`place`:
+reserved Undo names count as taken; it gives up after 100 tries). A synced temporary file becomes the final file
 through `move_new`, never replacing an existing file. The attachment directory cannot be a reparse
 point; open directory handles prevent replacement of it and its canonical ancestors during the write.
 Note aliases with a different canonical parent are refused so the relative link remains correct.
@@ -799,7 +804,8 @@ disk version before writing.
 `.docdock-bak` files and may leave the note name empty. Opening a folder lists every
 `<note>.md.<pid>-<n>.docdock-bak` outside hidden folders, under the save lock so a save in progress is not
 mistaken for one. Restoring renames the backup to the note name, or to `<stem> (recovered).md`,
-`(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken. Nothing is overwritten or deleted;
+`(recovered 2)` and so on (pt-BR: `recuperada`) if the name is taken, by the free-name rule trash
+restores use (`place`), so names reserved for Undo count as taken and long names are shortened to fit. Nothing is overwritten or deleted;
 the user compares the copies and removes the extra one.
 
 **Optional vault.** `vault_file` in `settings.json` is a preference, independent of note-derived data,
@@ -849,8 +855,8 @@ availability poll and `notes_folder` apply the same check. `root` answers `folde
 `folderMissing` or `folderUnrecognized` without touching the disk further, and no write path creates
 the folder or its parents (saves, recreation, pinned edits and restore, folder creation, pasted images,
 leftovers, moves).
-`notes_folder` and `notes_list` run off the main thread, since an offline share can take seconds to
-answer.
+Commands that touch the notes folder run off the main thread, since an offline share can take
+seconds to answer.
 
 Writes still go by path, checked once per command as it starts. Two gaps remain: a forced unmount in
 the instant between the check and a write, and a junction on the path redirected after the check,
