@@ -586,19 +586,27 @@ pub fn vault_file(app: &AppHandle) -> Result<Option<String>, Error> {
 pub fn clear_vault_file(app: &AppHandle) -> Result<(), Error> {
     update(app, |settings| settings.vault_file = None)
 }
+/// A file dialog owned by the panel, which stays shown until the guard drops. Owned, the picker stays
+/// above the panel and does not open a second picker.
+fn dialog(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+) -> Result<(DialogGuard, rfd::FileDialog), Error> {
+    requests
+        .send(Request::SetDialog(true))
+        .map_err(Error::unexpected)?;
+    let guard = DialogGuard(requests.clone());
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| Error::unexpected("main window missing"))?;
+    Ok((guard, rfd::FileDialog::new().set_parent(&window)))
+}
 pub fn choose_vault_file(
     app: &AppHandle,
     requests: &Sender<Request>,
 ) -> Result<Option<String>, Error> {
-    requests
-        .send(Request::SetDialog(true))
-        .map_err(Error::unexpected)?;
-    let _guard = DialogGuard(requests.clone());
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::unexpected("main window missing"))?;
-    if let Some(path) = rfd::FileDialog::new()
-        .set_parent(&window)
+    let (_guard, dialog) = dialog(app, requests)?;
+    if let Some(path) = dialog
         .add_filter("Cryptomator", &["cryptomator"])
         .pick_file()
     {
@@ -636,15 +644,8 @@ pub fn unlock_vault(app: &AppHandle) -> Result<(), Error> {
     platform::external::open_file(app, &target.to_string_lossy())
 }
 pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Folder>, Error> {
-    requests
-        .send(Request::SetDialog(true))
-        .map_err(Error::unexpected)?;
-    let _guard = DialogGuard(requests.clone());
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| Error::unexpected("main window missing"))?;
-    // Owned by the panel, the picker stays above it and does not open a second picker.
-    if let Some(path) = rfd::FileDialog::new().set_parent(&window).pick_folder() {
+    let (_guard, dialog) = dialog(app, requests)?;
+    if let Some(path) = dialog.pick_folder() {
         choose_in(&config(app)?, path)?;
         crate::watch::stop();
         purge_trash(app);
