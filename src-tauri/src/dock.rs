@@ -266,6 +266,8 @@ impl Dock {
         } else {
             self.parked_x
         };
+        // A close cut short here still parks the panel, which lets clicks through as after a slide.
+        self.set_click_through(self.x == self.parked_x);
         // The handle settles where it was going.
         self.handle_slide = None;
         self.handle_shift = if self.handle_presence == Presence::Hidden {
@@ -745,7 +747,6 @@ pub fn start(
         slide: None,
     };
     dock.place(monitor);
-    dock.set_click_through(true);
     std::thread::spawn(move || dock.run(requests));
 }
 
