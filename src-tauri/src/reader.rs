@@ -239,6 +239,20 @@ mod tests {
 
     const URL: &str = "https://example.com/news/story";
 
+    /// The script cannot read the Rust constants, so it repeats them; a limit changed on one side only
+    /// would make the checks here refuse what the copy lets through, or allow more than intended.
+    #[test]
+    fn the_script_copies_within_the_limits_checked_here() {
+        for limit in [
+            format!("let elements = {COPIED_ELEMENTS};"),
+            format!("let chars = {HTML_MAX_CHARS};"),
+            format!("++depth > {MAX_DEPTH})"),
+            format!("root.outerHTML.slice(0, {HTML_MAX_CHARS})"),
+        ] {
+            assert!(READER_SCRIPT.contains(&limit), "{limit}");
+        }
+    }
+
     fn page(body: &str) -> String {
         let paragraph = "<p>Readers keep coming back to this paragraph, which holds enough words \
             and commas, so the scorer counts it as the article's real content, not navigation.</p>";
