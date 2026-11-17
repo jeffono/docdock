@@ -385,11 +385,14 @@ pub fn suggestions(app: &AppHandle, query: &str) -> Vec<String> {
     url.query_pairs_mut()
         .append_pair("q", query)
         .append_pair("type", "json");
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(std::time::Duration::from_secs(2)))
-        .max_redirects(0)
-        .build()
-        .into();
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    let agent = AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(2)))
+            .max_redirects(0)
+            .build()
+            .into()
+    });
     let fetch = || -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let mut response = agent.get(url.as_str()).call()?;
         let bytes = response
