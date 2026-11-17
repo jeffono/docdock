@@ -191,8 +191,9 @@ pub async fn notes_choose(
 pub fn notes_trust(app: AppHandle) -> Result<Option<crate::notes::Folder>, Error> {
     crate::notes::trust(&app)
 }
+/// The notes, and the subfolders left out because they could not be read, for a discreet notice.
 #[tauri::command(async)]
-pub fn notes_list(app: AppHandle) -> Result<Vec<crate::notes::Note>, Error> {
+pub fn notes_list(app: AppHandle) -> Result<crate::notes::Listing, Error> {
     crate::notes::list_for(&app)
 }
 /// `async` moves reading and sanitization off the main thread.

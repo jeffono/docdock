@@ -807,10 +807,10 @@ fn list(root: &Path) -> Result<Listing, Error> {
     Ok(Listing { notes, skipped })
 }
 /// Listing is what the UI does on opening a folder, so it also starts watching it.
-pub fn list_for(app: &AppHandle) -> Result<Vec<Note>, Error> {
+pub fn list_for(app: &AppHandle) -> Result<Listing, Error> {
     let root = root(app)?;
     crate::watch::ensure(app, &root);
-    Ok(list(&root)?.notes)
+    list(&root)
 }
 fn internal_path(path: &Path) -> bool {
     path.components().any(|component| {
