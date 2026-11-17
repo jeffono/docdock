@@ -14,7 +14,10 @@ detail each stage when it is next.
   by another provider and checked manually by the user. Measured against the native tab (release
   builds, 125%, medians of two alternating runs, app and WebView2 processes): parked, working set
   +3 MB, dedicated GPU memory +3 MB, but private memory +12 MB, above the 5 MB criterion; open, private
-  +19 MB and GPU +9 MB. Awaiting the user's decision before merging into `m10`.
+  +19 MB and GPU +9 MB. Per process (second measurement, parked +9 MB in total): the Rust host +5.5 MB
+  private both parked and open, and the WebView2 GPU process +5 MB private and +4.5 MB GPU parked,
+  +11.5 and +9 MB open; the others are unchanged. Awaiting the user's decision before merging into
+  `m10`.
 
 ## Next
 
