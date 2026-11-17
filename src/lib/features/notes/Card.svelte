@@ -61,7 +61,9 @@ let {
   folder?: boolean;
 } = $props();
 
-const open = $derived(card.level !== "line");
+const path = $derived(card.hit.path);
+const level = $derived(card.level);
+const open = $derived(level !== "line");
 const row = $derived(!card.pinned && card.level === "line");
 let body = $state<HTMLElement>();
 let clipped = $state(false);
@@ -70,7 +72,7 @@ let clipped = $state(false);
 $effect(() => {
   void text;
   const element = body;
-  if (!element || card.level !== "preview") return;
+  if (!element || level !== "preview") return;
   const measure = () => {
     clipped = element.scrollHeight > element.clientHeight + 1;
   };
@@ -190,7 +192,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         role="presentation"
         {@attach (element) => {
           let current = true;
-          void renderNote(text ?? "", card.hit.path).then((fragment) => {
+          void renderNote(text ?? "", path).then((fragment) => {
             if (!current) return;
             element.replaceChildren(fragment);
             for (const link of element.querySelectorAll("a")) link.tabIndex = -1;

@@ -9,10 +9,6 @@ export const onExitRequested = (handler: (id: number) => void) =>
 export const onExitCancelled = (handler: () => void) => listen("exit-cancelled", handler);
 export const exitReady = (id: number, saved: boolean) => invoke<void>("exit_ready", { id, saved });
 
-export function appVersion(): Promise<string> {
-  return invoke<string>("app_version");
-}
-
 export type Locale = "en" | "pt-BR";
 export const appLocale = () => invoke<Locale>("app_locale");
 
@@ -114,7 +110,7 @@ export const onTweakState = <T>(handler: (state: T) => void) =>
 export const tweakRequest = () => emitTo("tweak", "tweak-request");
 export const onTweakRequest = (handler: () => void) => listen("tweak-request", () => handler());
 /** The tweak window cannot invoke `dev_fonts`: it asks the panel, which answers with the list. */
-export type TweakFonts = { families: string[] } | { error: string };
+type TweakFonts = { families: string[] } | { error: string };
 export const tweakFontsRequest = () => emitTo("main", "tweak-fonts-request");
 export const onTweakFontsRequest = (handler: () => void) =>
   listen("tweak-fonts-request", () => handler());
@@ -189,7 +185,7 @@ export type OpenNote = {
 export type SaveResult = { status: "saved"; version: string } | { status: "conflict" };
 export const notesOpen = (path: string) => invoke<OpenNote>("notes_open", { path });
 /** Raw texts of many notes in one call, for the search index. Unreadable notes are left out. */
-export type NoteText = { path: string; text: string; modified: number };
+type NoteText = { path: string; text: string; modified: number };
 export const notesTexts = (paths: string[]) => invoke<NoteText[]>("notes_texts", { paths });
 export const notesSave = (path: string, content: string, base: string) =>
   invoke<SaveResult>("notes_save", { path, content, base });

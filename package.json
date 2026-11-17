@@ -11,7 +11,7 @@
     "build": "vite build",
     "prepare": "git config core.hooksPath .githooks",
     "tauri": "tauri",
-    "test": "vitest run --passWithNoTests --reporter=dot",
+    "test": "vitest run --reporter=dot",
     "clean": "node scripts/clean.mjs",
     "icons": "node scripts/icons.mjs",
     "format": "biome check --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",

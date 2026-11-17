@@ -13,6 +13,7 @@ import {
   isMissing,
   isUntitled,
   jumpSection,
+  keptNote,
   move,
   movedPath,
   navKeys,
@@ -429,4 +430,72 @@ describe("section jumps", () => {
   it("returns no selection for an empty list", () => {
     expect(jumpSection([], "", 1)).toBe("");
   });
+});
+
+// Losing an expanded note must not unmount its last content or an empty unsaved editor.
+describe("kept expanded note", () => {
+  const input = {
+    expanded: "folder/lost.md",
+    hits: [],
+    notes: [],
+    hasContent: true,
+    editing: false,
+    ready: true,
+    index: new Map(),
+  };
+  it("keeps cached content after external deletion with a filename fallback", () => {
+    expect(keptNote(input)).toEqual({
+      path: "folder/lost.md",
+      title: "lost",
+      tags: [],
+      url: undefined,
+      modified: 0,
+      snippet: null,
+      gone: true,
+    });
+  });
+  it("keeps an empty unsaved editor after external deletion", () => {
+    expect(keptNote({ ...input, hasContent: false, editing: true })?.gone).toBe(true);
+  });
+  it("does not invent content for an unread vanished note", () => {
+    expect(keptNote({ ...input, hasContent: false })).toBeNull();
+  });
+  it("does not mark a note gone before the folder is available", () => {
+    expect(keptNote({ ...input, ready: false })?.gone).toBe(false);
+  });
+  it("does not duplicate a search hit", () => {
+    expect(keptNote({ ...input, hits: [hit(input.expanded)] })).toBeNull();
+  });
+  it("retains indexed metadata for an edited note hidden by search", () => {
+    const entry = {
+      ...hit(input.expanded),
+      title: "Saved title",
+      tags: ["work"],
+      url: "https://example.com",
+    };
+    expect(
+      keptNote({
+        ...input,
+        notes: [{ path: input.expanded }],
+        hasContent: false,
+        index: new Map([[input.expanded, entry]]),
+      }),
+    ).toMatchObject({
+      title: "Saved title",
+      tags: ["work"],
+      url: entry.url,
+      modified: 1,
+      gone: false,
+    });
+  });
+});
+
+it("date headings stay out of keyboard navigation while the edited note keeps its path", () => {
+  const model = buildList({ ...base, pinned: [item("a.md")], expanded: "c.md", editing: true });
+  const visible = rows(
+    model,
+    "c.md",
+    new Map([["b.md", { key: "today", kind: "today", date: 1 }]]),
+  );
+  expect(navKeys(model, visible)).toEqual(["a.md", "b.md", "c.md"]);
 });

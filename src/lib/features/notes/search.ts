@@ -47,7 +47,7 @@ function foldChar(char: string): string {
 }
 
 /** Case- and accent-insensitive form of `text`. */
-export function fold(text: string): string {
+function fold(text: string): string {
   return text.replace(/[A-Z]|\P{ASCII}/gu, foldChar);
 }
 

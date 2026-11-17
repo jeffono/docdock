@@ -324,7 +324,7 @@ function resizeKey(event: KeyboardEvent) {
 }
 function togglePin() {
   pinned = !pinned;
-  panelSetPinned(pinned);
+  void action(panelSetPinned(pinned));
 }
 </script>
 

@@ -72,7 +72,7 @@ import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
 import { folderAction, folderNotice } from "./folder-state";
-import { dateHeadings } from "./grouping";
+import { dateHeadings, folderOf } from "./grouping";
 import { movedLinks } from "./links";
 import {
   arrowScroll,
@@ -84,10 +84,10 @@ import {
   entryKey,
   escapeAction,
   folderLabels,
-  folderOf,
   isMissing,
   isUntitled,
   jumpSection,
+  keptNote,
   type Level,
   move,
   movedPath,
@@ -421,26 +421,21 @@ const results = $derived.by(() => {
   return search(
     folderIndex.index,
     query,
-    groupingDate,
+    new Date(groupingDay),
     completionItems.length ? completionContext : null,
   );
 });
 const kept = $derived.by(() => {
   void indexVersion;
-  if (!expanded || results.hits.some((hit) => hit.path === expanded)) return null;
-  const listed = notes.some((note) => note.path === expanded);
-  if (!listed && !contents[expanded] && !(editing && expanded === selected)) return null;
-  const name = expanded.slice(expanded.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-  const entry = listed ? folderIndex.index.get(expanded) : undefined;
-  return {
-    path: expanded,
-    title: entry?.title ?? name,
-    tags: entry?.tags ?? [],
-    url: entry?.url,
-    modified: entry?.modified ?? 0,
-    snippet: null,
-    gone: !listed && ready,
-  };
+  return keptNote({
+    expanded,
+    hits: results.hits,
+    notes,
+    hasContent: !!contents[expanded],
+    editing: editing && expanded === selected,
+    ready,
+    index: folderIndex.index,
+  });
 });
 const model = $derived.by(() => {
   const built = buildList({
@@ -454,7 +449,8 @@ const model = $derived.by(() => {
   });
   return built;
 });
-let groupingDate = $state(new Date());
+let relativeNow = $state(Date.now());
+const groupingDay = $derived(new Date(relativeNow).setHours(0, 0, 0, 0));
 const headings = $derived(
   dateHeadings(
     model.notes.map((card) => card.hit),
@@ -462,7 +458,7 @@ const headings = $derived(
     $noteOrder,
     $grouping === "date",
     query,
-    groupingDate,
+    new Date(groupingDay),
   ),
 );
 /** Folder groups already name the folder; elsewhere each card shows it before its title. */
@@ -601,11 +597,7 @@ async function refresh(value: NotesFolder | null) {
   expanded = "";
   selection = "";
   if (value?.state !== "available") return;
-  const [list, directoryList] = await listSnapshot();
-  if (current !== generation) return;
-  notes = list;
-  folders = directoryList;
-  await sync(list);
+  await relist(() => current !== generation);
   if (current !== generation) return;
   const state = await pinnedList();
   if (current !== generation) return;
@@ -620,16 +612,22 @@ async function listSnapshot() {
   return [list, folderLabels(list, directories)] as const;
 }
 
+/** Ignore a snapshot if the active folder changed while it was being read. */
+async function relist(stale = () => false) {
+  const [list, directoryList] = await listSnapshot();
+  if (stale()) return;
+  notes = list;
+  folders = directoryList;
+  await sync(list);
+}
+
 async function restore(path: string) {
   try {
     error = "";
     if (!(await leaveEditor())) return;
     const note = await notesRestore(path);
     leftovers = await notesLeftovers();
-    const [list, directoryList] = await listSnapshot();
-    notes = list;
-    folders = directoryList;
-    await sync(list);
+    await relist();
     expanded = note;
     selection = note;
   } catch (e) {
@@ -678,10 +676,7 @@ async function create(text: string, content = "") {
       const name = noteFileName(text, taken);
       const result = await notesSave(name, content, "");
       if (result.status === "saved") {
-        const [list, directoryList] = await listSnapshot();
-        notes = list;
-        folders = directoryList;
-        await sync(list);
+        await relist();
         expanded = name;
         selection = name;
         // Leaving the reader view first, so hiding the page returns to Notes.
@@ -833,7 +828,6 @@ function slide(_node: HTMLElement, { from, to }: { from: DOMRect; to: DOMRect })
 }
 
 let pinning = false;
-/** `refocus`: the toggle came from the editor, which can lose focus when its card changes section. */
 async function pinOrUnpin(card: Card) {
   if (pinning) return;
   pinning = true;
@@ -1459,11 +1453,7 @@ async function reload() {
         () => {},
       );
   }
-  const [list, directoryList] = await listSnapshot();
-  if (stale()) return;
-  notes = list;
-  folders = directoryList;
-  await sync(list);
+  await relist(stale);
   if (stale()) return;
   const state = await pinnedList();
   if (stale()) return;
@@ -1951,7 +1941,7 @@ function shortcut(event: KeyboardEvent) {
 onMount(() => {
   // Refresh after midnight and after a suspended machine resumes, without remounting cards.
   const clock = window.setInterval(() => {
-    groupingDate = new Date();
+    relativeNow = Date.now();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
@@ -1995,6 +1985,11 @@ onMount(() => {
   };
 });
 </script>
+
+{#snippet webSuggestion(entry: WebEntry, inList: boolean, current: boolean)}
+  <button class="suggestion" class:in-list={inList} class:selected={active === entry.key} tabindex="-1" aria-current={current && active === entry.key || undefined} onclick={() => activateWeb(entry)}
+    {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+{/snippet}
 
 <svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
@@ -2071,8 +2066,7 @@ onMount(() => {
   {#if browser && addressEditing && shownWebItems.length}
     <div class="web-suggestions" bind:this={suggestionsElement}>
       {#each shownWebItems as entry (entry.key)}
-        <button class="suggestion" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+        {@render webSuggestion(entry, false, true)}
       {/each}
     </div>
   {/if}
@@ -2186,7 +2180,7 @@ onMount(() => {
           {@const edited = editing && card.hit.path === selected}
           <CardView
             {card}
-            now={groupingDate.getTime()}
+            now={relativeNow}
             folder={showFolder || card.pinned}
             drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
@@ -2209,15 +2203,13 @@ onMount(() => {
       {/each}
       {#if shownWebItems.length}<div class="section-heading"><h2>{t("list.web")}</h2></div>{/if}
       {#each shownWebItems as entry (entry.key)}
-        <button class="suggestion in-list" class:selected={active === entry.key} tabindex="-1" aria-current={active === entry.key || undefined} onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+        {@render webSuggestion(entry, true, true)}
       {/each}
       {#if ready && !model.pinned.length && !notes.some((note) => !isPinnedList(note.path)) && !query.trim()}<p class="message">{t("notes.emptyFolder")}</p>{/if}
     </div>
   {:else}
     {#each shownWebItems as entry (entry.key)}
-      <button class="suggestion" class:selected={active === entry.key} tabindex="-1" onclick={() => activateWeb(entry)}
-          {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
+      {@render webSuggestion(entry, false, false)}
     {/each}
     <div class="empty">
       <p>{folder && folder.state !== "available" ? t(folderNotice(folder.state)) : t("notes.chooseHint")}</p>
