@@ -72,11 +72,13 @@ pub enum State {
 /// State machine input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
-    /// Periodic cursor reading. `dialog` indicates that the native picker is open.
+    /// Periodic cursor reading. `dialog` indicates that the native picker is open. `rush`: the
+    /// cursor came at the edge fast, as `handle::rushing` judges.
     Tick {
         zone: CursorZone,
         dialog: bool,
         focus: Focus,
+        rush: bool,
     },
     Pin,
     Unpin,
@@ -89,6 +91,11 @@ pub enum Input {
     /// The UI asked to close: Escape in the search bar, or the shortcut while already there. A pinned
     /// panel only gives up focus.
     Close,
+    /// The tab beside the open panel was clicked: it closes, even pinned. `dialog` indicates that
+    /// the native picker is open.
+    Tab {
+        dialog: bool,
+    },
 }
 
 /// Effect for the calling layer to perform.
@@ -126,7 +133,10 @@ impl Panel {
     pub fn step(&mut self, input: Input, now: Instant) -> Action {
         match (self.state, input) {
             // The picker is modal: closing it would re-enable the already hidden panel window.
-            (_, Input::Shortcut { dialog: true }) => Action::None,
+            (_, Input::Shortcut { dialog: true } | Input::Tab { dialog: true }) => Action::None,
+            (State::Open { .. } | State::Summoned { .. } | State::Pinned, Input::Tab { .. }) => {
+                self.dismiss()
+            }
             // Pinned stays pinned: the shortcut only brings focus to the search bar.
             (State::Pinned, Input::Shortcut { .. }) => Action::Summon,
             // An open panel takes focus instead of closing; the UI closes it when the shortcut
@@ -142,6 +152,20 @@ impl Panel {
                     self.state = State::Hidden;
                 }
                 Action::None
+            }
+            // The pause filters a cursor drifting onto the edge; one rushing at it means to open.
+            (
+                State::Hidden | State::Arming { .. },
+                Input::Tick {
+                    zone: CursorZone::Edge,
+                    rush: true,
+                    ..
+                },
+            ) => {
+                self.state = State::Open {
+                    leaving_since: None,
+                };
+                Action::Show
             }
             (
                 State::Hidden,
@@ -258,6 +282,7 @@ mod tests {
             zone,
             dialog,
             focus: Focus::Elsewhere,
+            rush: false,
         };
         p.step(tick, t0 + Duration::from_millis(ms))
     }
@@ -268,6 +293,7 @@ mod tests {
             zone: CursorZone::Outside,
             dialog,
             focus,
+            rush: false,
         };
         p.step(tick, t0 + Duration::from_millis(ms))
     }
@@ -297,6 +323,21 @@ mod tests {
         tick(&mut p, CursorZone::Edge, false, t0, 0);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 100), Action::None);
         assert_eq!(tick(&mut p, CursorZone::Edge, false, t0, 150), Action::Show);
+    }
+
+    /// Catches a rush to the edge still waiting out the pause, or a rush elsewhere opening.
+    #[test]
+    fn a_rush_to_the_edge_opens_without_the_pause() {
+        let t0 = Instant::now();
+        let rush = |zone| Input::Tick {
+            zone,
+            dialog: false,
+            focus: Focus::Elsewhere,
+            rush: true,
+        };
+        let mut p = Panel::new(D);
+        assert_eq!(p.step(rush(CursorZone::Outside), t0), Action::None);
+        assert_eq!(p.step(rush(CursorZone::Edge), t0), Action::Show);
     }
 
     #[test]
@@ -490,6 +531,23 @@ mod tests {
             tick(&mut p, CursorZone::Edge, false, t0, 1150),
             Action::Show
         );
+    }
+
+    /// Bug caught: clicking the tab leaves a pinned panel open, or a stationary cursor reopens it.
+    #[test]
+    fn tab_click_closes_even_pinned_but_not_over_the_picker() {
+        let t0 = Instant::now();
+        let mut pinned = opened(t0);
+        pinned.step(Input::Pin, t0);
+        for mut p in [opened(t0), summoned(t0), pinned] {
+            let picker = Input::Tab { dialog: true };
+            assert_eq!(p.step(picker, t0), Action::None);
+            assert_eq!(p.step(Input::Tab { dialog: false }, t0), Action::Hide);
+            assert_eq!(p.state, State::Dismissed);
+        }
+        let mut p = Panel::new(D);
+        assert_eq!(p.step(Input::Tab { dialog: false }, t0), Action::None);
+        assert_eq!(p.state, State::Hidden);
     }
 
     #[test]

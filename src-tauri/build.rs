@@ -9,5 +9,7 @@ fn main() {
              processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
         );
     }
+    // `include_image!` in `tray.rs` reads these at compile time without telling Cargo.
+    println!("cargo:rerun-if-changed=icons/tray");
     tauri_build::build()
 }

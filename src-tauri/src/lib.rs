@@ -2,10 +2,14 @@
 
 mod blocking;
 mod commands;
+#[cfg(debug_assertions)]
+mod dev;
 mod dock;
 mod error;
+mod handle;
 mod i18n;
 mod main_window;
+mod motion;
 mod notes;
 pub mod panel;
 mod permissions;
@@ -61,6 +65,18 @@ pub fn run() {
         commands::panel_close,
         commands::panel_set_side,
         commands::panel_resize,
+        commands::panel_tab_shape,
+        commands::panel_tab,
+        #[cfg(debug_assertions)]
+        dev::dev_motion,
+        #[cfg(debug_assertions)]
+        dev::dev_handle,
+        #[cfg(debug_assertions)]
+        dev::dev_tab_shape,
+        #[cfg(debug_assertions)]
+        dev::dev_fonts,
+        #[cfg(debug_assertions)]
+        dev::dev_tweak_window,
         commands::blocking_status,
         commands::blocking_sites,
         commands::blocking_set_allowed,
@@ -123,13 +139,16 @@ pub fn run() {
         )
         .register_asynchronous_uri_scheme_protocol(notes::IMAGE_SCHEME, commands::note_image)
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            dev::setup(app)?;
             let window = main_window::create(app)?;
             platform::edge::filter(&window, platform::edge::Owner::Ui)
                 .map_err(|error| format!("{error:?}"))?;
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();
-            tray::setup(app, locale, side, requests.clone())?;
+            let hwnd = window.hwnd()?.0 as isize;
+            tray::setup(app, hwnd, locale, side, requests.clone())?;
             app.manage(locale);
             notes::purge_trash(app.handle());
             updates::start(app.handle());
@@ -140,7 +159,7 @@ pub fn run() {
             app.manage(requests);
             dock::start(
                 app.handle().clone(),
-                window.hwnd()?.0 as isize,
+                hwnd,
                 receiver,
                 side,
                 notes::width(app.handle()),

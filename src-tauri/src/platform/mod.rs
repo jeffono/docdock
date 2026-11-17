@@ -8,10 +8,13 @@ mod clipboard;
 pub mod edge;
 pub mod external;
 mod files;
+#[cfg(debug_assertions)]
+pub mod fonts;
 mod guard;
 pub mod keyboard;
 pub mod permission;
 mod recycle;
+pub mod taskbar;
 mod windows;
 
 pub use self::capture::exclude_from_capture;
@@ -23,6 +26,7 @@ pub use self::files::{
 pub use self::guard::guard;
 pub use self::recycle::{recyclable, recycle};
 pub use self::windows::{
-    Activation, Monitor, PanelWindow, Point, Rect, cursor_pos, escape_pressed, foreground_window,
-    monitors, primary_button_down, restore_focus, slide_windows, ui_language, wait_frame,
+    Activation, Monitor, PanelWindow, Point, Rect, cursor_pos, drag_tolerance, escape_pressed,
+    foreground_window, monitors, place_windows, primary_button_down, restore_focus, slide_windows,
+    ui_language, wait_frame,
 };

@@ -2,6 +2,7 @@
 
 use std::sync::mpsc::Sender;
 
+use serde::Serialize;
 use tauri::{AppHandle, State, UriSchemeContext, UriSchemeResponder, Wry, http};
 
 use crate::dock::Request;
@@ -103,6 +104,30 @@ pub fn panel_set_side(
 #[tauri::command]
 pub fn panel_resize(requests: State<'_, Sender<Request>>, width: Option<u32>, done: bool) {
     send(requests, Request::Resize { width, done });
+}
+
+/// What the UI needs to draw the edge tab and tell a click on it from a drag.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct TabShape {
+    #[serde(flatten)]
+    size: crate::handle::Logical,
+    /// The system drag tolerance each way, in physical pixels.
+    drag: [i32; 2],
+}
+
+#[tauri::command]
+pub fn panel_tab_shape() -> TabShape {
+    let drag = crate::platform::drag_tolerance();
+    TabShape {
+        size: crate::dock::handle_tuning().tab,
+        drag: [drag.x, drag.y],
+    }
+}
+
+/// The edge tab the UI draws was clicked: pressed and released on it without dragging.
+#[tauri::command]
+pub fn panel_tab(requests: State<'_, Sender<Request>>) {
+    send(requests, Request::Tab);
 }
 
 /// Asynchronous because creating a window in a synchronous command hangs on Windows.

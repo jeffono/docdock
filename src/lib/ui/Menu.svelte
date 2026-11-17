@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { Snippet } from "svelte";
+import { panelColumns } from "./place";
 
 /**
  * A menu inside the panel, never a native popup. Items are buttons with a `menuitem` role in
@@ -29,7 +30,7 @@ const items = () => [
 
 /**
  * Opens with focus on the checked item, else the first, or on the last. `at` places the menu at a
- * point in the viewport, kept inside it; `from` takes the focus back when the menu closes.
+ * point in the viewport, kept inside the panel; `from` takes the focus back when the menu closes.
  */
 export function show({
   last = false,
@@ -45,7 +46,8 @@ export function show({
   if (at) {
     const { width, height } = menu.getBoundingClientRect();
     const margin = Number.parseFloat(getComputedStyle(menu).marginTop) || 0;
-    const left = Math.max(margin, Math.min(at.x, innerWidth - width - margin));
+    const panel = panelColumns(menu);
+    const left = Math.max(panel.left + margin, Math.min(at.x, panel.right - width - margin));
     const top = at.y + height + margin <= innerHeight ? at.y : Math.max(margin, at.y - height);
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
@@ -96,7 +98,7 @@ function choose(event: MouseEvent) {
 </div>
 
 <style>
-.menu { position: fixed; inset: auto; margin: var(--space-1) 0; padding: var(--space-1); width: max-content; max-width: calc(100dvw - var(--space-4) * 2); max-height: calc(100dvh - var(--space-4) * 2); overflow: auto; box-sizing: border-box; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); }
+.menu { position: fixed; inset: auto; margin: var(--space-1) 0; padding: var(--space-1); width: max-content; max-width: calc(var(--panel-width) - var(--space-4) * 2); max-height: calc(100dvh - var(--space-4) * 2); overflow: auto; box-sizing: border-box; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); }
 .menu :global([role^="menuitem"]) { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--size-control); padding: var(--space-1) var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-fg); font: inherit; font-size: var(--font-size-sm); text-align: left; }
 .menu :global([role^="menuitem"]:hover), .menu :global([role^="menuitem"]:focus-visible) { background: var(--color-bg); }
 .menu :global([role^="menuitem"]:disabled) { color: var(--color-muted); cursor: default; }

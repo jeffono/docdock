@@ -1,6 +1,7 @@
 // The only point of contact between the UI and the Rust backend.
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 /** Native exit waits indefinitely for the trusted UI to confirm its saves. */
 export const onExitRequested = (handler: (id: number) => void) =>
@@ -75,6 +76,55 @@ export const panelResize = (width: number | null, done: boolean) =>
     width: width === null ? null : Math.max(0, Math.round(width)),
     done,
   });
+
+/** The edge tab's size in logical pixels, which the window's region follows. */
+export type TabSize = { depth: number; height: number; curve: number };
+/** The tab's size and the system drag tolerance each way in physical pixels. */
+export type TabShape = TabSize & { drag: [number, number] };
+export const panelTabShape = () => invoke<TabShape>("panel_tab_shape");
+/** Rust reshaped the window for a new tab size, which only the tweak window changes. */
+export const onPanelTabShape = (handler: (size: TabSize) => void): Promise<UnlistenFn> =>
+  listen<TabSize>("panel-tab-shape", (event) => handler(event.payload));
+/** The edge tab was clicked; Rust takes it only from the open panel at rest. */
+export const panelTab = () => invoke<void>("panel_tab");
+
+/** How a slide moves: milliseconds and `cubic-bezier` control points `[x1, y1, x2, y2]`. */
+export type Curve = [number, number, number, number];
+export type Motion = { duration: number; curve: Curve };
+export type Motions = { open: Motion; close: Motion; handleIn: Motion; handleOut: Motion };
+/**
+ * The edge handle's activation stretch and reveal radius (percent of the tab height) and the speed
+ * toward the edge (logical px/s) that opens the panel at once.
+ */
+export type HandleTuning = { activationPercent: number; revealPercent: number; rushSpeed: number };
+
+// Development builds only: release builds have neither the commands nor the tweak window.
+export const devMotion = (motions: Motions) => invoke<void>("dev_motion", { motions });
+export const devHandle = (tuning: HandleTuning) => invoke<void>("dev_handle", tuning);
+/** Rust validates the size and answers with `panel-tab-shape` once the window follows it. */
+export const devTabShape = (size: TabSize) => invoke<void>("dev_tab_shape", size);
+export const devFonts = () => invoke<string[]>("dev_fonts");
+export const devTweakWindow = () => invoke<void>("dev_tweak_window");
+export const isTweakWindow = () => getCurrentWebviewWindow().label === "tweak";
+/** The tweak window sends its whole state to the panel. */
+export const tweakSend = (state: unknown) => emitTo("main", "tweak-state", state);
+export const onTweakState = <T>(handler: (state: T) => void) =>
+  listen<T>("tweak-state", (event) => handler(event.payload));
+/** The panel, after a reload, asks the tweak window for its state. */
+export const tweakRequest = () => emitTo("tweak", "tweak-request");
+export const onTweakRequest = (handler: () => void) => listen("tweak-request", () => handler());
+/** The tweak window cannot invoke `dev_fonts`: it asks the panel, which answers with the list. */
+export type TweakFonts = { families: string[] } | { error: string };
+export const tweakFontsRequest = () => emitTo("main", "tweak-fonts-request");
+export const onTweakFontsRequest = (handler: () => void) =>
+  listen("tweak-fonts-request", () => handler());
+export const tweakFontsSend = (fonts: TweakFonts) => emitTo("tweak", "tweak-fonts", fonts);
+export const onTweakFonts = (handler: (fonts: TweakFonts) => void) =>
+  listen<TweakFonts>("tweak-fonts", (event) => handler(event.payload));
+
+/** Clicking the edge tab closed the pinned panel, unpinning it. */
+export const onPanelPinned = (handler: (pinned: boolean) => void): Promise<UnlistenFn> =>
+  listen<boolean>("panel-pinned", (event) => handler(event.payload));
 
 /** Whether the panel window or its page is foreground; `side` is the screen edge it docks to. */
 export type PanelFocus = { focused: boolean; side: "left" | "right" };

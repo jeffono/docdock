@@ -19,7 +19,8 @@ import {
 import { syntaxHighlighting } from "@codemirror/language";
 import { searchPanelOpen } from "@codemirror/search";
 import { type ChangeSet, EditorState } from "@codemirror/state";
-import { drawSelection, EditorView, keymap } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
+import { panelColumns } from "../../ui/place";
 import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
 import { formattingBar } from "./formatting-bar";
@@ -54,6 +55,10 @@ export function editorExtensions(
 ) {
   return [
     autocompletion({ override: [propertyCompletion(tags)], icons: false }),
+    // Kept to the panel, not the whole viewport, which reaches beyond it beside the edge tab.
+    tooltips({
+      tooltipSpace: (view) => ({ ...panelColumns(view.dom), top: 0, bottom: innerHeight }),
+    }),
     // Default pairs omit Markdown backticks; quotes after word characters stay literal.
     closeBrackets(),
     markdown({ extensions: markdownExtensions, addKeymap: false, codeLanguages: codeLanguage }),

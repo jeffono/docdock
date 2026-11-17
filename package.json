@@ -1,6 +1,6 @@
 {
   "name": "docdock",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Autohide sidebar for viewing, adding, and editing references",
   "license": "MIT",
   "private": true,
@@ -13,6 +13,7 @@
     "tauri": "tauri",
     "test": "vitest run --passWithNoTests --reporter=dot",
     "clean": "node scripts/clean.mjs",
+    "icons": "node scripts/icons.mjs",
     "format": "biome check --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "check": "pnpm --silent check:fast && pnpm --silent test && pnpm --silent check:rust",
     "check:fast": "biome check . && node scripts/check-colors.mjs && pnpm --silent check:types && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
+    "@resvg/resvg-js": "2.6.2",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tauri-apps/cli": "^2",
     "svelte": "^5.56.3",

@@ -36,12 +36,18 @@ import ActivationShortcut from "./ActivationShortcut.svelte";
 import UnlockVault from "./UnlockVault.svelte";
 import { loadVault, vaultPath } from "./vault-store";
 
-let { side, choose }: { side: PanelFocus["side"]; choose: () => Promise<string | undefined> } =
-  $props();
+let {
+  side,
+  width,
+  choose,
+}: {
+  side: PanelFocus["side"];
+  /** The panel's own width, the setting's current value. */
+  width: number;
+  choose: () => Promise<string | undefined>;
+} = $props();
 const sections = ["general", "appearance", "browser", "shortcuts", "trash"] as const;
 const themes = ["system", "light", "dark"] as const;
-/** The panel's own width is the setting's current value. */
-let width = $state(window.innerWidth);
 let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
 let error = $state("");
@@ -180,7 +186,6 @@ onMount(() => {
 });
 </script>
 
-<svelte:window bind:innerWidth={width} />
 
 <ConfirmDialog bind:this={confirm} />
 

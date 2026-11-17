@@ -4,7 +4,8 @@
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
-    CreateRectRgn, DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+    CombineRgn, CreateRectRgn, DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR,
+    HRGN, MONITORINFO, RDW_ALLCHILDREN, RDW_FRAME, RDW_INVALIDATE, RGN_OR, RedrawWindow,
     SetWindowRgn,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -14,11 +15,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
     GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    IsIconic, IsWindow, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
-    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-    ShowWindow, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    IsIconic, IsWindow, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 use windows::core::BOOL;
+
+use crate::handle::Outline;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Point {
@@ -79,6 +83,16 @@ pub fn primary_button_down() -> bool {
     let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
     let button = if swapped { VK_RBUTTON } else { VK_LBUTTON };
     unsafe { GetAsyncKeyState(i32::from(button.0)) < 0 }
+}
+
+/// How far, in physical pixels each way, the pointer may move before a press becomes a drag.
+pub fn drag_tolerance() -> Point {
+    unsafe {
+        Point {
+            x: GetSystemMetrics(SM_CXDRAG),
+            y: GetSystemMetrics(SM_CYDRAG),
+        }
+    }
 }
 
 unsafe extern "system" fn collect_monitor(
@@ -149,21 +163,34 @@ pub struct PanelWindow {
     overlay_top: i32,
     /// Horizontal distance from the panel's left edge: windows slide together at the panel's `x`.
     offset: i32,
+    /// The window draws the edge tab beside the panel, and shows and takes clicks only within this.
+    outline: Option<Outline>,
 }
 
 impl PanelWindow {
-    /// Applies styles and shows the window at its final size and position `x` without activating it.
-    pub fn prepare(raw: isize, rect: Rect, clip: Rect, x: i32, activation: Activation) -> Self {
-        let mut window = Self {
+    /// A window whose styles are already set, shown and sized by the first [`Self::place`].
+    pub fn new(raw: isize) -> Self {
+        Self {
             raw,
-            clip,
-            top: rect.top,
+            clip: Rect {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            top: 0,
             width: 0,
             height: 0,
             inset: 0,
             overlay_top: 0,
             offset: 0,
-        };
+            outline: None,
+        }
+    }
+
+    /// Applies styles and shows the window at its final size and position `x` without activating it.
+    pub fn prepare(raw: isize, rect: Rect, clip: Rect, x: i32, activation: Activation) -> Self {
+        let mut window = Self::new(raw);
         window.set_enabled(false);
         unsafe {
             let hwnd = window.hwnd();
@@ -182,23 +209,16 @@ impl PanelWindow {
     /// Sizes the window to `rect` at `x`, above other windows, without activating it. Columns
     /// outside `clip` are cut.
     pub fn place(&mut self, rect: Rect, clip: Rect, x: i32) {
+        self.set_rect(rect, clip);
+        place_windows(&[self], x);
+    }
+
+    /// Takes `rect` and `clip` for the next [`place_windows`], which applies them.
+    pub fn set_rect(&mut self, rect: Rect, clip: Rect) {
         self.clip = clip;
         self.top = rect.top;
         self.width = rect.right - rect.left;
         self.height = rect.bottom - rect.top;
-        self.clip(x);
-        let result = unsafe {
-            SetWindowPos(
-                self.hwnd(),
-                Some(HWND_TOPMOST),
-                x + self.offset,
-                self.top,
-                self.width,
-                self.height,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
-        };
-        log_failure("SetWindowPos", result);
     }
 
     fn hwnd(&self) -> HWND {
@@ -226,6 +246,11 @@ impl PanelWindow {
         self.offset = offset;
     }
 
+    /// Shapes the window to the panel and its tab from the next placement on.
+    pub fn set_outline(&mut self, outline: Outline) {
+        self.outline = Some(outline);
+    }
+
     /// Reveal the panel border and its floating dropdown without resizing the page viewport.
     /// Stored here so sliding and monitor clipping preserve both cutouts.
     pub fn overlay(&mut self, dpi: u32, height: u32, x: i32) {
@@ -251,11 +276,32 @@ impl PanelWindow {
     fn clip(&self, x: i32) {
         let rect = self.visible_rect(x + self.offset);
         unsafe {
-            let region = CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
+            let region = match &self.outline {
+                None => CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom),
+                Some(outline) => outline_region(outline, rect),
+            };
             // The system takes ownership of the region only if the call succeeds.
             if SetWindowRgn(self.hwnd(), Some(region), true) == 0 {
                 let _ = DeleteObject(region.into());
             }
+        }
+    }
+
+    /// Lets every click through to the windows below, as Tauri's `set_ignore_cursor_events` does:
+    /// hit-testing skips only a layered window, so it becomes one meanwhile.
+    pub fn set_click_through(&self, through: bool) {
+        unsafe {
+            let hwnd = self.hwnd();
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            let flags = WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
+            let style = if through {
+                style | flags
+            } else {
+                style & !flags
+            };
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+            let flags = RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME;
+            let _ = RedrawWindow(Some(hwnd), None, None, flags);
         }
     }
 
@@ -276,6 +322,49 @@ impl PanelWindow {
         eprintln!("[panel] activate: ok={activated}");
         activated
     }
+}
+
+/// The outline's rectangles cut to the visible columns of `visible`, as one region.
+fn outline_region(outline: &Outline, visible: Rect) -> HRGN {
+    unsafe {
+        let region = CreateRectRgn(0, 0, 0, 0);
+        for rect in outline.rects() {
+            let (left, right) = (rect.left.max(visible.left), rect.right.min(visible.right));
+            if left >= right {
+                continue;
+            }
+            let part = CreateRectRgn(left, rect.top, right, rect.bottom);
+            CombineRgn(Some(region), Some(region), Some(part), RGN_OR);
+            let _ = DeleteObject(part.into());
+        }
+        region
+    }
+}
+
+/// Sizes and shows windows at `x`, in this order above other windows, in one transaction: separate
+/// moves can reach the screen in different frames, leaving the tab behind a resized panel.
+pub fn place_windows(windows: &[&PanelWindow], x: i32) {
+    let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
+    let placed = || unsafe {
+        let mut batch = BeginDeferWindowPos(windows.len() as i32)?;
+        for window in windows {
+            window.clip(x);
+            let (left, top) = (x + window.offset, window.top);
+            let (width, height) = (window.width, window.height);
+            batch = DeferWindowPos(
+                batch,
+                window.hwnd(),
+                Some(HWND_TOPMOST),
+                left,
+                top,
+                width,
+                height,
+                flags,
+            )?;
+        }
+        EndDeferWindowPos(batch)
+    };
+    log_failure("DeferWindowPos", placed());
 }
 
 /// Moves windows to `x` in one transaction so the page stays attached to the panel.
@@ -343,6 +432,7 @@ mod tests {
             inset: 3,
             overlay_top: 160,
             offset: 0,
+            outline: None,
         };
         assert_eq!(
             page.visible_rect(900),

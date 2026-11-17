@@ -3,6 +3,38 @@
 Identity chosen by the user: a neutral, compact system utility. Values live in
 `src/lib/styles/tokens.css`; this file says how to use them. Only the user changes the identity.
 
+Development builds offer a small Tweak button at the bottom of the panel, loaded only under
+`import.meta.env.DEV`. It opens the tweak window: an ordinary resizable window that can stay open on
+another monitor while the panel behaves exactly as in production (no pin, nothing inert, the page
+untouched). Every change applies live to the panel, even hidden: CSSOM token updates in both color
+schemes, typography and geometry, without changing the source or CSP; colors also reach the natively
+drawn edge handle. The options scroll independently from an always-visible WCAG AA/AAA table (stacked below the options
+in narrow windows). Collapsible groups collect typography, colors, layout, CSS transitions, native
+motion, the edge handle, the tab shape, and presets/export. Numeric controls apply on input with bounded steppers
+and Up/Down keys; Shift multiplies the step by ten. Colors use HSB by default, with a swatch beside
+the CSS/hex field and an alpha control; untouched source spellings remain unchanged.
+Each font-family token has a keyboard-accessible filtering combobox (Up/Down, Enter, Escape): curated stacks first, then the
+installed families, each quoted with a sans-serif or monospace fallback. The Slides section sets a
+duration and a `cubic-bezier` curve for each slide (panel open, panel close, handle in, handle out)
+with presets, including overshooting `back` curves, four numbers and a draggable curve editor; each
+slide reads its motion when it starts; an ongoing slide keeps its starting motion. The separate
+`--duration` token affects CSS transitions, not these native slides. The Edge handle section sets the
+activation height (100-1000% of the tab), the reveal radius (10-1000% of the tab) and the rush speed
+(500-20000 logical pixels per second). The Tab shape section sets the tab's depth (4-64 logical
+pixels), height (40-400) and curve height (at most half the height), which resize the panel's window
+and its click region at the next cursor poll, open or parked, and the wordmark length (10-300
+pixels), a UI-only override. Named presets can be renamed, deleted or overwritten; deletion
+and overwrite require inline confirmation. Storage failure preserves the previous map. Presets keep
+tokens, motions, the edge handle values and the tab shape for A/B switching; a preset saved before
+the tab shape keeps the source shape. Reset restores the source values. The window remembers its
+last state, so a reload or a restart after a Rust change keeps the tweaks once it is open again.
+Export shows the unified diffs to apply: `tokens.css`, the motion constants in `motion.rs`, the
+edge handle and tab size constants in `handle.rs` (one diff) and the wordmark length in
+`EdgeTab.svelte`; release builds keep those constants. Native page geometry
+still uses the fixed Rust bar offset, so bar-size experiments require a matching code change before
+adoption. No identity is selected by the tool; applying a look and screenshot approval remain M10
+work.
+
 ## Principles
 
 - **Quick reference:** the panel is narrow and opens briefly. Content first, with minimal controls.
@@ -59,7 +91,9 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## Motion
 
-- Panel slides in 150 ms, defined in `dock.rs`. Hover uses `--duration`.
+- The panel slides in 150 ms and the edge handle in 100 ms, with a cubic ease-in-out, defined in
+  `motion.rs`.
+  Hover uses `--duration`.
 - Nothing animates for decoration or delays access. The one exception that calls for attention is the
   delete notice's entrance and Undo pulse, described under Deleting.
 
@@ -373,6 +407,22 @@ site and reloads the page, without a popover. The tooltip and accessible label n
 current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
+
+The edge handle shows the app identity as a tab that bulges out of the panel's inner edge: 20
+logical pixels deep and 152 tall, joined to the edge by S-curves 28 pixels tall (vertical where they
+meet the edge, rounding into the straight outer side), filled with `--color-bg`, with no line
+between tab and panel. The panel's inner-edge line, 1 px `--color-line`, runs around the tab's
+outline; while the panel has focus, its 2 px `--color-accent` band does instead. The user's wordmark
+(`src-tauri/icons/source/wordmark.svg`) runs along the tab, 52 pixels long, reading from bottom to
+top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered
+between the band and the panel's edge. Edges are antialiased. The panel's WebView draws it with those
+tokens, in a strip of the panel's own window beside the panel. Closed, it slides in from the screen edge,
+vertically centered on the work area, only while the cursor is within 48 logical pixels of the edge
+and of the activation stretch, and slides back out when the cursor leaves; touching the edge within
+a centered stretch of 300% of the tab height, clipped to the work area, opens the panel. Open, it
+slides with the panel and sits outside the inner edge at the same height; clicking it closes the
+panel, even pinned, only when released on its shape, not in the cutouts beside the curves; dragging
+it does nothing. It has no hover state or tooltip and never takes focus.
 
 A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
 page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,

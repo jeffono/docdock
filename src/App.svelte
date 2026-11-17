@@ -8,13 +8,16 @@ import {
   watchActivation,
 } from "./lib/features/preferences/activation.svelte";
 import Preferences from "./lib/features/preferences/Preferences.svelte";
+import EdgeTab from "./lib/features/tab/EdgeTab.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
   exitReady,
   onExitCancelled,
   onExitRequested,
   onPanelFocus,
+  onPanelPinned,
   onPanelSearch,
+  onPanelTabShape,
   onToggleMode,
   onWebState,
   onWebVisible,
@@ -24,6 +27,9 @@ import {
   panelActivate,
   panelResize,
   panelSetPinned,
+  panelTabShape,
+  type TabShape,
+  type TabSize,
   webHistory,
   webReader,
   webSetVisible,
@@ -33,6 +39,10 @@ import IconButton from "./lib/ui/IconButton.svelte";
 import Notice from "./lib/ui/Notice.svelte";
 
 let notes: Notes;
+/** The edge tab, drawn beside the panel once Rust gives its shape. */
+let tab = $state<TabShape | null>(null);
+/** The panel's own width, without the strip beside it where the tab shows. */
+let width = $state(0);
 let pinned = $state(false);
 let web = $state(false);
 let preferences = $state(false);
@@ -63,10 +73,33 @@ async function action(work: Promise<void>) {
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
 
 onMount(() => {
+  let disposeDev: (() => void) | undefined;
+  let disposed = false;
+  if (import.meta.env.DEV) {
+    void import("./lib/features/tweak-panel/install").then(({ install }) => {
+      const target = document.querySelector("main");
+      if (disposed || !target) return;
+      disposeDev = install(target);
+    });
+  }
   const clipboardFailed = () => {
     error = t("error.clipboard");
   };
   window.addEventListener("clipboard-failed", clipboardFailed);
+  // The tab is drawn at the size Rust shaped the window to, never ahead of it. Listening starts
+  // before the query, and a size reported meanwhile wins over the query's older answer.
+  let reported: TabSize | undefined;
+  const reshaped = onPanelTabShape((size) => {
+    reported = size;
+    if (tab) tab = { ...tab, ...size };
+  });
+  void reshaped
+    .catch(() => {})
+    .then(() => panelTabShape())
+    .then((shape) => {
+      tab = { ...shape, ...reported };
+    })
+    .catch(() => {});
   const activationChanged = watchActivation();
   void action(loadActivation());
   let exiting = false;
@@ -97,6 +130,9 @@ onMount(() => {
   });
   const stop = onPanelFocus((value) => {
     focus = value;
+  });
+  const unpinned = onPanelPinned((value) => {
+    pinned = value;
   });
   const state = onWebState((value) => {
     // A route change keeps the document, which Rust's check misses.
@@ -181,10 +217,13 @@ onMount(() => {
   };
   window.addEventListener("keydown", shortcut, true);
   return () => {
+    disposed = true;
+    disposeDev?.();
     window.removeEventListener("clipboard-failed", clipboardFailed);
     window.removeEventListener("keydown", shortcut, true);
     for (const listener of [
       stop,
+      unpinned,
       state,
       visible,
       toggle,
@@ -192,6 +231,7 @@ onMount(() => {
       exit,
       cancelled,
       activationChanged,
+      reshaped,
     ])
       void listener.then((unlisten) => unlisten());
   };
@@ -253,7 +293,7 @@ function resizeStart(event: PointerEvent) {
   if (event.button !== 0) return;
   event.preventDefault();
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  drag = { x: event.screenX, width: window.innerWidth };
+  drag = { x: event.screenX, width };
   pendingWidth = 0;
 }
 function resizeMove(event: PointerEvent) {
@@ -280,7 +320,7 @@ function resizeKey(event: KeyboardEvent) {
   const narrower = focus.side === "right" ? "ArrowRight" : "ArrowLeft";
   if (event.key !== wider && event.key !== narrower) return;
   event.preventDefault();
-  void action(panelResize(window.innerWidth + (event.key === wider ? step : -step), true));
+  void action(panelResize(width + (event.key === wider ? step : -step), true));
 }
 function togglePin() {
   pinned = !pinned;
@@ -290,7 +330,13 @@ function togglePin() {
 
 <svelte:window onpointerdown={panelActivate} onblur={() => resizeEnd()} />
 
-<main class:focused={focus.focused} class:left={focus.side === "left"}>
+{#if tab}<EdgeTab shape={tab} side={focus.side} focused={focus.focused} {pinned} />{/if}
+<main
+  class="panel"
+  class:left={focus.side === "left"}
+  style:--tab-depth={tab ? `${tab.depth}px` : undefined}
+  bind:clientWidth={width}
+>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div
     class="resize"
@@ -328,12 +374,25 @@ function togglePin() {
       {#snippet actions()}<IconButton quiet icon="x" label={t("search.close")} onclick={dismissActivationNotice} />{/snippet}
     </Notice>
   {/if}
-  {#if preferences}<Preferences side={focus.side} choose={() => notes.choose()} />{/if}
+  {#if preferences}<Preferences side={focus.side} {width} choose={() => notes.choose()} />{/if}
   <Notes bind:this={notes} bind:article browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
 </main>
 
 <style>
+  /*
+   * The window reaches beyond the panel on its inner side by the edge tab's depth, a strip where
+   * only the tab shows: the panel keeps to its side of it, and what the viewport would place, such
+   * as menus and dialogs, keeps to the panel through `--frame-left`, `--frame-right` and
+   * `--panel-width`. The tab draws the inner edge's line and focus band.
+   */
+  :global(body:has(> main.panel)) {
+    background: transparent;
+  }
+
   main {
+    --frame-left: var(--tab-depth, 0px);
+    --frame-right: 0px;
+    --panel-width: calc(100dvw - var(--frame-left) - var(--frame-right));
     --panel-inset-left: calc(var(--space-4) + var(--space-2));
     --panel-inset-right: var(--space-3);
     position: relative;
@@ -341,25 +400,13 @@ function togglePin() {
     flex-direction: column;
     box-sizing: border-box;
     height: 100%;
-    border-left: 1px solid var(--color-line);
+    margin: 0 var(--frame-right) 0 var(--frame-left);
+    background: var(--color-bg);
   }
 
-  /* While the panel has focus: a band on the inner edge, over the border, above the content. */
-  main.focused::before {
-    content: "";
-    position: absolute;
-    z-index: 2;
-    top: 0;
-    bottom: 0;
-    left: -1px;
-    width: 2px;
-    background: var(--color-accent);
-    pointer-events: none;
-  }
-
-  main.focused.left::before {
-    right: 0;
-    left: auto;
+  main.left {
+    --frame-left: 0px;
+    --frame-right: var(--tab-depth, 0px);
   }
 
   /* Over the inner edge, where the page window leaves a strip of the UI uncovered. */

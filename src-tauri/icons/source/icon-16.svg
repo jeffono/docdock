@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 16 16">
+  <defs>
+    <style>
+      .cls-1{fill:url(#D_gradient)}
+      .cls-2{fill:#fffaf2}
+      .cls-3{fill:url(#Bar_gradient)}
+    </style>
+    <linearGradient id="D_gradient" x1="14.656" y1="15.199" x2="6.344" y2="0.801" gradientUnits="userSpaceOnUse">
+      <stop offset="0.2" stop-color="#1f4799"/>
+      <stop offset="0.68" stop-color="#438acc" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#66ccff"/>
+    </linearGradient>
+    <linearGradient id="Bar_gradient" x1="5.906" y1="13.9" x2="-0.906" y2="2.1" gradientUnits="userSpaceOnUse">
+      <stop offset="0.4" stop-color="#ff9326"/>
+      <stop offset="0.76" stop-color="#ffae26" data-vc-midpoint="0.6"/>
+      <stop offset="1" stop-color="#ffc926"/>
+    </linearGradient>
+  </defs>
+  <title>icon-16</title>
+  <g id="Design">
+    <path d="M6 1 L9 1 C12.314 1 15 3.686 15 7 L15 9 C15 12.314 12.314 15 9 15 L6 15 Z" class="cls-1"/>
+    <rect x="8" y="5" width="4" height="1" class="cls-2"/>
+    <rect x="8" y="7" width="5" height="1" class="cls-2"/>
+    <rect x="8" y="9" width="3" height="1" class="cls-2"/>
+    <rect x="1" y="1" width="3" height="14" class="cls-3"/>
+  </g>
+</svg>

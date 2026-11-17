@@ -16,8 +16,10 @@ src/                     UI (Svelte 5 + Vite)
 src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
   panel.rs               Pure panel state machine
+  handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
+  motion.rs              Slide duration and easing; tunable live in development builds
   dock.rs                Thread connecting cursor, state machine and windows
-  tray.rs                Tray: screen side, exit and Windows startup
+  tray.rs                Tray: icon, screen side, exit and Windows startup
   main_window.rs         Creates the main window and limits its navigation
   shortcut.rs            Global panel shortcut
   web.rs                 Web page window, with untrusted content
@@ -56,6 +58,16 @@ is never duplicated in `settings.json`. Turning it on or off from either control
 unquoted by older builds, or naming an executable that no longer exists, is pointed at the running
 one; an entry for another existing copy is left alone.
 
+The tray icon is a monochrome glyph embedded in the binary: black for a light taskbar, white for a
+dark one, following `SystemUsesLightTheme` rather than the apps theme. Its size is the small icon
+size (`SM_CXSMICON`) at the DPI of the monitor holding `Shell_TrayWnd`, rounded up to the nearest
+glyph by a pure function. `platform/taskbar.rs` subclasses the main window, which as a top-level
+window receives `WM_SETTINGCHANGE`, `WM_DISPLAYCHANGE`, `WM_DPICHANGED` and `TaskbarCreated`; a theme
+change arrives as "ImmersiveColorSet" and a taskbar scale change usually as a work area change. A
+thread rereads the taskbar once the burst settles, outside the shell's broadcast, and also when the
+pointer enters the tray icon or the panel opens, since a scale change does not always reach the
+window; it replaces the icon only if it differs. No timer wakes the idle app.
+
 ## Flow
 
 ```mermaid
@@ -68,6 +80,8 @@ flowchart LR
 ```
 
 ## Distribution and updates
+
+Original icon SVGs live in `src-tauri/icons/source/`; `pnpm icons` rebuilds the bundle icons, using exact-size drawings before the 480 master, and the tray glyphs in `src-tauri/icons/tray/`, rendering 40 and 64 from the 48 drawing.
 
 NSIS installs for the current Windows user, in English or pt-BR, with a WebView2 bootstrapper when
 needed. Installers have no Windows code signature; see `decisions/0008-distribution.md` for the
@@ -126,8 +140,46 @@ per-monitor DPI awareness (PMv2).
   edge, so with its 2-pixel region inset a 6-pixel strip of the UI, where the handle sits, runs the
   full height; windows slide at the panel's `x`, each with its own horizontal offset.
 - **Trigger:** cursor polling every 50 ms; the edge is the outer pixel column of the outermost monitor on
-  the chosen side, the only one that holds the cursor, with a 150 ms pause. A thin window at the edge would steal clicks
-  from scrollbars and maximized window buttons. Points outside that monitor are ignored.
+  the chosen side, the only one that holds the cursor, with a 150 ms pause. Only the stretch beside the
+  edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
+  outside that monitor are ignored. A rush skips the pause: the cursor reaching the edge at 500
+  logical pixels per second or more toward it, measured between the last two polls, opens the panel
+  at once. The rules are pure functions in `handle.rs`.
+- **Edge handle:** the panel's tab, drawn by the panel's own WebView (`features/tab/EdgeTab.svelte`).
+  The main window is transparent and wider than the panel by the tab's depth on the inner side
+  (`handle::framed_rect`); `main` keeps to the panel with a margin, and one SVG path draws the
+  inner-edge line, or the focus band, down the panel and around the tab, so no seam shows where they
+  meet. The tab's fill reaches a band's width into the panel, over its background. `SetWindowRgn`
+  shapes the window row by row to the panel plus the tab's outline, a pixel beyond the curves for
+  their antialiased edge (`handle::Outline`), combined with the monitor clip: clicks beside the tab
+  reach the windows below. Rust gives the UI the tab's logical size and the system drag tolerance
+  (`panel_tab_shape`), and the new size as `panel-tab-shape` once it reshaped the window for it, so
+  the geometry has one source; the UI centers the tab on the window, as
+  Rust centers the region, with a row of slack for rounding. Because the viewport reaches beyond
+  the panel, the panel sets `--frame-left`, `--frame-right` and `--panel-width`: dialogs center on
+  the panel, menus placed at a point and CodeMirror tooltips keep to its columns
+  (`ui/place.ts::panelColumns`), the anchored order menu flips to fit the panel, and Preferences shows
+  the panel's own width. It slides with the panel: `handle_shift` pushes all the panel's windows out
+  by the tab's depth, so a hidden handle takes the parked panel's tab beyond the screen edge, and
+  revealed, only the tab shows. While parked the window is `WS_EX_LAYERED | WS_EX_TRANSPARENT` (as
+  Tauri's `set_ignore_cursor_events` does), so the shown handle lets every click through to the
+  scrollbars and maximized window buttons below; opening clears both. `handle::presence` decides:
+  hidden, shown click-through (revealed while closed, or the panel opening), or the tab (open and
+  at rest), the only state whose clicks count. The reveal area is a capsule: every point within 400%
+  of the tab height of the parked tab's outline, stretched along the edge to the activation stretch
+  if that is longer, so the handle shows before the edge opens. `handle::Reveal` keeps it hidden
+  while the cursor rushes toward the edge, never hiding a shown handle, and from the moment the panel
+  starts closing until the cursor leaves the area. Appearing alone, it slides in from beyond the
+  screen edge; hiding, it slides back out. Moving the panel's way, it slides in step with the panel's
+  slide instead, same motion and start: hidden, it comes in with the opening panel, and it leaves
+  with the closing one, both landing on the same frame. The tab counts as inside the open panel. A
+  press and release on it within the system drag distance (`features/tab/press.ts`), the release on
+  the tab's shape (`elementFromPoint`, since the pointer capture delivers releases anywhere), sends
+  `panel_tab`; its `pointerdown` stops before the window's handler, so the click never activates the
+  panel. Rust takes it only in the tab state: the panel closes as on a close request, even pinned,
+  which emits `panel-pinned` so the UI's pin follows; with the native picker open it does nothing.
+  The tab follows the theme and tweak window edits through CSS tokens, the focus report for its
+  band and the UI's pin for its wordmark, muted only when neither pinned nor focused.
 - **Shortcut:** `Ctrl+Alt+Space` by default, registered by Rust, without permission in the capability.
   The UI sends the modifiers and the physical `KeyboardEvent.code` through `shortcut_set`. Registration
   uses virtual keys, which follow the layout, so `shortcut.rs` first maps a letter, digit or punctuation
@@ -174,7 +226,24 @@ per-monitor DPI awareness (PMv2).
   the source. The page window covers the band below the top bars.
 - **Expansion:** the window already exists at its final size, parked just beyond the edge, and slides with
   `SetWindowPos`, without resizing the WebView. Each frame waits for `DwmFlush` and position follows real
-  time, targeting 150 ms.
+  time, along a CSS-style `cubic-bezier` curve solved in `motion.rs`: cubic ease-in-out, 150 ms for the
+  panel opening and closing and 100 ms for the handle sliding in and out. A curve's x stays within 0..1
+  and its y may overshoot; the last frame lands exactly on the destination, and an overshoot beyond
+  the edge is cut by the monitor clip below.
+- **Tweak window (development builds only):** `dev.rs`, compiled only with `debug_assertions`, opens a
+  separate `tweak` window on the same UI page (`main.ts` mounts the tool there) with a capability
+  added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its
+  app commands. The window sends its whole state to the panel as the `tweak-state` event; the panel
+  applies tokens through CSSOM, slide motions through `dev_motion` and the edge handle's activation
+  percent, reveal radius and rush speed through `dev_handle`, the tab's size through `dev_tab_shape`
+  and the wordmark length to `EdgeTab.svelte` directly, and asks again with `tweak-request` after a
+  reload. `dock.rs` reads that tuning, or the `handle.rs` constants in release builds, once per cursor
+  poll and passes the same snapshot to the pure rules and the window geometry. A new tab size goes
+  through the ordinary placement (`Dock::place`): window width, region, the hidden handle's shift and
+  the page, open or parked; then `dock.rs` emits `panel-tab-shape` and the UI redraws the tab. For the font picker the window sends `tweak-fonts-request`; the panel calls
+  `dev_fonts` and answers with `tweak-fonts`. `platform/fonts.rs` enumerates GDI font families,
+  sorted and deduplicated, skipping vertical `@` faces and non-TrueType faces the WebView cannot use.
+  Release builds have neither the module, the commands, the capability nor the frontend code.
 - **Neighboring monitor:** the parked position is outside all screens, because there is no monitor beyond
   the chosen one on that side. The window region is still clipped to the monitor's columns each frame;
   when parked, it is empty.
