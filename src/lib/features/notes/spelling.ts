@@ -35,6 +35,8 @@ export type Word = { from: number; to: number; word: string };
  */
 export function proseWords(state: EditorState, from: number, to: number): Word[] {
   const { doc } = state;
+  // Text beyond the parsed tree may be code not yet known as code.
+  to = Math.min(to, syntaxTree(state).length);
   const meta = frontmatter((n) => doc.line(n).text, doc.lines);
   const skip: [number, number][] = meta ? [[0, doc.line(meta.end).to]] : [];
   syntaxTree(state).iterate({
@@ -79,6 +81,10 @@ function collect(state: EditorState, from: number, to: number, words: Word[]) {
 
 /** Answers for this session, shared by every editor: true for a misspelled word. */
 const answers = new Map<string, boolean>();
+/** Forgets every answer past this many words, rather than growing for the whole session. */
+const maxAnswers = 50_000;
+/** Words per request, within the limit Rust checks (`MAX_WORDS` in spelling.rs). */
+const batch = 500;
 const asked = new Set<string>();
 const answered = StateEffect.define<null>();
 const misspelled = Decoration.mark({ class: "cm-misspelled" });
@@ -120,6 +126,8 @@ export function spelling(
         if (
           update.docChanged ||
           update.viewportChanged ||
+          // Parsing reached more text: code there is now known as code.
+          syntaxTree(update.startState).length !== syntaxTree(update.state).length ||
           (wasTyping && this.typing === null) ||
           update.transactions.some((tr) => tr.effects.some((effect) => effect.is(answered)))
         )
@@ -128,6 +136,8 @@ export function spelling(
       build(): DecorationSet {
         const marks = [];
         const { state } = this.view;
+        // Only the words in view now; ones that scrolled away are not asked about.
+        this.pending.clear();
         for (const { from, to } of this.view.visibleRanges)
           for (const word of proseWords(state, from, to)) {
             if (this.typing !== null && word.from <= this.typing && this.typing <= word.to)
@@ -143,23 +153,34 @@ export function spelling(
         return Decoration.set(marks, true);
       }
       ask() {
-        const words = [...this.pending].filter((word) => !answers.has(word) && !asked.has(word));
+        // The rest are asked after this answer, whose rebuild finds them still unanswered.
+        const words = [...this.pending]
+          .filter((word) => !answers.has(word) && !asked.has(word))
+          .slice(0, batch);
         this.pending.clear();
         if (words.length === 0) return;
         for (const word of words) asked.add(word);
         check(words)
-          .catch((error) => {
-            // Unanswered words read as correct for the session, rather than being asked forever.
-            console.error("[spelling]", error);
-            return [];
-          })
           .then((flags) => {
-            words.forEach((word, index) => {
-              answers.set(word, flags[index] === true);
-              asked.delete(word);
-            });
-            if (!this.destroyed) this.view.dispatch({ effects: answered.of(null) });
-          });
+            // A stopped or stuck checker answers with nothing: not an answer to remember.
+            if (flags.length !== words.length) throw new Error("no answer from the checker");
+            return flags;
+          })
+          .then(
+            (flags) => {
+              if (answers.size + words.length > maxAnswers) answers.clear();
+              words.forEach((word, index) => {
+                answers.set(word, flags[index] === true);
+                asked.delete(word);
+              });
+              if (!this.destroyed) this.view.dispatch({ effects: answered.of(null) });
+            },
+            (error) => {
+              // Left unanswered and unmarked; the next edit or scroll asks again.
+              console.error("[spelling]", error);
+              for (const word of words) asked.delete(word);
+            },
+          );
       }
       destroy() {
         this.destroyed = true;

@@ -1,6 +1,6 @@
 <script lang="ts">
-import { undo } from "@codemirror/commands";
-import { Compartment, EditorState } from "@codemirror/state";
+import { isolateHistory, undo } from "@codemirror/commands";
+import { Compartment, EditorState, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, tick, untrack } from "svelte";
 import { privateCut } from "../../clipboard";
@@ -63,32 +63,45 @@ const checker = new Compartment();
 const spellingExtension = spelling(spellingCheck, (target) => void suggest(target));
 let spellMenu: Menu;
 /** The misspelled word the suggestions menu is for. */
-let misspelling = $state<(Misspelling & { suggestions: string[] }) | null>(null);
+let misspelling = $state<(Misspelling & { suggestions: string[]; doc: Text }) | null>(null);
+/**
+ * The text the menu was opened for, still editable: an edit, an image paste (read-only meanwhile) or
+ * a closed editor makes its positions stale, and a fix would replace other text.
+ */
+function current(doc: Text) {
+  return !disposed && view !== undefined && view.state.doc === doc && !view.state.readOnly;
+}
 async function suggest(target: Misspelling) {
+  const doc = view?.state.doc;
+  if (!doc) return;
   const suggestions = await spellingSuggest(target.word).catch(() => []);
-  if (disposed || !view) return;
-  misspelling = { ...target, suggestions };
+  if (!current(doc)) return;
+  misspelling = { ...target, suggestions, doc };
   // Rendered first, so the menu measures its items.
   await tick();
-  spellMenu.show({ at: { x: target.x, y: target.y }, from: view.contentDOM });
+  if (view && current(doc) && view.hasFocus)
+    spellMenu.show({ at: { x: target.x, y: target.y }, from: view.contentDOM });
 }
-/** Replaces the word only if it is still there: the note may have changed while the menu was open. */
 function correct(replacement: string) {
   const target = misspelling;
-  if (!view || !target || view.state.sliceDoc(target.from, target.to) !== target.word) return;
+  if (!view || !target || !current(target.doc)) return;
   view.dispatch({
     changes: { from: target.from, to: target.to, insert: replacement },
     selection: { anchor: target.from + replacement.length },
+    // Its own undo step: typing right after must not join it.
+    annotations: isolateHistory.of("full"),
     userEvent: "input.spelling",
   });
 }
 async function addWord() {
   const target = misspelling;
   if (!view || !target) return;
-  await spellingAdd(target.word).catch((e) => {
+  try {
+    await spellingAdd(target.word);
+    if (!disposed) learned(view, target.word);
+  } catch (e) {
     error = errorText(e);
-  });
-  if (!disposed) learned(view, target.word);
+  }
 }
 let revision = 0;
 export function snapshot() {

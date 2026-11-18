@@ -42,11 +42,19 @@ export function applyTextChanges(raw: string, changes: ChangeSet): string {
   const separator = raw.match(/\r\n|\r|\n/)?.[0] ?? "\n";
   let result = "",
     end = 0;
+  // A lone CR break meeting an LF break, around a line that became empty, would read as one CRLF
+  // break and join two lines: the CR becomes LF, keeping both breaks.
+  const append = (piece: string) => {
+    if (piece.startsWith("\n") && result.endsWith("\r")) result = `${result.slice(0, -1)}\n`;
+    result += piece;
+  };
   changes.iterChanges((from, to, _fromB, _toB, inserted) => {
-    result += raw.slice(end, offsets[from]) + inserted.toString().replace(/\n/g, separator);
+    append(raw.slice(end, offsets[from]));
+    append(inserted.toString().replace(/\n/g, separator));
     end = offsets[to];
   });
-  return result + raw.slice(end);
+  append(raw.slice(end));
+  return result;
 }
 
 export function editorExtensions(
@@ -80,7 +88,14 @@ export function editorExtensions(
     keymap.of([
       ...formattingKeymap,
       // "Alt-A" is how CodeMirror names Alt+Shift+A; it replaces the default block comment toggle.
-      { key: "Alt-A", run: cycleCaseCommand },
+      // Taken even with nothing to change, or the default would insert an HTML comment.
+      {
+        key: "Alt-A",
+        run: (view) => {
+          cycleCaseCommand(view);
+          return true;
+        },
+      },
       {
         key: "Ctrl-e",
         run: () => {

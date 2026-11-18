@@ -72,11 +72,14 @@ const slashCommands: SlashCommand[] = [
   ),
 ];
 
-/** The commands that make sense inside the frontmatter's YAML. */
+/**
+ * The commands that make sense inside the frontmatter's YAML. Line operations stay out: the block
+ * around the cursor reaches the `---` fences, and sorting them would move metadata into the body.
+ */
 const inFrontmatter = new Set([
   "add-property",
   "todays-date",
-  ...textTransforms.map(({ id }) => id),
+  ...textTransforms.filter(({ group }) => group === "case").map(({ id }) => id),
 ]);
 const excludedNodes = new Set(["FencedCode", "CodeBlock", "InlineCode", "URL", "Autolink"]);
 const normalize = (value: string) => value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();

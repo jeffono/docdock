@@ -7,6 +7,13 @@ import { applyTextChanges, editorExtensions, editorState } from "./editor";
 import { rawHistory, rawText } from "./reload";
 
 describe("editor text preservation", () => {
+  // Emptying the line between a lone CR and an LF break once merged them into one CRLF break.
+  it("keeps both breaks when the line between a CR and an LF break becomes empty", () => {
+    const raw = "keep\rZ\nA";
+    const edit = editorState(raw, []).update({ changes: { from: 5, to: 6 } });
+    expect(applyTextChanges(raw, edit.changes).split(/\r\n|\r|\n/)).toEqual(["keep", "", "A"]);
+  });
+
   it("preserves mixed line endings and frontmatter when editing and undoing text", () => {
     const raw = "---\r\ntitle: Keep\r\n---\n# Heading\r\nLast\r";
     const state = editorState(raw, []);

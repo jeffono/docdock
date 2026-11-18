@@ -96,4 +96,5 @@ it("offers only the commands that fit YAML inside the frontmatter", () => {
   expect(labels).toContain("Today’s date");
   expect(labels).toContain("Add metadata");
   expect(labels).not.toContain("Heading 2");
+  expect(labels).not.toContain("Sort A → Z");
 });

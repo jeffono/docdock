@@ -481,6 +481,15 @@ pub fn spelling_suggest(
     spelling.suggest(word)
 }
 #[tauri::command(async)]
-pub fn spelling_add(spelling: State<'_, crate::spelling::Spelling>, word: String) {
-    spelling.add(word)
+pub fn spelling_add(
+    spelling: State<'_, crate::spelling::Spelling>,
+    word: String,
+) -> Result<(), Error> {
+    if spelling.add(word) {
+        Ok(())
+    } else {
+        Err(Error::unexpected(
+            "the word could not be added to the Windows dictionary",
+        ))
+    }
 }
