@@ -12,6 +12,7 @@ mod files;
 pub mod fonts;
 mod guard;
 pub mod keyboard;
+mod memory;
 pub mod permission;
 mod recycle;
 pub mod taskbar;
@@ -24,6 +25,7 @@ pub use self::files::{
     open_folder, paste_timestamp, replace_file,
 };
 pub use self::guard::guard;
+pub use self::memory::set_memory_low;
 pub use self::recycle::{recyclable, recycle};
 pub use self::windows::{
     Activation, Monitor, PanelWindow, Point, Rect, cursor_pos, drag_tolerance, escape_pressed,

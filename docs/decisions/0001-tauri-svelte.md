@@ -9,7 +9,7 @@ without routes does not need an application framework.
 **Consequences:**
 
 - Small installer and direct access to Win32 and local AI Rust libraries.
-- Memory use is close to other Chromium apps; reducing it depends on measures such as lowering WebView2
-  memory use while the panel is hidden (in "Later" in `docs/PLAN.md`).
+- Memory use is close to other Chromium apps; WebView2's memory target is lowered while the panel is
+  parked (see "Memory while parked" in `docs/ARCHITECTURE.md`).
 - The web engine varies across systems, and Linux will be the most labor-intensive platform.
 - Electron was the fallback if M0 failed; M0 approved Tauri ([0003](0003-panel-and-web-pages.md)).

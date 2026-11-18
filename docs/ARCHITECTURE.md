@@ -241,6 +241,11 @@ per-monitor DPI awareness (PMv2).
   panel opening and closing and 100 ms for the handle sliding in and out. A curve's x stays within 0..1
   and its y may overshoot; the last frame lands exactly on the destination, and an overshoot beyond
   the edge is cut by the monitor clip below.
+- **Memory while parked:** once the panel lands parked, `platform/memory.rs` sets WebView2's memory
+  usage target to low on the main and page webviews, and back to normal as soon as it starts to open.
+  Scripts keep running, so autosave and the watcher stay live; `TrySuspend` is not used because it
+  pauses them and requires a hidden controller, while the parked main window stays visible off-screen
+  to draw the edge tab.
 - **Tweak window (development builds only):** its UI is in "Tweak window" in `docs/DESIGN.md`.
   `dev.rs`, compiled only with `debug_assertions`, opens a separate `tweak` window on the same UI page (`main.ts` mounts the tool there) with a capability
   added at startup that grants only `listen`, `unlisten` and `emit_to`; `main_only` still rejects its

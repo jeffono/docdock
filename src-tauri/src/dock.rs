@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::handle::{self, Presence};
 use crate::motion::{self, Kind, Motion};
@@ -228,6 +228,8 @@ struct Dock {
     /// The cursor heads for the edge fast enough to open the panel without waiting.
     rushing: bool,
     web_visible: bool,
+    /// WebView2 was asked to trim memory because the panel is parked.
+    memory_low: bool,
     overlay_height: u32,
     side: Side,
     /// Logical width chosen by the user, `None` for the default.
@@ -611,6 +613,7 @@ impl Dock {
     }
 
     fn show(&mut self) {
+        self.set_memory_low(false);
         self.set_click_through(false);
         self.set_enabled(true);
         self.window.raise();
@@ -618,6 +621,19 @@ impl Dock {
         // Summoning an open panel only gives it focus.
         if self.x != self.rect.left || self.slide.is_some() {
             self.slide = Some(Slide::new(self.x, self.rect.left, Kind::Open));
+        }
+    }
+
+    /// Trims memory of both webviews while parked and restores it as the panel starts to open.
+    fn set_memory_low(&mut self, low: bool) {
+        if self.memory_low == low {
+            return;
+        }
+        self.memory_low = low;
+        for label in ["main", "web"] {
+            if let Some(window) = self.app.get_webview_window(label) {
+                platform::set_memory_low(&window, low);
+            }
         }
     }
 
@@ -689,6 +705,7 @@ impl Dock {
             crate::notes::purge_trash(&self.app);
             crate::shortcut::end_recording(&self.app);
             let _ = self.app.emit_to("main", "panel-hidden", ());
+            self.set_memory_low(true);
         }
         self.update_handle();
     }
@@ -744,6 +761,7 @@ pub fn start(
         last_cursor: None,
         rushing: false,
         web_visible: false,
+        memory_low: false,
         overlay_height: 0,
         side,
         width,
