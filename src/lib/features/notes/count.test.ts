@@ -1,11 +1,15 @@
 import { EditorSelection, Text } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { countSelection, countText, noteBodyStart } from "./count";
+import { countNote, countSelection, countText, formatTimeRange, noteBodyStart } from "./count";
 
 describe("editor count", () => {
   it("starts after the closing frontmatter delimiter", () => {
     const doc = Text.of(["---", "title: A note", "---", "Body"]);
     expect(countText(doc.sliceString(noteBodyStart(doc)))).toEqual({ words: 1, chars: 4 });
+  });
+
+  it("excludes frontmatter in a raw note with CRLF line endings", () => {
+    expect(countNote("---\r\ntitle: Hidden\r\n---\r\nOne two")).toEqual({ words: 2, chars: 7 });
   });
 
   it("counts apostrophes and accented letters within words", () => {
@@ -29,5 +33,29 @@ describe("editor count", () => {
       EditorSelection.range(body + 4, doc.length),
     ]);
     expect(countSelection(doc, selection, body)).toEqual({ words: 2, chars: 6 });
+  });
+});
+
+describe("time estimates", () => {
+  it.each([
+    { name: "rounds up fractional seconds", words: 74, fast: 300, slow: 240, expected: "15s~19s" },
+    { name: "shows minutes as a clock", words: 400, fast: 300, slow: 192, expected: "01:20~02:05" },
+    {
+      name: "adds hours to the clock",
+      words: 19500,
+      fast: 300,
+      slow: 216,
+      expected: "1:05:00~1:30:17",
+    },
+    {
+      name: "collapses matching seconds to one value",
+      words: 1,
+      fast: 300,
+      slow: 175,
+      expected: "1s",
+    },
+    { name: "omits estimates for zero words", words: 0, fast: 300, slow: 175, expected: "" },
+  ])("$name", ({ words, fast, slow, expected }) => {
+    expect(formatTimeRange(words, fast, slow)).toBe(expected);
   });
 });

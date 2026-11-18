@@ -492,7 +492,10 @@ The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, w
 Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
 hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
 a secondary Discard my changes button. Errors appear in red beside this notice.
-A muted footer shows word and character counts for the note or selection, excluding frontmatter.
+A muted footer shows word and character counts and fast-to-slow time ranges for silent reading
+(300–175 words per minute) and speaking (160–130 words per minute). It uses the selection when
+editing with a selection and the whole note otherwise, including on the focused card in reading mode.
+Frontmatter is excluded in both views.
 
 Windows editor shortcuts:
 
