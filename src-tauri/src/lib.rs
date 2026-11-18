@@ -17,6 +17,7 @@ mod pinned;
 mod platform;
 mod reader;
 mod shortcut;
+mod spelling;
 mod trash;
 mod tray;
 mod updates;
@@ -128,6 +129,12 @@ pub fn run() {
         commands::pinned_restore,
         commands::open_external,
         commands::clipboard_write,
+        commands::spelling_enabled,
+        commands::spelling_set_enabled,
+        commands::spelling_languages,
+        commands::spelling_check,
+        commands::spelling_suggest,
+        commands::spelling_add,
     ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
@@ -152,6 +159,7 @@ pub fn run() {
             let hwnd = window.hwnd()?.0 as isize;
             tray::setup(app, hwnd, locale, side, requests.clone())?;
             app.manage(locale);
+            app.manage(spelling::Spelling::start());
             notes::purge_trash(app.handle());
             updates::start(app.handle(), hwnd);
             blocking::start(app.handle());

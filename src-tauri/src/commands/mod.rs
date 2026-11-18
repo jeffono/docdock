@@ -453,3 +453,34 @@ pub fn permission_forget(
 ) -> Result<(), Error> {
     crate::permissions::forget(&app, &site, kind)
 }
+
+#[tauri::command]
+pub fn spelling_enabled(app: AppHandle) -> Result<bool, Error> {
+    crate::notes::spelling(&app)
+}
+#[tauri::command]
+pub fn spelling_set_enabled(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::notes::set_spelling(&app, enabled)
+}
+#[tauri::command(async)]
+pub fn spelling_languages(spelling: State<'_, crate::spelling::Spelling>) -> Vec<String> {
+    spelling.languages()
+}
+#[tauri::command(async)]
+pub fn spelling_check(
+    spelling: State<'_, crate::spelling::Spelling>,
+    words: Vec<String>,
+) -> Vec<bool> {
+    spelling.check(words)
+}
+#[tauri::command(async)]
+pub fn spelling_suggest(
+    spelling: State<'_, crate::spelling::Spelling>,
+    word: String,
+) -> Vec<String> {
+    spelling.suggest(word)
+}
+#[tauri::command(async)]
+pub fn spelling_add(spelling: State<'_, crate::spelling::Spelling>, word: String) {
+    spelling.add(word)
+}

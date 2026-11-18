@@ -16,6 +16,7 @@ mod memory;
 pub mod permission;
 pub mod power;
 mod recycle;
+pub mod spell;
 pub mod taskbar;
 mod windows;
 

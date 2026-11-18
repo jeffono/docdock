@@ -20,6 +20,7 @@ import {
   permissionForget,
   permissionList,
   type SitePermission,
+  spellingLanguages,
   type TrashItem,
   type UpdateStatus,
   updateCheck,
@@ -36,6 +37,7 @@ import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import { relativeDate } from "../notes/relative-date";
 import ShortcutList from "../notes/ShortcutList.svelte";
+import { loadSpelling, setSpelling, spellingOn } from "../notes/spelling-store";
 import { blockingRevision } from "../web/blocking-store";
 import ActivationShortcut from "./ActivationShortcut.svelte";
 import UnlockVault from "./UnlockVault.svelte";
@@ -60,6 +62,8 @@ let allowedSites = $state<string[]>([]);
 let sitePermissions = $state<SitePermission[]>([]);
 let busy = $state(false);
 let autostart = $state<boolean | null>(null);
+/** The checker's languages by name in the UI language; null until read. */
+let spellingNames = $state<string[] | null>(null);
 let updates = $state<UpdateStatus | null>(null);
 let canRestart = $derived(updates?.phase === "ready" || updates?.phase === "installFailed");
 let confirm: ConfirmDialog;
@@ -185,6 +189,11 @@ onMount(() => {
     sitePermissions = await permissionList();
     await refreshFolder();
     await loadVault();
+    await loadSpelling();
+    const names = new Intl.DisplayNames(document.documentElement.lang || "en", {
+      type: "language",
+    });
+    spellingNames = (await spellingLanguages()).map((tag) => names.of(tag) ?? tag);
   });
   const notesChanged = onNotesChanged(() => {
     void refreshFolder()
@@ -250,6 +259,10 @@ onMount(() => {
       <div class="setting"><h3>{t("order.label")}</h3><NoteOrder preferences /><p>{t("order.search")}</p></div>
       <div class="setting">
         <label><input type="checkbox" checked={$relativeDates} disabled={busy || $noteOrderBusy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $relativeDates; void action(() => setRelativeDates(enabled)); }} />{t("preferences.relativeDates")}</label>
+      </div>
+      <div class="setting">
+        <label><input type="checkbox" checked={$spellingOn} disabled={busy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $spellingOn; void action(() => setSpelling(enabled)); }} />{t("preferences.spelling")}</label>
+        {#if spellingNames}<p>{spellingNames.length > 0 ? t("preferences.spellingLanguages", { languages: spellingNames.join(", ") }) : t("preferences.spellingNone")}</p>{/if}
       </div>
       <fieldset disabled={busy}>
         <legend>{t("preferences.side")}</legend>

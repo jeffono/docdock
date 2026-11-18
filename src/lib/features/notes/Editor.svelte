@@ -2,7 +2,7 @@
 import { undo } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { onMount, untrack } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import { privateCut } from "../../clipboard";
 import { errorText, type MessageKey, t } from "../../i18n";
 import {
@@ -12,8 +12,12 @@ import {
   notesSave,
   notesTrust,
   type OpenNote,
+  spellingAdd,
+  spellingCheck,
+  spellingSuggest,
 } from "../../ipc";
 import Button from "../../ui/Button.svelte";
+import Menu from "../../ui/Menu.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
@@ -22,6 +26,8 @@ import cssUrl from "./editor.css?url";
 import type { FolderGone } from "./folder-state";
 import { notePath } from "./live-formatting";
 import { diskReload, rawHistory, rawText } from "./reload";
+import { learned, type Misspelling, spelling } from "./spelling";
+import { loadSpelling, spellingOn } from "./spelling-store";
 
 let {
   path,
@@ -45,6 +51,37 @@ let view: EditorView | undefined;
 let raw = untrack(() => note.text);
 const editable = new Compartment();
 const location = new Compartment();
+const checker = new Compartment();
+const spellingExtension = spelling(spellingCheck, (target) => void suggest(target));
+let spellMenu: Menu;
+/** The misspelled word the suggestions menu is for. */
+let misspelling = $state<(Misspelling & { suggestions: string[] }) | null>(null);
+async function suggest(target: Misspelling) {
+  const suggestions = await spellingSuggest(target.word).catch(() => []);
+  if (disposed || !view) return;
+  misspelling = { ...target, suggestions };
+  // Rendered first, so the menu measures its items.
+  await tick();
+  spellMenu.show({ at: { x: target.x, y: target.y }, from: view.contentDOM });
+}
+/** Replaces the word only if it is still there: the note may have changed while the menu was open. */
+function correct(replacement: string) {
+  const target = misspelling;
+  if (!view || !target || view.state.sliceDoc(target.from, target.to) !== target.word) return;
+  view.dispatch({
+    changes: { from: target.from, to: target.to, insert: replacement },
+    selection: { anchor: target.from + replacement.length },
+    userEvent: "input.spelling",
+  });
+}
+async function addWord() {
+  const target = misspelling;
+  if (!view || !target) return;
+  await spellingAdd(target.word).catch((e) => {
+    error = errorText(e);
+  });
+  if (!disposed) learned(view, target.word);
+}
 let revision = 0;
 export function snapshot() {
   return revision;
@@ -209,6 +246,7 @@ const extensions = () => [
   }),
   editable.of(EditorState.readOnly.of(false)),
   location.of(notePath.of(path)),
+  checker.of([]),
   EditorView.domEventHandlers({ paste }),
   privateCut(clipboardWrite),
   ...editorExtensions(
@@ -352,7 +390,12 @@ onMount(() => {
   if (/^---\r?\n[\s\S]*\r?\n---\r?\n?$/.test(raw))
     view.dispatch({ selection: { anchor: view.state.doc.length } });
   view.focus();
+  const stopSpelling = spellingOn.subscribe((on) => {
+    view?.dispatch({ effects: checker.reconfigure(on ? spellingExtension : []) });
+  });
+  loadSpelling().catch(() => {});
   return () => {
+    stopSpelling();
     disposed = true;
     saving.stop();
     view?.destroy();
@@ -400,6 +443,15 @@ onMount(() => {
     </div>
   {/if}
   <div class="surface" bind:this={host}></div>
+  <Menu bind:this={spellMenu} label={t("editor.spelling")} ontoggle={(open) => { if (!open) misspelling = null; }}>
+    {#each misspelling?.suggestions ?? [] as suggestion}
+      <button role="menuitem" onclick={() => correct(suggestion)}>{suggestion}</button>
+    {:else}
+      <p>{t("editor.spellingNone")}</p>
+    {/each}
+    <hr />
+    <button role="menuitem" onclick={addWord}>{t("editor.spellingAdd")}</button>
+  </Menu>
 </div>
 
 <style>
