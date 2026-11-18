@@ -312,6 +312,22 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
         && let Err(error) = update.install(bytes)
     {
         eprintln!("[updater] install failed: {error}");
+        let message = match *app.state::<Locale>() {
+            Locale::En => {
+                "The update could not be installed. Try restarting again from the tray or Preferences."
+            }
+            Locale::PtBr => {
+                "Não foi possível instalar a atualização. Tente reiniciar de novo pela bandeja ou pelas Preferências."
+            }
+        };
+        // It follows the user's own restart, so a native message is expected; its own thread
+        // lets the exit state below be restored while it is open.
+        std::thread::spawn(move || {
+            rfd::MessageDialog::new()
+                .set_title("DocDock")
+                .set_description(message)
+                .show()
+        });
     }
     {
         let mut state = locked(&app);
