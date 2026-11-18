@@ -75,6 +75,16 @@ In no defined order:
 - Mermaid diagrams: require a decision on CSP, which blocks the `<style>` it injects.
 - Slash commands in the editor, including "Add property" for the frontmatter.
 - Post-its as floating desktop windows.
+- Tasks with bidirectional Android sync, keeping Markdown as durable local content (advanced).
+  First candidate: Microsoft To Do as the service, with its free Android app or Tasks.org; no
+  self-hosted server required. Todoist is an alternative with a sync-oriented API, but its free plan
+  allows 5 personal projects and all plans cap active tasks at 300 per project; custom reminders
+  require Pro. Google Tasks is less suitable: its API omits scheduled times, reminders and recurrence.
+  CalDAV remains an open alternative but requires a server or hosted account. Before choosing, plan
+  stable task identity, conflict handling, deletions and recurrence without losing Markdown content;
+  validate ID changes, completion and incremental sync against the chosen service. Recheck current
+  API and plan limits during planning; see [Graph tasks](https://learn.microsoft.com/en-us/graph/api/resources/todotask),
+  [Tasks.org sync](https://tasks.org/docs/sync_microsoft/) and [Todoist limits](https://www.todoist.com/help/account-and-billing/plans/usage-limits-in-todoist-e5rcSY).
 - Screenshots.
 - Dictation with local models, downloaded separately from the installer.
 - Plugins: require a recorded decision before starting.
