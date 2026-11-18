@@ -37,6 +37,11 @@ import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import { relativeDate } from "../notes/relative-date";
 import ShortcutList from "../notes/ShortcutList.svelte";
+import {
+  loadNoteSearchSuggestions,
+  noteSearchSuggestions,
+  setNoteSearchSuggestions,
+} from "../notes/search-suggestions-store";
 import { loadSpelling, setSpelling, spellingOn } from "../notes/spelling-store";
 import { blockingRevision } from "../web/blocking-store";
 import ActivationShortcut from "./ActivationShortcut.svelte";
@@ -185,6 +190,9 @@ async function refreshFolder() {
   folder = await notesFolder();
 }
 onMount(() => {
+  void loadNoteSearchSuggestions().catch((e) => {
+    error = errorText(e);
+  });
   void action(async () => {
     allowedSites = await blockingSites();
     sitePermissions = await permissionList();
@@ -260,6 +268,10 @@ onMount(() => {
       <div class="setting"><h3>{t("order.label")}</h3><NoteOrder preferences /><p>{t("order.search")}</p></div>
       <div class="setting">
         <label><input type="checkbox" checked={$relativeDates} disabled={busy || $noteOrderBusy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $relativeDates; void action(() => setRelativeDates(enabled)); }} />{t("preferences.relativeDates")}</label>
+      </div>
+      <div class="setting">
+        <label><input type="checkbox" checked={$noteSearchSuggestions === true} disabled={busy || $noteSearchSuggestions === null} aria-describedby="note-search-suggestions-hint" onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $noteSearchSuggestions === true; void action(() => setNoteSearchSuggestions(enabled)); }} />{t("preferences.noteSearchSuggestions")}</label>
+        <p id="note-search-suggestions-hint">{t("preferences.noteSearchSuggestionsHint")}</p>
       </div>
       <div class="setting">
         <label><input type="checkbox" checked={$spellingOn} disabled={busy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $spellingOn; void action(() => setSpelling(enabled)); }} />{t("preferences.spelling")}</label>

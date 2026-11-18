@@ -119,6 +119,7 @@ import {
   completionToken,
   creationContent,
   creationText,
+  noteSuggestionQuery,
   queryCompletion,
 } from "./query";
 import { datePresets } from "./query-date";
@@ -132,6 +133,7 @@ import {
   renameEntries,
   search,
 } from "./search";
+import { loadNoteSearchSuggestions, noteSearchSuggestions } from "./search-suggestions-store";
 
 let {
   browser = false,
@@ -179,7 +181,9 @@ async function showSkipped(open: boolean) {
 }
 let folders = $state<string[]>([]);
 let error = $state("");
+let editing = $state(false);
 let query = $state("");
+let noteSearchTyped = $state(false);
 let completionCaret = $state<number | null>(null);
 let completionDismissed = $state(false);
 let completionSelection = $state(0);
@@ -224,33 +228,47 @@ $effect(() => {
   void browser;
   showingHistory = false;
 });
+$effect(() => {
+  if (inactive || browser) noteSearchTyped = false;
+});
 const inputQuery = $derived(browser ? address : query);
 const intent = $derived(webQuery(inputQuery, browser));
+const noteWebQuery = $derived(
+  intent === null && noteSearchTyped && !inactive && !editing
+    ? noteSuggestionQuery(query, $noteSearchSuggestions === true)
+    : null,
+);
 // In Notes, `#tag` and `date:` filters are not web text: only free text is offered to the web.
 const webItems = $derived(
   webEntries(
-    browser || intent !== null ? inputQuery : creationText(query),
+    noteWebQuery ?? (browser || intent !== null ? inputQuery : creationText(query)),
     browser,
     history,
     remote,
+    noteWebQuery !== null,
   ),
 );
 $effect(() => {
   if (browser && !addressEditing) address = pageUrl;
 });
 $effect(() => {
-  const text = intent;
+  const text = intent ?? noteWebQuery;
+  // Restart the note debounce even when an edit only changes the filter tokens.
+  if (intent === null && text !== null) void query;
   const revision = latest.next();
   remote = [];
   if (inactive) return;
   if (showingHistory || text === null || text.length < 2 || (browser && !addressEditing)) return;
-  const timer = setTimeout(() => {
-    void webSuggestions(text)
-      .then((items) => {
-        if (latest.accepts(revision)) remote = items;
-      })
-      .catch(() => {});
-  }, 180);
+  const timer = setTimeout(
+    () => {
+      void webSuggestions(text)
+        .then((items) => {
+          if (latest.accepts(revision)) remote = items;
+        })
+        .catch(() => {});
+    },
+    intent === null ? 300 : 180,
+  );
   return () => {
     clearTimeout(timer);
     latest.next();
@@ -321,7 +339,6 @@ let selected = $state("");
 /** Version of the edited note, to tell a real change from a reread of the same bytes. */
 let version = "";
 let opened = $state<OpenNote | null>(null);
-let editing = $state(false);
 let saveStatus = $state<AutosaveState>("saved");
 let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
@@ -388,6 +405,7 @@ async function edit(path: string) {
     selected = path;
     expanded = path;
     editing = true;
+    noteSearchTyped = false;
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -2008,6 +2026,7 @@ function shortcut(event: KeyboardEvent) {
 }
 
 onMount(() => {
+  void loadNoteSearchSuggestions().catch(() => {});
   // Refresh after midnight and after a suspended machine resumes, without remounting cards.
   const clock = window.setInterval(() => {
     relativeNow = Date.now();
@@ -2015,6 +2034,7 @@ onMount(() => {
   const unlisten = onNotesChanged(changed);
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden(() => {
+    noteSearchTyped = false;
     shortcutSheet.close();
     // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
     if (!removed?.trash) removed = null;
@@ -2110,7 +2130,14 @@ onMount(() => {
       {#if browser}<Shield url={pageUrl} onerror={(message) => { error = message; }} />{/if}
       <TextField
         value={inputQuery}
-        oninput={(event) => { if (browser) address = event.currentTarget.value; else query = event.currentTarget.value; }}
+        oninput={(event) => {
+          if (browser) address = event.currentTarget.value;
+          else {
+            query = event.currentTarget.value;
+            // Opting in later does not send text typed while the option was off.
+            noteSearchTyped = $noteSearchSuggestions === true;
+          }
+        }}
         onkeyup={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateCompletion(event); }}
         onselect={updateCompletion}
         onclick={updateCompletion}

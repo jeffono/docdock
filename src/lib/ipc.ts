@@ -388,6 +388,10 @@ export const permissionList = () => invoke<SitePermission[]>("permission_list");
 export const permissionForget = (site: string, kind: PermissionKind) =>
   invoke<void>("permission_forget", { site, kind });
 
+export const noteSearchSuggestionsEnabled = () => invoke<boolean>("note_search_suggestions");
+export const noteSearchSetSuggestions = (enabled: boolean) =>
+  invoke<void>("note_search_set_suggestions", { enabled });
+
 /** Spell checking in the editor, on unless turned off in Preferences. */
 export const spellingEnabled = () => invoke<boolean>("spelling_enabled");
 export const spellingSetEnabled = (enabled: boolean) =>

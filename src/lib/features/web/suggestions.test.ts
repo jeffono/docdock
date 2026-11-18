@@ -34,6 +34,13 @@ it("explicit intent offers local addresses before engine suggestions", () => {
   expect(items.map((item) => item.text)).toEqual(["rust", "https://rust-lang.org/", "rust book"]);
   expect(webQuery("? rust", false)).toBe("rust");
 });
+it("opted-in note suggestions follow the existing web action", () => {
+  const items = webEntries("rust", false, ["https://rust-lang.org/"], ["rust", "rust book"], true);
+  expect(items).toEqual([
+    { key: "web:search", kind: "intent", text: "rust" },
+    { key: "web:search:rust book", kind: "search", text: "rust book" },
+  ]);
+});
 it("browser Enter selects navigation for URLs and search for text", () => {
   expect(webEntries("example.com", true, [], [])[0]?.kind).toBe("open");
   const items = webEntries("rust book", true, [], []);
