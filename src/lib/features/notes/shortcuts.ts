@@ -34,6 +34,7 @@ export const editorShortcuts: { key: string; description: MessageKey; level?: nu
   { key: "Enter / Backspace", description: "shortcut.continue" },
   { key: "Tab / Shift+Tab", description: "shortcut.indent" },
   { key: "Ctrl+;", description: "shortcut.property" },
+  { key: "/", description: "shortcut.slash" },
   { key: "Alt+Shift+A", description: "shortcut.cycleCase" },
   { key: "Ctrl+F / Ctrl+H", description: "shortcut.noteFind" },
   { key: "F3 / Shift+F3", description: "shortcut.noteNext" },

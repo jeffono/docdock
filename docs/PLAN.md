@@ -71,18 +71,7 @@ detail each stage when it is next.
   disruption. WebView2's low memory target while the panel is parked cuts its working set by 70–90%;
   see "Distribution and updates" and "Memory while parked" in `docs/ARCHITECTURE.md`.
 
-## Next
-
-M12 — Editor productivity:
-
-- [x] Discreet character and word count (basic, S): `Intl.Segmenter` for words, selection count when
-  there is one, frontmatter excluded.
-- [x] Text transforms (standard, S–M): four case styles, line sorting and deduplication in the formatting bar, with a case-cycle shortcut.
-- [x] System spell checker, on by default with a Preferences toggle (advanced): the WebView2 spike
-  failed, so the Windows Spell Checking API with our own marks and menu; see "Spelling" in
-  `docs/ARCHITECTURE.md`.
-- [ ] Slash commands, including "Add property" for the frontmatter (standard, M). Text transforms and
-  slash commands are the two uses that justify one list of editor commands.
+- [x] M12 — Editor productivity: word and character counts, reading and speaking estimates, text transforms, Windows spell checking, and slash commands including "Add property" for the frontmatter. See "Note editor" in `docs/DESIGN.md` and "Spelling" in `docs/ARCHITECTURE.md`.
 
 ## Later
 

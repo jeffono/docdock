@@ -99,7 +99,7 @@
   outline-offset: 1px;
 }
 
-/* Frontmatter completion: keys and tags. */
+/* Completion lists for frontmatter and slash commands. */
 :host .cm-tooltip.cm-tooltip-autocomplete {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
@@ -112,7 +112,33 @@
 :host .cm-tooltip-autocomplete > ul > li {
   padding: 0 var(--space-2);
 }
-:host .cm-tooltip-autocomplete > ul > li[aria-selected] {
+/* Slash commands look like the formatting bar's menu: roomy items and the same quiet highlight. */
+:host .cm-tooltip-autocomplete {
+  --command-item: calc(var(--size-control) * 0.7);
+}
+:host .cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul:has(> li.cm-command-option) {
+  /* Room for about ten commands, rather than CodeMirror's 10em. */
+  max-height: calc(var(--command-item) * 10 + var(--space-1) * 2);
+  padding: var(--space-1);
+}
+:host .cm-editor .cm-tooltip.cm-tooltip-autocomplete > ul > li.cm-command-option {
+  display: flex;
+  align-items: center;
+  min-height: var(--command-item);
+  padding: calc(var(--space-1) * 0.7) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+}
+:host .cm-editor .cm-tooltip-autocomplete > ul > li.cm-command-option[aria-selected] {
+  background: var(--color-bg);
+}
+:host .cm-tooltip-autocomplete .cm-completionDetail {
+  margin-left: var(--space-2);
+  color: var(--color-muted);
+  font-style: normal;
+}
+/* Specific enough to win over CodeMirror's own theme, injected after this sheet. */
+:host .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--color-selected);
   color: var(--color-fg);
 }

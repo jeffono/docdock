@@ -511,6 +511,7 @@ Windows editor shortcuts:
 | Tab / Shift+Tab                               | Indent / outdent list items                                                                |
 | Ctrl+/                                        | Open / close the shortcut sheet                                                            |
 | Ctrl+;                                        | Add a frontmatter property: a new line in the block, created if needed, with keys offered  |
+| /                                             | Open slash commands at the start of a line or after whitespace                             |
 | Alt+Shift+A                                   | Cycle lowercase → Sentence case → Capitalize Each Word → UPPERCASE                         |
 | Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
 | Ctrl+F / Ctrl+H                               | Find / replace in the note, starting from the selection; Ctrl+F again goes to the bar      |
@@ -532,6 +533,13 @@ frontmatter line and an explanatory tooltip. Leaving editing repairs comma-separ
 into a list and quotes plain `word: word` items inside a flow list, as one undoable edit saved by
 autosave. Typing never triggers repair. Ambiguous YAML (including a scalar `tags: Plano: Q3`,
 duplicate tag keys, incomplete lists, structured values and unreadable block items) stays untouched.
+
+Typing `/` at the start of a line or after whitespace opens the quiet completion list outside code,
+URLs and frontmatter. Filter by the localized label or English command ID, ignoring accents and
+case. Esc, moving the cursor or typing a query with no match closes the list and keeps the text.
+Choosing a command replaces the query and applies the action in one undo step. Slash commands can
+format the current line, insert a code block, divider, link or local date, or add a property. Case
+commands apply to the current line and line actions apply to its surrounding non-blank block.
 
 Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
 and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
