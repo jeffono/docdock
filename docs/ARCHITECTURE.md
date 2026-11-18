@@ -92,12 +92,19 @@ needed. Installers have no Windows code signature; see `decisions/0008-distribut
 accepted SmartScreen warning and release-channel policy. The manual release workflow creates
 a GitHub release draft with signed updater artifacts and `latest.json`.
 
-`updates.rs` checks once at production startup, downloads and verifies in Rust, and enables a tray
-restart action. Neither webview has updater permissions. Quit and update share a native exit gate:
-an event asks the main UI to freeze input and finish the editor through its existing save guard;
-only its matching acknowledgement allows exit or installation. Busy content operations, save errors
-and conflicts keep the process open. Failed installation restores input and reports a native dialog;
-the next launch retries the download. Windows NSIS relaunches without a process plugin.
+`updates.rs` checks at production startup, every six hours and on the Windows resume notification.
+Preferences reads the version and state through main-only commands, receives changes as events and
+can request a manual check. Triggers share one check or download. Rust verifies downloads, keeps a
+ready update in memory for restart, and records the last successful check of the session even if a
+later check fails. Neither webview has updater permissions. Development builds disable updates.
+
+Once ready, Preferences and the tray offer a restart without opening or focusing the panel. Quit and
+update share a native exit gate: an event asks the main UI to freeze input and finish the editor
+through its existing save guard; only its matching acknowledgement allows exit or installation. Busy
+content operations, save errors and conflicts keep the process open. Failed installation restores
+input, reports the failure in a native dialog, since it follows the user's restart, and in
+Preferences; restart can be retried with the same download.
+Ordinary Quit leaves the update unapplied. Windows NSIS relaunches without a process plugin.
 
 To cut a release, align package, Cargo and Tauri versions and `Cargo.lock`, commit, push through
 normal review, then manually run Release on main; the workflow rejects mismatched versions or a stale

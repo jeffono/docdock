@@ -14,6 +14,7 @@ mod guard;
 pub mod keyboard;
 mod memory;
 pub mod permission;
+pub mod power;
 mod recycle;
 pub mod taskbar;
 mod windows;

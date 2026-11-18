@@ -52,6 +52,9 @@ pub fn run() {
         commands::vault_clear,
         commands::vault_unlock,
         updates::exit_ready,
+        updates::update_status,
+        updates::update_check,
+        updates::update_restart,
         commands::app_locale,
         commands::app_theme,
         commands::app_set_theme,
@@ -150,7 +153,7 @@ pub fn run() {
             tray::setup(app, hwnd, locale, side, requests.clone())?;
             app.manage(locale);
             notes::purge_trash(app.handle());
-            updates::start(app.handle());
+            updates::start(app.handle(), hwnd);
             blocking::start(app.handle());
             permissions::start(app.handle());
             watch::monitor(app.handle().clone());

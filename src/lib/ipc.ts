@@ -9,6 +9,27 @@ export const onExitRequested = (handler: (id: number) => void) =>
 export const onExitCancelled = (handler: () => void) => listen("exit-cancelled", handler);
 export const exitReady = (id: number, saved: boolean) => invoke<void>("exit_ready", { id, saved });
 
+export type UpdateStatus = {
+  version: string;
+  phase:
+    | "disabled"
+    | "notChecked"
+    | "checking"
+    | "upToDate"
+    | "downloading"
+    | "ready"
+    | "checkFailed"
+    | "downloadFailed"
+    | "installFailed";
+  /** Timestamp of the most recent successful release check in this session, as epoch ms. */
+  lastSuccess: number | null;
+};
+export const updateStatus = () => invoke<UpdateStatus>("update_status");
+export const updateCheck = () => invoke<void>("update_check");
+export const updateRestart = () => invoke<void>("update_restart");
+export const onUpdateState = (handler: (status: UpdateStatus) => void) =>
+  listen<UpdateStatus>("update-state", (event) => handler(event.payload));
+
 export type Locale = "en" | "pt-BR";
 export const appLocale = () => invoke<Locale>("app_locale");
 
