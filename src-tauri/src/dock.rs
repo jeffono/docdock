@@ -5,7 +5,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::handle::{self, Presence};
 use crate::motion::{self, Kind, Motion};
@@ -228,6 +228,8 @@ struct Dock {
     /// The cursor heads for the edge fast enough to open the panel without waiting.
     rushing: bool,
     web_visible: bool,
+    /// WebView2 was asked to trim memory because the panel is parked.
+    memory_low: bool,
     overlay_height: u32,
     side: Side,
     /// Logical width chosen by the user, `None` for the default.
@@ -392,6 +394,8 @@ impl Dock {
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
+                // A page attached while parked gets the low target on the next pass, with `main`.
+                self.memory_low = false;
                 let x = self.window_x();
                 let mut web = PanelWindow::prepare(raw, Activation::OnClick);
                 frame_page(&mut web, &self.monitor, self.rect, self.side);
@@ -621,6 +625,21 @@ impl Dock {
         }
     }
 
+    /// Trims memory of both webviews while parked and still, including at startup and after a slide
+    /// cut short by a side or monitor change, and restores it as soon as the panel starts to open.
+    fn update_memory(&mut self) {
+        let low = self.x == self.parked_x && self.slide.is_none();
+        if self.memory_low == low {
+            return;
+        }
+        self.memory_low = low;
+        for label in ["main", "web"] {
+            if let Some(window) = self.app.get_webview_window(label) {
+                platform::set_memory_low(&window, low);
+            }
+        }
+    }
+
     /// Returns focus to the previous app. If the user already clicked another app, leave its focus alone.
     fn release_focus(&mut self) {
         if self.is_foreground() {
@@ -713,6 +732,7 @@ impl Dock {
                 next_poll = Instant::now() + POLL;
             }
             self.animate();
+            self.update_memory();
         }
     }
 }
@@ -744,6 +764,7 @@ pub fn start(
         last_cursor: None,
         rushing: false,
         web_visible: false,
+        memory_low: false,
         overlay_height: 0,
         side,
         width,

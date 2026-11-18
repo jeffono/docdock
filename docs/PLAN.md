@@ -77,8 +77,7 @@ M11 — Resident app health:
   permission. Check at startup, every 6 hours and after resume from sleep. A found update
   downloads and is announced without disruption: no blocking dialog, no focus stolen; restart
   stays a user action through the existing exit gate.
-- [ ] Lower memory while hidden (advanced): reduce WebView2 memory use (memory target or priority)
-  while the panel is hidden; see decision 0001. Measure before and after.
+- [x] Lower memory while hidden (advanced): WebView2's low memory target while the panel is parked.
 
 ## Later
 
