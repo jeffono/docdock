@@ -77,9 +77,7 @@ M12 — Editor productivity:
 
 - [x] Discreet character and word count (basic, S): `Intl.Segmenter` for words, selection count when
   there is one, frontmatter excluded.
-- [ ] Text transforms (standard, S–M): UPPER, lower, Sentence case and Capitalize Each Word with the
-  UI locale; maybe sort and deduplicate lines. Reached from the formatting bar, shortcuts and slash
-  commands.
+- [x] Text transforms (standard, S–M): four case styles, line sorting and deduplication in the formatting bar, with a case-cycle shortcut.
 - [x] System spell checker, on by default with a Preferences toggle (advanced): the WebView2 spike
   failed, so the Windows Spell Checking API with our own marks and menu; see "Spelling" in
   `docs/ARCHITECTURE.md`.

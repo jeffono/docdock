@@ -246,7 +246,7 @@
   box-shadow: none;
 }
 
-:host .formatting-bar button {
+:host .formatting-bar > button {
   display: grid;
   place-items: center;
   width: var(--size-control);
@@ -259,7 +259,8 @@
   cursor: pointer;
 }
 
-:host .formatting-bar button:hover {
+:host .formatting-bar > button:hover,
+:host .formatting-bar > button[aria-expanded="true"] {
   background: var(--color-bg);
   color: var(--color-fg);
 }
@@ -272,6 +273,53 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+:host .transform-menu {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 100%;
+  margin-block: var(--space-1);
+  padding: var(--space-1);
+  width: max-content;
+  max-width: calc(var(--panel-width) - var(--space-4) * 2);
+  max-height: calc(var(--transform-menu-room) - var(--space-1) * 2);
+  overflow: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+
+:host .transform-menu.above {
+  inset-block: auto 100%;
+}
+
+:host .transform-menu button {
+  display: block;
+  width: 100%;
+  min-height: var(--size-control);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-fg);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+:host .transform-menu button:hover,
+:host .transform-menu button[data-active] {
+  background: var(--color-bg);
+}
+
+:host .transform-menu hr {
+  border: 0;
+  border-top: 1px solid var(--color-line);
+  margin: var(--space-1) 0;
 }
 
 :host .cm-editor .cm-tag-problem {
