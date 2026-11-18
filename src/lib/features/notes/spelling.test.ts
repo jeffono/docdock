@@ -40,3 +40,13 @@ describe("prose words", () => {
     ]);
   });
 });
+
+// A fence beyond the parsed tree read as prose and sent code identifiers to the checker.
+it("leaves text beyond the parsed tree unchecked", () => {
+  const text = `${"Plain words here.\n\n".repeat(20_000)}\`\`\`\nfencedd\n\`\`\``;
+  const state = EditorState.create({
+    doc: text,
+    extensions: markdown({ extensions: markdownExtensions }),
+  });
+  expect(proseWords(state, 0, state.doc.length).map((word) => word.word)).not.toContain("fencedd");
+});

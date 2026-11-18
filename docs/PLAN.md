@@ -70,18 +70,26 @@ detail each stage when it is next.
   Check now and Restart to update; checks at startup, every six hours and on Windows resume, without
   disruption. WebView2's low memory target while the panel is parked cuts its working set by 70–90%;
   see "Distribution and updates" and "Memory while parked" in `docs/ARCHITECTURE.md`.
+- M12 — Editor productivity: Windows spell checking across the user's languages with our own marks
+  and suggestions menu (WebView2's checker loses its marks on CodeMirror redraws), word and character
+  counts with reading and speaking estimates, case and line transforms, and slash commands; see
+  "Spelling" in `docs/ARCHITECTURE.md` and "Note editor" in `docs/DESIGN.md`. Frontend tests grew 10%.
 
-- [x] M12 — Editor productivity: word and character counts, reading and speaking estimates, text transforms, Windows spell checking, and slash commands including "Add property" for the frontmatter. See "Note editor" in `docs/DESIGN.md` and "Spelling" in `docs/ARCHITECTURE.md`.
+## Next
+
+M13 — Search:
+
+- [ ] Choice of search providers (standard, S–M): presets such as DuckDuckGo, Brave, Startpage,
+  Ecosia, Google and Bing, plus a custom `%s` URL without suggestions; suggestions only where an
+  endpoint is stable. Amends decision 0006.
+- [ ] Web suggestions while searching notes (standard, S): an option, off by default, to query on
+  every keystroke after a short delay and a minimum length.
 
 ## Later
 
 In this order; each line is a future stage. Estimated cost: S (up to a day), M (days), L (one to two
 weeks), XL (several weeks, high risk).
 
-- M13 — Search (standard, S–M): choice of search providers (presets such as DuckDuckGo, Brave,
-  Startpage, Ecosia, Google and Bing, plus a custom `%s` URL without suggestions; suggestions only where
-  an endpoint is stable) and web suggestions while searching notes (level 2: an option, off by default,
-  to query on every keystroke after a short delay and a minimum length). Amends decision 0006.
 - M14 — Capture (advanced, M): screenshots of a region anywhere on the screen and of the web tab,
   inserted through the pasted-image path.
 - M15 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel

@@ -1,6 +1,7 @@
 //! Spell checking for the editor. The Windows checkers live on one thread, opened on first use; a
 //! word is misspelled only when every language flags it, so notes may mix languages.
 use std::sync::mpsc::{Sender, channel};
+use std::time::Duration;
 
 use crate::platform::spell::Checkers;
 
@@ -8,12 +9,14 @@ use crate::platform::spell::Checkers;
 const MAX_WORD: usize = 64;
 const MAX_WORDS: usize = 1000;
 const MAX_SUGGESTIONS: usize = 6;
+/// A stuck checker must not hold a command's thread; its answer then reads as the default.
+const ANSWER_WAIT: Duration = Duration::from_secs(5);
 
 enum Job {
     Languages(Sender<Vec<String>>),
     Check(Vec<String>, Sender<Vec<bool>>),
     Suggest(String, Sender<Vec<String>>),
-    Add(String, Sender<()>),
+    Add(String, Sender<bool>),
 }
 
 pub struct Spelling(Sender<Job>);
@@ -32,10 +35,11 @@ impl Spelling {
                         Job::Check(words, reply) => _ = reply.send(check(checkers, &words)),
                         Job::Suggest(word, reply) => _ = reply.send(suggest(checkers, &word)),
                         Job::Add(word, reply) => {
-                            if let Err(error) = checkers.add(&word) {
+                            let added = checkers.add(&word);
+                            if let Err(error) = &added {
                                 eprintln!("[spelling] add: {error}");
                             }
-                            _ = reply.send(());
+                            _ = reply.send(added.is_ok());
                         }
                     }
                 }
@@ -46,13 +50,13 @@ impl Spelling {
         Self(jobs)
     }
 
-    /// Sends a job and waits for its answer; a stopped thread answers with the default.
+    /// Sends a job and waits for its answer; a stopped or stuck thread answers with the default.
     fn ask<T: Default>(&self, job: impl FnOnce(Sender<T>) -> Job) -> T {
         let (reply, answer) = channel();
         if self.0.send(job(reply)).is_err() {
             return T::default();
         }
-        answer.recv().unwrap_or_default()
+        answer.recv_timeout(ANSWER_WAIT).unwrap_or_default()
     }
 
     pub fn languages(&self) -> Vec<String> {
@@ -65,7 +69,8 @@ impl Spelling {
     pub fn suggest(&self, word: String) -> Vec<String> {
         self.ask(|reply| Job::Suggest(word, reply))
     }
-    pub fn add(&self, word: String) {
+    /// Whether the word reached the dictionary.
+    pub fn add(&self, word: String) -> bool {
         self.ask(|reply| Job::Add(word, reply))
     }
 }
