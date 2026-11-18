@@ -100,6 +100,7 @@ pub enum Error {
     InvalidUrl {
         detail: String,
     },
+    SearchPathInvalid,
     UrlNotAllowed {
         url: String,
     },

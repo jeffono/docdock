@@ -370,12 +370,14 @@ choice and width reset use neutral buttons.
   that updates are disabled and omit the button. A verified download replaces it with a neutral Restart
   to update button and enables the matching action in the tray. The tray tooltip also signals readiness. A
   download or failure leaves the panel and focus where they are.
-- **Browser:** DuckDuckGo shown read-only, then a compact Allowed sites list with a neutral Remove per
-  site; a short hint explains the subdomain scope, and the empty list explains how to add an exception
-  with the shield. Site permissions follow in the same row style: the site, and below it in muted text
+- **Browser:** a search provider choice (DuckDuckGo by default), then a compact Allowed sites list
+  with a neutral Remove per site. A short hint explains the subdomain scope, and the empty list
+  explains how to add an exception with the shield. Site permissions follow in the same row style:
+  the site, and below it in muted text
   the kind and the answer ("Location · Allowed"), with a neutral Remove; the hint says answers cover
   subdomains and that removing one asks again, and the empty list says a bar above the page asks when
-  a site needs one.
+  a site needs one. Custom reveals a URL field and Save. An invalid URL shows a hint beside the
+  field and searches open in DuckDuckGo. Local address history remains available for every provider.
 - **Shortcuts:** starts with the activation shortcut, the combination in a field-like box and a neutral
   Change button. Change records: the box asks for a combination and shows the held modifiers, the
   button becomes Cancel, the current global and panel shortcuts stand aside, and the next

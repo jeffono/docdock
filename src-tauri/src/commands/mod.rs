@@ -375,6 +375,25 @@ pub fn note_image(
 }
 
 #[tauri::command(async)]
+pub fn web_search_preferences(app: AppHandle) -> web::SearchPreferences {
+    crate::notes::search_preferences(&app)
+}
+
+#[tauri::command(async)]
+pub fn web_set_search_preferences(
+    app: AppHandle,
+    engine: web::SearchEngine,
+    custom_url: String,
+) -> Result<web::SearchPreferences, Error> {
+    crate::notes::set_search_preferences(&app, engine, custom_url)
+}
+
+#[tauri::command(async)]
+pub fn web_search_url(app: AppHandle, query: String) -> Result<String, Error> {
+    crate::notes::search_preferences(&app).results_url(&query)
+}
+
+#[tauri::command(async)]
 pub fn web_suggestions(app: AppHandle, query: String) -> Vec<String> {
     web::suggestions(&app, &query)
 }

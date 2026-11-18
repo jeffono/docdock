@@ -40,6 +40,7 @@ import ShortcutList from "../notes/ShortcutList.svelte";
 import { loadSpelling, setSpelling, spellingOn } from "../notes/spelling-store";
 import { blockingRevision } from "../web/blocking-store";
 import ActivationShortcut from "./ActivationShortcut.svelte";
+import SearchProvider from "./SearchProvider.svelte";
 import UnlockVault from "./UnlockVault.svelte";
 import { loadVault, vaultPath } from "./vault-store";
 
@@ -287,7 +288,7 @@ onMount(() => {
         <Button variant="neutral" disabled={busy} onclick={() => action(() => panelResize(null, true))}>{t("preferences.widthReset")}</Button>
       </div>
     {:else if section === "browser"}
-      <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
+      <div class="setting"><SearchProvider /></div>
       <div class="setting">
         <h3>{t("blocking.sites")}</h3>
         <p>{t("blocking.hint")}</p>

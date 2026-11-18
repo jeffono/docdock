@@ -44,6 +44,7 @@ import {
   webAddresses,
   webOpen,
   webOverlay,
+  webSearchUrl,
   webSelection,
   webSetVisible,
   webSuggestions,
@@ -63,7 +64,6 @@ import {
   downOpensHistory,
   historyEntries,
   LatestQuery,
-  searchAddress,
   type WebEntry,
   webEntries,
   webQuery,
@@ -242,6 +242,7 @@ $effect(() => {
   const text = intent;
   const revision = latest.next();
   remote = [];
+  if (inactive) return;
   if (showingHistory || text === null || text.length < 2 || (browser && !addressEditing)) return;
   const timer = setTimeout(() => {
     void webSuggestions(text)
@@ -294,7 +295,7 @@ async function activateWeb(entry: WebEntry) {
     return;
   }
   try {
-    if (await openPage(entry.url ?? searchAddress(entry.text))) {
+    if (await openPage(entry.url ?? (await webSearchUrl(entry.text)))) {
       addressEditing = false;
       selection = "";
     }

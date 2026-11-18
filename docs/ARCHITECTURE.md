@@ -319,11 +319,14 @@ per-monitor DPI awareness (PMv2).
   The unified bar keeps a separate draft while typing. `suggestions.ts` supplies pure intent, entries
   and default selection rules for the shared arrow/Enter selection; visible behavior is in
   "Unified address bar" in `docs/DESIGN.md`.
-  In browser or `?` mode, Rust queries DuckDuckGo after a short debounce (minimum two characters).
+  In browser or `?` mode, Rust queries the selected provider after a short debounce (minimum two characters).
   A generation discards stale responses, including A → B → A. `ureq` uses a two-second timeout, no
   cookies/referer or redirects; JSON is capped at 32 KiB, eight unique phrases of 200 characters,
-  without controls. Failures silently leave local entries. Text is rendered as text; CSP is unchanged.
-  `search_engine` in settings.json defaults to `duckduckgo` (the supported engine), without settings UI.
+  without controls. Rust accepts OpenSearch arrays and DuckDuckGo phrase objects. Failures silently
+  leave local entries. Text is rendered as text; CSP is unchanged. Rust builds every search results
+  URL from `search_engine` (defaults to `duckduckgo`) and `custom_search_url` in settings.json. A custom
+  template uses HTTP(S), a fixed authority and `%s` for the encoded query. An invalid template uses
+  DuckDuckGo for results. Custom and Brave use only local suggestions.
   SourceChanged records actual http(s) visits, not submitted input, through a serialized atomic update
   of `address-history.json` in app_config_dir. Most recent first, deduplicated, 300 entries; corrupt
   history starts empty. Matching addresses precede engine phrases. The primary Open/Search action

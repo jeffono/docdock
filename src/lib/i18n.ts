@@ -81,7 +81,11 @@ const en = {
   "preferences.left": "Left",
   "preferences.right": "Right",
   "preferences.engine": "Search engine",
-  "preferences.engineName": "DuckDuckGo",
+  "preferences.engineCustom": "Custom",
+  "preferences.engineUrl": "Search URL",
+  "preferences.engineSave": "Save",
+  "preferences.engineInvalid":
+    "Enter an HTTP or HTTPS URL with %s for the search terms. DuckDuckGo is used until the URL is valid.",
   "preferences.panelKeys": "Panel and note list",
   "preferences.editorKeys": "Note editor",
   "preferences.activation": "Activation shortcut",
@@ -351,6 +355,7 @@ const en = {
   "error.pinnedNotRestored":
     "The note was restored, but the pinned list could not follow; pin it again.",
   "error.invalidUrl": "Invalid address: {detail}",
+  "error.searchPathInvalid": "These search terms would change the path of your custom search URL.",
   "error.urlNotAllowed": "Address not allowed: {url}",
   "error.pageNotRead": "The page could not be read. Try again once it has loaded.",
   "error.noArticle": "No article text was found on this page.",
@@ -444,7 +449,11 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.left": "Esquerdo",
   "preferences.right": "Direito",
   "preferences.engine": "Buscador",
-  "preferences.engineName": "DuckDuckGo",
+  "preferences.engineCustom": "Personalizado",
+  "preferences.engineUrl": "URL de busca",
+  "preferences.engineSave": "Salvar",
+  "preferences.engineInvalid":
+    "Insira uma URL HTTP ou HTTPS com %s no lugar dos termos de busca. O DuckDuckGo será usado até que a URL seja válida.",
   "preferences.panelKeys": "Painel e lista de notas",
   "preferences.editorKeys": "Editor de notas",
   "preferences.activation": "Atalho de ativação",
@@ -718,6 +727,8 @@ const ptBR: Record<MessageKey, string> = {
   "error.pinnedNotRestored":
     "A nota foi restaurada, mas a lista de fixados não acompanhou; fixe-a de novo.",
   "error.invalidUrl": "Endereço inválido: {detail}",
+  "error.searchPathInvalid":
+    "Esses termos de busca alterariam o caminho da sua URL de busca personalizada.",
   "error.urlNotAllowed": "Endereço não permitido: {url}",
   "error.pageNotRead":
     "Não foi possível ler a página. Tente de novo quando ela terminar de carregar.",

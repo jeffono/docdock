@@ -10,8 +10,9 @@ improve navigation, but sending every keystroke would send private note searches
   the computer.
 - **Level 2, not built yet:** an option, disabled by default, to query on every keystroke also when
   searching notes, with a short delay and minimum number of letters; see "Later" in `docs/PLAN.md`.
-- **Search engine:** DuckDuckGo, the only supported engine; `search_engine` in `settings.json` has no
-  settings UI. Google has no official suggestions URL.
+- **Search engine:** Preferences offers DuckDuckGo (default), Brave, Startpage, Ecosia, Google, Bing
+  and a custom HTTP(S) URL with `%s`. Presets use anonymous suggestion endpoints shipped by Firefox
+  or documented by the provider when available. Custom URLs have no suggestions.
 - **Request through Rust:** no cookies or referer. The response is untrusted JSON, displayed as text,
   never as HTML. The `main` window's CSP does not change.
 - **Address history:** local, in `app_config_dir`, never in the notes folder.

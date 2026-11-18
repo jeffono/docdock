@@ -61,10 +61,6 @@ export class LatestQuery {
     return revision === this.revision;
   }
 }
-export function searchAddress(text: string): string {
-  return `https://duckduckgo.com/?q=${encodeURIComponent(text)}`;
-}
-
 /** Down in Notes must never replace the note selection with URL history. */
 export function downOpensHistory(browser: boolean, suggestionCount: number): boolean {
   return browser && suggestionCount === 0;
