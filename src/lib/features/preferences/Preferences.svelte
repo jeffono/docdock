@@ -337,9 +337,10 @@ onMount(() => {
           {/if}
           {#if updates.phase !== "disabled"}
             <div class="update-actions">
-              <Button variant="neutral" disabled={busy || updates.phase === "checking" || updates.phase === "downloading" || canRestart} onclick={() => action(updateCheck)}>{t("updates.check")}</Button>
               {#if canRestart}
                 <Button variant="neutral" disabled={busy} onclick={() => action(updateRestart)}>{t("updates.restart")}</Button>
+              {:else}
+                <Button variant="neutral" disabled={busy || updates.phase === "checking" || updates.phase === "downloading"} onclick={() => action(updateCheck)}>{t("updates.check")}</Button>
               {/if}
             </div>
           {/if}

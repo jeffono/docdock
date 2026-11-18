@@ -367,8 +367,8 @@ choice and width reset use neutral buttons.
   remembered on this computer; the panel width, how to resize it and a reset.
 - **About:** the Updates section shows the installed version, live update status and the last
   successful check when known. A neutral Check now button starts a check; development builds show
-  that updates are disabled and omit the button. A verified download adds a neutral Restart to update
-  button and enables the matching action in the tray. The tray tooltip also signals readiness. A
+  that updates are disabled and omit the button. A verified download replaces it with a neutral Restart
+  to update button and enables the matching action in the tray. The tray tooltip also signals readiness. A
   download or failure leaves the panel and focus where they are.
 - **Browser:** DuckDuckGo shown read-only, then a compact Allowed sites list with a neutral Remove per
   site; a short hint explains the subdomain scope, and the empty list explains how to add an exception
