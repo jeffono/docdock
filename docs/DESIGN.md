@@ -344,8 +344,8 @@ All valid date filters, tag filters and free-text words apply together.
 ## Preferences
 
 The top bar gear replaces the folder action and opens a third view with quiet General, Appearance,
-Browser, Shortcuts, Trash and About section buttons, wrapping when the panel is narrow. The gear or
-Esc returns to the previous Notes/Browser tab; either tab also leaves
+Browser, Shortcuts, Trash and About section buttons, wrapping when the panel is narrow. The page stays
+loaded but hidden. The gear or Esc returns to the previous Notes/Browser tab; either tab also leaves
 Preferences, and the global shortcut returns to Notes and search. Opening a page preserves the Notes
 query. The active section has an accessible name without repeating the tab label as a heading.
 Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Folder
