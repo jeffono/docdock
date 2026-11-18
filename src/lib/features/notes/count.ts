@@ -10,14 +10,13 @@ export type Counts = { words: number; chars: number };
 export const readingRates = [300, 175] as const;
 export const speakingRates = [160, 130] as const;
 
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** Seconds as `15s`, then a clock: `01:20`, or `1:05:00` from an hour. */
 function formatDuration(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  if (minutes >= 60) {
-    return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}`;
-  }
-  if (minutes === 0) return `${seconds}s`;
-  return remainder ? `${minutes}min${String(remainder).padStart(2, "0")}s` : `${minutes}min`;
+  if (seconds < 60) return `${seconds}s`;
+  const clock = `${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+  return seconds < 3600 ? clock : `${Math.floor(seconds / 3600)}:${clock}`;
 }
 
 export function formatTimeRange(words: number, fastWpm: number, slowWpm: number): string {

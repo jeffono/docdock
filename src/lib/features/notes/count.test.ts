@@ -39,20 +39,13 @@ describe("editor count", () => {
 describe("time estimates", () => {
   it.each([
     { name: "rounds up fractional seconds", words: 74, fast: 300, slow: 240, expected: "15s~19s" },
+    { name: "shows minutes as a clock", words: 400, fast: 300, slow: 192, expected: "01:20~02:05" },
     {
-      name: "pads seconds after minutes",
-      words: 400,
-      fast: 300,
-      slow: 192,
-      expected: "1min20s~2min05s",
-    },
-    { name: "omits zero seconds", words: 600, fast: 300, slow: 200, expected: "2min~3min" },
-    {
-      name: "shows hours and padded minutes",
+      name: "adds hours to the clock",
       words: 19500,
       fast: 300,
       slow: 216,
-      expected: "1h05~1h30",
+      expected: "1:05:00~1:30:17",
     },
     {
       name: "collapses matching seconds to one value",
