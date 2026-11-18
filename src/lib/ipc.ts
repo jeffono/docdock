@@ -371,3 +371,15 @@ export const permissionList = () => invoke<SitePermission[]>("permission_list");
 /** Forgets a choice: the site asks again. */
 export const permissionForget = (site: string, kind: PermissionKind) =>
   invoke<void>("permission_forget", { site, kind });
+
+/** Spell checking in the editor, on unless turned off in Preferences. */
+export const spellingEnabled = () => invoke<boolean>("spelling_enabled");
+export const spellingSetEnabled = (enabled: boolean) =>
+  invoke<void>("spelling_set_enabled", { enabled });
+/** BCP 47 tags of the Windows user languages that have a dictionary, in the user's order. */
+export const spellingLanguages = () => invoke<string[]>("spelling_languages");
+/** One flag per word, true when every language marks it misspelled. */
+export const spellingCheck = (words: string[]) => invoke<boolean[]>("spelling_check", { words });
+export const spellingSuggest = (word: string) => invoke<string[]>("spelling_suggest", { word });
+/** Adds the word to the Windows dictionary of the first language. */
+export const spellingAdd = (word: string) => invoke<void>("spelling_add", { word });

@@ -53,6 +53,9 @@ struct Settings {
     group_by_date: bool,
     #[serde(default, deserialize_with = "lenient")]
     relative_dates: bool,
+    /// Spell checking is on unless turned off.
+    #[serde(default, deserialize_with = "lenient")]
+    spelling_off: bool,
     /// Wins over `group_by_date`; two flags keep settings written before folder grouping valid.
     #[serde(default, deserialize_with = "lenient")]
     group_by_folder: bool,
@@ -184,6 +187,12 @@ pub fn relative_dates(app: &AppHandle) -> Result<bool, Error> {
 }
 pub fn set_relative_dates(app: &AppHandle, enabled: bool) -> Result<(), Error> {
     update(app, |settings| settings.relative_dates = enabled)
+}
+pub fn spelling(app: &AppHandle) -> Result<bool, Error> {
+    Ok(!load(&config(app)?).spelling_off)
+}
+pub fn set_spelling(app: &AppHandle, enabled: bool) -> Result<(), Error> {
+    update(app, |settings| settings.spelling_off = !enabled)
 }
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -2429,6 +2438,7 @@ mod tests {
             ("note_order", &["null", "42", "{}", r#""future-order""#]),
             ("group_by_date", flags),
             ("relative_dates", flags),
+            ("spelling_off", flags),
             ("group_by_folder", flags),
             ("vault_file", &["42", "{}", "[]"]),
             ("side", &[r#""top""#, "42"]),

@@ -352,7 +352,7 @@ Sections scroll inside the panel, use the same insets and tokens, and have no ne
 choice and width reset use neutral buttons.
 
 - **General:** folder path and picker, optional Vault file, note order, date grouping, relative dates,
-  panel side and a "Start with Windows" checkbox. Side and startup mirror the tray, also while
+  "Check spelling" (on by default) with the languages found and where Windows adds more, panel side and a "Start with Windows" checkbox. Side and startup mirror the tray, also while
   Preferences is open. Startup is read from Windows, with the control disabled until that read
   completes; failures appear in the existing notice and the actual state stays shown.
 - **Vault file:** its path (wrapping when necessary), or a short optional hint, with neutral Choose
@@ -545,6 +545,10 @@ task list and quote, insert a link, or add a frontmatter property. Labels and sh
 come from the command bindings, in the interface language. The bar uses the surface, line and control
 tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
 sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.
+
+Misspelled words have a wavy underline in the danger color, which waits until the cursor leaves the
+word being typed. A right click on one opens an in-panel menu with up to six suggestions, or "No
+suggestions", and Add to dictionary; elsewhere the native context menu stays.
 
 Copy and cut in the panel (editor, reading views, search bar and other fields) put plain text on the
 clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.

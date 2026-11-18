@@ -80,11 +80,9 @@ M12 — Editor productivity:
 - [ ] Text transforms (standard, S–M): UPPER, lower, Sentence case and Capitalize Each Word with the
   UI locale; maybe sort and deduplicate lines. Reached from the formatting bar, shortcuts and slash
   commands.
-- [ ] System spell checker, on by default with a Preferences toggle (advanced, spike first): WebView2
-  uses the Windows checker with Windows' languages; a CodeMirror 6 report says Chromium 152 never
-  underlines its content ([forum](https://discuss.codemirror.net/t/native-spellcheck-is-never-applied-to-a-codemirror-6-editing-host-on-chromium-152-electron-44/9886)).
-  If it works: no checking in code, URLs and frontmatter, and keep the spelling items in the
-  context menu filter of `platform/edge.rs`.
+- [x] System spell checker, on by default with a Preferences toggle (advanced): the WebView2 spike
+  failed, so the Windows Spell Checking API with our own marks and menu; see "Spelling" in
+  `docs/ARCHITECTURE.md`.
 - [ ] Slash commands, including "Add property" for the frontmatter (standard, M). Text transforms and
   slash commands are the two uses that justify one list of editor commands.
 

@@ -277,3 +277,9 @@
 :host .cm-editor .cm-tag-problem {
   text-decoration: underline wavy var(--color-muted);
 }
+
+/* A spelling mark: the danger color, wavy like the system's. */
+:host .cm-editor .cm-misspelled {
+  text-decoration: underline wavy var(--color-danger);
+  text-decoration-skip-ink: none;
+}

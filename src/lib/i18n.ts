@@ -4,6 +4,11 @@ import type { Locale } from "./ipc";
 const en = {
   "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
   "preferences.relativeDates": "Use relative dates",
+  "preferences.spelling": "Check spelling",
+  "preferences.spellingLanguages":
+    "Languages: {languages}. Windows Settings > Time & language > Language adds more.",
+  "preferences.spellingNone":
+    "No Windows language has a dictionary. Add one in Windows Settings > Time & language > Language.",
   "group.label": "Group by date",
   "group.hint": "Available when ordering by modified or created date. Your choice is kept.",
   "group.scope":
@@ -208,6 +213,9 @@ const en = {
   "editor.saving": "Saving…",
   "editor.saved": "Saved",
   "editor.label": "Note text",
+  "editor.spelling": "Spelling suggestions",
+  "editor.spellingNone": "No suggestions",
+  "editor.spellingAdd": "Add to dictionary",
   "editor.tagsInvalid":
     "These tags cannot be read. Use a list such as [a, b], quoting tags with punctuation.",
   "editor.tagsRepair": "These tags will be repaired when you leave the editor.",
@@ -330,6 +338,11 @@ export type MessageKey = keyof typeof en;
 const ptBR: Record<MessageKey, string> = {
   "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
   "preferences.relativeDates": "Usar datas relativas",
+  "preferences.spelling": "Verificar ortografia",
+  "preferences.spellingLanguages":
+    "Idiomas: {languages}. Adicione outros em Configurações do Windows > Hora e idioma > Idioma.",
+  "preferences.spellingNone":
+    "Nenhum idioma do Windows tem dicionário. Adicione um em Configurações do Windows > Hora e idioma > Idioma.",
   "group.label": "Agrupar por data",
   "group.hint": "Disponível ao ordenar por modificação ou criação. Sua escolha é mantida.",
   "group.scope":
@@ -535,6 +548,9 @@ const ptBR: Record<MessageKey, string> = {
   "editor.saving": "Salvando…",
   "editor.saved": "Salvo",
   "editor.label": "Texto da nota",
+  "editor.spelling": "Sugestões de ortografia",
+  "editor.spellingNone": "Nenhuma sugestão",
+  "editor.spellingAdd": "Adicionar ao dicionário",
   "editor.tagsInvalid":
     "Estas tags não podem ser lidas. Use uma lista como [a, b], com aspas nas tags com pontuação.",
   "editor.tagsRepair": "Estas tags serão corrigidas ao sair do editor.",

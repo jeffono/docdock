@@ -36,6 +36,7 @@ src-tauri/src/           Backend (Rust)
   error.rs               Errors sent to the UI as codes
   watch.rs               Tells the UI when the notes folder changes, leaves or returns
   updates.rs             Update check, download and the exit gate shared with Quit
+  spelling.rs            Editor spell checking on its own thread, across the user's languages
   dev.rs                 Tweak window backend, development builds only
   commands/              Tauri commands: thin delegating layer
   platform/              Operating-system-specific code
@@ -119,6 +120,18 @@ English. The tray uses it directly and `app_locale` hands it to the UI, which se
 changing the Windows language takes effect on the next start. Commands fail with `{ code, ...fields }`
 (`error.rs`), and `i18n.ts` turns each code into text; `detail` carries the operating system's message,
 already in its language. An unknown code shows as an unexpected error with its raw fields.
+
+## Spelling
+
+The editor checks spelling with the Windows Spell Checking API, not WebView2's own checker:
+Chromium drops its marks whenever CodeMirror redraws a line, which live formatting does constantly,
+and it checks only WebView2's accept languages. `spelling.rs` opens one checker per Windows user
+language with a dictionary (Settings > Time & language > Language), on first use and on its own
+thread, where the COM objects stay. A word is misspelled only when every language flags it, so notes
+may mix languages; suggestions alternate between languages, and "Add to dictionary" writes to the
+first language's Windows user dictionary. The UI sends single words, never note text: `spelling.ts`
+picks prose words in view from the syntax tree, skipping code, addresses, the frontmatter, tags and
+names, caches the answers for the session and draws the marks as decorations.
 
 ## Panel
 
