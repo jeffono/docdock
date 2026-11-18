@@ -75,7 +75,7 @@ detail each stage when it is next.
 
 M12 — Editor productivity:
 
-- [ ] Discreet character and word count (basic, S): `Intl.Segmenter` for words, selection count when
+- [x] Discreet character and word count (basic, S): `Intl.Segmenter` for words, selection count when
   there is one, frontmatter excluded.
 - [ ] Text transforms (standard, S–M): UPPER, lower, Sentence case and Capitalize Each Word with the
   UI locale; maybe sort and deduplicate lines. Reached from the formatting bar, shortcuts and slash
