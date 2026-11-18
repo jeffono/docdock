@@ -227,6 +227,7 @@ struct Dock {
     last_cursor: Option<(Point, Instant)>,
     /// The cursor heads for the edge fast enough to open the panel without waiting.
     rushing: bool,
+    bar_use: handle::BarUse,
     web_visible: bool,
     /// WebView2 was asked to trim memory because the panel is parked.
     memory_low: bool,
@@ -512,6 +513,12 @@ impl Dock {
         });
         self.last_cursor = Some((cursor, now));
         let zone = handle::cursor_zone(cursor, &self.monitor, self.rect, self.side, tuning);
+        let zone = self.bar_use.zone(
+            zone,
+            handle::over_bars(cursor, &self.monitor, self.rect),
+            platform::primary_button_down(),
+            platform::foreground_window(),
+        );
         // A user typing on the page can move the mouse away without losing the panel. The page does
         // not talk to Rust, so Escape is read from the keyboard; over the page it remains the page's.
         // Once focus is restored, the panel closes as with any other focus loss.
@@ -763,6 +770,7 @@ pub fn start(
         tuning: handle_tuning(),
         last_cursor: None,
         rushing: false,
+        bar_use: handle::BarUse::default(),
         web_visible: false,
         memory_low: false,
         overlay_height: 0,
