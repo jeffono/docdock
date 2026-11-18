@@ -53,6 +53,8 @@ struct Settings {
     group_by_date: bool,
     #[serde(default, deserialize_with = "lenient")]
     relative_dates: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    note_search_suggestions: bool,
     /// Spell checking is on unless turned off.
     #[serde(default, deserialize_with = "lenient")]
     spelling_off: bool,
@@ -187,6 +189,12 @@ pub fn relative_dates(app: &AppHandle) -> Result<bool, Error> {
 }
 pub fn set_relative_dates(app: &AppHandle, enabled: bool) -> Result<(), Error> {
     update(app, |settings| settings.relative_dates = enabled)
+}
+pub fn note_search_suggestions(app: &AppHandle) -> Result<bool, Error> {
+    Ok(load(&config(app)?).note_search_suggestions)
+}
+pub fn set_note_search_suggestions(app: &AppHandle, enabled: bool) -> Result<(), Error> {
+    update(app, |settings| settings.note_search_suggestions = enabled)
 }
 pub fn spelling(app: &AppHandle) -> Result<bool, Error> {
     Ok(!load(&config(app)?).spelling_off)
@@ -2438,6 +2446,7 @@ mod tests {
             ("note_order", &["null", "42", "{}", r#""future-order""#]),
             ("group_by_date", flags),
             ("relative_dates", flags),
+            ("note_search_suggestions", flags),
             ("spelling_off", flags),
             ("group_by_folder", flags),
             ("vault_file", &["42", "{}", "[]"]),

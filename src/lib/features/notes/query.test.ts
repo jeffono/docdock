@@ -4,10 +4,38 @@ import {
   completionChoices,
   creationText,
   filterQuery,
+  noteSuggestionQuery,
   parseQuery,
   queryCompletion,
   tagToken,
 } from "./query";
+
+test("note searches are ineligible for web suggestions by default", () => {
+  expect(noteSuggestionQuery("private project")).toBeNull();
+});
+test("turning note web suggestions off prevents a query", () => {
+  expect(noteSuggestionQuery("private project", false)).toBeNull();
+});
+test.each([
+  [" ab ", null],
+  [" abc ", "abc"],
+])("requires three characters of free text in %j", (query, expected) => {
+  expect(noteSuggestionQuery(query, true)).toBe(expected);
+});
+test("removes tag filters, including quoted tags", () => {
+  expect(noteSuggestionQuery('budget #work #"two words" review', true)).toBe("budget review");
+});
+test("removes date filters, including invalid dates", () => {
+  expect(noteSuggestionQuery("budget date:2026-10..2026-11 date:invalid review", true)).toBe(
+    "budget review",
+  );
+});
+test("does not query when only filters remain", () => {
+  expect(noteSuggestionQuery('date:today #"two words"', true)).toBeNull();
+});
+test("does not leak an unfinished quoted tag", () => {
+  expect(noteSuggestionQuery('budget #"private draft', true)).toBeNull();
+});
 
 test("separates several tag filters from free text with source ranges", () => {
   expect(parseQuery("budget #Work  #review next")).toEqual({

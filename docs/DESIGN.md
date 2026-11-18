@@ -352,7 +352,9 @@ Sections scroll inside the panel, use the same insets and tokens, and have no ne
 choice and width reset use neutral buttons.
 
 - **General:** folder path and picker, optional Vault file, note order, date grouping, relative dates,
-  "Check spelling" (on by default) with the languages found and where Windows adds more, panel side and a "Start with Windows" checkbox. Side and startup mirror the tray, also while
+  "Web suggestions while searching notes" (off by default) with a hint that typed note searches go to
+  the search provider, "Check spelling" (on by default) with the languages found and where Windows
+  adds more, panel side and a "Start with Windows" checkbox. Side and startup mirror the tray, also while
   Preferences is open. Startup is read from Windows, with the control disabled until that read
   completes; failures appear in the existing notice and the actual state stays shown.
 - **Vault file:** its path (wrapping when necessary), or a short optional hint, with neutral Choose
@@ -475,8 +477,11 @@ activation shortcut selects its text so typing replaces the previous search.
 In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
 after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
 keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
-it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries remain
-local. Web actions use neutral icon rows; all untrusted suggestions appear as text. In Notes they
+it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries stay
+local by default. With web suggestions enabled in General Preferences, ordinary note searches can
+also show engine phrases in the same section after 300 ms and at least three characters of free text.
+Tag and date filters stay local and suggestions pause while a note is being edited. Web actions use
+neutral icon rows; all untrusted suggestions appear as text. In Notes they
 follow the notes as a last "Search the web" section, with note row geometry and selection.
 
 ## Note editor

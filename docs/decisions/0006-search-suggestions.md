@@ -6,10 +6,11 @@ improve navigation, but sending every keystroke would send private note searches
 **Decision:**
 
 - **Level 1, enabled by default:** query the search engine only with clear web intent: in browser mode, or
-  in notes after choosing "Search the web" or using the `?` prefix. Text typed to search notes never leaves
-  the computer.
-- **Level 2, not built yet:** an option, disabled by default, to query on every keystroke also when
-  searching notes, with a short delay and minimum number of letters; see "Later" in `docs/PLAN.md`.
+  in notes after choosing "Search the web" or using the `?` prefix.
+- **Level 2, opt-in:** Preferences > General can also enable suggestions while typing in the note
+  search bar. Requests wait 300 ms and require at least three characters of free text. Note filters
+  stay local, and requests pause during note editing. With the setting off, ordinary note searches
+  stay on the computer.
 - **Search engine:** DuckDuckGo, the only supported engine; `search_engine` in `settings.json` has no
   settings UI. Google has no official suggestions URL.
 - **Request through Rust:** no cookies or referer. The response is untrusted JSON, displayed as text,

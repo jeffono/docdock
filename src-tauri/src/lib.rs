@@ -129,6 +129,8 @@ pub fn run() {
         commands::pinned_restore,
         commands::open_external,
         commands::clipboard_write,
+        commands::note_search_suggestions,
+        commands::note_search_set_suggestions,
         commands::spelling_enabled,
         commands::spelling_set_enabled,
         commands::spelling_languages,

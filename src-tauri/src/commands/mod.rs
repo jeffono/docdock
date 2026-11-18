@@ -455,6 +455,14 @@ pub fn permission_forget(
 }
 
 #[tauri::command]
+pub fn note_search_suggestions(app: AppHandle) -> Result<bool, Error> {
+    crate::notes::note_search_suggestions(&app)
+}
+#[tauri::command]
+pub fn note_search_set_suggestions(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::notes::set_note_search_suggestions(&app, enabled)
+}
+#[tauri::command]
 pub fn spelling_enabled(app: AppHandle) -> Result<bool, Error> {
     crate::notes::spelling(&app)
 }

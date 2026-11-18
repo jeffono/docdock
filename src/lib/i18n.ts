@@ -5,6 +5,9 @@ const en = {
   "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
   "preferences.relativeDates": "Use relative dates",
   "preferences.spelling": "Check spelling",
+  "preferences.noteSearchSuggestions": "Web suggestions while searching notes",
+  "preferences.noteSearchSuggestionsHint":
+    "Sends the text you type when searching notes to your search provider.",
   "preferences.spellingLanguages":
     "Languages: {languages}. Windows Settings > Time & language > Language adds more.",
   "preferences.spellingNone":
@@ -368,6 +371,9 @@ const ptBR: Record<MessageKey, string> = {
   "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
   "preferences.relativeDates": "Usar datas relativas",
   "preferences.spelling": "Verificar ortografia",
+  "preferences.noteSearchSuggestions": "Sugestões da web ao buscar notas",
+  "preferences.noteSearchSuggestionsHint":
+    "Envia o texto que você digita ao buscar notas para o seu provedor de pesquisa.",
   "preferences.spellingLanguages":
     "Idiomas: {languages}. Adicione outros em Configurações do Windows > Hora e idioma > Idioma.",
   "preferences.spellingNone":

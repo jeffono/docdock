@@ -73,6 +73,15 @@ export function creationText(query: string): string {
   return filterQuery(query) ? parseQuery(query).text.replace(/^#$/, "") : query.trim();
 }
 
+/** Only free text from an opted-in note search is eligible for remote suggestions. */
+export function noteSuggestionQuery(query: string, enabled = false): string | null {
+  if (!enabled) return null;
+  const { text } = parseQuery(query);
+  // An unfinished or invalid quoted tag may leave parts of the tag in the parser's free text.
+  if (/(?:^|\s)#"/.test(text)) return null;
+  return Array.from(text).length >= 3 ? text : null;
+}
+
 export function completionToken(kind: QueryToken["kind"], value: string): string {
   return kind === "date" ? `date:${value}` : tagToken(value);
 }

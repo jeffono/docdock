@@ -82,7 +82,7 @@ M13 — Search:
 - [ ] Choice of search providers (standard, S–M): presets such as DuckDuckGo, Brave, Startpage,
   Ecosia, Google and Bing, plus a custom `%s` URL without suggestions; suggestions only where an
   endpoint is stable. Amends decision 0006.
-- [ ] Web suggestions while searching notes (standard, S): an option, off by default, to query on
+- [x] Web suggestions while searching notes (standard, S): an option, off by default, to query on
   every keystroke after a short delay and a minimum length.
 
 ## Later

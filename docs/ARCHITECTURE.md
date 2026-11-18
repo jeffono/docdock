@@ -320,6 +320,11 @@ per-monitor DPI awareness (PMv2).
   and default selection rules for the shared arrow/Enter selection; visible behavior is in
   "Unified address bar" in `docs/DESIGN.md`.
   In browser or `?` mode, Rust queries DuckDuckGo after a short debounce (minimum two characters).
+  Ordinary note searches request suggestions only when `settings.json.note_search_suggestions` is
+  true. The flag uses the locked atomic settings writer and defaults to false if absent or malformed.
+  `query.ts::noteSuggestionQuery` strips tag and date tokens, skips unfinished quoted tags and
+  requires three characters of free text. Notes reuses the same IPC and list entries, with a 300 ms
+  debounce for this mode and cancellation while editing or when the panel hides.
   A generation discards stale responses, including A → B → A. `ureq` uses a two-second timeout, no
   cookies/referer or redirects; JSON is capped at 32 KiB, eight unique phrases of 200 characters,
   without controls. Failures silently leave local entries. Text is rendered as text; CSP is unchanged.
