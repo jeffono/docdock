@@ -29,6 +29,7 @@ import { markdownExtensions } from "./markdown";
 import { noteSearch, noteSearchKeymap } from "./note-search";
 import { addPropertyShortcut, propertyCompletion } from "./properties";
 import { tagDiagnostics } from "./tag-diagnostics";
+import { cycleCaseCommand } from "./transforms";
 
 /** Apply normalized editor offsets to the original bytes; untouched mixed line endings survive. */
 export function applyTextChanges(raw: string, changes: ChangeSet): string {
@@ -72,6 +73,8 @@ export function editorExtensions(
     drawSelection(),
     keymap.of([
       ...formattingKeymap,
+      // "Alt-A" is how CodeMirror names Alt+Shift+A; it replaces the default block comment toggle.
+      { key: "Alt-A", run: cycleCaseCommand },
       {
         key: "Ctrl-e",
         run: () => {

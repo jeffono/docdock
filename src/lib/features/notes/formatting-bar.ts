@@ -1,8 +1,9 @@
-import { StateEffect, StateField } from "@codemirror/state";
-import { type EditorView, showTooltip, type Tooltip, ViewPlugin } from "@codemirror/view";
+import { Prec, StateEffect, StateField } from "@codemirror/state";
+import { EditorView, showTooltip, type Tooltip, ViewPlugin } from "@codemirror/view";
 import { type MessageKey, t } from "../../i18n";
 import { formattingShortcuts } from "./formatting";
 import { addPropertyShortcut } from "./properties";
+import { textTransforms } from "./transforms";
 
 // Lucide paths (ISC license), as in ui/Icon.svelte; Svelte styles cannot reach the shadow root.
 const icons: Partial<Record<MessageKey, string>> = {
@@ -17,12 +18,132 @@ const icons: Partial<Record<MessageKey, string>> = {
   "shortcut.task": "m3 6 1 1 2-2 M9 6h12 m-18 6 1 1 2-2 M9 12h12 m-18 6 1 1 2-2 M9 18h12",
   "shortcut.quote": "M3 21c3 0 7-4 7-11V3H3v7h7 M14 21c3 0 7-4 7-11V3h-7v7h7",
   "shortcut.property": "M4 4h16v16H4z M4 10h16 M10 4v16 M13 15h4 M15 13v4",
+  "transform.menu": "m3 15 4-8 4 8 M4 13h6 M20 15v-4m0 2a2 2 0 1 0-4 0 2 2 0 0 0 4 0",
 };
+
+function iconButton(label: string, icon: MessageKey) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.tabIndex = -1;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", icons[icon] ?? "");
+  svg.append(path);
+  button.append(svg);
+  return button;
+}
+
+const openMenus = new WeakMap<EditorView, (event: KeyboardEvent) => boolean>();
+let menuNumber = 0;
+
+function addTransforms(dom: HTMLElement, view: EditorView) {
+  const label = t("transform.menu");
+  const trigger = iconButton(label, "transform.menu");
+  const menu = document.createElement("div");
+  menu.className = "transform-menu";
+  menu.id = `note-transforms-${++menuNumber}`;
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", label);
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("aria-controls", menu.id);
+  dom.append(trigger, menu);
+
+  let active = 0;
+  const activate = (index: number) => {
+    items[active].removeAttribute("data-active");
+    active = index;
+    items[active].setAttribute("data-active", "");
+    view.contentDOM.setAttribute("aria-activedescendant", items[active].id);
+    const { offsetTop, offsetHeight } = items[active];
+    if (offsetTop < menu.scrollTop) menu.scrollTop = offsetTop;
+    if (offsetTop + offsetHeight > menu.scrollTop + menu.clientHeight)
+      menu.scrollTop = offsetTop + offsetHeight - menu.clientHeight;
+  };
+  const close = () => {
+    if (menu.hidden) return;
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    view.contentDOM.removeAttribute("aria-activedescendant");
+    view.contentDOM.removeAttribute("aria-controls");
+    openMenus.delete(view);
+  };
+  const items = textTransforms.map((command, index) => {
+    if (index > 0 && textTransforms[index - 1].group !== command.group) {
+      const separator = document.createElement("hr");
+      separator.setAttribute("role", "separator");
+      menu.append(separator);
+    }
+    const item = document.createElement("button");
+    item.type = "button";
+    item.tabIndex = -1;
+    item.id = `${menu.id}-${command.id}`;
+    item.setAttribute("role", "menuitem");
+    item.textContent = t(command.label);
+    item.onclick = () => {
+      close();
+      if (view.state.selection.ranges.length === 1) command.run(view);
+    };
+    menu.append(item);
+    return item;
+  });
+
+  trigger.onclick = () => {
+    if (!menu.hidden) {
+      close();
+      return;
+    }
+    if (view.state.readOnly || view.state.selection.ranges.length !== 1) return;
+    menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    view.contentDOM.setAttribute("aria-controls", menu.id);
+    const bar = dom.getBoundingClientRect();
+    const below = innerHeight - bar.bottom;
+    const above = below < menu.scrollHeight && bar.top > below;
+    menu.classList.toggle("above", above);
+    menu.style.setProperty("--transform-menu-room", `${above ? bar.top : below}px`);
+    activate(0);
+    openMenus.set(view, (event) => {
+      switch (event.key) {
+        case "ArrowDown":
+          activate((active + 1) % items.length);
+          break;
+        case "ArrowUp":
+          activate((active + items.length - 1) % items.length);
+          break;
+        case "Home":
+          activate(0);
+          break;
+        case "End":
+          activate(items.length - 1);
+          break;
+        case "Enter":
+        case " ":
+          items[active].click();
+          break;
+        case "Escape":
+          close();
+          break;
+        default:
+          close();
+          return false;
+      }
+      event.stopPropagation();
+      return true;
+    });
+  };
+  return close;
+}
 
 function createBar(view: EditorView) {
   const dom = document.createElement("div");
   dom.className = "formatting-bar";
-  // Pointer controls preserve the selection; keyboard users keep the existing shortcuts.
+  // Keep editor focus and selection while using pointer controls.
   dom.addEventListener("mousedown", (event) => event.preventDefault());
   const commands = [
     ...formattingShortcuts.filter(
@@ -33,29 +154,21 @@ function createBar(view: EditorView) {
     addPropertyShortcut,
   ];
   for (const shortcut of commands) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.tabIndex = -1;
     const key = shortcut.key
       ?.replace("Mod", "Ctrl")
       .replaceAll("-", "+")
       .replace(/\b[a-z]\b/g, (letter) => letter.toUpperCase());
-    button.title = `${t(shortcut.description, { level: "level" in shortcut ? shortcut.level : 1 })} (${key})`;
-    button.setAttribute("aria-label", button.title);
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", icons[shortcut.description] as string);
-    svg.append(path);
-    button.append(svg);
+    const label = t(shortcut.description, { level: "level" in shortcut ? shortcut.level : 1 });
+    const button = iconButton(`${label} (${key})`, shortcut.description);
     button.addEventListener("click", () => {
+      closeMenu();
       if (view.state.readOnly || view.state.selection.ranges.length !== 1) return;
       shortcut.run?.(view);
     });
     dom.append(button);
   }
-  return { dom };
+  const closeMenu = addTransforms(dom, view);
+  return { dom, destroy: closeMenu };
 }
 
 const interaction = StateEffect.define<{ focused: boolean; dragging: boolean }>();
@@ -85,6 +198,12 @@ export function formattingBar() {
   return [
     interactionState,
     selectionTooltip,
+    // The open menu handles Esc before completion, find, or leaving the editor.
+    Prec.highest(
+      EditorView.domEventHandlers({
+        keydown: (event, view) => openMenus.get(view)?.(event) ?? false,
+      }),
+    ),
     ViewPlugin.fromClass(
       class {
         constructor(readonly view: EditorView) {

@@ -511,12 +511,13 @@ Windows editor shortcuts:
 | Tab / Shift+Tab                               | Indent / outdent list items                                                                |
 | Ctrl+/                                        | Open / close the shortcut sheet                                                            |
 | Ctrl+;                                        | Add a frontmatter property: a new line in the block, created if needed, with keys offered  |
+| Alt+Shift+A                                   | Cycle lowercase → Sentence case → Capitalize Each Word → UPPERCASE                         |
 | Ctrl+E                                        | Toggle reading and editing from anywhere in the panel                                      |
 | Ctrl+F / Ctrl+H                               | Find / replace in the note, starting from the selection; Ctrl+F again goes to the bar      |
 | Enter / Shift+Enter, F3 / Shift+F3            | Next / previous match                                                                      |
 | Ctrl+D                                        | Select the next occurrence of the selection, adding a cursor                               |
 | Alt+click                                     | Add a cursor                                                                               |
-| Esc                                           | Close the find panel, then leave editing                                                   |
+| Esc                                           | Close the transform menu, completion list or find panel before leaving editing             |
 
 Find and replace is one compact row stuck to the top of the editing card: a replace toggle, the
 field, a muted "3 of 12" count, match case (Aa) and regular expression (.*) toggles, previous, next
@@ -545,10 +546,18 @@ the inline-code shortcut still wraps a selection or inserts a pair.
 A compact formatting bar floats above a single non-empty selection, appearing after mouse release
 and hiding during selection dragging, on blur, or while the editor is read-only (including image
 paste). Its icon buttons toggle bold, italic, strike, inline code, heading level 1, bullet list,
-task list and quote, insert a link, or add a frontmatter property. Labels and shortcuts in tooltips
-come from the command bindings, in the interface language. The bar uses the surface, line and control
-tokens without a shadow. Clicking preserves editor focus and selection; buttons stay outside the Tab
-sequence, with existing shortcuts as the keyboard path. Esc keeps completion and find-panel priority.
+task list and quote, insert a link, or add a frontmatter property. The final button opens a menu for
+case changes, sorting lines in either direction, and removing duplicate lines. The bar and menu use
+the surface, line and control tokens without a shadow and preserve editor focus and selection.
+Buttons stay outside the Tab sequence. While the menu is open, arrows and Home/End move through
+the items, Enter or Space runs the highlighted item, and Esc closes the menu before leaving editing.
+
+Case changes use the interface locale and act on each selection or the word at an empty cursor.
+Markdown punctuation stays intact. Case changes can affect letters in link destinations and code.
+The case shortcut skips equivalent styles and starts at lowercase for mixed case. Line actions
+expand non-empty selections to whole lines, excluding a final line whose start is the end of
+the selection. Sorting uses numeric order and ignores case and accents for comparison.
+Deduplication keeps the first exact match. Each change is one undo step and selects the result.
 
 Misspelled words have a wavy underline in the danger color, which waits until the cursor leaves the
 word being typed. A right click on one opens an in-panel menu with up to six suggestions, or "No
