@@ -252,11 +252,54 @@ pub fn cursor_zone(
         CursorZone::Outside
     } else if cursor.x == edge_x(monitor, side) && stretch.contains(&cursor.y) {
         CursorZone::Edge
-    } else if panel.contains(cursor) || tab_rect(monitor, panel, side, tuning.tab).contains(cursor)
+    } else if panel.contains(cursor)
+        || over_bars(cursor, monitor, panel)
+        || tab_rect(monitor, panel, side, tuning.tab).contains(cursor)
     {
         CursorZone::Inside
     } else {
         CursorZone::Outside
+    }
+}
+
+/// Whether the cursor is above or below the panel, in its columns, beyond the work area: over the
+/// taskbar or an app bar such as PowerToys' at the top. Passing over them keeps the panel open.
+pub fn over_bars(cursor: Point, monitor: &Monitor, panel: Rect) -> bool {
+    monitor.bounds.contains(cursor)
+        && (panel.left..panel.right).contains(&cursor.x)
+        && !(panel.top..panel.bottom).contains(&cursor.y)
+}
+
+/// Using the bars beside the panel, not just passing over them: a press there, or the foreground
+/// window changing while the cursor is over them, which also catches a click shorter than a poll.
+/// Their flyouts (volume, calendar, notifications) open where the panel is, so from then on the
+/// bars count as outside, until the cursor leaves them.
+#[derive(Debug, Default)]
+pub struct BarUse {
+    used: bool,
+    /// The foreground window when the cursor reached the bars.
+    foreground: Option<isize>,
+}
+
+impl BarUse {
+    pub fn zone(
+        &mut self,
+        zone: CursorZone,
+        over_bars: bool,
+        pressed: bool,
+        foreground: Option<isize>,
+    ) -> CursorZone {
+        if !over_bars {
+            *self = Self::default();
+            return zone;
+        }
+        if self.foreground.is_none() {
+            self.foreground = foreground;
+        }
+        // Null focus, common during system transitions, is not a change.
+        let changed = foreground.is_some() && foreground != self.foreground;
+        self.used |= pressed || changed;
+        if self.used { CursorZone::Outside } else { zone }
     }
 }
 
@@ -388,6 +431,54 @@ mod tests {
 
     fn zone(x: i32, y: i32, side: Side) -> CursorZone {
         cursor_zone(Point { x, y }, &MONITOR, open_panel(side), side, TUNING)
+    }
+
+    /// Bug caught: moving onto the taskbar below the panel, or an app bar above it, hides the panel.
+    #[test]
+    fn bars_in_the_panels_columns_count_as_inside() {
+        // The work area ends at 2088; the taskbar fills 2088..2160.
+        assert_eq!(zone(3500, 2100, Side::Right), CursorZone::Inside);
+        assert_eq!(zone(3149, 2100, Side::Right), CursorZone::Outside);
+        assert_eq!(zone(300, 2159, Side::Left), CursorZone::Inside);
+        assert_eq!(zone(690, 2100, Side::Left), CursorZone::Outside);
+        let below_work = Monitor {
+            work: Rect {
+                top: 48,
+                ..MONITOR.work
+            },
+            ..MONITOR
+        };
+        let panel = Rect {
+            top: 48,
+            ..open_panel(Side::Right)
+        };
+        let top_bar = Point { x: 3500, y: 10 };
+        assert_eq!(
+            cursor_zone(top_bar, &below_work, panel, Side::Right, TUNING),
+            CursorZone::Inside
+        );
+    }
+
+    /// Bug caught: clicking the clock or a tray icon under the panel leaves it open over the flyout.
+    #[test]
+    fn using_the_bars_counts_as_outside_until_the_cursor_leaves_them() {
+        let mut bars = BarUse::default();
+        let inside = CursorZone::Inside;
+        assert_eq!(bars.zone(inside, true, false, Some(1)), inside);
+        assert_eq!(bars.zone(inside, true, true, Some(1)), CursorZone::Outside);
+        assert_eq!(bars.zone(inside, true, false, Some(1)), CursorZone::Outside);
+        assert_eq!(bars.zone(inside, false, false, Some(1)), inside);
+        assert_eq!(bars.zone(inside, true, false, Some(1)), inside);
+    }
+
+    /// Bug caught: a click quicker than a poll on a taskbar button goes unnoticed.
+    #[test]
+    fn a_new_foreground_window_over_the_bars_counts_as_using_them() {
+        let mut bars = BarUse::default();
+        let inside = CursorZone::Inside;
+        assert_eq!(bars.zone(inside, true, false, Some(1)), inside);
+        assert_eq!(bars.zone(inside, true, false, None), inside);
+        assert_eq!(bars.zone(inside, true, false, Some(2)), CursorZone::Outside);
     }
 
     /// Catches the whole column opening the panel again, as when reaching for a scrollbar at the

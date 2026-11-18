@@ -162,7 +162,11 @@ per-monitor DPI awareness (PMv2).
   edge handle opens the panel: 300% of the tab height, centered and clipped to the work area. Points
   outside that monitor are ignored. A rush skips the pause: the cursor reaching the edge at 500
   logical pixels per second or more toward it, measured between the last two polls, opens the panel
-  at once. The rules are pure functions in `handle.rs`.
+  at once. The cursor counts as inside the open panel also above and below it, in its columns,
+  beyond the work area: over the taskbar or an app bar such as PowerToys' at the top. Using those
+  bars, a press there or the foreground window changing while the cursor is over them, makes them
+  count as outside until the cursor leaves them, so the panel does not stay over the flyouts they
+  open where it sits. The rules are pure functions in `handle.rs`.
 - **Edge handle:** the panel's tab, drawn by the panel's own WebView (`features/tab/EdgeTab.svelte`).
   The main window is transparent and wider than the panel by the tab's depth on the inner side
   (`handle::framed_rect`); `main` keeps to the panel with a margin, and one SVG path draws the
