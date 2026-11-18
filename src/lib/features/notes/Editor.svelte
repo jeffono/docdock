@@ -26,6 +26,7 @@ import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
 import type { FolderGone } from "./folder-state";
 import { notePath } from "./live-formatting";
+import NoteStats from "./NoteStats.svelte";
 import { diskReload, rawHistory, rawText } from "./reload";
 import { learned, type Misspelling, spelling } from "./spelling";
 import { loadSpelling, spellingOn } from "./spelling-store";
@@ -55,15 +56,6 @@ let selected = $state<Counts | null>(null);
 let pendingSelection: Counts | null = null;
 let bodyStart = 0;
 let countTimer: ReturnType<typeof setTimeout> | undefined;
-const number = new Intl.NumberFormat(document.documentElement.lang || "en");
-
-function countLabel(unit: "Words" | "Chars", total: number, selected: number | undefined) {
-  const count =
-    selected === undefined
-      ? number.format(total)
-      : t("editor.countOf", { selected: number.format(selected), total: number.format(total) });
-  return t(`editor.count${unit}.${total === 1 ? "one" : "other"}`, { count });
-}
 
 const editable = new Compartment();
 const location = new Compartment();
@@ -479,10 +471,7 @@ onMount(() => {
   {/if}
   <div class="surface" bind:this={host}></div>
   {#if total}
-    <p class="count" aria-live="off">{t("editor.count", {
-      words: countLabel("Words", total.words, selected?.words),
-      chars: countLabel("Chars", total.chars, selected?.chars),
-    })}</p>
+    <NoteStats {total} {selected} />
   {/if}
   <Menu bind:this={spellMenu} label={t("editor.spelling")} ontoggle={(open) => { if (!open) misspelling = null; }}>
     {#each misspelling?.suggestions ?? [] as suggestion}
@@ -502,5 +491,4 @@ p { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .discard { border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); font: inherit; padding: 0 var(--space-2); min-height: var(--size-control); }
 .error { color: var(--color-danger); }
-.count { padding: 0 var(--space-3) var(--space-1); text-align: right; font-size: var(--font-size-sm); color: var(--color-muted); }
 </style>

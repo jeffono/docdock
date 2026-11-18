@@ -3,9 +3,11 @@ import type { Snippet } from "svelte";
 import { date, dateTime, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import { countNote } from "./count";
 import { folderOf } from "./grouping";
 import Highlight from "./Highlight.svelte";
 import { type Card, fileLabel, pageHost } from "./list";
+import NoteStats from "./NoteStats.svelte";
 import { relativeDates } from "./order-store";
 import { relativeDate } from "./relative-date";
 import { renderNote } from "./render";
@@ -65,6 +67,7 @@ const path = $derived(card.hit.path);
 const level = $derived(card.level);
 const open = $derived(level !== "line");
 const row = $derived(!card.pinned && card.level === "line");
+const stats = $derived(text === undefined ? null : countNote(text));
 let body = $state<HTMLElement>();
 let clipped = $state(false);
 
@@ -206,6 +209,9 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         <div class="reveal"><button tabindex="-1" onclick={onpreview}>{t("card.showLess")}</button></div>
       {/if}
     </div>
+    {#if selected && stats}
+      <NoteStats total={stats} />
+    {/if}
   {/if}
 </div>
 
