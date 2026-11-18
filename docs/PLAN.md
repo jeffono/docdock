@@ -67,15 +67,53 @@ detail each stage when it is next.
   subfolders skipped with a notice that folds into the search bar; see "Notes" in
   `docs/ARCHITECTURE.md`.
 
+## Next
+
+M11 — Resident app health:
+
+- [ ] Updates in Preferences (standard): an About/Updates section with the current version, a
+  "Check now" button and the state (up to date, downloading, ready to restart). Checks stay in
+  Rust (`updates.rs`), reached through new `ipc.ts` commands; webviews keep no updater
+  permission. Check at startup, every 6 hours and after resume from sleep. A found update
+  downloads and is announced without disruption: no blocking dialog, no focus stolen; restart
+  stays a user action through the existing exit gate.
+- [ ] Lower memory while hidden (advanced): reduce WebView2 memory use (memory target or priority)
+  while the panel is hidden; see decision 0001. Measure before and after.
+
 ## Later
 
-In no defined order:
+In this order; each line is a future stage. Estimated cost: S (up to a day), M (days), L (one to two
+weeks), XL (several weeks, high risk).
 
-- MathML equations with Temml; KaTeX depends on inline styling, blocked by CSP.
-- Mermaid diagrams: require a decision on CSP, which blocks the `<style>` it injects.
-- Slash commands in the editor, including "Add property" for the frontmatter.
-- Post-its as floating desktop windows.
-- Tasks with bidirectional Android sync, keeping Markdown as durable local content (advanced).
+- M12 — Editor productivity:
+  - Discreet character and word count (basic, S): `Intl.Segmenter` for words, selection count when
+    there is one, frontmatter excluded.
+  - Text transforms (standard, S–M): UPPER, lower, Sentence case and Capitalize Each Word with the
+    UI locale; maybe sort and deduplicate lines. Reached from the formatting bar, shortcuts and slash
+    commands.
+  - System spell checker, on by default with a Preferences toggle (advanced, spike first): WebView2
+    uses the Windows checker with Windows' languages; a CodeMirror 6 report says Chromium 152 never
+    underlines its content ([forum](https://discuss.codemirror.net/t/native-spellcheck-is-never-applied-to-a-codemirror-6-editing-host-on-chromium-152-electron-44/9886)).
+    If it works: no checking in code, URLs and frontmatter, and keep the spelling items in the
+    context menu filter of `platform/edge.rs`.
+  - Slash commands, including "Add property" for the frontmatter (standard, M). Text transforms and
+    slash commands are the two uses that justify one list of editor commands.
+- M13 — Search (standard, S–M): choice of search providers (presets such as DuckDuckGo, Brave,
+  Startpage, Ecosia, Google and Bing, plus a custom `%s` URL without suggestions; suggestions only where
+  an endpoint is stable) and web suggestions while searching notes (level 2: an option, off by default,
+  to query on every keystroke after a short delay and a minimum length). Amends decision 0006.
+- M14 — Capture (advanced, M): screenshots of a region anywhere on the screen and of the web tab,
+  inserted through the pasted-image path.
+- M15 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
+  has been hidden for a while, and notes marked private in the frontmatter shown blurred until
+  revealed.
+- M16 — Rich content: MathML equations with Temml (standard, S–M; KaTeX depends on inline styling,
+  blocked by CSP), then Mermaid diagrams (advanced, M–L), which inject `<style>` blocked by CSP. A
+  sandboxed iframe with its own CSP would render code fences without loosening `main`; it is also the
+  first natural extension point, so the plugin decision is taken here.
+- M17 — Post-its as floating desktop windows (advanced, L).
+- M18 — Tasks (advanced, XL): first local Markdown tasks, gathered and filtered, then bidirectional
+  Android sync, keeping Markdown as durable local content.
   First candidate: Microsoft To Do as the service, with its free Android app or Tasks.org; no
   self-hosted server required. Todoist is an alternative with a sync-oriented API, but its free plan
   allows 5 personal projects and all plans cap active tasks at 300 per project; custom reminders
@@ -85,15 +123,17 @@ In no defined order:
   validate ID changes, completion and incremental sync against the chosen service. Recheck current
   API and plan limits during planning; see [Graph tasks](https://learn.microsoft.com/en-us/graph/api/resources/todotask),
   [Tasks.org sync](https://tasks.org/docs/sync_microsoft/) and [Todoist limits](https://www.todoist.com/help/account-and-billing/plans/usage-limits-in-todoist-e5rcSY).
-- Screenshots.
-- Dictation with local models, downloaded separately from the installer.
-- Plugins: require a recorded decision before starting.
-- Web suggestions while searching notes (level 2 of decision 0006): an option, off by default, to
-  query the engine on every keystroke after a short delay and a minimum length.
-- Lower memory while hidden: reduce WebView2 memory use (memory target or priority) while the panel
-  is hidden; see decision 0001.
-- Privacy deterrents, not encryption: Windows Hello to show notes after the panel has been hidden for a
-  while, and notes marked private in the frontmatter shown blurred until revealed.
+
+Reassess later, without a stage:
+
+- Plugins: deferred until M16; require a recorded decision before starting. In-process JavaScript
+  (the Obsidian model) breaks the untrusted-content and privacy decisions; isolated iframes or
+  workers with declared permissions, or WASM in Rust, cost L–XL plus a stable public API. Build
+  optional features as internal modules first. Fitting candidates: code-fence renderers (Mermaid,
+  math), task sync, dictation, extra search providers and text transforms; not windows, updates,
+  privacy or spell checking.
+- Dictation with local models, downloaded separately from the installer (advanced, L–XL). First test
+  whether Windows voice typing (Win+H) works in the editor; it may cover the need.
 - Code signing, free options (see `docs/decisions/0008-distribution.md`): SignPath Foundation once the
   project has verifiable reputation, which shows SignPath Foundation as publisher; or the Microsoft
   Store with a free individual account, which signs only MSIX packages. Tauri does not build MSIX, so
