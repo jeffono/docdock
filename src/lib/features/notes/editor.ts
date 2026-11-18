@@ -28,6 +28,7 @@ import { liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
 import { noteSearch, noteSearchKeymap } from "./note-search";
 import { addPropertyShortcut, propertyCompletion } from "./properties";
+import { slashCompletion } from "./slash-commands";
 import { tagDiagnostics } from "./tag-diagnostics";
 import { cycleCaseCommand } from "./transforms";
 
@@ -55,7 +56,7 @@ export function editorExtensions(
   tags: () => string[] = () => [],
 ) {
   return [
-    autocompletion({ override: [propertyCompletion(tags)], icons: false }),
+    autocompletion({ override: [propertyCompletion(tags), slashCompletion], icons: false }),
     // Kept to the panel, not the whole viewport, which reaches beyond it beside the edge tab.
     tooltips({
       tooltipSpace: (view) => ({ ...panelColumns(view.dom), top: 0, bottom: innerHeight }),

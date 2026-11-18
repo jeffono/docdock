@@ -7,6 +7,7 @@ import {
 } from "@codemirror/autocomplete";
 import { isolateHistory } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
+import type { CommandEdit } from "./command";
 import { frontmatter, yamlValue } from "./markdown";
 
 /** Keys most notes tools read; the card uses title and tags, page notes url. */
@@ -102,27 +103,28 @@ export function propertyCompletion(tags: () => string[]) {
  * Ctrl+;: a new empty line at the end of the frontmatter, creating the block when there is none, with
  * the key list open on it.
  */
-export function addProperty(view: EditorView): boolean {
+export function addProperty(view: EditorView, edit: CommandEdit = view): boolean {
   // Read-only while an image is pasted: its insertion point must not move.
-  if (view.state.readOnly) return true;
-  const { doc } = view.state;
+  if (edit.state.readOnly) return true;
+  const { doc } = edit.state;
   const meta = frontmatter((n) => doc.line(n).text, doc.lines);
   if (meta) {
     const at = doc.line(meta.end - 1).to;
-    view.dispatch({
+    edit.dispatch({
       changes: { from: at, insert: "\n" },
       selection: { anchor: at + 1 },
       annotations: isolateHistory.of("full"),
+      scrollIntoView: true,
     });
   } else {
     const from = doc.sliceString(0, 1) === "﻿" ? 1 : 0;
-    view.dispatch({
+    edit.dispatch({
       changes: { from, insert: "---\n\n---\n" },
       selection: { anchor: from + 4 },
       annotations: isolateHistory.of("full"),
+      scrollIntoView: true,
     });
   }
-  view.dispatch({ scrollIntoView: true });
   startCompletion(view);
   return true;
 }

@@ -99,7 +99,7 @@
   outline-offset: 1px;
 }
 
-/* Frontmatter completion: keys and tags. */
+/* Completion lists for frontmatter and slash commands. */
 :host .cm-tooltip.cm-tooltip-autocomplete {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);

@@ -1,7 +1,9 @@
 import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, type SelectionRange } from "@codemirror/state";
-import type { Command } from "@codemirror/view";
+import type { EditorView } from "@codemirror/view";
 import type { MessageKey } from "../../i18n";
+import type { CommandEdit } from "./command";
+import { noteBodyStart } from "./count";
 
 type Transform = (text: string, locale: string) => string;
 
@@ -60,13 +62,27 @@ interface Span {
   to: number;
 }
 
-function transformSelection(transform: Transform, wholeLines = false): Command {
-  return (view) => {
-    const { state } = view;
+type TransformRun = (view: EditorView, edit?: CommandEdit, scope?: "line-or-block") => boolean;
+
+function transformSelection(transform: Transform, wholeLines = false): TransformRun {
+  return (view, edit = view, scope) => {
+    const { state } = edit;
     if (state.readOnly) return false;
     const locale = document.documentElement.lang || "en";
     const words = new Intl.Segmenter(locale, { granularity: "word" });
     const target = ({ from, to, empty }: SelectionRange): Span | null => {
+      if (empty && scope === "line-or-block") {
+        const { doc } = state;
+        const line = doc.lineAt(from);
+        if (!wholeLines) return { from: line.from, to: line.to };
+        if (!line.text.trim()) return null;
+        const firstBodyLine = doc.lineAt(noteBodyStart(doc)).number;
+        let first = line.number;
+        let last = line.number;
+        while (first > firstBodyLine && doc.line(first - 1).text.trim()) first--;
+        while (last < doc.lines && doc.line(last + 1).text.trim()) last++;
+        return { from: doc.line(first).from, to: doc.line(last).to };
+      }
       if (wholeLines) {
         return empty
           ? null
@@ -125,8 +141,8 @@ function transformSelection(transform: Transform, wholeLines = false): Command {
         : EditorSelection.range(from, to);
     });
     const selection = EditorSelection.create(ranges, state.selection.mainIndex);
-    if (changes.empty && selection.eq(state.selection)) return true;
-    view.dispatch({
+    if (edit === view && changes.empty && selection.eq(state.selection)) return true;
+    edit.dispatch({
       changes,
       selection,
       annotations: isolateHistory.of("full"),
@@ -140,7 +156,7 @@ type TransformCommand = {
   id: string;
   label: MessageKey;
   group: "case" | "lines";
-  run: Command;
+  run: TransformRun;
 };
 
 export const textTransforms: readonly TransformCommand[] = [

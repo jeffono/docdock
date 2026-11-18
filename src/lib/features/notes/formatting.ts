@@ -2,6 +2,7 @@ import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import type { Command, KeyBinding } from "@codemirror/view";
 import type { MessageKey } from "../../i18n";
+import type { EditorCommand } from "./command";
 
 /** Only remove complete matching pairs; never consume adjacent user text. */
 export function toggleInline(text: string, from: number, to: number, marker: string) {
@@ -97,9 +98,9 @@ const join: Command = (view) => {
 };
 
 type Block = "bullet" | "number" | "task" | "quote" | number;
-function block(kind: Block): Command {
-  return (view) => {
-    const state = view.state;
+function block(kind: Block): EditorCommand {
+  return (view, edit = view) => {
+    const { state } = edit;
     if (state.readOnly) return false;
     const { from, to } = state.selection.main;
     const first = state.doc.lineAt(from).number;
@@ -149,16 +150,16 @@ function block(kind: Block): Command {
         };
       })
       .filter((c) => state.sliceDoc(c.from, c.to) !== c.insert);
-    view.dispatch({ changes, annotations: isolateHistory.of("full"), userEvent: "input" });
+    edit.dispatch({ changes, annotations: isolateHistory.of("full"), userEvent: "input" });
     return true;
   };
 }
 
-const link: Command = (view) => {
-  if (view.state.readOnly) return false;
-  const { from, to } = view.state.selection.main;
-  const text = view.state.sliceDoc(from, to);
-  view.dispatch({
+const link: EditorCommand = (view, edit = view) => {
+  if (edit.state.readOnly) return false;
+  const { from, to } = edit.state.selection.main;
+  const text = edit.state.sliceDoc(from, to);
+  edit.dispatch({
     changes: { from, to, insert: `[${text}]()` },
     selection: EditorSelection.cursor(from + (text ? text.length + 3 : 1)),
     annotations: isolateHistory.of("full"),
@@ -171,23 +172,57 @@ export function inList(state: EditorState) {
   return /^\s*(?:[-+*]|\d+[.)])\s/.test(state.doc.lineAt(state.selection.main.head).text);
 }
 
-export const formattingShortcuts: (KeyBinding & { description: MessageKey; level?: number })[] = [
+export const formattingShortcuts: (KeyBinding & {
+  description: MessageKey;
+  level?: number;
+  run: EditorCommand;
+  slash?: { id: string; label: MessageKey };
+})[] = [
   { description: "shortcut.join", key: "Ctrl-j", run: join, preventDefault: true },
   { description: "shortcut.bold", key: "Ctrl-b", run: inline("**") },
   { description: "shortcut.italic", key: "Ctrl-i", run: inline("*") },
   { description: "shortcut.strike", key: "Ctrl-Shift-x", run: inline("~~") },
   { description: "shortcut.code", key: "Ctrl-Shift-`", run: inline("`"), preventDefault: true },
-  { description: "shortcut.link", key: "Ctrl-k", run: link },
+  {
+    description: "shortcut.link",
+    key: "Ctrl-k",
+    run: link,
+    slash: { id: "link", label: "slash.link" },
+  },
   ...Array.from({ length: 7 }, (_, level) => ({
     description: (level ? "shortcut.heading" : "shortcut.paragraph") as MessageKey,
     level,
     key: `Ctrl-${level}`,
     run: block(level),
+    slash:
+      level >= 1 && level <= 3
+        ? { id: `heading-${level}`, label: "slash.heading" as const }
+        : undefined,
   })),
-  { description: "shortcut.bullet", key: "Ctrl-Shift-8", run: block("bullet") },
-  { description: "shortcut.number", key: "Ctrl-Shift-7", run: block("number") },
-  { description: "shortcut.task", key: "Ctrl-Shift-9", run: block("task") },
-  { description: "shortcut.quote", key: "Ctrl-Shift-.", run: block("quote") },
+  {
+    description: "shortcut.bullet",
+    key: "Ctrl-Shift-8",
+    run: block("bullet"),
+    slash: { id: "bullet-list", label: "slash.bullet" },
+  },
+  {
+    description: "shortcut.number",
+    key: "Ctrl-Shift-7",
+    run: block("number"),
+    slash: { id: "numbered-list", label: "slash.number" },
+  },
+  {
+    description: "shortcut.task",
+    key: "Ctrl-Shift-9",
+    run: block("task"),
+    slash: { id: "task-list", label: "slash.task" },
+  },
+  {
+    description: "shortcut.quote",
+    key: "Ctrl-Shift-.",
+    run: block("quote"),
+    slash: { id: "quote", label: "slash.quote" },
+  },
 ];
 
 export const formattingKeymap: KeyBinding[] = formattingShortcuts;
