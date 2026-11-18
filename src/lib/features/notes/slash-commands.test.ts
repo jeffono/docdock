@@ -94,6 +94,6 @@ it("sorts only the non-blank block around the cursor and keeps frontmatter intac
 it("offers only the commands that fit YAML inside the frontmatter", () => {
   const labels = editor("---\ntitle: /|\n---").list?.options.map(({ label }) => label);
   expect(labels).toContain("Today’s date");
-  expect(labels).toContain("Add note property");
+  expect(labels).toContain("Add metadata");
   expect(labels).not.toContain("Heading 2");
 });
