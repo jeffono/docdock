@@ -394,6 +394,8 @@ impl Dock {
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
+                // A page attached while parked gets the low target on the next pass, with `main`.
+                self.memory_low = false;
                 let x = self.window_x();
                 let mut web = PanelWindow::prepare(raw, Activation::OnClick);
                 frame_page(&mut web, &self.monitor, self.rect, self.side);
@@ -613,7 +615,6 @@ impl Dock {
     }
 
     fn show(&mut self) {
-        self.set_memory_low(false);
         self.set_click_through(false);
         self.set_enabled(true);
         self.window.raise();
@@ -624,8 +625,10 @@ impl Dock {
         }
     }
 
-    /// Trims memory of both webviews while parked and restores it as the panel starts to open.
-    fn set_memory_low(&mut self, low: bool) {
+    /// Trims memory of both webviews while parked and still, including at startup and after a slide
+    /// cut short by a side or monitor change, and restores it as soon as the panel starts to open.
+    fn update_memory(&mut self) {
+        let low = self.x == self.parked_x && self.slide.is_none();
         if self.memory_low == low {
             return;
         }
@@ -705,7 +708,6 @@ impl Dock {
             crate::notes::purge_trash(&self.app);
             crate::shortcut::end_recording(&self.app);
             let _ = self.app.emit_to("main", "panel-hidden", ());
-            self.set_memory_low(true);
         }
         self.update_handle();
     }
@@ -730,6 +732,7 @@ impl Dock {
                 next_poll = Instant::now() + POLL;
             }
             self.animate();
+            self.update_memory();
         }
     }
 }
