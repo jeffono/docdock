@@ -19,6 +19,16 @@ struct AutostartItem(CheckMenuItem<Wry>);
 /// Asks for the glyph to be read again.
 struct GlyphCheck(Sender<()>);
 
+const TRAY_ID: &str = "docdock";
+
+pub fn set_update_tooltip(app: &AppHandle, label: &str) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID)
+        && let Err(error) = tray.set_tooltip(Some(label))
+    {
+        eprintln!("[tray] failed to change the tooltip: {error}");
+    }
+}
+
 /// `window` is a top-level window whose messages tell when the taskbar's theme or scale changes.
 pub fn setup(
     app: &mut tauri::App,
@@ -80,8 +90,9 @@ pub fn setup(
     let (changes, received) = mpsc::channel();
     let hover = changes.clone();
     app.manage(GlyphCheck(changes.clone()));
-    let tray = TrayIconBuilder::new()
+    let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(glyph_image(shown))
+        .tooltip("DocDock")
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "quit" => app.exit(0),

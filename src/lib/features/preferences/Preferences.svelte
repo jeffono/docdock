@@ -13,6 +13,7 @@ import {
   notesTrashRestore,
   onAutostartChanged,
   onNotesChanged,
+  onUpdateState,
   type PanelFocus,
   panelResize,
   panelSetSide,
@@ -20,6 +21,10 @@ import {
   permissionList,
   type SitePermission,
   type TrashItem,
+  type UpdateStatus,
+  updateCheck,
+  updateRestart,
+  updateStatus,
   vaultChoose,
   vaultClear,
 } from "../../ipc";
@@ -46,7 +51,7 @@ let {
   width: number;
   choose: () => Promise<string | undefined>;
 } = $props();
-const sections = ["general", "appearance", "browser", "shortcuts", "trash"] as const;
+const sections = ["general", "appearance", "browser", "shortcuts", "trash", "about"] as const;
 const themes = ["system", "light", "dark"] as const;
 let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
@@ -55,6 +60,8 @@ let allowedSites = $state<string[]>([]);
 let sitePermissions = $state<SitePermission[]>([]);
 let busy = $state(false);
 let autostart = $state<boolean | null>(null);
+let updates = $state<UpdateStatus | null>(null);
+let canRestart = $derived(updates?.phase === "ready" || updates?.phase === "installFailed");
 let confirm: ConfirmDialog;
 /** The trash inside the notes folder; null while the folder is away. */
 let trash = $state<TrashItem[] | null>([]);
@@ -124,6 +131,34 @@ $effect(() => {
   if (section !== "trash") return forgetTrash([]);
   restored = "";
   void action(loadTrash);
+});
+$effect(() => {
+  if (section !== "about") return;
+  updates = null;
+  let disposed = false;
+  let reported = false;
+  let unlisten: (() => void) | undefined;
+  void (async () => {
+    const stop = await onUpdateState((status) => {
+      if (disposed) return;
+      reported = true;
+      updates = status;
+    });
+    if (disposed) {
+      stop();
+      return;
+    }
+    unlisten = stop;
+    const initial = await updateStatus();
+    // A transition received during the read takes precedence over the snapshot.
+    if (!disposed && !reported) updates = initial;
+  })().catch((e) => {
+    if (!disposed) error = errorText(e);
+  });
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
 });
 async function action(work: () => Promise<void>) {
   busy = true;
@@ -291,6 +326,27 @@ onMount(() => {
         {/if}
         {#if restored}<p class="restored" role="status">{t("trash.restored", { path: restored })}</p>{/if}
       </div>
+    {:else if section === "about"}
+      <div class="setting">
+        <h3>{t("updates.title")}</h3>
+        {#if updates}
+          <p>{t("updates.version", { version: updates.version })}</p>
+          <p role="status">{t(`updates.${updates.phase}`)}</p>
+          {#if updates.lastSuccess !== null}
+            <p>{t("updates.lastSuccess", { date: dateTime(updates.lastSuccess) })}</p>
+          {/if}
+          {#if updates.phase !== "disabled"}
+            <div class="update-actions">
+              <Button variant="neutral" disabled={busy || updates.phase === "checking" || updates.phase === "downloading" || canRestart} onclick={() => action(updateCheck)}>{t("updates.check")}</Button>
+              {#if canRestart}
+                <Button variant="neutral" disabled={busy} onclick={() => action(updateRestart)}>{t("updates.restart")}</Button>
+              {/if}
+            </div>
+          {/if}
+        {:else}
+          <p role="status">{t("updates.loading")}</p>
+        {/if}
+      </div>
     {:else}
       <ActivationShortcut />
       <ShortcutList />
@@ -311,6 +367,7 @@ p { margin: 0 0 var(--space-3); color: var(--color-muted); }
 p[role="alert"] { color: var(--color-danger); }
 .path { overflow-wrap: anywhere; }
 .setting { padding-bottom: var(--space-4); }
+.update-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 fieldset { border: 0; padding: 0; margin: var(--space-4) 0; }
 label { display: inline-flex; align-items: center; gap: var(--space-1); margin-right: var(--space-4); }
 input { accent-color: var(--color-accent); }

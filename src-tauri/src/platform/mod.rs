@@ -13,6 +13,7 @@ pub mod fonts;
 mod guard;
 pub mod keyboard;
 pub mod permission;
+pub mod power;
 mod recycle;
 pub mod taskbar;
 mod windows;

@@ -23,9 +23,10 @@ code signing and the updater's artifact signatures solve different problems.
   the private key outside the repository and in GitHub Actions secrets; back it up securely. No
   updater permissions or bindings are granted to either webview. No process plugin is necessary:
   Windows NSIS performs the restart.
-- Check once per production startup and download and verify in the background. Enable the tray's
-  “Update available — restart” action only after download. Install only on that explicit action;
-  ordinary Quit does not install. Offline and invalid updates do not interrupt note use.
+- Check, download and verify in the background. Offer installation only after download and require
+  an explicit restart action. Ordinary Quit does not install. Offline and invalid updates do not
+  interrupt note use. See “Distribution and updates” in `docs/ARCHITECTURE.md` for the current schedule
+  and controls.
 - Both Quit and updating require the trusted main UI to finish the editor, including image paste,
   pending rename and autosave. Freeze input during that handshake. Conflicts and save failures abort
   exit; active content operations refuse exit until retried. No timeout authorizes an exit.
@@ -48,8 +49,6 @@ transition. The generated key has no password; keep its file and backup private.
 secrets `TAURI_SIGNING_PRIVATE_KEY` (the file contents) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 (empty/absent for this key). GitHub's supplied `GITHUB_TOKEN` creates the draft.
 
-An update is retried on the next launch if check, download or installation fails. The tray item is
-disabled until a verified download exists. An unresponsive frontend blocks exit rather than risking
-content; force termination by the OS remains outside this guarantee. Ordinary Quit keeps the
-downloaded update unapplied. The release steps are in "Distribution and updates" in
-`docs/ARCHITECTURE.md`.
+The tray item is disabled until a verified download exists. An unresponsive frontend blocks exit
+rather than risking content; force termination by the OS remains outside this guarantee. The release
+steps are in "Distribution and updates" in `docs/ARCHITECTURE.md`.

@@ -71,12 +71,8 @@ detail each stage when it is next.
 
 M11 — Resident app health:
 
-- [ ] Updates in Preferences (standard): an About/Updates section with the current version, a
-  "Check now" button and the state (up to date, downloading, ready to restart). Checks stay in
-  Rust (`updates.rs`), reached through new `ipc.ts` commands; webviews keep no updater
-  permission. Check at startup, every 6 hours and after resume from sleep. A found update
-  downloads and is announced without disruption: no blocking dialog, no focus stolen; restart
-  stays a user action through the existing exit gate.
+- [x] Updates in Preferences (standard): version, live status, manual checks and explicit restart,
+  with background checks at startup, every six hours and on Windows resume.
 - [ ] Lower memory while hidden (advanced): reduce WebView2 memory use (memory target or priority)
   while the panel is hidden; see decision 0001. Measure before and after.
 
