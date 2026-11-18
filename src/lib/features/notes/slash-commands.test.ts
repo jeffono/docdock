@@ -57,7 +57,6 @@ it.each([
   "[relative]( /|docs)",
   "`code /|`",
   "```\n/|\n```",
-  "---\ntitle: /|\n---",
   "Text /unknown |",
 ])("leaves the slash literal in %j", (text) => {
   expect(editor(text).list).toBeNull();
@@ -90,4 +89,11 @@ it("sorts only the non-blank block around the cursor and keeps frontmatter intac
   const { view, choose } = editor("---\ntitle: Keep\n---\n- Zebra\n- Ant /sort-ascending|\n\nKeep");
   choose("Sort A → Z");
   expect(view.state.doc.toString()).toBe("---\ntitle: Keep\n---\n- Ant \n- Zebra\n\nKeep");
+});
+
+it("offers only the commands that fit YAML inside the frontmatter", () => {
+  const labels = editor("---\ntitle: /|\n---").list?.options.map(({ label }) => label);
+  expect(labels).toContain("Today’s date");
+  expect(labels).toContain("Add note property");
+  expect(labels).not.toContain("Heading 2");
 });

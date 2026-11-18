@@ -112,7 +112,16 @@
 :host .cm-tooltip-autocomplete > ul > li {
   padding: 0 var(--space-2);
 }
-:host .cm-tooltip-autocomplete > ul > li[aria-selected] {
+:host .cm-tooltip-autocomplete > ul > li.cm-command-option {
+  font-family: var(--font-sans);
+}
+:host .cm-tooltip-autocomplete .cm-completionDetail {
+  margin-left: var(--space-2);
+  color: var(--color-muted);
+  font-style: normal;
+}
+/* Specific enough to win over CodeMirror's own theme, injected after this sheet. */
+:host .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--color-selected);
   color: var(--color-fg);
 }

@@ -56,7 +56,12 @@ export function editorExtensions(
   tags: () => string[] = () => [],
 ) {
   return [
-    autocompletion({ override: [propertyCompletion(tags), slashCompletion], icons: false }),
+    autocompletion({
+      override: [propertyCompletion(tags), slashCompletion],
+      icons: false,
+      // Commands read as interface text; property keys and tags stay monospace like the YAML.
+      optionClass: (completion) => (completion.type === "command" ? "cm-command-option" : ""),
+    }),
     // Kept to the panel, not the whole viewport, which reaches beyond it beside the edge tab.
     tooltips({
       tooltipSpace: (view) => ({ ...panelColumns(view.dom), top: 0, bottom: innerHeight }),
