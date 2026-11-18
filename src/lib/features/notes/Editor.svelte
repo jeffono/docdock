@@ -21,6 +21,7 @@ import Menu from "../../ui/Menu.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
 import contentCssUrl from "./content.css?url";
+import { type Counts, countSelection, countText, noteBodyStart } from "./count";
 import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
 import type { FolderGone } from "./folder-state";
@@ -49,6 +50,21 @@ let {
 let host: HTMLDivElement;
 let view: EditorView | undefined;
 let raw = untrack(() => note.text);
+let total = $state<Counts | null>(null);
+let selected = $state<Counts | null>(null);
+let pendingSelection: Counts | null = null;
+let bodyStart = 0;
+let countTimer: ReturnType<typeof setTimeout> | undefined;
+const number = new Intl.NumberFormat(document.documentElement.lang || "en");
+
+function countLabel(unit: "Words" | "Chars", total: number, selected: number | undefined) {
+  const count =
+    selected === undefined
+      ? number.format(total)
+      : t("editor.countOf", { selected: number.format(selected), total: number.format(total) });
+  return t(`editor.count${unit}.${total === 1 ? "one" : "other"}`, { count });
+}
+
 const editable = new Compartment();
 const location = new Compartment();
 const checker = new Compartment();
@@ -235,6 +251,22 @@ let saving = autosave(untrack(() => note.version));
 const extensions = () => [
   rawText.init(() => raw),
   rawHistory,
+  EditorView.updateListener.of(({ state, docChanged, selectionSet }) => {
+    if (docChanged) {
+      bodyStart = noteBodyStart(state.doc);
+      clearTimeout(countTimer);
+      const from = bodyStart;
+      countTimer = setTimeout(() => {
+        total = countText(state.sliceDoc(from));
+        selected = pendingSelection;
+        countTimer = undefined;
+      }, 150);
+    }
+    if (docChanged || selectionSet) {
+      pendingSelection = countSelection(state.doc, state.selection, bodyStart);
+      if (countTimer === undefined) selected = pendingSelection;
+    }
+  }),
   EditorView.updateListener.of((update) => {
     const next = update.state.field(rawText);
     if (next === raw || replacing) return;
@@ -386,6 +418,8 @@ onMount(() => {
   contentCss.href = contentCssUrl;
   root.append(contentCss, css);
   view = new EditorView({ root, parent: root, state: editorState(raw, extensions()) });
+  bodyStart = noteBodyStart(view.state.doc);
+  total = countText(view.state.sliceDoc(bodyStart));
   // A note created with only frontmatter (tags from the search) takes typing after it, not inside.
   if (/^---\r?\n[\s\S]*\r?\n---\r?\n?$/.test(raw))
     view.dispatch({ selection: { anchor: view.state.doc.length } });
@@ -396,6 +430,7 @@ onMount(() => {
   loadSpelling().catch(() => {});
   return () => {
     stopSpelling();
+    clearTimeout(countTimer);
     disposed = true;
     saving.stop();
     view?.destroy();
@@ -443,6 +478,12 @@ onMount(() => {
     </div>
   {/if}
   <div class="surface" bind:this={host}></div>
+  {#if total}
+    <p class="count" aria-live="off">{t("editor.count", {
+      words: countLabel("Words", total.words, selected?.words),
+      chars: countLabel("Chars", total.chars, selected?.chars),
+    })}</p>
+  {/if}
   <Menu bind:this={spellMenu} label={t("editor.spelling")} ontoggle={(open) => { if (!open) misspelling = null; }}>
     {#each misspelling?.suggestions ?? [] as suggestion}
       <button role="menuitem" onclick={() => correct(suggestion)}>{suggestion}</button>
@@ -461,4 +502,5 @@ p { margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .discard { border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-fg); font: inherit; padding: 0 var(--space-2); min-height: var(--size-control); }
 .error { color: var(--color-danger); }
+.count { padding: 0 var(--space-3) var(--space-1); text-align: right; font-size: var(--font-size-sm); color: var(--color-muted); }
 </style>

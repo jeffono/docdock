@@ -492,6 +492,7 @@ The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, w
 Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
 hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
 a secondary Discard my changes button. Errors appear in red beside this notice.
+A muted footer shows word and character counts for the note or selection, excluding frontmatter.
 
 Windows editor shortcuts:
 
