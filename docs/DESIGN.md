@@ -82,6 +82,13 @@ CSP forbids inline styles: no component depends on a `style` attribute. Footnote
 labels are small raised text, references in the accent color; definitions are small muted text where
 they are written. Raw HTML keeps its shape as plain text. List paragraphs stay tight, like editor lines.
 
+Right click on a web or email link in a note opens the shared in-panel menu. It offers Open in browser
+and Copy link, and Open here for web links. Shift+click and middle click open the system browser in
+reading and editing. A normal click opens a web link in the panel when reading and places the cursor
+when editing. Ctrl+click in reading also opens the system browser. Email links open the system mail
+handler. Tab reaches links in the expanded note. Shift+F10 or the Menu key on a focused link or at
+the editor caret opens the menu. Arrows navigate, Enter selects and Esc restores focus.
+
 GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
 Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
 semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
@@ -575,13 +582,13 @@ the selection. Sorting uses numeric order and ignores case and accents for compa
 Deduplication keeps the first exact match. Each change is one undo step and selects the result.
 
 Misspelled words have a wavy underline in the danger color, which waits until the cursor leaves the
-word being typed. A right click on one opens an in-panel menu with up to six suggestions, or "No
-suggestions", and Add to dictionary; elsewhere the native context menu stays.
+word being typed. Outside links, a right click on a marked word opens an in-panel menu with up to six
+suggestions, or "No suggestions", and Add to dictionary. Other editor text keeps the native context menu.
 
 Copy and cut in the panel (editor, reading views, search bar and other fields) put plain text on the
 clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.
-Pasting elsewhere keeps the text, not formatting or images. The panel's context menu has no Copy link
-or Copy image. The web page copies as any browser does.
+Pasting elsewhere keeps the text, not formatting or images. Copy link uses the same private text
+clipboard. The web page copies as any browser does.
 
 ## Tweak window
 

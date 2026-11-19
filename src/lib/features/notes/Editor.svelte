@@ -1,6 +1,6 @@
 <script lang="ts">
 import { isolateHistory, undo } from "@codemirror/commands";
-import { Compartment, EditorState, type Text } from "@codemirror/state";
+import { Compartment, EditorState, Prec, type Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { onMount, tick, untrack } from "svelte";
 import { privateCut } from "../../clipboard";
@@ -24,7 +24,9 @@ import contentCssUrl from "./content.css?url";
 import { type Counts, countSelection, countText, noteBodyStart } from "./count";
 import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
+import { editorLinkAt, editorLinkClick } from "./editor-links";
 import type { FolderGone } from "./folder-state";
+import { linkAction, linkMenuKey } from "./link-actions";
 import { notePath } from "./live-formatting";
 import NoteStats from "./NoteStats.svelte";
 import { diskReload, rawHistory, rawText } from "./reload";
@@ -37,6 +39,8 @@ let {
   onleave,
   ondiscard,
   onstatus,
+  onlinkexternal,
+  onlinkmenu,
   tags,
 }: {
   path: string;
@@ -45,6 +49,13 @@ let {
   /** Leaves without saving, after the user chose to drop edits that cannot be saved. */
   ondiscard: () => void;
   onstatus: (state: AutosaveState) => void;
+  onlinkexternal: (url: URL) => void;
+  onlinkmenu: (
+    event: MouseEvent | KeyboardEvent,
+    href: string,
+    from: HTMLElement,
+    at?: { x: number; y: number },
+  ) => void;
   /** The folder's tags, offered while typing them in the frontmatter. */
   tags: () => string[];
 } = $props();
@@ -56,6 +67,38 @@ let selected = $state<Counts | null>(null);
 let pendingSelection: Counts | null = null;
 let bodyStart = 0;
 let countTimer: ReturnType<typeof setTimeout> | undefined;
+
+function followLink(event: MouseEvent, view: EditorView) {
+  if (linkAction(event, false) !== "external") return false;
+  const url = editorLinkClick(view, event, bodyStart);
+  if (!url) return false;
+  // Keep mouse-down from selecting text or starting middle-button autoscroll.
+  if (event.type !== "mousedown") onlinkexternal(url);
+  return true;
+}
+const linkHandlers = Prec.high(
+  EditorView.domEventHandlers({
+    mousedown: followLink,
+    click: followLink,
+    auxclick: followLink,
+    contextmenu(event, view) {
+      const url = editorLinkClick(view, event, bodyStart);
+      if (!url) return false;
+      onlinkmenu(event, url.href, view.contentDOM);
+      return true;
+    },
+    keydown(event, view) {
+      if (event.isComposing || !linkMenuKey(event)) return false;
+      const { head } = view.state.selection.main;
+      if (head < bodyStart) return false;
+      const url = editorLinkAt(view.state, head, 1) ?? editorLinkAt(view.state, head, -1);
+      const rect = url && view.coordsAtPos(head);
+      if (!url || !rect) return false;
+      onlinkmenu(event, url.href, view.contentDOM, { x: rect.left, y: rect.bottom });
+      return true;
+    },
+  }),
+);
 
 const editable = new Compartment();
 const location = new Compartment();
@@ -284,6 +327,7 @@ const extensions = () => [
   editable.of(EditorState.readOnly.of(false)),
   location.of(notePath.of(path)),
   checker.of([]),
+  linkHandlers,
   EditorView.domEventHandlers({ paste }),
   privateCut(clipboardWrite),
   ...editorExtensions(
