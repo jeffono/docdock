@@ -82,6 +82,18 @@ CSP forbids inline styles: no component depends on a `style` attribute. Footnote
 labels are small raised text, references in the accent color; definitions are small muted text where
 they are written. Raw HTML keeps its shape as plain text. List paragraphs stay tight, like editor lines.
 
+Inline code and code blocks use the recessed `--color-bg` on the card surface in both themes.
+Inline code has `--space-1` on each side. Blocks share `--space-2` vertical padding,
+`--space-3` horizontal padding and a `--color-line` border. Both use `--radius-sm`. The editor
+frames the code lines as one block, including the fence lines while their syntax is visible.
+
+Right click on a web or email link in a note opens the shared in-panel menu. It offers Open in browser
+and Copy link, and Open here for web links. Shift+click and middle click open the system browser in
+reading and editing. A normal click opens a web link in the panel when reading and places the cursor
+when editing. Ctrl+click in reading also opens the system browser. Email links open the system mail
+handler. Tab reaches links in the expanded note. Shift+F10 or the Menu key on a focused link or at
+the editor caret opens the menu. Arrows navigate, Enter selects and Esc restores focus.
+
 GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
 Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
 semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
@@ -187,7 +199,8 @@ pinned and unpinned notes differ only in section and starting state.
   on when taken; a frontmatter title changes with it. When the file name cannot hold the typed title
   (characters such as ":", or a taken name), the field also writes it as the frontmatter title,
   creating the block if needed, so the card keeps showing what was typed. A double click on the title only opens and
-  closes, as a click does; a double click on the text of a card enters editing. A note still named
+  closes, as a click does; a double click on the text of a card enters editing
+  with the clicked word selected and kept where it was on screen. A note still named
   `Untitled` or `Untitled N` is named when its editor is left, from what the card shows: the
   frontmatter title, else a first heading, else its first words (cut at a word near 60 characters).
 - **Names:** a card shows the frontmatter title, else the file name. When the file name differs from
@@ -497,8 +510,10 @@ toggling does not move it. Reading remains the default. Light-theme tags use the
 and accent text in both views; dark-theme tags keep their surface background and muted text.
 The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
 Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
-hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
-a secondary Discard my changes button. Errors appear in red beside this notice.
+hidden elsewhere. When a cursor or selection touches a line of an inline code span or fenced
+block, both delimiters are visible, including the opening fence's info string. Conflict actions
+appear above the editor: one primary Keep my version button and a secondary Discard my changes
+button. Errors appear in red beside this notice.
 A muted footer shows word and character counts and fast-to-slow time ranges for silent reading
 (300–175 words per minute) and speaking (160–130 words per minute). It uses the selection when
 editing with a selection and the whole note otherwise, including on the focused card in reading mode.
@@ -575,13 +590,13 @@ the selection. Sorting uses numeric order and ignores case and accents for compa
 Deduplication keeps the first exact match. Each change is one undo step and selects the result.
 
 Misspelled words have a wavy underline in the danger color, which waits until the cursor leaves the
-word being typed. A right click on one opens an in-panel menu with up to six suggestions, or "No
-suggestions", and Add to dictionary; elsewhere the native context menu stays.
+word being typed. Outside links, a right click on a marked word opens an in-panel menu with up to six
+suggestions, or "No suggestions", and Add to dictionary. Other editor text keeps the native context menu.
 
 Copy and cut in the panel (editor, reading views, search bar and other fields) put plain text on the
 clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.
-Pasting elsewhere keeps the text, not formatting or images. The panel's context menu has no Copy link
-or Copy image. The web page copies as any browser does.
+Pasting elsewhere keeps the text, not formatting or images. Copy link uses the same private text
+clipboard. The web page copies as any browser does.
 
 ## Tweak window
 

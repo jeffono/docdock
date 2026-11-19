@@ -17,10 +17,11 @@ import {
   frontmatter as readFrontmatter,
   safeHref,
 } from "./markdown";
+import { pointerReveal, revealChanged, revealed } from "./pointer-reveal";
 export const notePath = Facet.define<string, string>({ combine: (values) => values[0] ?? "" });
 
 function active(state: EditorState, from: number, to: number) {
-  return state.selection.ranges.some(
+  return revealed(state).some(
     (r) => state.doc.lineAt(r.from).from <= to && state.doc.lineAt(r.to).to >= from,
   );
 }
@@ -154,7 +155,9 @@ class HeaderWidget extends WidgetType {
 const frontmatter = StateField.define<DecorationSet>({
   create: (state) => headerDecoration(state),
   update: (value, transaction) =>
-    transaction.docChanged || transaction.selection ? headerDecoration(transaction.state) : value,
+    transaction.docChanged || revealChanged(transaction)
+      ? headerDecoration(transaction.state)
+      : value,
   provide: (field) => EditorView.decorations.from(field),
 });
 function headerDecoration(state: EditorState) {
@@ -218,19 +221,19 @@ function formatting(view: EditorView, note: string): DecorationSet {
           lineClass(node.from, node.to, "code-block");
           const first = view.state.doc.lineAt(node.from),
             last = view.state.doc.lineAt(node.to);
+          const hideFences = name === "FencedCode" && !selected;
           const start =
-            name === "FencedCode" && first.number < last.number
+            hideFences && first.number < last.number
               ? view.state.doc.line(first.number + 1).from
               : first.from;
-          const closed = name === "FencedCode" && /^\s*(`{3,}|~{3,})\s*$/.test(last.text);
           const end =
-            closed && last.number > first.number
+            hideFences && last.number > first.number && node.node.lastChild?.name === "CodeMark"
               ? view.state.doc.line(last.number - 1).to
               : last.to;
-          if (start <= end) {
-            lineClass(start, start, "frame-start");
-            lineClass(end, end, "frame-end");
-          }
+          // Keep a frame on the opening line when the block has no body lines.
+          const frameStart = start <= end ? start : first.from;
+          lineClass(frameStart, frameStart, "frame-start");
+          lineClass(end, end, "frame-end");
         }
         if (/^(ATXHeading|SetextHeading)/.test(name))
           lineClass(node.from, node.to, `heading h${name.at(-1)}`);
@@ -296,6 +299,14 @@ function formatting(view: EditorView, note: string): DecorationSet {
           }
         }
         if (/^(TaskMarker|ListMark)$/.test(name)) lineClass(node.from, node.to, "list-item");
+        if (name === "CodeMark" || name === "CodeInfo") {
+          const parent = node.node.parent;
+          if (parent && !active(view.state, parent.from, parent.to)) {
+            replace();
+            if (parent.name === "FencedCode") lineClass(node.from, node.to, "fence");
+          }
+          return false;
+        }
         if (selected) return;
         if (/^(HeaderMark|QuoteMark)$/.test(name)) {
           const end = view.state.sliceDoc(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
@@ -347,13 +358,8 @@ function formatting(view: EditorView, note: string): DecorationSet {
           replace(new TextWidget("", "rule"));
           return false;
         }
-        if (/^(CodeMark|CodeInfo)$/.test(name) && node.node.parent?.name === "FencedCode") {
-          replace();
-          lineClass(node.from, node.to, "fence");
-          return false;
-        }
         if (
-          /^(HeaderMark|EmphasisMark|StrikethroughMark|CodeMark|QuoteMark)$/.test(name) &&
+          /^(HeaderMark|EmphasisMark|StrikethroughMark|QuoteMark)$/.test(name) &&
           sameLine(node.from, node.to)
         )
           replace();
@@ -385,6 +391,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
 }
 export function liveFormatting() {
   return [
+    pointerReveal(),
     frontmatter,
     ViewPlugin.fromClass(
       class {
@@ -395,7 +402,7 @@ export function liveFormatting() {
         update(update: import("@codemirror/view").ViewUpdate) {
           if (
             update.docChanged ||
-            update.selectionSet ||
+            revealChanged(update) ||
             update.viewportChanged ||
             update.startState.facet(notePath) !== update.state.facet(notePath) ||
             update.startState.field(frontmatter) !== update.state.field(frontmatter) ||

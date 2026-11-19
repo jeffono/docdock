@@ -3,6 +3,7 @@ import { onMount, tick, untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
+  clipboardWrite,
   type Leftover,
   type Listing,
   type Note,
@@ -74,6 +75,7 @@ import { dragSlot } from "./drag";
 import Editor from "./Editor.svelte";
 import { folderAction, folderNotice } from "./folder-state";
 import { dateHeadings, folderOf } from "./grouping";
+import { linkAction, linkMenuKey, systemLink } from "./link-actions";
 import { movedLinks } from "./links";
 import {
   arrowScroll,
@@ -123,6 +125,7 @@ import {
   queryCompletion,
 } from "./query";
 import { datePresets } from "./query-date";
+import type { EditStart } from "./reading-position";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
 import {
@@ -387,7 +390,9 @@ export function leaveEditor(): Promise<boolean> {
 }
 /** Note whose editor read is in flight; a rename of it cancels the open. */
 let opening: string | null = null;
-async function edit(path: string) {
+/** Where the next editor starts, from a double click on the reading view. */
+let editStartAt = $state<EditStart>();
+async function edit(path: string, start?: EditStart) {
   // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
   if (editing || choosing || path === deletingPath || path === movingPath || inDeletingFolder(path))
     return;
@@ -404,6 +409,7 @@ async function edit(path: string) {
     version = note.version;
     selected = path;
     expanded = path;
+    editStartAt = start;
     editing = true;
     noteSearchTyped = false;
   } catch (e) {
@@ -651,6 +657,7 @@ function forget() {
   indexVersion++;
   cardMenu?.close();
   folderMenu?.close();
+  closeLinkMenu();
   menuCard = null;
   menuFolder = "";
   selection = "";
@@ -1470,6 +1477,7 @@ async function openMenu(card: Card, at?: { x: number; y: number }) {
  * for copy and paste, as does reading text that is selected.
  */
 function contextMenu(event: MouseEvent) {
+  if (event.defaultPrevented) return;
   const target = event.composedPath()[0];
   if (!(target instanceof Element)) return;
   const element = target.closest<HTMLElement>(".card[data-path]");
@@ -1608,23 +1616,66 @@ async function openPage(url: string) {
   return true;
 }
 
-/** A click on a link in a card's content; true if it was one. */
-function linkClick(event: MouseEvent): boolean {
-  const link = (event.target as Element).closest("a");
+function linkError(cause: unknown) {
+  error = errorText(cause);
+}
+
+function openSystemLink(url: URL) {
+  void openExternal(url.href).catch(linkError);
+}
+
+/** A click on a link in reading content; true if it was one. */
+function linkClick(event: MouseEvent, note = false): boolean {
+  if (event.type === "auxclick" && event.button !== 1) return false;
+  const link = (event.target as Element).closest("a[href]");
   if (!link) return false;
   event.preventDefault();
   const href = link.getAttribute("href") ?? "";
   if (href.startsWith("#")) {
+    if (event.type === "auxclick") return true;
     // The sanitizer only adds the prefix when it is not already present.
     const id = href.slice(1);
     document.getElementById(id.startsWith("note-") ? id : `note-${id}`)?.scrollIntoView();
-  } else if (/^(https?:|mailto:)/i.test(href))
-    void (event.ctrlKey || /^mailto:/i.test(href) ? openExternal(href) : openPage(href)).catch(
-      (e) => {
-        error = errorText(e);
-      },
-    );
+  } else {
+    const url = systemLink(href);
+    if (url) {
+      const external = note ? linkAction(event, true) === "external" : event.ctrlKey;
+      if (external || url.protocol === "mailto:") openSystemLink(url);
+      else void openPage(url.href).catch(linkError);
+    }
+  }
   return true;
+}
+
+let linkMenu: Menu;
+let menuLink = $state<{ href: string; url: URL }>();
+
+function closeLinkMenu() {
+  if (!menuLink) return;
+  menuLink = undefined;
+  linkMenu?.close();
+}
+
+async function openLinkMenu(
+  event: MouseEvent | KeyboardEvent,
+  href: string,
+  from: HTMLElement,
+  at?: { x: number; y: number },
+) {
+  const url = systemLink(href);
+  if (!url) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!at) {
+    const rect = from.getBoundingClientRect();
+    at =
+      event instanceof MouseEvent
+        ? { x: event.clientX, y: event.clientY }
+        : { x: rect.left, y: rect.bottom };
+  }
+  menuLink = { href, url };
+  await tick();
+  if (menuLink?.url === url && from.isConnected) linkMenu.show({ at, from });
 }
 
 let tools = $state<HTMLElement>();
@@ -1832,8 +1883,7 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
     }
     case "ContextMenu":
     case "F10": {
-      const shiftOnly = event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
-      if (inBar || (event.key === "F10" && !shiftOnly)) return;
+      if (inBar || !linkMenuKey(event)) return;
       if (active.startsWith("folder:")) {
         const target = Array.from(list?.querySelectorAll<HTMLElement>("[data-folder]") ?? []).find(
           (element) => element.dataset.folder === active.slice(7),
@@ -1946,7 +1996,7 @@ function shortcut(event: KeyboardEvent) {
   const field = !inBar && inField(event);
   const ctrl = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
   const key = event.key.toLowerCase();
-  // Cycle the three areas without entering card controls or leaving the WebView.
+  // Cycle panel areas and expanded note links without leaving the WebView.
   if (
     key === "tab" &&
     (!field || (event.target instanceof HTMLElement && event.target.closest(".note-order"))) &&
@@ -1963,7 +2013,14 @@ function shortcut(event: KeyboardEvent) {
       ...document.querySelectorAll<HTMLElement>(
         ".notice button, .leftover button, .restore button",
       ),
-      ...(!browser ? [list, ...list.querySelectorAll<HTMLElement>(".note-order > button")] : []),
+      ...(!browser
+        ? [
+            list,
+            ...list.querySelectorAll<HTMLElement>(
+              ".note-order > button, .card.expanded .body a[href]",
+            ),
+          ]
+        : []),
       ...document.querySelectorAll<HTMLElement>("main > header button"),
       ...document.querySelectorAll<HTMLElement>("main > .resize"),
     ];
@@ -2021,6 +2078,8 @@ function shortcut(event: KeyboardEvent) {
     input?.select();
     return;
   }
+  // Enter activates a focused reading link instead of reopening its card.
+  if (event.key === "Enter" && event.target instanceof HTMLAnchorElement) return;
   // The bar's keys ran in capture.
   if (!inBar && !field) listKey(event, false);
 }
@@ -2036,6 +2095,7 @@ onMount(() => {
   const hidden = onPanelHidden(() => {
     noteSearchTyped = false;
     shortcutSheet.close();
+    closeLinkMenu();
     // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
     if (!removed?.trash) removed = null;
     noticeAway = true;
@@ -2091,6 +2151,17 @@ onMount(() => {
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
 </Menu>
 <!-- Closing forgets the card: it holds the note's title, tags and snippet. -->
+<Menu bind:this={linkMenu} label={t("link.menu")} ontoggle={(open) => { if (!open) menuLink = undefined; }}>
+  {#if menuLink}
+    {@const target = menuLink}
+    <button role="menuitem" tabindex="-1" onclick={() => openSystemLink(target.url)}>{t("link.openBrowser")}</button>
+    {#if target.url.protocol !== "mailto:"}
+      <button role="menuitem" tabindex="-1" onclick={() => void openPage(target.url.href).catch(linkError)}>{t("link.openHere")}</button>
+    {/if}
+    <button role="menuitem" tabindex="-1" onclick={() => void clipboardWrite(target.href).catch(linkError)}>{t("link.copy")}</button>
+  {/if}
+</Menu>
+
 <Menu bind:this={cardMenu} label={t("menu.label")} ontoggle={(open) => { if (!open) menuCard = null; }}>
   {#if menuCard}
     {@const card = menuCard}
@@ -2108,10 +2179,13 @@ onMount(() => {
       bind:this={editor}
       path={selected}
       note={opened}
+      start={editStartAt}
       onstatus={(state) => {
         saveStatus = state;
       }}
       onleave={() => void leaveByKeyboard()}
+      onlinkexternal={openSystemLink}
+      onlinkmenu={openLinkMenu}
       tags={() => [...folderIndex.index.values()].flatMap((entry) => entry.tags)}
       ondiscard={() => {
         const path = selected;
@@ -2303,8 +2377,9 @@ onMount(() => {
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}
             onpin={() => pinOrUnpin(card)}
-            onedit={() => (edited ? leaveEditor() : edit(card.hit.path))}
-            onlink={linkClick}
+            onedit={(start) => (edited ? leaveEditor() : edit(card.hit.path, start))}
+            onlink={(event) => linkClick(event, true)}
+            onlinkmenu={openLinkMenu}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
             status={edited ? saveText : ""}
