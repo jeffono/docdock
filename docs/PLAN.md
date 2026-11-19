@@ -77,33 +77,23 @@ detail each stage when it is next.
 - M13 — Search: provider choice among DuckDuckGo, Brave, Startpage, Ecosia, Google, Bing and a
   custom `%s` URL, with suggestions only from endpoints Firefox ships, and opt-in web suggestions
   while searching notes; see `docs/decisions/0006-search-suggestions.md`.
+- M14 — Web tab capture: visible area and full page by the browser engine from the page's
+  context menu, each into a new note, tied to one document and the starting folder, with size,
+  pixel and time limits; region capture dropped (Win+Shift+S and paste). Editor polish alongside:
+  stable clicks on reveal, code styling and fences shown at the cursor, links opened in the system
+  browser. See "Page captures" in `docs/ARCHITECTURE.md`. Rust tests grew 6%.
 
 ## Next
 
-M14 — Web tab capture (advanced, M): screenshots of the shown page by the browser engine, not of
-the screen. Region capture is out: Win+Shift+S and paste already cover it (see
-`docs/EXPLORATIONS.md`).
-
-- [x] Capture in Rust (advanced): visible area and full page through the DevTools protocol
-  (`Page.captureScreenshot`, full page clipped from `Page.getLayoutMetrics`), tied to one
-  document, with a timeout, side, pixel and byte limits, a clip notice beyond them, and the image
-  decoded and validated in Rust. Clip in DIPs from physical limits, one capture in flight, URL and
-  title from the image's document.
-- [x] Destination (standard): a new note titled and sourced from the page holds the image and opens
-  in the editor, created with its link in one write in the folder the capture started in.
-- [x] Page menu control (advanced): "Capture visible area" and "Capture full page" at the end of
-  the page's native context menu, replacing the bar's camera button; disabled while unavailable,
-  without the notes folder or while a capture or save is pending.
-- [x] Docs (basic): `docs/ARCHITECTURE.md`, `docs/DESIGN.md` and `docs/EXPLORATIONS.md`.
+M15 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
+has been hidden for a while, and notes marked private in the frontmatter shown blurred until
+revealed. Detail before starting.
 
 ## Later
 
 In this order; each line is a future stage. Estimated cost: S (up to a day), M (days), L (one to two
 weeks), XL (several weeks, high risk).
 
-- M15 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
-  has been hidden for a while, and notes marked private in the frontmatter shown blurred until
-  revealed.
 - M16 — Rich content: MathML equations with Temml (standard, S–M; KaTeX depends on inline styling,
   blocked by CSP), then Mermaid diagrams (advanced, M–L), which inject `<style>` blocked by CSP. A
   sandboxed iframe with its own CSP would render code fences without loosening `main`; it is also the
