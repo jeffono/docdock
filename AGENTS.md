@@ -3,14 +3,8 @@
 Autohide sidebar for Windows: touching the screen edge with the mouse expands it over other windows to
 browse, add and edit references (markdown, images, web pages).
 
-Single source of instructions for Claude, Codex and Antigravity. Codex and Antigravity read this file
-directly, and `CLAUDE.md` only imports it. Do not create `GEMINI.md`: Antigravity does not expand `@`
-imports. This file is loaded every session: keep it short.
-
-## Where to start
-
-`docs/PLAN.md` says what to do now. Consult `docs/ARCHITECTURE.md` and `docs/decisions/` only when the
-task requires it. Do not reopen recorded decisions without new evidence.
+Single source of instructions for all agents: `CLAUDE.md` only imports it, and no `GEMINI.md` exists
+because Antigravity does not expand `@` imports. Loaded every session: keep it short.
 
 ## Commands
 
@@ -26,24 +20,48 @@ task requires it. Do not reopen recorded decisions without new evidence.
 | `pnpm icons`      | Rebuild app icons from the original SVGs    |
 
 Use only pnpm. Hooks run `check:fast` on commit and `check` on push: never use `--no-verify`.
+`pnpm tauri dev` uses port 1420 and the app occupies the screen edge: one instance per machine.
 
-## Simplicity
+## Documentation
 
-Solve today's problem with the simplest robust solution. No abstraction before the second real use,
-no speculative configuration. Before adding, see if something can be removed. A new dependency needs
-a clear reason in the commit message.
+All durable context stays in the repository; private agent memory is not shared. Read only what the
+task needs: start with the plan.
 
-## Architecture
+| Information                                         | Location               |
+| --------------------------------------------------- | ---------------------- |
+| Next step and open task                             | `docs/PLAN.md`         |
+| How the system works: modules and invariants        | `docs/ARCHITECTURE.md` |
+| Visual identity and visible behavior                | `docs/DESIGN.md`       |
+| Why a costly-to-reverse decision exists             | `docs/decisions/`      |
+| Directions studied but not adopted                  | `docs/EXPLORATIONS.md` |
+| Implementation details                              | Comments in the code   |
+| Installation and use, for users (English and pt-BR) | `README*.md`           |
+| History and details of a change                     | Git and commit message |
 
-- The UI talks to Rust only through `src/lib/ipc.ts`.
-- Win32 and other system APIs belong in `src-tauri/src/platform/`.
+- Each piece of information lives in one place; elsewhere, link to it. Updating replaces the old text.
+- When pausing a task, leave a line in "In progress" in the plan; remove it when done. A completed
+  stage leaves the plan. No changelog, journal or README per folder.
+- Record in `docs/decisions/` only what is costly to reverse: data format, security, plugins or a
+  central library. Use the next number and the sections Context, Decision and Consequences. Do not
+  reopen a recorded decision without new evidence.
+- Decide reversible technical matters yourself. Ask the user only about product behavior, appearance
+  without a defined reference, costs and actions that are hard to undo.
+
+## Rules
+
+- Simplicity: the simplest robust solution to today's problem. No abstraction before the second real
+  use, no speculative configuration; before adding, see what can be removed. A new dependency needs a
+  clear reason in the commit message.
+- The UI talks to Rust only through `src/lib/ipc.ts`. Win32 and other system APIs belong in
+  `src-tauri/src/platform/`.
 - Separate decisions from effects: rules are pure functions; system calls are a thin layer.
 - User content is ordinary `.md` files. Everything derived must be reconstructible.
 - Never lose content: write atomically and do not overwrite external changes without warning.
-- Visuals: use tokens and `src/lib/ui/`, never fixed values. Only the user changes the identity; create a
-  token or component only if nothing existing works. For UI, read `docs/DESIGN.md` and deliver a
-  screenshot for approval. Prototypes are excluded.
 - Rendered content (markdown, HTML, web pages) is untrusted.
+- Visuals: use tokens and `src/lib/ui/`, never fixed values. Only the user changes the identity; create
+  a token or component only if nothing existing works. For UI, read the identity part of
+  `docs/DESIGN.md` and the section of the feature touched, and deliver a screenshot for approval.
+  Prototypes are excluded.
 
 ## Tests
 
@@ -54,7 +72,7 @@ can recur. Prefer running only the relevant test during work.
 
 - Time budget, excluding compilation: `pnpm test` under 10 seconds, `cargo test` under 30 seconds.
 - When closing a stage, review the tests: remove those for removed code or already covered elsewhere,
-  split those that mix unrelated cases, and justify growth above 30% during the stage.
+  and split those that mix unrelated cases. Justify growth above 30% in the closing commit message.
 
 ## Definition of done
 
@@ -63,7 +81,7 @@ can recur. Prefer running only the relevant test during work.
 - Anything that could not be verified is stated in the delivery.
 - Affected documents are updated.
 
-## Efficient quota use
+## Models and delegation
 
 Each plan task has a level; use the cheapest model that can resolve it well.
 
@@ -73,59 +91,32 @@ Each plan task has a level; use the cheapest model that can resolve it well.
 | `standard` | Functionality with an established pattern                    |
 | `advanced` | Architecture, Win32, focus, concurrency, security, hard bugs |
 
-- Read only what is necessary. Delegate only when worthwhile: a subagent starts without context.
-- To spread usage limits, delegate `basic` and `standard` tasks to OpenAI models (Codex) and
-  `advanced` ones to Claude Opus. Do not delegate to Antigravity: its permissions misbehave in T3.
+- A subagent starts without context: delegate only a task that can be briefed in a few lines. Then, to
+  spread usage limits, send `basic` and `standard` tasks to OpenAI models (Codex) and `advanced` ones
+  to Claude Opus. Never delegate to Antigravity: its permissions misbehave in T3.
 - After two unsuccessful attempts, stop and move up a level instead of persisting.
 
-## Context and documentation
+## Git and work between agents
 
-All durable context stays in the repository. Private agent memory is not shared.
-
-| Information                             | Location               |
-| --------------------------------------- | ---------------------- |
-| Current state, next step, open task     | `docs/PLAN.md`         |
-| How the system works today              | `docs/ARCHITECTURE.md` |
-| Why a costly-to-reverse decision exists | `docs/decisions/`      |
-| Directions studied but not adopted      | `docs/EXPLORATIONS.md` |
-| Details of a change                     | Commit message         |
-
-- When pausing a task, leave a line in "In progress" in the plan; remove it when done.
-- Each piece of information lives in one place. Updating replaces the old text.
-- A completed stage becomes one line. No changelog, journal or README per folder.
-
-## Work between agents
-
-- One task per branch, with a short descriptive English name, such as `atomic-save`. In parallel, use one
+- One task per branch, with a short descriptive name, such as `atomic-save`. In parallel, use one
   worktree per agent: T3 creates them in `~/.t3/worktrees/docdock/`; otherwise use
   `../docdock-wt/<branch>`.
-- Whoever merges a branch removes its worktree and its local and remote branch.
 - Check `git status` and `git log -10` before starting and do not touch others' changes.
-- Merge into `main` only when the user asks.
+- Merge into `main` only when the user asks. Whoever merges removes the branch's worktree and its local
+  and remote branch.
 - Review by an agent from another provider, diff only: when closing each stage and before changes to
   persistence, security or plugins. Prototypes are excluded.
-- When closing a stage, trigger CI manually if there is a remote.
-- `pnpm tauri dev` uses port 1420 and the app occupies the screen edge: one instance per machine.
+- When closing a stage, trigger the CI workflow manually; it does not run on push.
 
 ## Temporary files
 
 - Disposable work files (scripts, browser profiles, screenshots, drafts) go in `.tmp/<branch>/` at the
-  checkout root, never in the system temp folder or elsewhere. Only tests that delete their own files
-  may use the system temp folder.
+  checkout root, never elsewhere; only tests that delete their own files may use the system temp folder.
 - Evidence for approval is deleted once approved or when its branch is merged; it never enters the
-  repository.
-- `pnpm clean` deletes `.tmp/` and lists merged worktrees and branches to remove.
-
-## Decisions
-
-Record in `docs/decisions/` only what is costly to reverse: data format, security, plugins or a central
-library. Use the next number and the sections Context, Decision and Consequences.
-
-Decide reversible technical matters yourself. Ask the user only about product behavior, appearance without
-a defined reference, costs and actions that are hard to undo.
+  repository. `pnpm clean` deletes `.tmp/` and lists merged worktrees and branches to remove.
 
 ## Language
 
-Everything in the repository is in English: code, comments, commits, PRs, branches and documentation.
-Replies to the user are in Brazilian Portuguese. UI text goes through internationalization, with English
-as the default and pt-BR.
+The repository is in English (code, comments, commits, PRs, branches and documentation), except the
+pt-BR translations: `README.pt-BR.md` and UI text, which goes through internationalization with English
+as the default. Replies to the user are in Brazilian Portuguese.
