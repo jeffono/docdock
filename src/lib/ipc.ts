@@ -167,11 +167,14 @@ export const webSelection = () => invoke<PageSelection | null>("web_selection");
 /** The shown page's article. `markdown` is untrusted: render it only through `render.ts`. */
 export type PageArticle = { url: string; title: string; markdown: string };
 export const webReader = () => invoke<PageArticle | null>("web_reader");
+/** One document and URL of the page window, as Rust gave it: pass it back unchanged. */
+export type PageRevision = { identity: number; sources: number };
 /**
  * A screenshot of the shown page drawn by the browser engine: the visible area, or with `full` the
- * whole page. `image` is a PNG, or a JPEG when a PNG would exceed the attachment limit; `url` and
- * `title` are those of the document it shows, and untrusted. `clipped`: the page was too large and
- * only its start was captured. `folder` and `folderId`: the notes folder it started in, which
+ * whole page, if it still shows `page`. `image` is a PNG, or a JPEG when a PNG would exceed the
+ * attachment limit; `url` is the address of the document it shows and `title` a label from about
+ * then, both untrusted. `clipped`: the page was too large and only its start was captured. `shown`:
+ * for `webCaptureShown`. `folder` and `folderId`: the notes folder it started in, which
  * `notesCreateWithImage` requires.
  */
 export type PageCapture = {
@@ -179,24 +182,32 @@ export type PageCapture = {
   title: string;
   image: Uint8Array;
   clipped: boolean;
+  shown: number;
   folder: string;
   folderId: string;
 };
-export async function webCapture(full: boolean): Promise<PageCapture> {
+export async function webCapture(full: boolean, page: PageRevision): Promise<PageCapture> {
   // A raw body: a little-endian u32 with the length of the page's JSON, that JSON, then the image.
-  const body = new Uint8Array(await invoke<ArrayBuffer>("web_capture", { full }));
+  const body = new Uint8Array(await invoke<ArrayBuffer>("web_capture", { full, page }));
   const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true);
-  const page = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + length))) as Omit<
+  const shot = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + length))) as Omit<
     PageCapture,
     "image"
   >;
-  return { ...page, image: body.slice(4 + length) };
+  return { ...shot, image: body.slice(4 + length) };
 }
+/** The panel still shows `page`, as it did when the capture that returned `shown` started. */
+export const webCaptureShown = (page: PageRevision, shown: number) =>
+  invoke<boolean>("web_capture_shown", { page, shown });
 /** Whether the page's context menu enables its capture items. */
 export const webOfferCapture = (offered: boolean) => invoke<void>("web_offer_capture", { offered });
-/** A capture item chosen in the page's native context menu: `full` page or the visible area. */
-export const onWebCapture = (handler: (full: boolean) => void) =>
-  listen<boolean>("web-capture", (event) => handler(event.payload));
+/**
+ * A capture item chosen in the page's native context menu: `full` page or the visible area, and
+ * the `page` revision the menu opened on.
+ */
+export type CaptureChoice = { full: boolean; page: PageRevision };
+export const onWebCapture = (handler: (choice: CaptureChoice) => void) =>
+  listen<CaptureChoice>("web-capture", (event) => handler(event.payload));
 export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
 export const onWebState = (handler: (state: PageState | null) => void) =>
   listen<PageState | null>("web-state", (event) => handler(event.payload));

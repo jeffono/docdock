@@ -152,10 +152,17 @@ impl Navigations {
             sources: self.sources,
         })
     }
+
+    /// Still on `page`: the settled revision is the same.
+    fn shows(&self, page: Revision) -> bool {
+        self.revision() == Some(page)
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Revision {
+/// One settled main-frame document and URL of the page window. The UI only passes it back as it
+/// received it.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Revision {
     identity: u64,
     sources: u64,
 }
@@ -180,6 +187,20 @@ pub fn navigation() -> u64 {
 /// WebView2 UI thread, which alone changes it, to tie an event to the document it came from.
 pub fn document() -> Option<u64> {
     navigations().identity()
+}
+
+/// Whether the page window still shows `page`.
+pub fn shows(page: Revision) -> bool {
+    navigations().shows(page)
+}
+
+/// The revision a capture chosen now would bind to, None while a navigation or a capture is in
+/// flight: `capture` would refuse it. Read on the WebView2 UI thread as the page menu opens.
+pub fn capturable() -> Option<Revision> {
+    if CAPTURING.load(Ordering::Acquire) {
+        return None;
+    }
+    navigations().revision()
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -344,8 +365,9 @@ impl Drop for InFlight {
     }
 }
 
-/// A screenshot and the address and native title of the document it shows, read in the callback
-/// that received the image.
+/// A screenshot, the address of the document it shows, and WebView2's native title read in the
+/// callback that received the image: only a label, which can still be the previous document's shortly
+/// after a commit.
 pub struct Shot {
     pub url: String,
     pub title: String,
@@ -358,14 +380,16 @@ pub struct Shot {
 /// The visible area, or with `full` the whole page from `Page.getLayoutMetrics` within
 /// `screenshot`'s limits; a PNG over the byte limit is taken again as a JPEG.
 ///
-/// Every step runs on the WebView2 UI thread. Before each call the deadline must not have passed,
-/// and before each call and on each answer the settled main-frame document and its URL must be
-/// the ones the capture started on, whose URL `allowed` accepted. The receiver gets the shot, or
+/// Every step runs on the WebView2 UI thread. The capture starts only on `page`, the revision the
+/// menu item was chosen on, whose URL `allowed` accepts. Before each call the deadline must not have
+/// passed, and before each call and on each answer the settled main-frame document and its URL must
+/// be the ones the capture started on. The receiver gets the shot, or
 /// `ImageTooLarge` when the JPEG is over the limit too; any other failure drops the sender. Fails
 /// at once while an earlier capture is still in flight.
 pub fn capture(
     window: &WebviewWindow,
     full: bool,
+    page: Revision,
     deadline: Instant,
     allowed: fn(&str) -> bool,
 ) -> Result<Receiver<Result<Shot, Error>>, Error> {
@@ -373,12 +397,15 @@ pub fn capture(
     let (reply, receiver) = mpsc::channel();
     window.with_webview(move |view| unsafe {
         let start = || -> windows::core::Result<Option<Capture>> {
-            let page = view.controller().CoreWebView2()?;
-            let url = source(&page)?;
-            let revision = navigations().revision().filter(|_| allowed(&url));
-            Ok(revision.map(|revision| Capture {
-                page,
-                document: Document { revision, url },
+            let core = view.controller().CoreWebView2()?;
+            let url = source(&core)?;
+            let chosen = navigations().shows(page) && allowed(&url);
+            Ok(chosen.then(|| Capture {
+                page: core,
+                document: Document {
+                    revision: page,
+                    url,
+                },
                 deadline,
                 clip: None,
                 reply,
@@ -927,6 +954,14 @@ mod tests {
             mobile_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.1234.5 Safari/537.36 Edg/156.0.2345.6").as_deref(),
             Some("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.1234.5 Mobile Safari/537.36 EdgA/156.0.2345.6")
         );
+    }
+
+    #[test]
+    fn a_capture_chosen_before_a_route_change_does_not_start() {
+        let mut navigations = Navigations::default();
+        let chosen = navigations.revision().unwrap();
+        navigations.source_changed();
+        assert!(!navigations.shows(chosen));
     }
 
     #[test]

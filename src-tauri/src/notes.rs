@@ -1016,15 +1016,18 @@ fn recreate_note(root: &Path, relative: &str, content: &[u8]) -> Result<Saved, E
         return Ok(Saved::Conflict);
     }
     let temp = write_temp(&target, content)?;
-    let result = match platform::move_new(&temp, &target) {
-        Ok(()) => Ok(Saved::Saved {
-            version: version(content),
-        }),
-        Err(_) if exists(&target) => Ok(Saved::Conflict),
-        Err(error) => Err(error.into()),
-    };
-    let _ = fs::remove_file(&temp);
-    result
+    if let Err(error) = platform::move_new(&temp, &target) {
+        // Still ours under the temp name; after a move, the name may be another save's.
+        let _ = fs::remove_file(&temp);
+        return if exists(&target) {
+            Ok(Saved::Conflict)
+        } else {
+            Err(error.into())
+        };
+    }
+    Ok(Saved::Saved {
+        version: version(content),
+    })
 }
 /// Replaces `target` with `content` through `ReplaceFileW`, which moves the replaced file to a backup:
 /// those are exactly the bytes that were overwritten, even if another app wrote after the check above.

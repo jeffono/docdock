@@ -23,6 +23,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::core::{HSTRING, Interface};
 
+use super::browser::Revision;
 use super::text;
 use crate::error::Error;
 
@@ -162,12 +163,20 @@ fn menu_removals(owner: Owner, items: &[Option<String>]) -> Vec<usize> {
 pub struct CaptureItems {
     /// In the interface language.
     pub labels: [&'static str; 2],
-    /// Whether they are enabled, read as the menu opens.
-    pub enabled: fn() -> bool,
+    /// The page revision the items bind to, read as the menu opens; None disables them.
+    pub page: fn() -> Option<Revision>,
 }
 
-/// Appends `capture`'s items to the filtered menu. Choosing one sends `web-capture` to the UI with
-/// whether it is the full page; only a native menu item can, never the page.
+/// What `web-capture` tells the UI: the item chosen and the page revision the menu opened on.
+#[derive(Clone, Copy, serde::Serialize)]
+struct Chosen {
+    full: bool,
+    page: Revision,
+}
+
+/// Appends `capture`'s items to the filtered menu. Choosing one sends `web-capture` to the UI;
+/// only a native menu item can, never the page. Every item is built before the menu changes, and a
+/// failed insertion removes those already inserted, so the menu never keeps a part of them.
 unsafe fn append_capture(
     environment: &ICoreWebView2Environment9,
     capture: &CaptureItems,
@@ -177,18 +186,17 @@ unsafe fn append_capture(
     let mut count = 0;
     unsafe { items.Count(&mut count) }?;
     let no_icon = None::<&IStream>;
+    let mut added = Vec::new();
     if count > 0 {
-        let separator = unsafe {
+        added.push(unsafe {
             environment.CreateContextMenuItem(
                 &HSTRING::new(),
                 no_icon,
                 COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
             )
-        }?;
-        unsafe { items.InsertValueAtIndex(count, &separator) }?;
-        count += 1;
+        }?);
     }
-    let enabled = (capture.enabled)();
+    let page = (capture.page)();
     for (label, full) in capture.labels.into_iter().zip([false, true]) {
         let item = unsafe {
             environment.CreateContextMenuItem(
@@ -197,16 +205,25 @@ unsafe fn append_capture(
                 COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
             )
         }?;
-        unsafe { item.SetIsEnabled(enabled) }?;
+        unsafe { item.SetIsEnabled(page.is_some()) }?;
         let app = app.clone();
         let chosen = CustomItemSelectedEventHandler::create(Box::new(move |_, _| {
-            let _ = app.emit_to("main", "web-capture", full);
+            if let Some(page) = page {
+                let _ = app.emit_to("main", "web-capture", Chosen { full, page });
+            }
             Ok(())
         }));
         let mut token = 0;
         unsafe { item.add_CustomItemSelected(&chosen, &mut token) }?;
-        unsafe { items.InsertValueAtIndex(count, &item) }?;
-        count += 1;
+        added.push(item);
+    }
+    for (inserted, item) in added.iter().enumerate() {
+        if let Err(error) = unsafe { items.InsertValueAtIndex(count + inserted as u32, item) } {
+            for _ in 0..inserted {
+                let _ = unsafe { items.RemoveValueAtIndex(count) };
+            }
+            return Err(error);
+        }
     }
     Ok(())
 }

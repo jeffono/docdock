@@ -8,6 +8,7 @@ use tauri::{AppHandle, State, UriSchemeContext, UriSchemeResponder, Wry, http};
 use crate::dock::Request;
 use crate::error::Error;
 use crate::i18n::Locale;
+use crate::platform::browser::Revision;
 use crate::web;
 
 #[tauri::command(async)]
@@ -154,22 +155,27 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
-/// A screenshot of the shown page, `full` or its visible area, waiting off the async runtime as
-/// `web_selection` does. Raw bytes avoid expanding the image into JSON numbers: a little-endian
-/// `u32` gives the length of a JSON object with the page's `url`, `title`, whether it was
-/// `clipped` to the size limits, and the notes `folder` and `folderId` it started in, which
-/// `notes_create_with_image` requires; the image follows it.
+/// A screenshot of the shown page, `full` or its visible area, if it is still at the revision
+/// `page` the menu item was chosen on; waits off the async runtime as `web_selection` does. Raw
+/// bytes avoid expanding the image into JSON numbers: a little-endian `u32` gives the length of a
+/// JSON object with the page's `url`, `title`, whether it was `clipped` to the size limits, the
+/// on-screen epoch `shown` for `web_capture_shown`, and the notes `folder` and `folderId` it started
+/// in, which `notes_create_with_image` requires; the image follows it.
 #[tauri::command]
-pub async fn web_capture(app: AppHandle, full: bool) -> Result<tauri::ipc::Response, Error> {
+pub async fn web_capture(
+    app: AppHandle,
+    full: bool,
+    page: Revision,
+) -> Result<tauri::ipc::Response, Error> {
     let (capture, (folder, folder_id)) = tauri::async_runtime::spawn_blocking(move || {
         let folder = crate::notes::capture_folder(&app)?;
-        web::capture(&app, full).map(|capture| (capture, folder))
+        web::capture(&app, full, page).map(|capture| (capture, folder))
     })
     .await
     .map_err(Error::unexpected)??;
     let page = serde_json::json!({
         "url": capture.url, "title": capture.title, "clipped": capture.clipped,
-        "folder": folder, "folderId": folder_id,
+        "shown": capture.shown, "folder": folder, "folderId": folder_id,
     })
     .to_string();
     let length = u32::try_from(page.len()).map_err(Error::unexpected)?;
@@ -178,6 +184,12 @@ pub async fn web_capture(app: AppHandle, full: bool) -> Result<tauri::ipc::Respo
     body.extend(page.as_bytes());
     body.extend(capture.image);
     Ok(tauri::ipc::Response::new(body))
+}
+
+/// Whether the panel still shows the page a capture started on, so its note may open in the editor.
+#[tauri::command]
+pub fn web_capture_shown(page: Revision, shown: u64) -> bool {
+    web::capture_shown(page, shown)
 }
 
 #[tauri::command]

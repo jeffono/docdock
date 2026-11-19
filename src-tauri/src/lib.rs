@@ -96,6 +96,7 @@ pub fn run() {
         commands::web_selection,
         commands::web_reader,
         commands::web_capture,
+        commands::web_capture_shown,
         commands::web_offer_capture,
         commands::web_suggestions,
         commands::web_addresses,

@@ -3,6 +3,7 @@ import { onMount, tick, untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
+  type CaptureChoice,
   clipboardWrite,
   type Leftover,
   type Listing,
@@ -47,6 +48,7 @@ import {
   type SaveResult,
   webAddresses,
   webCapture,
+  webCaptureShown,
   webOfferCapture,
   webOpen,
   webOverlay,
@@ -773,6 +775,8 @@ async function createNamed(
 
 /** Shows the note just created at `name` expanded in the editor, leaving the page and the reader view. */
 async function openCreated(name: string) {
+  // A web search typed in Notes shows no cards, so the editor would never mount.
+  if (webQuery(query, false) !== null) query = "";
   expanded = name;
   selection = name;
   // Leaving the reader view first, so hiding the page returns to Notes.
@@ -851,17 +855,18 @@ $effect(() => {
   void webOfferCapture(canCapture).catch(() => {});
 });
 /**
- * A screenshot of the page into a new note titled and sourced from the page it shows, always
- * created, in the notes folder the capture started in. It opens in the editor only if the page is
- * still shown, not covered by Preferences, and the editor can be left; otherwise a notice names it.
+ * A screenshot of `page`, the page the menu opened on, into a new note titled and sourced from it,
+ * always created, in the notes folder the capture started in. It opens in the editor only if the
+ * panel still shows that page in Browser, without the reader view, Preferences or having left it
+ * since, and the editor can be left; otherwise a notice names it.
  */
-async function capturePage(full: boolean) {
+async function capturePage({ full, page }: CaptureChoice) {
   if (!canCapture) return;
   capturing = true;
   try {
     error = "";
     warning = "";
-    const shot = await webCapture(full);
+    const shot = await webCapture(full, page);
     const note = pageNote({ url: shot.url, title: shot.title, selection: "" });
     // Saved whatever the panel shows now; a create meanwhile is serialized by Rust.
     const name = await createNamed(note.name, (name) =>
@@ -870,7 +875,14 @@ async function capturePage(full: boolean) {
     if (!name) return;
     await relist();
     let opened = false;
-    if (browser && !inactive && (await leaveEditor())) {
+    const browsing = () => browser && !inactive && !article;
+    // Checked again after the last await, right before switching.
+    if (
+      browsing() &&
+      (await leaveEditor()) &&
+      (await webCaptureShown(page, shot.shown).catch(() => false)) &&
+      browsing()
+    ) {
       await openCreated(name);
       opened = editing && selected === name;
     }
@@ -2173,7 +2185,7 @@ onMount(() => {
   }, 30_000);
   const unlisten = onNotesChanged(changed);
   // Chosen in the page's native context menu.
-  const captureChosen = onWebCapture((full) => void capturePage(full));
+  const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden(() => {
     noteSearchTyped = false;

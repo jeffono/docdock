@@ -818,18 +818,26 @@ The reading view resolves the inserted link through `markdown::image_url` and `n
 **Page captures.** The page's context menu ends with native items for the visible area and the full
 page, labeled in the Rust `Locale` and created by `platform/edge.rs` as the menu opens. They are
 enabled from a flag in `web.rs` that the UI sets through `web_offer_capture` whenever its `canCapture`
-changes, so the menu never waits on the UI; choosing one emits `web-capture` to `main` only, and the
-UI checks `canCapture` again before capturing, since the flag can lag behind. Only a native menu item
-emits it: the page has no IPC and cannot choose one. A page that cancels its `contextmenu` event shows
+changes, so the menu never waits on the UI, and only while `browser::capturable` gives a settled
+revision with no capture in flight natively, read on the WebView2 UI thread as the menu opens: a
+capture the UI stopped waiting for keeps them disabled until it really ends. Every item is built
+before the menu changes, and a failed insertion removes those already inserted. Choosing one emits
+`web-capture` to `main` only, with the revision the menu opened on, and the UI checks `canCapture`
+again before capturing, since the flag can lag behind. Only a native menu item emits it: the page has
+no IPC and cannot choose one. A page that cancels its `contextmenu` event shows
 no menu, and so no capture items. `web_capture` asks the browser engine, not the screen, for an image of the page
 window through `platform/browser.rs`'s `capture`: `Page.captureScreenshot` for the visible area, or
 for the whole page with `captureBeyondViewport` and a clip from `Page.getLayoutMetrics`. Nothing runs in
 the page, and the page window's capture exclusion does not apply to the engine's own rendering. The
-steps chain on the WebView2 UI thread: before each call the 10-second deadline must not have passed,
-and before each call and on each answer, the JPEG retry's included, the settled main-frame revision
-(see "Page selection") and URL must be the ones the capture started on, so a navigation or a
-same-document route change, even one that comes back, fails it; otherwise `captureFailed`. The URL and
-native title come back with the image, read in the callback that received it. One capture at a time:
+steps chain on the WebView2 UI thread: the capture starts only if the page is still at the revision
+the menu opened on, so a navigation between the menu and the first call fails it instead of capturing
+the next page. Before each call the 10-second deadline must not have passed, and before each call and
+on each answer, the JPEG retry's included, the settled main-frame revision (see "Page selection") and
+URL must be the ones the capture started on, so a navigation or a same-document route change, even
+one that comes back, fails it; otherwise `captureFailed`. The URL that comes back with the image is
+that document's. The title is WebView2's native title read in the callback that received the image,
+only a label: shortly after a commit it can still be the previous document's (see "Page selection").
+One capture at a time:
 the engine keeps the page resized and emulated until it answers, so a capture whose caller timed out
 still holds the next one off until its handler answers or WebView2 releases it; a refused capture never
 frees it. The page window lives as long as the panel, so a handler WebView2 neither calls nor releases
@@ -846,14 +854,20 @@ JPEG (quality 85), and a JPEG over it fails with `imageTooLarge`. The raw respon
 length-prefixed JSON object of URL, title, clip flag and the notes folder's path and marker id
 (decision 0009), read before the screenshot. A capture always becomes a new note named, titled and
 sourced from the page like a saved page: `notes_create_with_image` refuses with `folderChanged` unless
-the folder still has that path and marker id, answers `conflict` for a taken name before writing
+the folder still has that path and marker id as the command starts, then writes by path with the gaps
+described under "Folder away"; it answers `conflict` for a taken name before writing
 anything, then writes the image into the attachments beside it with the pasted-image naming, signature
 check, size limit and folder rules, and creates the note with its link in one write, only while the
 name is still free. Nothing is deleted: if the note cannot be created after the image was, the image
 stays and `imageKept` names it. Nothing writes the note a second time, so a note deleted meanwhile
 never comes back. Choosing a folder waits for a pending capture. The note is created whatever the
-panel shows when the screenshot arrives, but opens in the editor only if the page is still shown,
-Preferences do not cover it and the editor can be left; otherwise a notice above the list names it.
+panel shows when the screenshot arrives. It opens in the editor only if, checked after the last await
+right before switching, the panel is in Browser without the reader view or Preferences, the editor
+could be left, and `web_capture_shown` confirms the page is still at the chosen revision and its
+window stayed on screen since the capture started: the on-screen epoch in `permissions.rs`, which the
+panel thread advances whenever the panel or the page hides or shows. Otherwise a notice above the
+list names it. Opening clears a `?` web search typed in Notes, which would hide the cards and so the
+editor.
 The page window reserves its top for the browser's error line, as for suggestions and permission
 requests, so a capture failure shows over the page. `captureBeyondViewport` resizes the page's layout for
 the capture, so pages built on viewport units may draw differently in it.
