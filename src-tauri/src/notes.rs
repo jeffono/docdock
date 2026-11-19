@@ -2191,10 +2191,15 @@ pub fn restore_pinned(app: &AppHandle) -> Result<Pinned, Error> {
     pinned_in(&root)
 }
 /// Bound IPC writes and disk use for accidental large clipboard images (10 MiB).
-const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_ATTACHMENT_BYTES: usize = 10 * 1024 * 1024;
+pub const fn image_too_large() -> Error {
+    Error::ImageTooLarge {
+        limit_mb: (MAX_ATTACHMENT_BYTES / (1024 * 1024)) as u64,
+    }
+}
 fn attachment_extension(bytes: &[u8]) -> Result<&'static str, Error> {
     if bytes.len() > MAX_ATTACHMENT_BYTES {
-        return Err(Error::ImageTooLarge { limit_mb: 10 });
+        return Err(image_too_large());
     }
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Ok("png")

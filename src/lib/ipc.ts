@@ -167,6 +167,17 @@ export const webSelection = () => invoke<PageSelection | null>("web_selection");
 /** The shown page's article. `markdown` is untrusted: render it only through `render.ts`. */
 export type PageArticle = { url: string; title: string; markdown: string };
 export const webReader = () => invoke<PageArticle | null>("web_reader");
+/**
+ * A screenshot of the shown page drawn by the browser engine: the visible area, or with `full` the
+ * whole page. `image` is a PNG, or a JPEG when a PNG would exceed the attachment limit. `clipped`:
+ * the page was too large and only its start was captured.
+ */
+export type PageCapture = { image: Uint8Array; clipped: boolean };
+export async function webCapture(full: boolean): Promise<PageCapture> {
+  // A raw body: its first byte is the clipped flag, the image follows.
+  const body = new Uint8Array(await invoke<ArrayBuffer>("web_capture", { full }));
+  return { clipped: body[0] === 1, image: body.slice(1) };
+}
 export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
 export const onWebState = (handler: (state: PageState | null) => void) =>
   listen<PageState | null>("web-state", (event) => handler(event.payload));

@@ -35,6 +35,8 @@ pub enum Error {
         limit_mb: u64,
     },
     AttachmentFolderUnsafe,
+    /// The page did not answer a screenshot in time, changed meanwhile, or answered something else.
+    CaptureFailed,
     SaveFailed {
         detail: String,
     },

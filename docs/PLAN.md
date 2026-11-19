@@ -84,15 +84,15 @@ M14 — Web tab capture (advanced, M): screenshots of the shown page by the brow
 the screen. Region capture is out: Win+Shift+S and paste already cover it (see
 `docs/EXPLORATIONS.md`).
 
-- [ ] Capture in Rust (advanced): visible area and full page through the DevTools protocol
+- [x] Capture in Rust (advanced): visible area and full page through the DevTools protocol
   (`Page.captureScreenshot`, full page clipped from `Page.getLayoutMetrics`), tied to one
   document, with a timeout, side, pixel and byte limits, a clip notice beyond them, and the image
   decoded and validated in Rust.
-- [ ] Destination (standard): the edited note takes the image through the pasted-image path;
+- [x] Destination (standard): the edited note takes the image through the pasted-image path;
   otherwise a new note titled and sourced from the page holds it and opens in the editor.
-- [ ] Bar control (standard): a camera button with a two-item menu in the web tab's bar, disabled
+- [x] Bar control (standard): a camera button with a two-item menu in the web tab's bar, disabled
   without a page, in the reader view, while unavailable or while a capture is pending.
-- [ ] Docs (basic): `docs/ARCHITECTURE.md`, `docs/DESIGN.md` and `docs/EXPLORATIONS.md`.
+- [x] Docs (basic): `docs/ARCHITECTURE.md`, `docs/DESIGN.md` and `docs/EXPLORATIONS.md`.
 
 ## Later
 

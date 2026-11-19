@@ -19,6 +19,7 @@ import {
   notesList,
   notesMove,
   notesOpen,
+  notesPasteImage,
   notesRename,
   notesRestore,
   notesRewrite,
@@ -43,6 +44,7 @@ import {
   pinnedSetCollapsed,
   type Removal,
   webAddresses,
+  webCapture,
   webOpen,
   webOverlay,
   webSearchUrl,
@@ -287,9 +289,10 @@ $effect(() => {
     .catch(() => {});
 });
 $effect(() => {
-  // Both float from the top of the page: the cutout is the taller one.
+  // All float from the top of the page: the cutout is the taller one.
+  const menu = browser && captureMenuOpen ? document.getElementById("capture-menu") : null;
   const elements = browser
-    ? [addressEditing ? suggestionsElement : undefined, permissionElement].filter(
+    ? [addressEditing ? suggestionsElement : undefined, permissionElement, menu].filter(
         (element): element is HTMLElement => !!element,
       )
     : [];
@@ -298,7 +301,12 @@ $effect(() => {
     return;
   }
   const observer = new ResizeObserver(() => {
-    const heights = elements.map((element) => element.getBoundingClientRect().height);
+    const heights = elements.map((element) =>
+      // The menu sits a margin below the bar, where the page starts.
+      element === menu
+        ? element.getBoundingClientRect().bottom - (tools?.getBoundingClientRect().bottom ?? 0)
+        : element.getBoundingClientRect().height,
+    );
     void webOverlay(Math.ceil(Math.max(...heights)));
   });
   for (const element of elements) observer.observe(element);
@@ -352,6 +360,7 @@ export async function prepareExit(): Promise<boolean> {
   if (
     choosing ||
     savingPage ||
+    capturing ||
     creating ||
     opening ||
     movingPath ||
@@ -742,9 +751,12 @@ export async function choose() {
   }
 }
 
-/** Creates the note for the typed text and opens it expanded for editing. */
+/**
+ * Creates the note for the typed text and opens it expanded for editing. `image` goes beside it
+ * as a pasted image does, linked after `content`; the note opens even if that fails.
+ */
 let creating = false;
-async function create(text: string, content = "") {
+async function create(text: string, content = "", image?: Uint8Array) {
   if (creating) return;
   creating = true;
   try {
@@ -757,6 +769,16 @@ async function create(text: string, content = "") {
       const name = noteFileName(text, taken);
       const result = await notesSave(name, content, "");
       if (result.status === "saved") {
+        let failed: unknown = null;
+        if (image) {
+          try {
+            const link = await notesPasteImage(name, image);
+            const linked = await notesSave(name, `${content}![](${link})`, result.version);
+            if (linked.status !== "saved") failed = { code: "saveFailed", detail: name };
+          } catch (e) {
+            failed = e;
+          }
+        }
         await relist();
         expanded = name;
         selection = name;
@@ -764,6 +786,7 @@ async function create(text: string, content = "") {
         article = null;
         await webSetVisible(false);
         await edit(name);
+        if (failed) error = errorText(failed);
         return;
       }
       taken.push(name);
@@ -784,7 +807,7 @@ $effect(() => {
   pageUnavailable = false;
 });
 async function savePage() {
-  if (savingPage || choosing) return;
+  if (savingPage || capturing || choosing) return;
   savingPage = true;
   try {
     error = "";
@@ -803,6 +826,48 @@ async function savePage() {
     error = errorText(e);
   } finally {
     savingPage = false;
+  }
+}
+
+let capturing = $state(false);
+let captureMenu: Menu;
+let captureMenuOpen = $state(false);
+let captureAnchor = $state<HTMLElement>();
+function openCaptureMenu() {
+  // The wrapper has no box of its own: the menu opens under the button.
+  const button = captureAnchor?.querySelector("button");
+  const rect = button?.getBoundingClientRect();
+  captureMenu.show({ at: rect && { x: rect.left, y: rect.bottom }, from: button });
+}
+/**
+ * A screenshot of the page into the note being edited, at its caret, as a pasted image; otherwise
+ * into a new note titled and sourced from the page. Either way the note is shown afterwards.
+ */
+async function capturePage(full: boolean) {
+  if (capturing || savingPage || choosing) return;
+  capturing = true;
+  try {
+    error = "";
+    warning = "";
+    const shot = await webCapture(full);
+    if (editing && editor) {
+      if (!(await editor.insertImage(shot.image))) {
+        error = t("capture.busy");
+        return;
+      }
+      await webSetVisible(false);
+    } else {
+      const page = await webSelection();
+      pageUnavailable = page === null;
+      if (!page) return;
+      const note = pageNote({ ...page, selection: "" });
+      await create(note.name, note.text, shot.image);
+    }
+    if (shot.clipped) warning = t("capture.clipped");
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    capturing = false;
   }
 }
 
@@ -1157,7 +1222,8 @@ let removed = $state<{
   undo: boolean;
 } | null>(null);
 let deleting = false;
-/** Why the app would not delete a note, until dismissed, the next delete or the panel hides. */
+/** Why the app would not delete a note, or that a capture was clipped, until dismissed, the next
+ * delete or the panel hides. */
 let warning = $state("");
 /** The note being deleted; it cannot open in the editor meanwhile. */
 let deletingPath = "";
@@ -2147,6 +2213,10 @@ onMount(() => {
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
+<Menu bind:this={captureMenu} id="capture-menu" label={t("capture.label")} ontoggle={(open) => { captureMenuOpen = open; }}>
+  <button role="menuitem" tabindex="-1" onclick={() => capturePage(false)}>{t("capture.visible")}</button>
+  <button role="menuitem" tabindex="-1" onclick={() => capturePage(true)}>{t("capture.full")}</button>
+</Menu>
 <Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
 </Menu>
@@ -2225,7 +2295,10 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
+      {#if browser}
+        <span class="capture" bind:this={captureAnchor}><IconButton quiet icon="camera" label={t("capture.label")} disabled={!ready || !pageUrl || pageUnavailable || savingPage || capturing || !!article} onclick={openCaptureMenu} /></span>
+      {/if}
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage || capturing))} onclick={() => browser ? savePage() : create(creationText(query))} />
       <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->
       {#if !browser && ready && listing.skipped.length > 0 && !skippedOpen}
         <span class="skipped-toggle"><IconButton quiet icon="alert" label={t("skipped.show")} onclick={() => showSkipped(true)} /></span>
@@ -2615,7 +2688,8 @@ onMount(() => {
     padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
   }
 
-  .skipped-toggle {
+  .skipped-toggle,
+  .capture {
     display: contents;
   }
 

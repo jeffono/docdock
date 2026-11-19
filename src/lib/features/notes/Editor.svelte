@@ -255,14 +255,28 @@ function paste(event: ClipboardEvent, editor: EditorView): boolean {
     ?.getAsFile();
   if (!file) return false;
   event.preventDefault();
-  if (pasting || resolving || editor.state.readOnly) return true;
+  void attach(editor, async () => new Uint8Array(await file.arrayBuffer()));
+  return true;
+}
+/** A captured image, added as a pasted one is. False, doing nothing, when the editor cannot take
+ * it now: another image is being added, a reload is resolving or the note is read-only. */
+export async function insertImage(image: Uint8Array): Promise<boolean> {
+  const adding = view && attach(view, async () => image);
+  if (!adding) return false;
+  await adding;
+  return true;
+}
+/** Puts the image beside the note and links it at the selection, read-only meanwhile; errors stay
+ * in the editor's notice. Null when the editor cannot take it now. */
+function attach(editor: EditorView, image: () => Promise<Uint8Array>): Promise<void> | null {
+  if (pasting || resolving || editor.state.readOnly) return null;
   const selection = editor.state.selection;
   revision++;
   error = "";
   editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
   pasting = (async () => {
     try {
-      const attachment = await notesPasteImage(path, new Uint8Array(await file.arrayBuffer()));
+      const attachment = await notesPasteImage(path, await image());
       if (disposed) return;
       editor.dispatch({ selection });
       editor.dispatch(editor.state.replaceSelection(`![](${attachment})`));
@@ -276,7 +290,7 @@ function paste(event: ClipboardEvent, editor: EditorView): boolean {
       }
     }
   })();
-  return true;
+  return pasting;
 }
 function autosave(version: string) {
   status = "saved";

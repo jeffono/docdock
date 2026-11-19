@@ -294,6 +294,11 @@ const en = {
   "web.browserShortcut": "Browser (Ctrl+Tab)",
   "web.notes": "Notes",
   "web.saveNote": "Save as note",
+  "capture.label": "Capture page",
+  "capture.visible": "Capture visible area",
+  "capture.full": "Capture full page",
+  "capture.clipped": "The page is too long for one image, so only its start was captured.",
+  "capture.busy": "The note being edited cannot take the image now. Try again in a moment.",
   "web.openPage": "Open page",
   "web.back": "Back",
   "web.forward": "Forward",
@@ -340,6 +345,7 @@ const en = {
   "error.attachmentFolderUnsafe":
     "Cannot save an attachment through a folder link or an unavailable folder.",
   "error.saveFailed": "Could not save the note: {detail}",
+  "error.captureFailed": "Could not capture the page. Try again once it has loaded.",
   "error.previousKept":
     "Could not save the note; the previous version was kept at {path}: {detail}",
   "error.externalKept":
@@ -671,6 +677,11 @@ const ptBR: Record<MessageKey, string> = {
   "web.browserShortcut": "Navegador (Ctrl+Tab)",
   "web.notes": "Notas",
   "web.saveNote": "Salvar como nota",
+  "capture.label": "Capturar página",
+  "capture.visible": "Capturar área visível",
+  "capture.full": "Capturar página inteira",
+  "capture.clipped": "A página é longa demais para uma imagem, então só o início foi capturado.",
+  "capture.busy": "A nota em edição não pode receber a imagem agora. Tente de novo em instantes.",
   "web.openPage": "Abrir página",
   "web.back": "Voltar",
   "web.forward": "Avançar",
@@ -720,6 +731,8 @@ const ptBR: Record<MessageKey, string> = {
   "error.attachmentFolderUnsafe":
     "Não é possível salvar um anexo por um link de pasta ou uma pasta indisponível.",
   "error.saveFailed": "Não foi possível salvar a nota: {detail}",
+  "error.captureFailed":
+    "Não foi possível capturar a página. Tente de novo depois que ela carregar.",
   "error.previousKept":
     "Não foi possível salvar a nota; a versão anterior ficou em {path}: {detail}",
   "error.externalKept": "A nota mudou fora do app; a versão externa ficou em {path}: {detail}",

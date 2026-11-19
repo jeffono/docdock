@@ -289,6 +289,37 @@ pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
     })
 }
 
+/// Calls a DevTools protocol method of the page window, run by the browser itself: nothing is
+/// evaluated in the page. The receiver gets the settled main-frame document the call started on
+/// and the response JSON, only if the call succeeded and that document is still the one shown;
+/// otherwise the sender is dropped. The handler runs on the WebView2 UI thread, so the caller
+/// waits on the receiver from another thread.
+pub fn devtools(
+    window: &WebviewWindow,
+    method: &'static str,
+    params: Value,
+) -> tauri::Result<Receiver<(u64, String)>> {
+    let (sender, receiver) = mpsc::channel();
+    window.with_webview(move |view| unsafe {
+        let run = || -> windows::core::Result<()> {
+            let page = view.controller().CoreWebView2()?;
+            let Some(document) = navigations().identity() else {
+                return Ok(());
+            };
+            call(&page, method, params, move |_, json| {
+                if navigations().identity() == Some(document) {
+                    let _ = sender.send((document, json));
+                }
+                Ok(())
+            })
+        };
+        if let Err(error) = run() {
+            eprintln!("[web] {method}: {error}");
+        }
+    })?;
+    Ok(receiver)
+}
+
 /// What `read` reports, in order: the native URL, then the script result. A failed step drops
 /// the sender instead, so the receiver sees a disconnect.
 pub enum Read {

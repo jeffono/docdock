@@ -154,6 +154,20 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
         .map_err(Error::unexpected)?
 }
 
+/// A screenshot of the shown page, `full` or its visible area, waiting off the async runtime as
+/// `web_selection` does. Raw bytes avoid expanding the image into JSON numbers: the first is 1 if
+/// the page was clipped to the size limits, else 0, and the image follows.
+#[tauri::command]
+pub async fn web_capture(app: AppHandle, full: bool) -> Result<tauri::ipc::Response, Error> {
+    let capture = tauri::async_runtime::spawn_blocking(move || web::capture(&app, full))
+        .await
+        .map_err(Error::unexpected)??;
+    let mut body = Vec::with_capacity(capture.image.len() + 1);
+    body.push(u8::from(capture.clipped));
+    body.extend(capture.image);
+    Ok(tauri::ipc::Response::new(body))
+}
+
 /// The shown page's article for the reader view; waits off the async runtime as `web_selection`
 /// does, and extraction runs there too.
 #[tauri::command]

@@ -28,6 +28,7 @@ src-tauri/src/           Backend (Rust)
   blocking.rs            Content blocking in the page window: filter lists, engine and hiding scripts
   permissions.rs         Site permission requests of the page window: rules, remembered choices, waiting
   reader.rs              Reader view: the page's article as Markdown
+  screenshot.rs          Pure page capture rules: full-page clip, size limits, image validation
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
@@ -811,6 +812,24 @@ The editor is read-only while the paste is pending, preserves the insertion sele
 it before leaving. Reloads are refused during that wait; insertion then creates an ordinary unsaved
 Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
 The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
+
+**Page captures.** `web_capture` asks the browser engine, not the screen, for an image of the page
+window through `platform/browser.rs`'s `devtools`: `Page.captureScreenshot` for the visible area, or
+for the whole page with `captureBeyondViewport` and a clip from `Page.getLayoutMetrics`. Nothing runs in
+the page, and the page window's capture exclusion does not apply to the engine's own rendering. Every
+call needs a settled main-frame document and answers only if that document is still shown; both
+steps must come from the same one, within 10 seconds, or the capture fails with `captureFailed`. The
+page controls its size and content, so `screenshot.rs` bounds them in device pixels: at most 16,384
+along a side (Chromium's compositor limit) and 16,777,216 in all (about 64 MB of bitmap); a larger page
+is clipped to its start, and the UI says so. The response is checked before decoding: the PNG header's
+dimensions within the limits, and the size within the pasted-image limit of 10 MiB; a PNG over it is
+taken again as a JPEG (quality 85), and a JPEG over it fails with `imageTooLarge`. The raw response's
+first byte carries the clip flag. The image then follows the pasted-image path, with its naming,
+signature check, size limit and folder rules: into the edited note at its caret, through the editor's
+own paste handling (refused, without a new note, while the editor cannot take it), or otherwise into
+a new note named, titled and sourced from the page like a saved page, created first, then given the
+image and its link; it opens in the editor even if the image fails. `captureBeyondViewport` resizes
+the page's layout for the capture, so pages built on viewport units may draw differently in it.
 
 **Copy and cut.** Text copied in `main` stays out of Windows clipboard history and cloud clipboard,
 and is not cleared later. Every route (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete, the context menu)

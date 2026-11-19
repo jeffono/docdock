@@ -16,6 +16,7 @@ mod permissions;
 mod pinned;
 mod platform;
 mod reader;
+mod screenshot;
 mod shortcut;
 mod spelling;
 mod trash;
@@ -94,6 +95,7 @@ pub fn run() {
         commands::web_history,
         commands::web_selection,
         commands::web_reader,
+        commands::web_capture,
         commands::web_suggestions,
         commands::web_addresses,
         commands::web_overlay,
