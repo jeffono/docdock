@@ -74,24 +74,20 @@ detail each stage when it is next.
   and suggestions menu (WebView2's checker loses its marks on CodeMirror redraws), word and character
   counts with reading and speaking estimates, case and line transforms, and slash commands; see
   "Spelling" in `docs/ARCHITECTURE.md` and "Note editor" in `docs/DESIGN.md`. Frontend tests grew 10%.
+- M13 — Search: provider choice among DuckDuckGo, Brave, Startpage, Ecosia, Google, Bing and a
+  custom `%s` URL, with suggestions only from endpoints Firefox ships, and opt-in web suggestions
+  while searching notes; see `docs/decisions/0006-search-suggestions.md`.
 
 ## Next
 
-M13 — Search:
-
-- [x] Choice of search providers (standard, S–M): presets such as DuckDuckGo, Brave, Startpage,
-  Ecosia, Google and Bing, plus a custom `%s` URL without suggestions; suggestions only where an
-  endpoint is stable. Amends decision 0006.
-- [x] Web suggestions while searching notes (standard, S): an option, off by default, to query on
-  every keystroke after a short delay and a minimum length.
+M14 — Capture (advanced, M): screenshots of a region anywhere on the screen and of the web tab,
+inserted through the pasted-image path; detail before starting.
 
 ## Later
 
 In this order; each line is a future stage. Estimated cost: S (up to a day), M (days), L (one to two
 weeks), XL (several weeks, high risk).
 
-- M14 — Capture (advanced, M): screenshots of a region anywhere on the screen and of the web tab,
-  inserted through the pasted-image path.
 - M15 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
   has been hidden for a while, and notes marked private in the frontmatter shown blurred until
   revealed.
