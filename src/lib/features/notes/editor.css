@@ -35,7 +35,7 @@
 :host .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
   background: var(--color-selected);
 }
-:host .cm-editor .fence {
+:host .cm-editor .cm-line.fence {
   font-size: 0;
   line-height: 0;
   min-height: 0;
@@ -76,21 +76,28 @@
 }
 
 /* Nested quotes draw the inner bars where the reading view's nested blockquote borders fall. */
+:host .cm-editor .cm-line:is(.quote-2, .quote-3) {
+  background-repeat: no-repeat;
+  background-size: 2px 100%;
+}
+
 :host .cm-editor .cm-line.quote-2 {
   padding-left: calc(2 * var(--space-3) + 2px);
-  background:
-    linear-gradient(var(--color-line), var(--color-line)) var(--space-3) 0 / 2px 100% no-repeat;
+  background-image: linear-gradient(var(--color-line), var(--color-line));
+  background-position: var(--space-3) 0;
 }
 
 :host .cm-editor .cm-line.quote-3 {
   padding-left: calc(3 * var(--space-3) + 4px);
-  background:
-    linear-gradient(var(--color-line), var(--color-line)) var(--space-3) 0 / 2px 100% no-repeat,
-    linear-gradient(var(--color-line), var(--color-line)) calc(2 * var(--space-3) + 2px) 0 / 2px
-    100% no-repeat;
+  background-image:
+    linear-gradient(var(--color-line), var(--color-line)),
+    linear-gradient(var(--color-line), var(--color-line));
+  background-position:
+    var(--space-3) 0,
+    calc(2 * var(--space-3) + 2px) 0;
 }
 
-:host .cm-editor .cm-line.fence {
+:host .cm-editor .cm-line.fence:not(.frame-start, .frame-end) {
   padding: 0;
 }
 

@@ -82,6 +82,11 @@ CSP forbids inline styles: no component depends on a `style` attribute. Footnote
 labels are small raised text, references in the accent color; definitions are small muted text where
 they are written. Raw HTML keeps its shape as plain text. List paragraphs stay tight, like editor lines.
 
+Inline code and code blocks use the recessed `--color-bg` on the card surface in both themes.
+Inline code has `--space-1` on each side. Blocks share `--space-2` vertical padding,
+`--space-3` horizontal padding and a `--color-line` border. Both use `--radius-sm`. The editor
+frames the code lines as one block, including the fence lines while their syntax is visible.
+
 GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
 Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
 semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
@@ -497,8 +502,10 @@ toggling does not move it. Reading remains the default. Light-theme tags use the
 and accent text in both views; dark-theme tags keep their surface background and muted text.
 The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
 Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
-hidden elsewhere. Conflict actions appear above the editor: one primary Keep my version button and
-a secondary Discard my changes button. Errors appear in red beside this notice.
+hidden elsewhere. When a cursor or selection touches a line of an inline code span or fenced
+block, both delimiters are visible, including the opening fence's info string. Conflict actions
+appear above the editor: one primary Keep my version button and a secondary Discard my changes
+button. Errors appear in red beside this notice.
 A muted footer shows word and character counts and fast-to-slow time ranges for silent reading
 (300–175 words per minute) and speaking (160–130 words per minute). It uses the selection when
 editing with a selection and the whole note otherwise, including on the focused card in reading mode.
