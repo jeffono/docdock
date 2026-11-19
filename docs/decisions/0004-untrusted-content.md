@@ -1,6 +1,6 @@
 # 0004 — Untrusted content in the main window
 
-**Context:** M1 will render markdown in the UI itself, which talks to Rust. A note may come from third
+**Context:** markdown is rendered in the UI itself, which talks to Rust. A note may come from third
 parties through synchronization or download. HTML injected into the `main` window would reach every
 command, and opening a note must not trigger network access. In Tauri 2.12.5, the asset protocol has broad
 scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-window navigation control.
@@ -8,8 +8,7 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
 **Decision:**
 
 - **Markdown:** rendered in the UI as DOM nodes from an allowlisted model, never as HTML; see
-  [0007](0007-one-markdown-parser.md), which replaced Rust conversion with `pulldown-cmark` and `ammonia`.
-  Raw text never goes into the DOM as HTML.
+  [0007](0007-one-markdown-parser.md). Raw text never goes into the DOM as HTML.
 - **Local images:** custom `note-asset` protocol instead of the asset protocol. It serves only png, jpg,
   jpeg, gif and webp inside the notes folder, with the guarantees of `resolve`. The extension applies to
   both the request and the canonical target. SVG is excluded because it can contain scripts. The type
@@ -27,8 +26,8 @@ scope, CSP does not prevent navigation and `tauri.conf.json` offers no per-windo
   WebView and would break sites in the `web` window.
 - **Capabilities:** `main` gets only the event permissions it uses (`listen`, `unlisten`,
   `emit_to`), not `core:default`; app commands need no permission and pass the `main_only` barrier.
-  The debug-only tweak window gets its own event permissions at startup. The folder picker is called by Rust through `rfd`; no dialog plugin is
-  registered.
+  The debug-only tweak window gets its own event permissions at startup. Native pickers and dialogs
+  are called by Rust through `rfd`; no dialog plugin is registered.
 
 **Consequences:**
 

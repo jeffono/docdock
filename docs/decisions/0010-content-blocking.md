@@ -46,7 +46,6 @@ and the app's UI must never be filtered.
   briefly enables `Runtime`, which a page can notice, as with page selection reads; the enabled
   `Page` domain is not visible to it.
 - Requests from every frame are checked against the main frame's URL for third-party rules.
-
 - The shield beside the address toggles an exception for the registrable domain (eTLD+1), using
   the engine's embedded public suffix list, including private suffixes. IP addresses and local names
   use the exact host; ports and HTTP/HTTPS share the exception. Changes reload the current site.
