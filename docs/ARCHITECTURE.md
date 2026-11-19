@@ -814,22 +814,31 @@ Markdown edit protected by autosave's existing watcher guard. Errors use the exi
 The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
 
 **Page captures.** `web_capture` asks the browser engine, not the screen, for an image of the page
-window through `platform/browser.rs`'s `devtools`: `Page.captureScreenshot` for the visible area, or
+window through `platform/browser.rs`'s `capture`: `Page.captureScreenshot` for the visible area, or
 for the whole page with `captureBeyondViewport` and a clip from `Page.getLayoutMetrics`. Nothing runs in
-the page, and the page window's capture exclusion does not apply to the engine's own rendering. Every
-call needs a settled main-frame document and answers only if that document is still shown; both
-steps must come from the same one, within 10 seconds, or the capture fails with `captureFailed`. The
-page controls its size and content, so `screenshot.rs` bounds them in device pixels: at most 16,384
-along a side (Chromium's compositor limit) and 16,777,216 in all (about 64 MB of bitmap); a larger page
-is clipped to its start, and the UI says so. The response is checked before decoding: the PNG header's
-dimensions within the limits, and the size within the pasted-image limit of 10 MiB; a PNG over it is
-taken again as a JPEG (quality 85), and a JPEG over it fails with `imageTooLarge`. The raw response's
-first byte carries the clip flag. The image then follows the pasted-image path, with its naming,
-signature check, size limit and folder rules: into the edited note at its caret, through the editor's
-own paste handling (refused, without a new note, while the editor cannot take it), or otherwise into
-a new note named, titled and sourced from the page like a saved page, created first, then given the
-image and its link; it opens in the editor even if the image fails. `captureBeyondViewport` resizes
-the page's layout for the capture, so pages built on viewport units may draw differently in it.
+the page, and the page window's capture exclusion does not apply to the engine's own rendering. The
+steps chain on the WebView2 UI thread: before each call the 10-second deadline must not have passed,
+and before each call and on each answer the settled main-frame document and its URL must be the ones
+the capture started on, so a same-document route change fails it too; otherwise `captureFailed`. The
+URL and native title come back with the image, read in the callback that received it. One capture at
+a time: the engine keeps the page resized and emulated until it answers, so a capture whose caller
+timed out still holds the next one off until its handler answers or WebView2 releases it. The page
+controls its size and content, so `screenshot.rs` bounds them in physical pixels: at most 16,384 along
+a side (Chromium's compositor limit) and 16,777,216 in all (about 64 MB of bitmap); a larger page is
+clipped to its start, and the UI says so. `contentSize` is in physical pixels and the clip in DIPs, so
+the clip divides the kept pixels by the device scale factor, which the visual viewport's physical and
+CSS widths and its page `zoom` give. Responses are measured in the completion handler before they are
+copied; the PNG header's or JPEG start-of-frame's dimensions must be within the limits and the size
+within the pasted-image limit of 10 MiB before the image is decoded. A PNG over it is taken again as a
+JPEG (quality 85), and a JPEG over it fails with `imageTooLarge`. The raw response starts with a
+length-prefixed JSON object of URL, title and clip flag. A capture always becomes a new note named,
+titled and sourced from the page like a saved page: `notes_create_with_image` writes the image into the
+attachments beside it with the pasted-image naming, signature check, size limit and folder rules, then
+creates the note with its link in one write, only while the name is free, removing the image again if
+it cannot. Nothing writes the note a second time, so a note deleted meanwhile never comes back. The UI
+passes the folder it saw when the capture started, and a different one fails with `folderChanged`;
+choosing a folder waits for a pending capture. `captureBeyondViewport` resizes the page's layout for
+the capture, so pages built on viewport units may draw differently in it.
 
 **Copy and cut.** Text copied in `main` stays out of Windows clipboard history and cloud clipboard,
 and is not cleared later. Every route (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete, the context menu)

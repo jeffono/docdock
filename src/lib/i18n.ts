@@ -298,7 +298,6 @@ const en = {
   "capture.visible": "Capture visible area",
   "capture.full": "Capture full page",
   "capture.clipped": "The page is too long for one image, so only its start was captured.",
-  "capture.busy": "The note being edited cannot take the image now. Try again in a moment.",
   "web.openPage": "Open page",
   "web.back": "Back",
   "web.forward": "Forward",
@@ -346,6 +345,7 @@ const en = {
     "Cannot save an attachment through a folder link or an unavailable folder.",
   "error.saveFailed": "Could not save the note: {detail}",
   "error.captureFailed": "Could not capture the page. Try again once it has loaded.",
+  "error.folderChanged": "The notes folder changed during the capture, so nothing was saved.",
   "error.previousKept":
     "Could not save the note; the previous version was kept at {path}: {detail}",
   "error.externalKept":
@@ -681,7 +681,6 @@ const ptBR: Record<MessageKey, string> = {
   "capture.visible": "Capturar área visível",
   "capture.full": "Capturar página inteira",
   "capture.clipped": "A página é longa demais para uma imagem, então só o início foi capturado.",
-  "capture.busy": "A nota em edição não pode receber a imagem agora. Tente de novo em instantes.",
   "web.openPage": "Abrir página",
   "web.back": "Voltar",
   "web.forward": "Avançar",
@@ -733,6 +732,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.saveFailed": "Não foi possível salvar a nota: {detail}",
   "error.captureFailed":
     "Não foi possível capturar a página. Tente de novo depois que ela carregar.",
+  "error.folderChanged": "A pasta de notas mudou durante a captura, então nada foi salvo.",
   "error.previousKept":
     "Não foi possível salvar a nota; a versão anterior ficou em {path}: {detail}",
   "error.externalKept": "A nota mudou fora do app; a versão externa ficou em {path}: {detail}",

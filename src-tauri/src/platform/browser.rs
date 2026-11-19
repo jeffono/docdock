@@ -2,14 +2,18 @@
 //! fixed script in an isolated world and read its result, but the page has nothing it can call.
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, PoisonError};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager, WebviewWindow};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_TRACKING_PREVENTION_LEVEL_BALANCED, ICoreWebView2, ICoreWebView2_13,
-    ICoreWebView2Profile3, ICoreWebView2Settings2,
+    ICoreWebView2CallDevToolsProtocolMethodCompletedHandler,
+    ICoreWebView2CallDevToolsProtocolMethodCompletedHandler_Impl, ICoreWebView2Profile3,
+    ICoreWebView2Settings2,
 };
 use webview2_com::{
     CallDevToolsProtocolMethodCompletedHandler, ContentLoadingEventHandler,
@@ -17,10 +21,11 @@ use webview2_com::{
     HistoryChangedEventHandler, NavigationCompletedEventHandler, NavigationStartingEventHandler,
     SourceChangedEventHandler,
 };
-use windows::core::{BOOL, HSTRING, Interface};
+use windows::core::{BOOL, HRESULT, HSTRING, Interface, PCWSTR, implement};
 
 use super::text;
 use crate::error::Error;
+use crate::screenshot::{self, Format, Refused};
 
 /// Keep the installed engine's versions; only change its desktop identity.
 fn mobile_user_agent(default: &str) -> Option<String> {
@@ -289,35 +294,211 @@ pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
     })
 }
 
-/// Calls a DevTools protocol method of the page window, run by the browser itself: nothing is
-/// evaluated in the page. The receiver gets the settled main-frame document the call started on
-/// and the response JSON, only if the call succeeded and that document is still the one shown;
-/// otherwise the sender is dropped. The handler runs on the WebView2 UI thread, so the caller
-/// waits on the receiver from another thread.
-pub fn devtools(
+/// One screenshot at a time: the engine keeps the page resized and emulated until it answers, so
+/// another must not start before then, even after the caller has stopped waiting.
+static CAPTURING: AtomicBool = AtomicBool::new(false);
+
+/// Holds `CAPTURING` while a capture's handlers live: until the last one has answered, or WebView2
+/// releases it unanswered, as when the page window is destroyed.
+struct InFlight;
+
+impl InFlight {
+    fn take() -> Option<Self> {
+        CAPTURING
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            .then_some(Self)
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        CAPTURING.store(false, Ordering::Release);
+    }
+}
+
+/// A screenshot and the address and native title of the document it shows, read in the callback
+/// that received the image.
+pub struct Shot {
+    pub url: String,
+    pub title: String,
+    pub image: Vec<u8>,
+    pub clipped: bool,
+}
+
+/// A screenshot of the page window drawn by the browser engine through the DevTools protocol:
+/// nothing is evaluated in the page, and the window's exclusion from screen capture does not apply.
+/// The visible area, or with `full` the whole page from `Page.getLayoutMetrics` within
+/// `screenshot`'s limits; a PNG over the byte limit is taken again as a JPEG.
+///
+/// Every step runs on the WebView2 UI thread. Before each call the deadline must not have passed,
+/// and before each call and on each answer the settled main-frame document and its URL must be
+/// the ones the capture started on, whose URL `allowed` accepted. The receiver gets the shot, or
+/// `ImageTooLarge` when the JPEG is over the limit too; any other failure drops the sender. Fails
+/// at once while an earlier capture is still in flight.
+pub fn capture(
     window: &WebviewWindow,
-    method: &'static str,
-    params: Value,
-) -> tauri::Result<Receiver<(u64, String)>> {
-    let (sender, receiver) = mpsc::channel();
+    full: bool,
+    deadline: Instant,
+    allowed: fn(&str) -> bool,
+) -> Result<Receiver<Result<Shot, Error>>, Error> {
+    let flight = InFlight::take().ok_or(Error::CaptureFailed)?;
+    let (reply, receiver) = mpsc::channel();
     window.with_webview(move |view| unsafe {
-        let run = || -> windows::core::Result<()> {
+        let start = || -> windows::core::Result<Option<Capture>> {
             let page = view.controller().CoreWebView2()?;
-            let Some(document) = navigations().identity() else {
-                return Ok(());
-            };
-            call(&page, method, params, move |_, json| {
-                if navigations().identity() == Some(document) {
-                    let _ = sender.send((document, json));
-                }
-                Ok(())
-            })
+            let url = source(&page)?;
+            let identity = navigations().identity().filter(|_| allowed(&url));
+            Ok(identity.map(|identity| Capture {
+                page,
+                document: Document { identity, url },
+                deadline,
+                clip: None,
+                reply,
+                _flight: flight,
+            }))
         };
-        if let Err(error) = run() {
-            eprintln!("[web] {method}: {error}");
+        match start() {
+            Ok(Some(capture)) if full => capture.ask(
+                "Page.getLayoutMetrics",
+                json!({}),
+                screenshot::MAX_METRICS,
+                Capture::measured,
+            ),
+            Ok(Some(capture)) => capture.shoot(Format::Png),
+            Ok(None) => {}
+            Err(error) => eprintln!("[web] capture: {error}"),
         }
     })?;
     Ok(receiver)
+}
+
+/// A capture between steps, moved from one completion handler to the next. Dropping it ends the
+/// capture: the caller sees the sender gone, and `InFlight` frees the next one.
+struct Capture {
+    page: ICoreWebView2,
+    document: Document,
+    deadline: Instant,
+    clip: Option<screenshot::Clip>,
+    reply: Sender<Result<Shot, Error>>,
+    _flight: InFlight,
+}
+
+impl Capture {
+    /// Calls `method` unless the deadline has passed or the document changed; `then` receives the
+    /// response if the call succeeded and the document is still the same, None if the response
+    /// is longer than `max` characters.
+    fn ask(
+        self,
+        method: &str,
+        params: Value,
+        max: usize,
+        then: impl FnOnce(Self, Option<String>) + 'static,
+    ) {
+        if Instant::now() >= self.deadline || !unchanged(&self.page, &self.document) {
+            return;
+        }
+        let page = self.page.clone();
+        let handler: ICoreWebView2CallDevToolsProtocolMethodCompletedHandler = Bounded {
+            max,
+            then: RefCell::new(Some(Box::new(move |response| {
+                if unchanged(&self.page, &self.document) {
+                    then(self, response);
+                }
+            }))),
+        }
+        .into();
+        let params = HSTRING::from(params.to_string());
+        let called =
+            unsafe { page.CallDevToolsProtocolMethod(&HSTRING::from(method), &params, &handler) };
+        if let Err(error) = called {
+            eprintln!("[web] {method}: {error}");
+        }
+    }
+
+    fn measured(mut self, metrics: Option<String>) {
+        if let Some(clip) = metrics.and_then(|json| screenshot::full_page(&parse(&json))) {
+            self.clip = Some(clip);
+            self.shoot(Format::Png);
+        }
+    }
+
+    /// The full page is drawn from the document's top whatever the scroll position.
+    fn shoot(self, format: Format) {
+        let mut params = match format {
+            Format::Png => json!({ "format": "png" }),
+            Format::Jpeg => json!({ "format": "jpeg", "quality": screenshot::JPEG_QUALITY }),
+        };
+        if let Some(clip) = &self.clip {
+            params["captureBeyondViewport"] = json!(true);
+            params["clip"] = json!({
+                "x": 0, "y": 0, "width": clip.width, "height": clip.height, "scale": 1,
+            });
+        }
+        self.ask(
+            "Page.captureScreenshot",
+            params,
+            screenshot::MAX_RESPONSE,
+            move |capture, response| capture.shot(format, response),
+        );
+    }
+
+    fn shot(self, format: Format, response: Option<String>) {
+        let image = response.map_or(Err(Refused::TooLarge), |json| {
+            screenshot::image(&json, format)
+        });
+        match image {
+            Ok(image) => self.answer(image),
+            Err(Refused::TooLarge) if format == Format::Png => self.shoot(Format::Jpeg),
+            Err(Refused::TooLarge) => {
+                let _ = self.reply.send(Err(crate::notes::image_too_large()));
+            }
+            Err(Refused::Invalid) => {}
+        }
+    }
+
+    fn answer(self, image: Vec<u8>) {
+        let Ok(title) = text(|value| unsafe { self.page.DocumentTitle(value) }) else {
+            return;
+        };
+        let _ = self.reply.send(Ok(Shot {
+            url: self.document.url,
+            title,
+            image,
+            clipped: self.clip.is_some_and(|clip| clip.clipped),
+        }));
+    }
+}
+
+/// A DevTools completion whose response is measured before it is copied, so a page cannot make the
+/// UI thread copy an unbounded string. `then` hears only of a successful call: the response, or
+/// None if it is longer than `max` characters.
+#[implement(ICoreWebView2CallDevToolsProtocolMethodCompletedHandler)]
+struct Bounded {
+    max: usize,
+    then: RefCell<Option<Answer>>,
+}
+
+type Answer = Box<dyn FnOnce(Option<String>)>;
+
+impl ICoreWebView2CallDevToolsProtocolMethodCompletedHandler_Impl for Bounded_Impl {
+    fn Invoke(&self, error: HRESULT, json: &PCWSTR) -> windows::core::Result<()> {
+        let then = self.then.borrow_mut().take();
+        if let Some(then) = then
+            && error.is_ok()
+            && !json.is_null()
+        {
+            then(unsafe { bounded(*json, self.max) });
+        }
+        Ok(())
+    }
+}
+
+/// The text at `text` if it ends within `max` UTF-16 units, read no further.
+unsafe fn bounded(text: PCWSTR, max: usize) -> Option<String> {
+    let start = text.as_ptr();
+    let length = (0..=max).find(|&at| unsafe { *start.add(at) } == 0)?;
+    String::from_utf16(unsafe { std::slice::from_raw_parts(start, length) }).ok()
 }
 
 /// What `read` reports, in order: the native URL, then the script result. A failed step drops
@@ -676,10 +857,17 @@ struct Document {
     url: String,
 }
 
-/// No navigation started or committed since `document`, none is in flight, and the URL is the same.
+impl Document {
+    /// Still this document: no navigation started or committed since, none is in flight, and the
+    /// URL is the same, which a same-document route change keeps the identity but alters.
+    fn is(&self, identity: Option<u64>, url: &str) -> bool {
+        identity == Some(self.identity) && url == self.url
+    }
+}
+
 fn unchanged(page: &ICoreWebView2, document: &Document) -> bool {
-    navigations().identity() == Some(document.identity)
-        && unsafe { source(page) }.is_ok_and(|url| url == document.url)
+    let identity = navigations().identity();
+    unsafe { source(page) }.is_ok_and(|url| document.is(identity, &url))
 }
 
 unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
@@ -709,6 +897,16 @@ mod tests {
             mobile_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.1234.5 Safari/537.36 Edg/156.0.2345.6").as_deref(),
             Some("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.1234.5 Mobile Safari/537.36 EdgA/156.0.2345.6")
         );
+    }
+
+    #[test]
+    fn a_route_change_in_the_same_document_is_another_page() {
+        let document = Document {
+            identity: 3,
+            url: "https://example.com/a".into(),
+        };
+        assert!(document.is(Some(3), "https://example.com/a"));
+        assert!(!document.is(Some(3), "https://example.com/b"));
     }
 
     #[test]

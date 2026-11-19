@@ -87,9 +87,10 @@ the screen. Region capture is out: Win+Shift+S and paste already cover it (see
 - [x] Capture in Rust (advanced): visible area and full page through the DevTools protocol
   (`Page.captureScreenshot`, full page clipped from `Page.getLayoutMetrics`), tied to one
   document, with a timeout, side, pixel and byte limits, a clip notice beyond them, and the image
-  decoded and validated in Rust.
-- [x] Destination (standard): the edited note takes the image through the pasted-image path;
-  otherwise a new note titled and sourced from the page holds it and opens in the editor.
+  decoded and validated in Rust. Clip in DIPs from physical limits, one capture in flight, URL and
+  title from the image's document.
+- [x] Destination (standard): a new note titled and sourced from the page holds the image and opens
+  in the editor, created with its link in one write in the folder the capture started in.
 - [x] Bar control (standard): a camera button with a two-item menu in the web tab's bar, disabled
   without a page, in the reader view, while unavailable or while a capture is pending.
 - [x] Docs (basic): `docs/ARCHITECTURE.md`, `docs/DESIGN.md` and `docs/EXPLORATIONS.md`.

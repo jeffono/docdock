@@ -282,69 +282,32 @@ pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
 /// A large page takes the engine a few seconds to draw and encode; a hung one fails after this.
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// A screenshot of the shown page. `clipped`: a full page beyond the limits holds only its start.
+/// A screenshot of the shown page and the page it shows: `title` and `url` come from the same
+/// document as `image`. `clipped`: a full page beyond the limits holds only its start.
 pub struct Capture {
+    pub url: String,
+    pub title: String,
     pub image: Vec<u8>,
     pub clipped: bool,
 }
 
-/// The visible area, or with `full` the whole page within `screenshot`'s limits, drawn by the
-/// browser engine, so the page window's exclusion from screen capture does not apply. Every step
-/// must answer from the same document within `CAPTURE_TIMEOUT`, otherwise `CaptureFailed`.
-/// A PNG over the byte limit is taken again as a JPEG; over it as well, `ImageTooLarge`.
+/// The visible area, or with `full` the whole page, through `browser::capture`: an http(s) page
+/// whose document stays the same, within `CAPTURE_TIMEOUT` of the call, otherwise
+/// `CaptureFailed`; a JPEG over the byte limit too, `ImageTooLarge`.
 /// Blocks the calling thread, never the WebView2 UI thread.
 pub fn capture(app: &AppHandle, full: bool) -> Result<Capture, Error> {
-    use crate::screenshot::{self, Format, Refused};
-    use serde_json::{Value, json};
-
-    let window = app.get_webview_window(LABEL).ok_or(Error::CaptureFailed)?;
-    if !window.url().is_ok_and(|url| is_web(&url)) {
-        return Err(Error::CaptureFailed);
-    }
     let deadline = Instant::now() + CAPTURE_TIMEOUT;
-    let mut document = None;
-    let mut ask = |method, params: Value| -> Result<String, Error> {
-        let reply = crate::platform::browser::devtools(&window, method, params)?;
-        let (answered, json) = reply
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .map_err(|_| Error::CaptureFailed)?;
-        // A navigation between two steps would mix two documents.
-        if *document.get_or_insert(answered) != answered {
-            return Err(Error::CaptureFailed);
-        }
-        Ok(json)
-    };
-    let clip = if full {
-        let metrics = ask("Page.getLayoutMetrics", json!({}))?;
-        let metrics = serde_json::from_str(&metrics).unwrap_or_default();
-        Some(screenshot::full_page(&metrics).ok_or(Error::CaptureFailed)?)
-    } else {
-        None
-    };
-    let mut shoot = |format: Format| {
-        let mut params = match format {
-            Format::Png => json!({ "format": "png" }),
-            Format::Jpeg => json!({ "format": "jpeg", "quality": screenshot::JPEG_QUALITY }),
-        };
-        if let Some(clip) = &clip {
-            params["captureBeyondViewport"] = json!(true);
-            params["clip"] = json!({
-                "x": clip.x, "y": clip.y, "width": clip.width, "height": clip.height, "scale": 1,
-            });
-        }
-        let response = ask("Page.captureScreenshot", params)?;
-        screenshot::image(&response, format).map_err(|refused| match refused {
-            Refused::TooLarge => crate::notes::image_too_large(),
-            Refused::Invalid => Error::CaptureFailed,
-        })
-    };
-    let image = match shoot(Format::Png) {
-        Err(Error::ImageTooLarge { .. }) => shoot(Format::Jpeg)?,
-        other => other?,
-    };
+    let window = app.get_webview_window(LABEL).ok_or(Error::CaptureFailed)?;
+    let allowed = |url: &str| Url::parse(url).is_ok_and(|url| is_web(&url));
+    let reply = crate::platform::browser::capture(&window, full, deadline, allowed)?;
+    let shot = reply
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| Error::CaptureFailed)??;
     Ok(Capture {
-        image,
-        clipped: clip.is_some_and(|clip| clip.clipped),
+        url: shot.url,
+        title: clean_title(&shot.title),
+        image: shot.image,
+        clipped: shot.clipped,
     })
 }
 

@@ -37,6 +37,8 @@ pub enum Error {
     AttachmentFolderUnsafe,
     /// The page did not answer a screenshot in time, changed meanwhile, or answered something else.
     CaptureFailed,
+    /// Another notes folder was chosen while a capture was pending; nothing was saved.
+    FolderChanged,
     SaveFailed {
         detail: String,
     },

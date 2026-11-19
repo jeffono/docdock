@@ -169,14 +169,20 @@ export type PageArticle = { url: string; title: string; markdown: string };
 export const webReader = () => invoke<PageArticle | null>("web_reader");
 /**
  * A screenshot of the shown page drawn by the browser engine: the visible area, or with `full` the
- * whole page. `image` is a PNG, or a JPEG when a PNG would exceed the attachment limit. `clipped`:
- * the page was too large and only its start was captured.
+ * whole page. `image` is a PNG, or a JPEG when a PNG would exceed the attachment limit; `url` and
+ * `title` are those of the document it shows, and untrusted. `clipped`: the page was too large and
+ * only its start was captured.
  */
-export type PageCapture = { image: Uint8Array; clipped: boolean };
+export type PageCapture = { url: string; title: string; image: Uint8Array; clipped: boolean };
 export async function webCapture(full: boolean): Promise<PageCapture> {
-  // A raw body: its first byte is the clipped flag, the image follows.
+  // A raw body: a little-endian u32 with the length of the page's JSON, that JSON, then the image.
   const body = new Uint8Array(await invoke<ArrayBuffer>("web_capture", { full }));
-  return { clipped: body[0] === 1, image: body.slice(1) };
+  const length = new DataView(body.buffer, body.byteOffset).getUint32(0, true);
+  const page = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + length))) as Omit<
+    PageCapture,
+    "image"
+  >;
+  return { ...page, image: body.slice(4 + length) };
 }
 export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
 export const onWebState = (handler: (state: PageState | null) => void) =>
@@ -285,6 +291,30 @@ export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },
   });
+/**
+ * Creates the note `path` holding `content` and then a link to `image`, put beside it as a pasted
+ * image is, in one write: `conflict` if the name is taken. Fails with `folderChanged` unless the
+ * notes folder is still `folder`.
+ */
+export function notesCreateWithImage(
+  folder: string,
+  path: string,
+  content: string,
+  image: Uint8Array,
+) {
+  // A raw body: a little-endian u32 with the length of `content` in UTF-8, `content`, the image.
+  const text = new TextEncoder().encode(content);
+  const body = new Uint8Array(4 + text.length + image.length);
+  new DataView(body.buffer).setUint32(0, text.length, true);
+  body.set(text, 4);
+  body.set(image, 4 + text.length);
+  return invoke<SaveResult>("notes_create_with_image", body, {
+    headers: {
+      "x-note-path": encodeURIComponent(path),
+      "x-notes-folder": encodeURIComponent(folder),
+    },
+  });
+}
 
 /**
  * A pinned item of `_pinned.md`, in file order. `target` is a note's path or an http(s) URL and is the key

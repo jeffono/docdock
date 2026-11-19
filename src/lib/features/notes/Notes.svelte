@@ -11,6 +11,7 @@ import {
   type NotesFolder,
   notesChoose,
   notesCreateFolder,
+  notesCreateWithImage,
   notesDelete,
   notesDeleteFolder,
   notesFolder,
@@ -19,7 +20,6 @@ import {
   notesList,
   notesMove,
   notesOpen,
-  notesPasteImage,
   notesRename,
   notesRestore,
   notesRewrite,
@@ -737,7 +737,8 @@ async function trust() {
   }
 }
 export async function choose() {
-  if (choosing || savingPage) return;
+  // A pending save or capture writes into the folder it started in.
+  if (choosing || savingPage || capturing || creating) return;
   choosing = true;
   try {
     error = "";
@@ -752,33 +753,30 @@ export async function choose() {
 }
 
 /**
- * Creates the note for the typed text and opens it expanded for editing. `image` goes beside it
- * as a pasted image does, linked after `content`; the note opens even if that fails.
+ * Creates the note for the typed text and opens it expanded for editing; true once it is open.
+ * With `capture`, the note also links its image, put beside it in the same step, and only in the
+ * folder the capture started in.
  */
 let creating = false;
-async function create(text: string, content = "", image?: Uint8Array) {
-  if (creating) return;
+async function create(
+  text: string,
+  content = "",
+  capture?: { image: Uint8Array; folder: string },
+): Promise<boolean> {
+  if (creating) return false;
   creating = true;
   try {
     error = "";
-    if (!(await leaveEditor())) return;
+    if (!(await leaveEditor())) return false;
     if (!content && !browser) content = creationContent(query);
     const taken = notes.map((note) => note.path);
     // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
     for (let attempt = 0; attempt < 50; attempt++) {
       const name = noteFileName(text, taken);
-      const result = await notesSave(name, content, "");
+      const result = capture
+        ? await notesCreateWithImage(capture.folder, name, content, capture.image)
+        : await notesSave(name, content, "");
       if (result.status === "saved") {
-        let failed: unknown = null;
-        if (image) {
-          try {
-            const link = await notesPasteImage(name, image);
-            const linked = await notesSave(name, `${content}![](${link})`, result.version);
-            if (linked.status !== "saved") failed = { code: "saveFailed", detail: name };
-          } catch (e) {
-            failed = e;
-          }
-        }
         await relist();
         expanded = name;
         selection = name;
@@ -786,8 +784,7 @@ async function create(text: string, content = "", image?: Uint8Array) {
         article = null;
         await webSetVisible(false);
         await edit(name);
-        if (failed) error = errorText(failed);
-        return;
+        return true;
       }
       taken.push(name);
     }
@@ -797,6 +794,7 @@ async function create(text: string, content = "", image?: Uint8Array) {
   } finally {
     creating = false;
   }
+  return false;
 }
 
 let savingPage = $state(false);
@@ -830,6 +828,10 @@ async function savePage() {
 }
 
 let capturing = $state(false);
+/** A capture can start: the button, its menu items and the capture itself all ask this. */
+const canCapture = $derived(
+  ready && !!pageUrl && !pageUnavailable && !savingPage && !capturing && !article,
+);
 let captureMenu: Menu;
 let captureMenuOpen = $state(false);
 let captureAnchor = $state<HTMLElement>();
@@ -840,30 +842,24 @@ function openCaptureMenu() {
   captureMenu.show({ at: rect && { x: rect.left, y: rect.bottom }, from: button });
 }
 /**
- * A screenshot of the page into the note being edited, at its caret, as a pasted image; otherwise
- * into a new note titled and sourced from the page. Either way the note is shown afterwards.
+ * A screenshot of the page into a new note titled and sourced from the page it shows, opened in
+ * the editor. The note goes only into the folder that was in use when the capture started.
  */
 async function capturePage(full: boolean) {
-  if (capturing || savingPage || choosing) return;
+  if (!canCapture || !folder || choosing || creating) return;
+  const started = folder.path;
   capturing = true;
   try {
     error = "";
     warning = "";
     const shot = await webCapture(full);
-    if (editing && editor) {
-      if (!(await editor.insertImage(shot.image))) {
-        error = t("capture.busy");
-        return;
-      }
-      await webSetVisible(false);
-    } else {
-      const page = await webSelection();
-      pageUnavailable = page === null;
-      if (!page) return;
-      const note = pageNote({ ...page, selection: "" });
-      await create(note.name, note.text, shot.image);
+    if (folder?.path !== started) {
+      error = errorText({ code: "folderChanged" });
+      return;
     }
-    if (shot.clipped) warning = t("capture.clipped");
+    const note = pageNote({ url: shot.url, title: shot.title, selection: "" });
+    const created = await create(note.name, note.text, { image: shot.image, folder: started });
+    if (created && shot.clipped) warning = t("capture.clipped");
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -2214,8 +2210,8 @@ onMount(() => {
 <ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
 <Menu bind:this={captureMenu} id="capture-menu" label={t("capture.label")} ontoggle={(open) => { captureMenuOpen = open; }}>
-  <button role="menuitem" tabindex="-1" onclick={() => capturePage(false)}>{t("capture.visible")}</button>
-  <button role="menuitem" tabindex="-1" onclick={() => capturePage(true)}>{t("capture.full")}</button>
+  <button role="menuitem" tabindex="-1" disabled={!canCapture} onclick={() => capturePage(false)}>{t("capture.visible")}</button>
+  <button role="menuitem" tabindex="-1" disabled={!canCapture} onclick={() => capturePage(true)}>{t("capture.full")}</button>
 </Menu>
 <Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
@@ -2296,7 +2292,7 @@ onMount(() => {
         placeholder={t("notes.searchPlaceholder")}
       />
       {#if browser}
-        <span class="capture" bind:this={captureAnchor}><IconButton quiet icon="camera" label={t("capture.label")} disabled={!ready || !pageUrl || pageUnavailable || savingPage || capturing || !!article} onclick={openCaptureMenu} /></span>
+        <span class="capture" bind:this={captureAnchor}><IconButton quiet icon="camera" label={t("capture.label")} disabled={!canCapture} onclick={openCaptureMenu} /></span>
       {/if}
       <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage || capturing))} onclick={() => browser ? savePage() : create(creationText(query))} />
       <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->

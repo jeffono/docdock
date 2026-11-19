@@ -125,6 +125,7 @@ pub fn run() {
         commands::notes_trash_restore,
         commands::notes_trash_empty,
         commands::notes_paste_image,
+        commands::notes_create_with_image,
         commands::notes_leftovers,
         commands::notes_restore,
         commands::pinned_list,
