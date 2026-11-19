@@ -28,6 +28,7 @@ src-tauri/src/           Backend (Rust)
   blocking.rs            Content blocking in the page window: filter lists, engine and hiding scripts
   permissions.rs         Site permission requests of the page window: rules, remembered choices, waiting
   reader.rs              Reader view: the page's article as Markdown
+  screenshot.rs          Pure page capture rules: full-page clip, size limits, image validation
   notes.rs               Folder, listing, safe reading and atomic saving of notes, leftovers, local images,
                          renaming, moving, folders, deleting with undo, reading and editing `_pinned.md`
   pinned.rs              Pure line rules for `_pinned.md`: parse, pin, unpin, repin, move, rename
@@ -446,7 +447,8 @@ per-monitor DPI awareness (PMv2).
   DevTools in debug builds. Ctrl+Tab on the page is consumed natively and emitted to `main` as
   `panel-toggle-mode`; the page never sees it. Context menus keep only editing items, plus
   back/forward/reload on the page; unknown or future items are dropped. The UI's menu also drops Copy
-  link and Copy image, which bypass the copy event (see "Copy and cut" in Notes).
+  link and Copy image, which bypass the copy event (see "Copy and cut" in Notes). The page's menu
+  ends with the capture items (see "Page captures").
 - **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
   or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
   `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
@@ -468,8 +470,9 @@ per-monitor DPI awareness (PMv2).
   Navigation identity changes on `NavigationStarting` and on commit (`ContentLoading`); a navigation
   is in flight until it commits or `NavigationCompleted` reports it, and a commit settles older ones.
   Nothing is evaluated while one is in flight, since its document may commit mid-read before the UI
-  thread hears of it, and the result counts only if the identity and URL are unchanged before and
-  after evaluation, so a same-URL reload or A → B → A discards it. The title comes from the same
+  thread hears of it, and the result counts only if the revision and URL are unchanged before and
+  after evaluation. The revision is the identity plus a count of `SourceChanged` events, so a
+  same-URL reload, A → B → A, or a same-document route change A → B → A discards it. The title comes from the same
   evaluation because WebView2's native title can still be the previous document's after the next
   one commits; without a result, title and selection are empty. Reads take turns, because a
   `Runtime.enable` lists contexts only once while the domain is on, and the event handler and the
@@ -811,6 +814,63 @@ The editor is read-only while the paste is pending, preserves the insertion sele
 it before leaving. Reloads are refused during that wait; insertion then creates an ordinary unsaved
 Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
 The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
+
+**Page captures.** The page's context menu ends with native items for the visible area and the full
+page, labeled in the Rust `Locale` and created by `platform/edge.rs` as the menu opens. They are
+enabled from a flag in `web.rs` that the UI sets through `web_offer_capture` whenever its `canCapture`
+changes, so the menu never waits on the UI, and only while `browser::capturable` gives a settled
+revision with no capture in flight natively, read on the WebView2 UI thread as the menu opens: a
+capture the UI stopped waiting for keeps them disabled until it really ends. Every item is built
+before the menu changes, and a failed insertion removes those already inserted. Choosing one emits
+`web-capture` to `main` only, with the revision the menu opened on, and the UI checks `canCapture`
+again before capturing, since the flag can lag behind. Only a native menu item emits it: the page has
+no IPC and cannot choose one. A page that cancels its `contextmenu` event shows
+no menu, and so no capture items. `web_capture` asks the browser engine, not the screen, for an image of the page
+window through `platform/browser.rs`'s `capture`: `Page.captureScreenshot` for the visible area, or
+for the whole page with `captureBeyondViewport` and a clip from `Page.getLayoutMetrics`. Nothing runs in
+the page, and the page window's capture exclusion does not apply to the engine's own rendering. The
+steps chain on the WebView2 UI thread: the capture starts only if the page is still at the revision
+the menu opened on, so a navigation between the menu and the first call fails it instead of capturing
+the next page. Before each call the 10-second deadline must not have passed, and before each call and
+on each answer, the JPEG retry's included, the settled main-frame revision (see "Page selection") and
+URL must be the ones the capture started on, so a navigation or a same-document route change, even
+one that comes back, fails it; otherwise `captureFailed`. The URL that comes back with the image is
+that document's. The title is WebView2's native title read in the callback that received the image,
+only a label: shortly after a commit it can still be the previous document's (see "Page selection").
+One capture at a time:
+the engine keeps the page resized and emulated until it answers, so a capture whose caller timed out
+still holds the next one off until its handler answers or WebView2 releases it; a refused capture never
+frees it. The page window lives as long as the panel, so a handler WebView2 neither calls nor releases
+would refuse captures until the app restarts. The completion handler is not agile and lives on the
+WebView2 UI thread. The page
+controls its size and content, so `screenshot.rs` bounds them in physical pixels: at most 16,384 along
+a side (Chromium's compositor limit) and 16,777,216 in all (about 64 MB of bitmap); a larger page is
+clipped to its start, and the UI says so. `contentSize` is in physical pixels and the clip in DIPs, so
+the clip divides the kept pixels by the device scale factor, which the visual viewport's physical and
+CSS widths and its page `zoom` give. Responses are measured in the completion handler before they are
+copied; the PNG header's or JPEG start-of-frame's dimensions must be within the limits and the size
+within the pasted-image limit of 10 MiB before the image is decoded. A PNG over it is taken again as a
+JPEG (quality 85), and a JPEG over it fails with `imageTooLarge`. The raw response starts with a
+length-prefixed JSON object of URL, title, clip flag and the notes folder's path and marker id
+(decision 0009), read before the screenshot. A capture always becomes a new note named, titled and
+sourced from the page like a saved page: `notes_create_with_image` refuses with `folderChanged` unless
+the folder still has that path and marker id as the command starts, then writes by path with the gaps
+described under "Folder away"; it answers `conflict` for a taken name before writing
+anything, then writes the image into the attachments beside it with the pasted-image naming, signature
+check, size limit and folder rules, and creates the note with its link in one write, only while the
+name is still free. Nothing is deleted: if the note cannot be created after the image was, the image
+stays and `imageKept` names it. Nothing writes the note a second time, so a note deleted meanwhile
+never comes back. Choosing a folder waits for a pending capture. The note is created whatever the
+panel shows when the screenshot arrives. It opens in the editor only if, checked after the last await
+right before switching, the panel is in Browser without the reader view or Preferences, the editor
+could be left, and `web_capture_shown` confirms the page is still at the chosen revision and its
+window stayed on screen since the capture started: the on-screen epoch in `permissions.rs`, which the
+panel thread advances whenever the panel or the page hides or shows. Otherwise a notice above the
+list names it. Opening clears a `?` web search typed in Notes, which would hide the cards and so the
+editor.
+The page window reserves its top for the browser's error line, as for suggestions and permission
+requests, so a capture failure shows over the page. `captureBeyondViewport` resizes the page's layout for
+the capture, so pages built on viewport units may draw differently in it.
 
 **Copy and cut.** Text copied in `main` stays out of Windows clipboard history and cloud clipboard,
 and is not cleared later. Every route (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete, the context menu)

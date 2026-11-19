@@ -3,6 +3,7 @@ import { onMount, tick, untrack } from "svelte";
 import { cubicOut } from "svelte/easing";
 import { dateTime, errorText, t } from "../../i18n";
 import {
+  type CaptureChoice,
   clipboardWrite,
   type Leftover,
   type Listing,
@@ -11,6 +12,7 @@ import {
   type NotesFolder,
   notesChoose,
   notesCreateFolder,
+  notesCreateWithImage,
   notesDelete,
   notesDeleteFolder,
   notesFolder,
@@ -31,6 +33,7 @@ import {
   onNotesChanged,
   onPanelHidden,
   onPanelSearch,
+  onWebCapture,
   openExternal,
   type PageArticle,
   type Pinned,
@@ -42,7 +45,11 @@ import {
   pinnedRestore,
   pinnedSetCollapsed,
   type Removal,
+  type SaveResult,
   webAddresses,
+  webCapture,
+  webCaptureShown,
+  webOfferCapture,
   webOpen,
   webOverlay,
   webSearchUrl,
@@ -226,6 +233,7 @@ let history = $state<string[]>([]);
 let remote = $state<string[]>([]);
 let suggestionsElement = $state<HTMLElement>();
 let permissionElement = $state<HTMLElement>();
+let webErrorElement = $state<HTMLElement>();
 const latest = new LatestQuery();
 $effect(() => {
   void browser;
@@ -288,8 +296,9 @@ $effect(() => {
 });
 $effect(() => {
   // Both float from the top of the page: the cutout is the taller one.
+  // The error line sits at the top of the page too, so a failure there is never under it.
   const elements = browser
-    ? [addressEditing ? suggestionsElement : undefined, permissionElement].filter(
+    ? [addressEditing ? suggestionsElement : undefined, permissionElement, webErrorElement].filter(
         (element): element is HTMLElement => !!element,
       )
     : [];
@@ -352,6 +361,7 @@ export async function prepareExit(): Promise<boolean> {
   if (
     choosing ||
     savingPage ||
+    capturing ||
     creating ||
     opening ||
     movingPath ||
@@ -367,6 +377,14 @@ export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
   leaving = (async () => {
+    // An editor that never mounted, as when Browser came back while the note was read, holds no
+    // edits: leaving must not depend on it.
+    if (!editor) {
+      leftPath = selected;
+      selected = "";
+      editing = false;
+      return true;
+    }
     // A title being typed is renamed first, while the editor still holds the note.
     const field = document.activeElement;
     if (field instanceof HTMLInputElement && field.closest(".card.editing .rename")) field.blur();
@@ -717,7 +735,7 @@ async function restore(path: string) {
 }
 
 /** While the folder picker is open no editor can open: its note would belong to the old folder. */
-let choosing = false;
+let choosing = $state(false);
 /** The folder at the configured path is the user's after all, such as one marked before an upgrade. */
 async function trust() {
   try {
@@ -728,7 +746,8 @@ async function trust() {
   }
 }
 export async function choose() {
-  if (choosing || savingPage) return;
+  // A pending save or capture writes into the folder it started in.
+  if (choosing || savingPage || capturing || creating) return;
   choosing = true;
   try {
     error = "";
@@ -742,8 +761,39 @@ export async function choose() {
   }
 }
 
+/**
+ * Saves a new note named after `text` through `save`, trying the next name while one is taken; the
+ * name saved, or null with `error` set.
+ */
+let creating = $state(false);
+async function createNamed(
+  text: string,
+  save: (name: string) => Promise<SaveResult>,
+): Promise<string | null> {
+  const taken = notes.map((note) => note.path);
+  // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const name = noteFileName(text, taken);
+    if ((await save(name)).status === "saved") return name;
+    taken.push(name);
+  }
+  error = errorText({ code: "saveFailed", detail: text });
+  return null;
+}
+
+/** Shows the note just created at `name` expanded in the editor, leaving the page and the reader view. */
+async function openCreated(name: string) {
+  // A web search typed in Notes shows no cards, so the editor would never mount.
+  if (webQuery(query, false) !== null) query = "";
+  expanded = name;
+  selection = name;
+  // Leaving the reader view first, so hiding the page returns to Notes.
+  article = null;
+  await webSetVisible(false);
+  await edit(name);
+}
+
 /** Creates the note for the typed text and opens it expanded for editing. */
-let creating = false;
 async function create(text: string, content = "") {
   if (creating) return;
   creating = true;
@@ -751,24 +801,10 @@ async function create(text: string, content = "") {
     error = "";
     if (!(await leaveEditor())) return;
     if (!content && !browser) content = creationContent(query);
-    const taken = notes.map((note) => note.path);
-    // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const name = noteFileName(text, taken);
-      const result = await notesSave(name, content, "");
-      if (result.status === "saved") {
-        await relist();
-        expanded = name;
-        selection = name;
-        // Leaving the reader view first, so hiding the page returns to Notes.
-        article = null;
-        await webSetVisible(false);
-        await edit(name);
-        return;
-      }
-      taken.push(name);
-    }
-    error = errorText({ code: "saveFailed", detail: text });
+    const name = await createNamed(text, (name) => notesSave(name, content, ""));
+    if (!name) return;
+    await relist();
+    await openCreated(name);
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -784,7 +820,7 @@ $effect(() => {
   pageUnavailable = false;
 });
 async function savePage() {
-  if (savingPage || choosing) return;
+  if (savingPage || capturing || choosing) return;
   savingPage = true;
   try {
     error = "";
@@ -803,6 +839,70 @@ async function savePage() {
     error = errorText(e);
   } finally {
     savingPage = false;
+  }
+}
+
+let capturing = $state(false);
+/**
+ * A capture can start: the page's context menu offers its items by this, and the capture itself
+ * asks it again, since the menu reads a copy kept in Rust that can lag behind.
+ */
+const canCapture = $derived(
+  browser &&
+    !inactive &&
+    ready &&
+    !!pageUrl &&
+    !pageUnavailable &&
+    !savingPage &&
+    !capturing &&
+    !choosing &&
+    !creating &&
+    !article,
+);
+$effect(() => {
+  void webOfferCapture(canCapture).catch(() => {});
+});
+/**
+ * A screenshot of `page`, the page the menu opened on, into a new note titled and sourced from it,
+ * always created, in the notes folder the capture started in. It opens in the editor only if the
+ * panel still shows that page in Browser, without the reader view, Preferences or having left it
+ * since, and the editor can be left; otherwise a notice names it.
+ */
+async function capturePage({ full, page }: CaptureChoice) {
+  if (!canCapture) return;
+  capturing = true;
+  try {
+    error = "";
+    warning = "";
+    const shot = await webCapture(full, page);
+    const note = pageNote({ url: shot.url, title: shot.title, selection: "" });
+    // Saved whatever the panel shows now; a create meanwhile is serialized by Rust.
+    const name = await createNamed(note.name, (name) =>
+      notesCreateWithImage(shot.folder, shot.folderId, name, note.text, shot.image),
+    );
+    if (!name) return;
+    await relist();
+    let opened = false;
+    const browsing = () => browser && !inactive && !article;
+    // Checked again after the last await, right before switching.
+    if (
+      browsing() &&
+      (await leaveEditor()) &&
+      (await webCaptureShown(page, shot.shown).catch(() => false)) &&
+      browsing()
+    ) {
+      await openCreated(name);
+      opened = editing && selected === name;
+    }
+    const notices = [
+      ...(opened ? [] : [t("capture.saved", { title: note.name })]),
+      ...(shot.clipped ? [t("capture.clipped")] : []),
+    ];
+    warning = notices.join(" ");
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    capturing = false;
   }
 }
 
@@ -1157,7 +1257,8 @@ let removed = $state<{
   undo: boolean;
 } | null>(null);
 let deleting = false;
-/** Why the app would not delete a note, until dismissed, the next delete or the panel hides. */
+/** Why the app would not delete a note, or a capture saved without opening or clipped, until
+ * dismissed, the next delete or the panel hides. */
 let warning = $state("");
 /** The note being deleted; it cannot open in the editor meanwhile. */
 let deletingPath = "";
@@ -2091,6 +2192,8 @@ onMount(() => {
     relativeNow = Date.now();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
+  // Chosen in the page's native context menu.
+  const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden(() => {
     noteSearchTyped = false;
@@ -2134,6 +2237,7 @@ onMount(() => {
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
+    void captureChosen.then((stop) => stop());
   };
 });
 </script>
@@ -2225,7 +2329,7 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage))} onclick={() => browser ? savePage() : create(creationText(query))} />
+      <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage || capturing))} onclick={() => browser ? savePage() : create(creationText(query))} />
       <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->
       {#if !browser && ready && listing.skipped.length > 0 && !skippedOpen}
         <span class="skipped-toggle"><IconButton quiet icon="alert" label={t("skipped.show")} onclick={() => showSkipped(true)} /></span>
@@ -2248,7 +2352,7 @@ onMount(() => {
     </div>
   {/if}
   <p class="announce" aria-live="polite">{announced}</p>
-  {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
+  {#if browser && error}<p class="error" role="alert" bind:this={webErrorElement}>{error}</p>{/if}
   {#if browser && !pageUrl}<div class="empty"><p>{t("web.empty")}</p></div>{/if}
   {#if browser && article}<Reader {article} onlink={linkClick} />{/if}
   <div class="content" hidden={browser}>

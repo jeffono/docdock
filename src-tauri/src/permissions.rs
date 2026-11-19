@@ -221,6 +221,16 @@ fn is_shown(epoch: u64) -> bool {
     epoch % 2 == 1
 }
 
+/// The page window's on-screen epoch, to tell later whether it stayed on screen meanwhile.
+pub fn shown() -> u64 {
+    SHOWN.load(Ordering::SeqCst)
+}
+
+/// The page window was on screen at `epoch` and has not left it since.
+pub fn still_shown(epoch: u64) -> bool {
+    is_shown(epoch) && shown() == epoch
+}
+
 /// Now, as an answer must find it; `document` is the current main-frame document.
 fn now(document: Option<u64>) -> Option<Moment> {
     let shown = SHOWN.load(Ordering::SeqCst);

@@ -1,6 +1,7 @@
 //! Web page in its own window above the panel. Its content is untrusted: the window has no app
 //! capability, only navigates over HTTP(S), and never opens another window.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -10,7 +11,8 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 use crate::dock::Request;
 use crate::error::Error;
-use crate::platform::browser::Read;
+use crate::i18n::Locale;
+use crate::platform::browser::{self, Read, Revision};
 use crate::platform::edge;
 
 const LABEL: &str = "web";
@@ -106,7 +108,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     let window = build()?;
     crate::platform::exclude_from_capture(&window);
     let setup = crate::platform::guard(&window, frame_allowed)
-        .and_then(|()| edge::filter(&window, edge::Owner::Page))
+        .and_then(|()| edge::filter(&window, edge::Owner::Page, Some(capture_items(app))))
         .and_then(|()| crate::platform::browser::mobile(&window))
         .and_then(|()| crate::platform::browser::observe(&window))
         .and_then(|()| {
@@ -277,6 +279,74 @@ pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
     read_page(app, expression, SELECTION_TIMEOUT)
         .ok()?
         .and_then(|(_, json)| json)
+}
+
+/// Whether the UI would start a capture, as its last report said; the page's context menu reads it
+/// as it opens, without waiting on the UI, with the native capture state. The UI checks again when
+/// an item is chosen.
+static CAPTURE_OFFERED: AtomicBool = AtomicBool::new(false);
+
+pub fn offer_capture(offered: bool) {
+    CAPTURE_OFFERED.store(offered, Ordering::Relaxed);
+}
+
+/// The page menu's items for the visible area and the full page, in the interface language.
+fn capture_items(app: &AppHandle) -> edge::CaptureItems {
+    let labels = match *app.state::<Locale>() {
+        Locale::En => ["Capture visible area", "Capture full page"],
+        Locale::PtBr => ["Capturar área visível", "Capturar página inteira"],
+    };
+    edge::CaptureItems {
+        labels,
+        page: || {
+            CAPTURE_OFFERED
+                .load(Ordering::Relaxed)
+                .then(browser::capturable)
+                .flatten()
+        },
+    }
+}
+
+/// A large page takes the engine a few seconds to draw and encode; a hung one fails after this.
+const CAPTURE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A screenshot of the shown page and the page it shows: `url` is the address of the document in
+/// `image`, `title` only a label (see `browser::Shot`). `clipped`: a full page beyond the limits
+/// holds only its start. `shown`: the page window's on-screen epoch as the capture started.
+pub struct Capture {
+    pub url: String,
+    pub title: String,
+    pub image: Vec<u8>,
+    pub clipped: bool,
+    pub shown: u64,
+}
+
+/// The visible area, or with `full` the whole page, through `browser::capture`: an http(s) page
+/// still at the revision `page` the menu item was chosen on, whose document stays the same, within
+/// `CAPTURE_TIMEOUT` of the call, otherwise `CaptureFailed`; a JPEG over the byte limit too,
+/// `ImageTooLarge`. Blocks the calling thread, never the WebView2 UI thread.
+pub fn capture(app: &AppHandle, full: bool, page: Revision) -> Result<Capture, Error> {
+    let shown = crate::permissions::shown();
+    let deadline = Instant::now() + CAPTURE_TIMEOUT;
+    let window = app.get_webview_window(LABEL).ok_or(Error::CaptureFailed)?;
+    let allowed = |url: &str| Url::parse(url).is_ok_and(|url| is_web(&url));
+    let reply = browser::capture(&window, full, page, deadline, allowed)?;
+    let shot = reply
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| Error::CaptureFailed)??;
+    Ok(Capture {
+        url: shot.url,
+        title: clean_title(&shot.title),
+        image: shot.image,
+        clipped: shot.clipped,
+        shown,
+    })
+}
+
+/// The panel still shows the page a capture started on: the same revision `page`, and the page
+/// window on screen without having left it since `shown`.
+pub fn capture_shown(page: Revision, shown: u64) -> bool {
+    browser::shows(page) && crate::permissions::still_shown(shown)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]

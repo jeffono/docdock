@@ -434,7 +434,18 @@ immediately left of the address field, sharing its row without taking space from
 its icon, not its larger hit area, starts at the bar's content edge.
 Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
 site and reloads the page, without a popover. The tooltip and accessible label name the site and
-current state. It is hidden without an HTTP(S) page and disabled while saving. Browser starts with a short hint and the
+current state. It is hidden without an HTTP(S) page and disabled while saving. The page's native
+context menu keeps only editing items and back/forward/reload, then, after a separator, ends with
+"Capture visible area" and "Capture full page", on a link, image or selection too; they capture the
+page. They are disabled without the notes folder, while the page is unavailable or loading, in the
+reader view, under Preferences and while a capture, save, note creation or folder choice is pending.
+A capture always goes into a new note titled and sourced from the page. If the panel still shows that
+page in Browser when it is saved, and has not hidden it since, the panel returns to Notes with that
+note in the editor. If the user navigated, opened the reader view, moved to Notes or Preferences, or
+the panel collapsed meanwhile, even to come back, nothing switches and a dismissible notice above the
+list names the saved note.
+After a failure the page stays and the error line shows above it, over the page's top. A page too long
+for one image is clipped to its start with a dismissible notice above the list. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 

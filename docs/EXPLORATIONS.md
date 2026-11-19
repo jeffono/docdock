@@ -46,3 +46,19 @@ on HTML: the web tab needs WebView2 anyway, rendered Markdown and the CodeMirror
 rewritten, and Zed's own editor crates are GPL, unusable in an MIT app. A rewrite of the whole UI for a
 partial memory gain. Reopen only if WebView2 memory becomes a measured problem that its own measures
 (see `docs/decisions/0001-tauri-svelte.md`) cannot fix.
+
+## Animated editor layout changes
+
+Revealing Markdown marks under the pointer changes line heights, and a spike tried animating it.
+CSS height transitions left CodeMirror's height map stale by up to 108 px mid-animation, breaking drags
+and drawing oddly. FLIP with transforms landed clicks one or two lines off for about 60 ms and made
+arrow keys drift. FLIP with input remapping had no errors, but made repeated arrow keys heavier on slow
+CPUs, drew the caret ahead of the text and overlapped lines while expanding, for about 1.5 days of
+work. Not adopted: not worth the complexity, so reveal changes stay instant after the pointer gesture.
+Reopen only if instant changes are reported as disorienting.
+
+## Region capture
+
+Capturing a region anywhere on the screen was planned for M14 and dropped: Windows' Win+Shift+S
+followed by Ctrl+V in a note already does it through pasted images. M14 captures only the web tab.
+Reopen if users need captures inserted without going through the clipboard.

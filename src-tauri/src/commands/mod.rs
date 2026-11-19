@@ -8,6 +8,7 @@ use tauri::{AppHandle, State, UriSchemeContext, UriSchemeResponder, Wry, http};
 use crate::dock::Request;
 use crate::error::Error;
 use crate::i18n::Locale;
+use crate::platform::browser::Revision;
 use crate::web;
 
 #[tauri::command(async)]
@@ -152,6 +153,48 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
     tauri::async_runtime::spawn_blocking(move || web::selection(&app))
         .await
         .map_err(Error::unexpected)?
+}
+
+/// A screenshot of the shown page, `full` or its visible area, if it is still at the revision
+/// `page` the menu item was chosen on; waits off the async runtime as `web_selection` does. Raw
+/// bytes avoid expanding the image into JSON numbers: a little-endian `u32` gives the length of a
+/// JSON object with the page's `url`, `title`, whether it was `clipped` to the size limits, the
+/// on-screen epoch `shown` for `web_capture_shown`, and the notes `folder` and `folderId` it started
+/// in, which `notes_create_with_image` requires; the image follows it.
+#[tauri::command]
+pub async fn web_capture(
+    app: AppHandle,
+    full: bool,
+    page: Revision,
+) -> Result<tauri::ipc::Response, Error> {
+    let (capture, (folder, folder_id)) = tauri::async_runtime::spawn_blocking(move || {
+        let folder = crate::notes::capture_folder(&app)?;
+        web::capture(&app, full, page).map(|capture| (capture, folder))
+    })
+    .await
+    .map_err(Error::unexpected)??;
+    let page = serde_json::json!({
+        "url": capture.url, "title": capture.title, "clipped": capture.clipped,
+        "shown": capture.shown, "folder": folder, "folderId": folder_id,
+    })
+    .to_string();
+    let length = u32::try_from(page.len()).map_err(Error::unexpected)?;
+    let mut body = Vec::with_capacity(4 + page.len() + capture.image.len());
+    body.extend(length.to_le_bytes());
+    body.extend(page.as_bytes());
+    body.extend(capture.image);
+    Ok(tauri::ipc::Response::new(body))
+}
+
+/// Whether the panel still shows the page a capture started on, so its note may open in the editor.
+#[tauri::command]
+pub fn web_capture_shown(page: Revision, shown: u64) -> bool {
+    web::capture_shown(page, shown)
+}
+
+#[tauri::command]
+pub fn web_offer_capture(offered: bool) {
+    web::offer_capture(offered);
 }
 
 /// The shown page's article for the reader view; waits off the async runtime as `web_selection`
@@ -303,6 +346,45 @@ pub fn notes_paste_image(
         return Err(Error::UnsupportedImage);
     };
     crate::notes::paste_image(&app, &path, bytes)
+}
+/// A new note holding `content` and then a link to an image put beside it, as
+/// `notes_create_with_image` in `notes.rs` says. Raw IPC as `notes_paste_image`: the body is a
+/// little-endian `u32` with the length of `content` in UTF-8, `content` and the image. The headers
+/// name the note and the notes folder path and marker id `web_capture` started in, so a folder
+/// chosen since refuses the note with `folderChanged`.
+#[tauri::command(async)]
+pub fn notes_create_with_image(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<crate::notes::Saved, Error> {
+    let header = |name: &str| -> Result<String, Error> {
+        let value = request
+            .headers()
+            .get(name)
+            .and_then(|h| h.to_str().ok())
+            .ok_or(Error::InvalidPath)?;
+        percent_encoding::percent_decode_str(value)
+            .decode_utf8()
+            .map(|value| value.into_owned())
+            .map_err(|_| Error::InvalidPath)
+    };
+    let (path, folder, folder_id) = (
+        header("x-note-path")?,
+        header("x-notes-folder")?,
+        header("x-notes-folder-id")?,
+    );
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err(Error::UnsupportedImage);
+    };
+    let (length, rest) = body
+        .split_first_chunk::<4>()
+        .ok_or(Error::UnsupportedImage)?;
+    let length = u32::from_le_bytes(*length) as usize;
+    let (content, image) = rest
+        .split_at_checked(length)
+        .ok_or(Error::UnsupportedImage)?;
+    let content = std::str::from_utf8(content).map_err(Error::unexpected)?;
+    crate::notes::create_with_image(&app, &folder, &folder_id, &path, content, image)
 }
 #[tauri::command(async)]
 pub fn notes_leftovers(app: AppHandle) -> Result<Vec<crate::notes::Leftover>, Error> {

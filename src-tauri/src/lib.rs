@@ -16,6 +16,7 @@ mod permissions;
 mod pinned;
 mod platform;
 mod reader;
+mod screenshot;
 mod shortcut;
 mod spelling;
 mod trash;
@@ -94,6 +95,9 @@ pub fn run() {
         commands::web_history,
         commands::web_selection,
         commands::web_reader,
+        commands::web_capture,
+        commands::web_capture_shown,
+        commands::web_offer_capture,
         commands::web_suggestions,
         commands::web_addresses,
         commands::web_overlay,
@@ -123,6 +127,7 @@ pub fn run() {
         commands::notes_trash_restore,
         commands::notes_trash_empty,
         commands::notes_paste_image,
+        commands::notes_create_with_image,
         commands::notes_leftovers,
         commands::notes_restore,
         commands::pinned_list,
@@ -156,7 +161,7 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev::setup(app)?;
             let window = main_window::create(app)?;
-            platform::edge::filter(&window, platform::edge::Owner::Ui)
+            platform::edge::filter(&window, platform::edge::Owner::Ui, None)
                 .map_err(|error| format!("{error:?}"))?;
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();
