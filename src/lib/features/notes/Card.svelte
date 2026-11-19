@@ -6,6 +6,7 @@ import TextField from "../../ui/TextField.svelte";
 import { countNote } from "./count";
 import { folderOf } from "./grouping";
 import Highlight from "./Highlight.svelte";
+import { linkMenuKey } from "./link-actions";
 import { type Card, fileLabel, pageHost } from "./list";
 import NoteStats from "./NoteStats.svelte";
 import { relativeDates } from "./order-store";
@@ -28,6 +29,7 @@ let {
   onpin,
   onedit,
   onlink,
+  onlinkmenu,
   onpage,
   editing = false,
   status = "",
@@ -52,8 +54,9 @@ let {
   onpin: () => void;
   /** Edits the note; a double click on its text says where. */
   onedit: (start?: EditStart) => void;
-  /** Handles a click on a link in the content; true if it was one. */
+  /** Handles a click or middle click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
+  onlinkmenu: (event: MouseEvent | KeyboardEvent, href: string, from: HTMLElement) => void;
   onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
@@ -93,6 +96,11 @@ $effect(() => {
 function bodyClick(event: MouseEvent) {
   if (onlink(event)) return;
   if (card.level === "preview") onexpand();
+}
+function bodyLinkMenu(event: MouseEvent | KeyboardEvent) {
+  if (event instanceof KeyboardEvent && !linkMenuKey(event)) return;
+  const link = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
+  if (link) onlinkmenu(event, link.getAttribute("href") ?? "", link);
 }
 /** A double click on the text edits it; its first click already expanded a preview. */
 function bodyDoubleClick(event: MouseEvent) {
@@ -194,6 +202,13 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         class:preview={card.level === "preview"}
         class:clipped={card.level === "preview" && clipped}
         onclick={bodyClick}
+        onauxclick={onlink}
+        onmousedown={(event) => {
+          if (event.button === 1 && (event.target as Element).closest("a[href]"))
+            event.preventDefault();
+        }}
+        oncontextmenu={bodyLinkMenu}
+        onkeydown={bodyLinkMenu}
         ondblclick={bodyDoubleClick}
         role="presentation"
         {@attach (element) => {
