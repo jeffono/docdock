@@ -17,10 +17,11 @@ import {
   frontmatter as readFrontmatter,
   safeHref,
 } from "./markdown";
+import { pointerReveal, revealChanged, revealed } from "./pointer-reveal";
 export const notePath = Facet.define<string, string>({ combine: (values) => values[0] ?? "" });
 
 function active(state: EditorState, from: number, to: number) {
-  return state.selection.ranges.some(
+  return revealed(state).some(
     (r) => state.doc.lineAt(r.from).from <= to && state.doc.lineAt(r.to).to >= from,
   );
 }
@@ -154,7 +155,9 @@ class HeaderWidget extends WidgetType {
 const frontmatter = StateField.define<DecorationSet>({
   create: (state) => headerDecoration(state),
   update: (value, transaction) =>
-    transaction.docChanged || transaction.selection ? headerDecoration(transaction.state) : value,
+    transaction.docChanged || revealChanged(transaction)
+      ? headerDecoration(transaction.state)
+      : value,
   provide: (field) => EditorView.decorations.from(field),
 });
 function headerDecoration(state: EditorState) {
@@ -385,6 +388,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
 }
 export function liveFormatting() {
   return [
+    pointerReveal(),
     frontmatter,
     ViewPlugin.fromClass(
       class {
@@ -395,7 +399,7 @@ export function liveFormatting() {
         update(update: import("@codemirror/view").ViewUpdate) {
           if (
             update.docChanged ||
-            update.selectionSet ||
+            revealChanged(update) ||
             update.viewportChanged ||
             update.startState.facet(notePath) !== update.state.facet(notePath) ||
             update.startState.field(frontmatter) !== update.state.field(frontmatter) ||

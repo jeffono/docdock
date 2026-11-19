@@ -187,7 +187,8 @@ pinned and unpinned notes differ only in section and starting state.
   on when taken; a frontmatter title changes with it. When the file name cannot hold the typed title
   (characters such as ":", or a taken name), the field also writes it as the frontmatter title,
   creating the block if needed, so the card keeps showing what was typed. A double click on the title only opens and
-  closes, as a click does; a double click on the text of a card enters editing. A note still named
+  closes, as a click does; a double click on the text of a card enters editing
+  with the clicked word selected and kept where it was on screen. A note still named
   `Untitled` or `Untitled N` is named when its editor is left, from what the card shows: the
   frontmatter title, else a first heading, else its first words (cut at a word near 60 characters).
 - **Names:** a card shows the frontmatter title, else the file name. When the file name differs from

@@ -9,6 +9,7 @@ import Highlight from "./Highlight.svelte";
 import { type Card, fileLabel, pageHost } from "./list";
 import NoteStats from "./NoteStats.svelte";
 import { relativeDates } from "./order-store";
+import { type EditStart, editStart } from "./reading-position";
 import { relativeDate } from "./relative-date";
 import { renderNote } from "./render";
 import "./content.css";
@@ -49,7 +50,8 @@ let {
   onexpand: () => void;
   onpreview: () => void;
   onpin: () => void;
-  onedit: () => void;
+  /** Edits the note; a double click on its text says where. */
+  onedit: (start?: EditStart) => void;
   /** Handles a click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
   onpage: (url: string) => void;
@@ -94,7 +96,8 @@ function bodyClick(event: MouseEvent) {
 }
 /** A double click on the text edits it; its first click already expanded a preview. */
 function bodyDoubleClick(event: MouseEvent) {
-  if (!editing && !card.url && !(event.target as Element).closest("a")) onedit();
+  if (editing || card.url || (event.target as Element).closest("a")) return;
+  onedit(body && text !== undefined ? editStart(body, text, event) : undefined);
 }
 
 const tags = $derived(card.hit.tags);
@@ -170,7 +173,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
       {/if}
       {#if card.level === "expanded"}
         <div class="pencil" class:active={editing}>
-          <IconButton tabindex={-1} quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={onedit} />
+          <IconButton tabindex={-1} quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={() => onedit()} />
         </div>
       {/if}
       <IconButton tabindex={-1} quiet icon="bookmark" label={t(card.pinned ? "card.unpin" : "card.pin")} pressed={card.pinned} onclick={onpin} />

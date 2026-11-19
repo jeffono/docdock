@@ -62,6 +62,24 @@ export type Content = Element | string;
 
 const el = (tag: Tag, attrs?: Attrs, children?: Content[]): Element => ({ tag, attrs, children });
 
+/**
+ * Where an element's content comes from in the note, line breaks normalized as the editor counts
+ * them. Kept beside the model, which stays plain data.
+ */
+const sources = new WeakMap<Element, { from: number; to: number }>();
+export function sourceRange(element: Element) {
+  return sources.get(element);
+}
+function sourced<T extends Element>(element: T, from: number, to: number): T {
+  sources.set(element, { from, to });
+  return element;
+}
+/** The model element each rendered DOM element was built from. */
+const built = new WeakMap<Node, Element>();
+export function builtFrom(node: Node) {
+  return built.get(node);
+}
+
 /** Renders a whole note: the frontmatter header, then the Markdown after it. `note` is its path. */
 export function noteModel(source: string, note: string | null): Content[] {
   const text = source.replace(/\r\n?/g, "\n");
@@ -72,22 +90,42 @@ export function noteModel(source: string, note: string | null): Content[] {
   if (meta) {
     body = lines.slice(meta.end).join("\n");
     if (meta.title || meta.tags.length) {
+      // Each value is found from its key on: the title after `title:`, tags after `tags:`.
+      const after = (key: RegExp) => {
+        let from = 0;
+        for (const line of lines.slice(0, meta.end - 1)) {
+          const match = line.match(key);
+          if (match) return from + match[0].length;
+          from += line.length + 1;
+        }
+        return 0;
+      };
+      const end = text.length - body.length;
       const header: Content[] = [];
-      if (meta.title) header.push(el("h1", {}, [meta.title]));
+      if (meta.title) header.push(sourced(el("h1", {}, [meta.title]), after(/^title:/), end));
       if (meta.tags.length)
         header.push(
-          el(
-            "div",
-            { class: "tags" },
-            meta.tags.map((tag) => el("span", {}, [tag])),
+          sourced(
+            el(
+              "div",
+              { class: "tags" },
+              meta.tags.map((tag) => el("span", {}, [tag])),
+            ),
+            after(/^tags?:/),
+            end,
           ),
         );
-      out.push(el("header", { class: "note-header" }, header));
+      out.push(sourced(el("header", { class: "note-header" }, header), 0, end));
     }
   }
   const tree = noteParser.parse(body);
   const slice = (from: number, to: number) => body.slice(from, to);
-  const renderer = new Renderer(slice, note, definitions(tree.topNode, slice));
+  const renderer = new Renderer(
+    slice,
+    note,
+    definitions(tree.topNode, slice),
+    text.length - body.length,
+  );
   renderer.blocks(tree.topNode, out);
   return out;
 }
@@ -150,7 +188,14 @@ class Renderer {
     /** Null for content that is not a note, such as a page article: it never shows local images. */
     readonly note: string | null,
     readonly defs: Definitions,
+    /** Where the parsed text starts in the note, after any frontmatter. */
+    readonly base = 0,
   ) {}
+
+  /** Marks `element` as showing the parsed text from `from` to `to`. */
+  at<T extends Element>(element: T, from: number, to: number): T {
+    return sourced(element, this.base + from, this.base + to);
+  }
 
   /** Current nesting; beyond `maxDepth` the rest of a node is shown as text. */
   depth = 0;
@@ -173,11 +218,12 @@ class Renderer {
   }
 
   block(node: SyntaxNode, skipTo = -1): Element | null {
-    return this.nested(
+    const block = this.nested(
       node,
       () => this.blockAt(node, skipTo),
       (text) => el("p", { class: "raw" }, [text]),
     );
+    return block && !sources.has(block) ? this.at(block, node.from, node.to) : block;
   }
 
   blockAt(node: SyntaxNode, skipTo: number): Element | null {
@@ -188,7 +234,7 @@ class Renderer {
       case "Paragraph": {
         const from = Math.max(node.from, skipTo);
         const children = this.inline(node, from, node.to);
-        return children.length ? el("p", {}, children) : null;
+        return children.length ? this.at(el("p", {}, children), from, node.to) : null;
       }
       case "Blockquote": {
         const line = this.slice(node.from, node.to).split("\n")[0];
@@ -215,7 +261,11 @@ class Renderer {
             const marker = child.getChild("TaskMarker");
             const checked = !!marker && /x/i.test(this.slice(marker.from, marker.to));
             children.push(
-              el("input", { checked }),
+              this.at(
+                el("input", { checked }),
+                marker?.from ?? child.from,
+                marker?.to ?? child.from,
+              ),
               ...this.inline(child, marker?.to ?? child.from, child.to),
             );
           } else {
@@ -237,7 +287,11 @@ class Renderer {
           pos = span.to;
         }
         if (pos < text.length) children.push(text.slice(pos));
-        return el("pre", {}, [el("code", {}, children)]);
+        // The code starts on the line after an opening fence.
+        const fence = name === "FencedCode" ? this.slice(node.from, node.to).indexOf("\n") : -1;
+        const from =
+          name === "FencedCode" ? (fence < 0 ? node.to : node.from + fence + 1) : node.from;
+        return el("pre", {}, [this.at(el("code", {}, children), from, node.to)]);
       }
       case "HorizontalRule":
         return el("hr");
@@ -249,7 +303,11 @@ class Renderer {
         const mark = node.getChild("FootnoteMark");
         const label = mark ? footnoteLabel(this.slice(mark.from, mark.to)) : "";
         return el("div", { class: "footnote", id: `note-fn-${label}` }, [
-          el("span", { class: "footnote-label" }, [label]),
+          this.at(
+            el("span", { class: "footnote-label" }, [label]),
+            mark?.from ?? node.from,
+            mark?.to ?? node.from,
+          ),
           " ",
           ...this.inline(node, mark?.to ?? node.from, node.to),
         ]);
@@ -313,7 +371,11 @@ class Renderer {
         line
           .getChildren("TableCell")
           .map((cell, i) =>
-            el(tag, aligns[i] ? { class: aligns[i] } : {}, this.inline(cell, cell.from, cell.to)),
+            this.at(
+              el(tag, aligns[i] ? { class: aligns[i] } : {}, this.inline(cell, cell.from, cell.to)),
+              cell.from,
+              cell.to,
+            ),
           ),
       );
     const parts: Content[] = [];
@@ -364,19 +426,22 @@ class Renderer {
 
   inlineAt(node: SyntaxNode): Content[] {
     const all = () => this.inline(node, node.from, node.to);
+    const whole = <T extends Element>(element: T) => this.at(element, node.from, node.to);
     switch (node.name) {
       case "Emphasis":
-        return [el("em", {}, all())];
+        return [whole(el("em", {}, all()))];
       case "StrongEmphasis":
-        return [el("strong", {}, all())];
+        return [whole(el("strong", {}, all()))];
       case "Strikethrough":
-        return [el("del", {}, all())];
+        return [whole(el("del", {}, all()))];
       case "InlineCode": {
         const marks = node.getChildren("CodeMark");
         const code = this.slice(marks[0]?.to ?? node.from, marks[1]?.from ?? node.to)
           .replace(/\n/g, " ")
           .replace(/^ (.*[^ ].*) $/, "$1");
-        return [el("code", {}, [code])];
+        return [
+          this.at(el("code", {}, [code]), marks[0]?.to ?? node.from, marks[1]?.from ?? node.to),
+        ];
       }
       case "Link": {
         const marks = node.getChildren("LinkMark");
@@ -385,7 +450,13 @@ class Renderer {
         if (!target) return [this.slice(node.from, node.to)];
         const href = safeHref(target.url);
         return href
-          ? [el("a", target.title ? { href, title: target.title } : { href }, label)]
+          ? [
+              this.at(
+                el("a", target.title ? { href, title: target.title } : { href }, label),
+                marks[0]?.to ?? node.from,
+                marks[1]?.from ?? node.to,
+              ),
+            ]
           : label;
       }
       case "Image": {
@@ -397,7 +468,7 @@ class Renderer {
         if (!target) return [this.slice(node.from, node.to)];
         const src = this.note === null ? null : imageUrl(target.url, this.note);
         return src
-          ? [el("img", target.title ? { src, alt, title: target.title } : { src, alt })]
+          ? [whole(el("img", target.title ? { src, alt, title: target.title } : { src, alt }))]
           : [alt];
       }
       case "Autolink":
@@ -405,12 +476,14 @@ class Renderer {
         const url = node.name === "URL" ? node : node.getChild("URL");
         const value = url ? this.slice(url.from, url.to) : this.slice(node.from, node.to);
         const href = safeHref(value);
-        return href ? [el("a", { href }, [value])] : [this.slice(node.from, node.to)];
+        return href
+          ? [this.at(el("a", { href }, [value]), url?.from ?? node.from, url?.to ?? node.to)]
+          : [this.slice(node.from, node.to)];
       }
       case "FootnoteReference": {
         const label = footnoteLabel(this.slice(node.from, node.to));
         return this.defs.footnotes.has(label)
-          ? [el("a", { class: "footnote-ref", href: `#fn-${label}` }, [label])]
+          ? [whole(el("a", { class: "footnote-ref", href: `#fn-${label}` }, [label]))]
           : [this.slice(node.from, node.to)];
       }
       case "Escape":
@@ -418,7 +491,7 @@ class Renderer {
       case "Entity":
         return [decodeEntity(this.slice(node.from, node.to))];
       case "HardBreak":
-        return [el("br")];
+        return [whole(el("br"))];
       case "EmphasisMark":
       case "StrikethroughMark":
       case "HeaderMark":
@@ -456,6 +529,7 @@ function toDom(content: Content[], doc: Document = document): DocumentFragment {
       continue;
     }
     const node = doc.createElement(item.tag);
+    built.set(node, item);
     const attrs = item.attrs ?? {};
     if (attrs.class) node.className = attrs.class;
     if (attrs.id) node.id = attrs.id;
