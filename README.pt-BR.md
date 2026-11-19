@@ -13,7 +13,7 @@ O DocDock é um painel lateral para Windows que se oculta automaticamente e mant
 
 O DocDock requer Windows 10 ou 11. Versões anteriores à 1.0 ainda não são estáveis: faça backup das suas notas antes de experimentá-lo. Baixe `DocDock_<version>_x64-setup.exe` em [GitHub Releases](https://github.com/jeffono/docdock/releases) e execute o instalador. Ele instala para o usuário atual, sem exigir administrador, e baixa o Microsoft Edge WebView2 se estiver faltando.
 
-O instalador não tem assinatura de código. Se o Windows SmartScreen exibir “O Windows protegeu o computador”, selecione **Mais informações** e depois **Executar assim mesmo**. O DocDock procura atualizações ao iniciar e as baixa em segundo plano; quando uma estiver pronta, escolha **Atualização disponível — reiniciar** no menu da bandeja. Sair normalmente não a instala.
+O instalador não tem assinatura de código. Se o Windows SmartScreen exibir “O Windows protegeu o computador”, selecione **Mais informações** e depois **Executar assim mesmo**. O DocDock procura atualizações ao iniciar, a cada seis horas e quando o Windows sai da suspensão, e as baixa em segundo plano; quando uma estiver pronta, escolha **Atualização disponível — reiniciar** no menu da bandeja ou **Reiniciar para atualizar** em Preferências > Sobre. Sair normalmente não a instala.
 
 ## Primeiros passos
 
@@ -21,7 +21,7 @@ Abra o DocDock e escolha uma pasta para suas notas. Leve o ponteiro à borda dir
 
 ## Privacidade
 
-As notas são armazenadas localmente na pasta escolhida. O DocDock não tem telemetria. A cada inicialização, ele consulta o GitHub para saber se há uma versão nova. A navegação e as sugestões de pesquisa acessam os sites e o provedor de busca usados por você.
+As notas são armazenadas localmente na pasta escolhida. O DocDock não tem telemetria. Ao procurar atualizações, ele consulta o GitHub para saber se há uma versão nova. A navegação e as sugestões de pesquisa acessam os sites e o provedor de busca usados por você. Para bloquear anúncios e rastreadores nas páginas, o DocDock baixa listas de filtros públicas de `easylist.to` e `secure.fanboy.co.nz` a cada quatro dias, aproximadamente, sem cookies.
 
 ### Protegendo notas com Cryptomator
 
