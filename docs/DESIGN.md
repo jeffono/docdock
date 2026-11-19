@@ -437,11 +437,13 @@ site and reloads the page, without a popover. The tooltip and accessible label n
 current state. It is hidden without an HTTP(S) page and disabled while saving. The page's native
 context menu keeps only editing items and back/forward/reload, then, after a separator, ends with
 "Capture visible area" and "Capture full page", on a link, image or selection too; they capture the
-page. They are disabled without the notes folder, while the page is unavailable and while a capture
-or save is pending. A capture always goes into a new note titled and sourced from the page, and the
-panel returns to Notes with that note in the editor; after a failure the page stays. A page too long
-for one image is clipped to its start with a dismissible notice above the list; failures use the
-usual error line. Browser starts with a short hint and the
+page. They are disabled without the notes folder, while the page is unavailable, in the reader view,
+under Preferences and while a capture, save, note creation or folder choice is pending. A capture
+always goes into a new note titled and sourced from the page. If the page is still shown when it is
+saved, the panel returns to Notes with that note in the editor; if the user moved to Notes or
+Preferences meanwhile, nothing switches and a dismissible notice above the list names the saved note.
+After a failure the page stays and the error line shows above it, over the page's top. A page too long
+for one image is clipped to its start with a dismissible notice above the list. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 

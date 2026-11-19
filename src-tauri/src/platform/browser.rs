@@ -109,6 +109,8 @@ pub fn mobile(window: &WebviewWindow) -> Result<(), Error> {
 struct Navigations {
     /// Changes when a navigation starts and when a document commits.
     changes: u64,
+    /// Changes whenever the main frame's URL does, including a same-document route change.
+    sources: u64,
     /// Started and neither committed nor finished.
     pending: Vec<u64>,
 }
@@ -136,10 +138,31 @@ impl Navigations {
     fn identity(&self) -> Option<u64> {
         self.pending.is_empty().then_some(self.changes)
     }
+
+    /// `SourceChanged`: the URL changed, perhaps within the same document.
+    fn source_changed(&mut self) {
+        self.sources += 1;
+    }
+
+    /// The identity and every URL change since: a route change A → B → A between two reads of it
+    /// leaves the identity and the URL as they were, but not this.
+    fn revision(&self) -> Option<Revision> {
+        self.identity().map(|identity| Revision {
+            identity,
+            sources: self.sources,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Revision {
+    identity: u64,
+    sources: u64,
 }
 
 static NAVIGATIONS: Mutex<Navigations> = Mutex::new(Navigations {
     changes: 0,
+    sources: 0,
     pending: Vec::new(),
 });
 
@@ -202,6 +225,7 @@ pub fn observe(window: &WebviewWindow) -> Result<(), Error> {
             navigations().pending.clear();
             let handle = app.clone();
             let source = SourceChangedEventHandler::create(Box::new(move |page, _| {
+                navigations().source_changed();
                 if let Some(page) = page {
                     let url = text(|value| page.Source(value))?;
                     let app = handle.clone();
@@ -299,15 +323,18 @@ pub fn history(window: &WebviewWindow, back: bool) -> tauri::Result<()> {
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 
 /// Holds `CAPTURING` while a capture's handlers live: until the last one has answered, or WebView2
-/// releases it unanswered, as when the page window is destroyed.
+/// releases it unanswered, as when the page window is destroyed. The page window lives as long as
+/// the panel, so a handler WebView2 neither calls nor releases keeps captures refused until the
+/// app restarts.
 struct InFlight;
 
 impl InFlight {
+    /// None while another capture holds it. Built only on success: dropping a guard frees the lock.
     fn take() -> Option<Self> {
-        CAPTURING
+        let free = CAPTURING
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-            .then_some(Self)
+            .is_ok();
+        if free { Some(Self) } else { None }
     }
 }
 
@@ -348,10 +375,10 @@ pub fn capture(
         let start = || -> windows::core::Result<Option<Capture>> {
             let page = view.controller().CoreWebView2()?;
             let url = source(&page)?;
-            let identity = navigations().identity().filter(|_| allowed(&url));
-            Ok(identity.map(|identity| Capture {
+            let revision = navigations().revision().filter(|_| allowed(&url));
+            Ok(revision.map(|revision| Capture {
                 page,
-                document: Document { identity, url },
+                document: Document { revision, url },
                 deadline,
                 clip: None,
                 reply,
@@ -473,7 +500,10 @@ impl Capture {
 /// A DevTools completion whose response is measured before it is copied, so a page cannot make the
 /// UI thread copy an unbounded string. `then` hears only of a successful call: the response, or
 /// None if it is longer than `max` characters.
-#[implement(ICoreWebView2CallDevToolsProtocolMethodCompletedHandler)]
+///
+/// Not agile: it holds a `RefCell` and the page, so it is called, fails and is released only on the
+/// WebView2 UI thread that created it.
+#[implement(ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, Agile = false)]
 struct Bounded {
     max: usize,
     then: RefCell<Option<Answer>>,
@@ -531,10 +561,10 @@ pub fn read(
         let run = || -> windows::core::Result<()> {
             let page = view.controller().CoreWebView2()?;
             let url = source(&page)?;
-            let identity = navigations().identity();
+            let revision = navigations().revision();
             let _ = sender.send(Read::Page { url: url.clone() });
-            match identity {
-                Some(identity) => evaluate(&page, Document { identity, url }, expression, sender),
+            match revision {
+                Some(revision) => evaluate(&page, Document { revision, url }, expression, sender),
                 None => Ok(()),
             }
         };
@@ -851,23 +881,23 @@ fn parse(json: &str) -> Value {
     serde_json::from_str(json).unwrap_or_default()
 }
 
-/// The document a read started on: its settled navigation identity and URL.
+/// The document a read or capture started on: its settled navigation revision and URL.
 struct Document {
-    identity: u64,
+    revision: Revision,
     url: String,
 }
 
 impl Document {
-    /// Still this document: no navigation started or committed since, none is in flight, and the
-    /// URL is the same, which a same-document route change keeps the identity but alters.
-    fn is(&self, identity: Option<u64>, url: &str) -> bool {
-        identity == Some(self.identity) && url == self.url
+    /// Still this document: no navigation started or committed since, none is in flight, the URL
+    /// never changed, even to come back, and it is the same.
+    fn is(&self, revision: Option<Revision>, url: &str) -> bool {
+        revision == Some(self.revision) && url == self.url
     }
 }
 
 fn unchanged(page: &ICoreWebView2, document: &Document) -> bool {
-    let identity = navigations().identity();
-    unsafe { source(page) }.is_ok_and(|url| document.is(identity, &url))
+    let revision = navigations().revision();
+    unsafe { source(page) }.is_ok_and(|url| document.is(revision, &url))
 }
 
 unsafe fn source(page: &ICoreWebView2) -> windows::core::Result<String> {
@@ -900,13 +930,22 @@ mod tests {
     }
 
     #[test]
-    fn a_route_change_in_the_same_document_is_another_page() {
+    fn a_route_change_and_back_is_another_page() {
+        let mut navigations = Navigations::default();
         let document = Document {
-            identity: 3,
+            revision: navigations.revision().unwrap(),
             url: "https://example.com/a".into(),
         };
-        assert!(document.is(Some(3), "https://example.com/a"));
-        assert!(!document.is(Some(3), "https://example.com/b"));
+        navigations.source_changed();
+        navigations.source_changed();
+        assert!(!document.is(navigations.revision(), "https://example.com/a"));
+    }
+
+    #[test]
+    fn a_refused_capture_leaves_the_one_in_flight_held() {
+        let _flight = InFlight::take().unwrap();
+        assert!(InFlight::take().is_none());
+        assert!(InFlight::take().is_none());
     }
 
     #[test]

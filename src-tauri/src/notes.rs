@@ -2277,26 +2277,35 @@ pub fn paste_image(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<String, 
     paste_image_in(&root(app)?, path, bytes, &platform::paste_timestamp())
 }
 /// Creates the note `path` holding `content` and then a link to `image`, which goes into the
-/// attachments beside it as a pasted image does. The image is written first and the note created
-/// whole in one write, only while its name is free: nothing writes the note again, so a note
-/// deleted meanwhile cannot come back and the note never exists without its link. `Conflict` when
-/// the name is taken; then, or on a failure, the image just written is removed again unless it
-/// changed meanwhile.
+/// attachments beside it as a pasted image does, in the folder whose marker holds `folder_id`, the
+/// one the capture started in; another answers `FolderChanged` before anything is written. A taken
+/// name answers `Conflict`, also before anything is written. Then the image is written and the note
+/// created whole by `publish`, in one write and only while its name is still free: nothing writes
+/// the note again, so a note deleted meanwhile cannot come back and the note never exists without its
+/// link. Nothing is ever deleted: if the note is not created, the image stays and `ImageKept` names it.
 fn create_with_image_in(
     root: &Path,
+    folder_id: &str,
     path: &str,
     content: &str,
     image: &[u8],
     stamp: &str,
+    publish: fn(&Path, &str, &[u8]) -> Result<Saved, Error>,
 ) -> Result<Saved, Error> {
     let ext = attachment_extension(image)?;
     too_large(content.len() as u64)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    if read_marker(root)?.as_deref() != Some(folder_id) {
+        return Err(Error::FolderChanged);
+    }
     // Reservations name the folder as configured, not canonical.
     if reserved(root, path) {
         return Ok(Saved::Conflict);
     }
     let target = root.canonicalize()?.join(checked(path, markdown)?);
+    if exists(&target) {
+        return Ok(Saved::Conflict);
+    }
     let parent = target.parent().ok_or(Error::InvalidPath)?;
     // No link on the way: the image must land beside the note, inside the folder.
     if parent.canonicalize()? != parent {
@@ -2305,17 +2314,27 @@ fn create_with_image_in(
     let held = hold_ancestry(parent).map_err(|_| Error::AttachmentFolderUnsafe)?;
     let attached = attach(parent, held, image, ext, stamp)?;
     let note = format!("{content}![]({})", attachment_link(&attached));
-    let created = recreate_note(root, path, note.as_bytes());
-    if !matches!(created, Ok(Saved::Saved { .. })) {
-        discard_if(&attached, |bytes| bytes == image);
+    match publish(root, path, note.as_bytes()) {
+        Ok(saved @ Saved::Saved { .. }) => Ok(saved),
+        // Another app took the name since the check, or the write failed.
+        _ => Err(Error::ImageKept {
+            path: display(&attached),
+        }),
     }
-    created
 }
-/// `create_with_image_in` in the notes folder, if it is still `folder`, the one the UI saw when the
-/// capture started.
+/// The notes folder a capture goes into, as the path and marker id it has now: `create_with_image`
+/// writes only there.
+pub fn capture_folder(app: &AppHandle) -> Result<(String, String), Error> {
+    let root = root(app)?;
+    let id = read_marker(&root)?.ok_or(Error::FolderUnrecognized)?;
+    Ok((root.to_string_lossy().into_owned(), id))
+}
+/// `create_with_image_in` in the notes folder, if it is still the one `capture_folder` answered
+/// `folder` and `folder_id` for when the capture started.
 pub fn create_with_image(
     app: &AppHandle,
     folder: &str,
+    folder_id: &str,
     path: &str,
     content: &str,
     image: &[u8],
@@ -2324,7 +2343,16 @@ pub fn create_with_image(
     if root.to_string_lossy() != folder {
         return Err(Error::FolderChanged);
     }
-    create_with_image_in(&root, path, content, image, &platform::paste_timestamp())
+    let stamp = platform::paste_timestamp();
+    create_with_image_in(
+        &root,
+        folder_id,
+        path,
+        content,
+        image,
+        &stamp,
+        recreate_note,
+    )
 }
 /// A backup a save left behind, for example when the app closed between the two renames that put an
 /// external version back.
@@ -2867,11 +2895,25 @@ mod tests {
             "unchanged"
         );
     }
+    /// A notes folder marked as chosen, for captures.
+    fn marked() -> (Temp, String) {
+        let t = Temp::new();
+        let id = stamp(&t.0).unwrap();
+        (t, id)
+    }
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nimage";
     #[test]
     fn a_captured_note_is_created_with_its_image_linked() {
-        let t = Temp::new();
-        let png = b"\x89PNG\r\n\x1a\nimage";
-        let created = create_with_image_in(&t.0, "Page.md", "---\n---\n\n", png, "20261119-1010");
+        let (t, id) = marked();
+        let created = create_with_image_in(
+            &t.0,
+            &id,
+            "Page.md",
+            "---\n---\n\n",
+            PNG,
+            "20261119-1010",
+            recreate_note,
+        );
         assert!(matches!(created, Ok(Saved::Saved { .. })));
         assert_eq!(
             fs::read_to_string(t.0.join("Page.md")).unwrap(),
@@ -2879,20 +2921,48 @@ mod tests {
         );
         assert_eq!(
             fs::read(t.0.join("attachments/pasted-20261119-1010.png")).unwrap(),
-            png
+            PNG
         );
     }
     #[test]
-    fn a_capture_under_a_taken_name_conflicts_and_removes_its_image() {
-        let t = Temp::new();
+    fn a_capture_under_a_taken_name_conflicts_before_writing_its_image() {
+        let (t, id) = marked();
         fs::write(t.0.join("Page.md"), "kept").unwrap();
-        let png = b"\x89PNG\r\n\x1a\nimage";
         assert_eq!(
-            create_with_image_in(&t.0, "Page.md", "new", png, "stamp"),
+            create_with_image_in(&t.0, &id, "Page.md", "new", PNG, "stamp", recreate_note),
             Ok(Saved::Conflict)
         );
         assert_eq!(fs::read_to_string(t.0.join("Page.md")).unwrap(), "kept");
-        assert_eq!(fs::read_dir(t.0.join("attachments")).unwrap().count(), 0);
+        assert!(!t.0.join("attachments").exists());
+    }
+    #[test]
+    fn a_capture_whose_note_fails_keeps_its_image() {
+        let (t, id) = marked();
+        let failed = create_with_image_in(&t.0, &id, "Page.md", "", PNG, "stamp", |_, _, _| {
+            Err(Error::unexpected("disk full"))
+        });
+        let image =
+            t.0.canonicalize()
+                .unwrap()
+                .join("attachments/pasted-stamp.png");
+        assert_eq!(
+            failed,
+            Err(Error::ImageKept {
+                path: display(&image)
+            })
+        );
+        assert_eq!(fs::read(&image).unwrap(), PNG);
+    }
+    #[test]
+    fn a_capture_into_another_folder_at_the_same_path_writes_nothing() {
+        let (t, _) = marked();
+        let started = new_folder_id();
+        assert_eq!(
+            create_with_image_in(&t.0, &started, "Page.md", "", PNG, "stamp", recreate_note),
+            Err(Error::FolderChanged)
+        );
+        assert!(!t.0.join("Page.md").exists());
+        assert!(!t.0.join("attachments").exists());
     }
     #[test]
     fn attachments_reject_junctions() {

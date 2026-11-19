@@ -44,6 +44,7 @@ import {
   pinnedRestore,
   pinnedSetCollapsed,
   type Removal,
+  type SaveResult,
   webAddresses,
   webCapture,
   webOfferCapture,
@@ -230,6 +231,7 @@ let history = $state<string[]>([]);
 let remote = $state<string[]>([]);
 let suggestionsElement = $state<HTMLElement>();
 let permissionElement = $state<HTMLElement>();
+let webErrorElement = $state<HTMLElement>();
 const latest = new LatestQuery();
 $effect(() => {
   void browser;
@@ -292,8 +294,9 @@ $effect(() => {
 });
 $effect(() => {
   // Both float from the top of the page: the cutout is the taller one.
+  // The error line sits at the top of the page too, so a failure there is never under it.
   const elements = browser
-    ? [addressEditing ? suggestionsElement : undefined, permissionElement].filter(
+    ? [addressEditing ? suggestionsElement : undefined, permissionElement, webErrorElement].filter(
         (element): element is HTMLElement => !!element,
       )
     : [];
@@ -722,7 +725,7 @@ async function restore(path: string) {
 }
 
 /** While the folder picker is open no editor can open: its note would belong to the old folder. */
-let choosing = false;
+let choosing = $state(false);
 /** The folder at the configured path is the user's after all, such as one marked before an upgrade. */
 async function trust() {
   try {
@@ -749,48 +752,52 @@ export async function choose() {
 }
 
 /**
- * Creates the note for the typed text and opens it expanded for editing; true once it is open.
- * With `capture`, the note also links its image, put beside it in the same step, and only in the
- * folder the capture started in.
+ * Saves a new note named after `text` through `save`, trying the next name while one is taken; the
+ * name saved, or null with `error` set.
  */
-let creating = false;
-async function create(
+let creating = $state(false);
+async function createNamed(
   text: string,
-  content = "",
-  capture?: { image: Uint8Array; folder: string },
-): Promise<boolean> {
-  if (creating) return false;
+  save: (name: string) => Promise<SaveResult>,
+): Promise<string | null> {
+  const taken = notes.map((note) => note.path);
+  // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const name = noteFileName(text, taken);
+    if ((await save(name)).status === "saved") return name;
+    taken.push(name);
+  }
+  error = errorText({ code: "saveFailed", detail: text });
+  return null;
+}
+
+/** Shows the note just created at `name` expanded in the editor, leaving the page and the reader view. */
+async function openCreated(name: string) {
+  expanded = name;
+  selection = name;
+  // Leaving the reader view first, so hiding the page returns to Notes.
+  article = null;
+  await webSetVisible(false);
+  await edit(name);
+}
+
+/** Creates the note for the typed text and opens it expanded for editing. */
+async function create(text: string, content = "") {
+  if (creating) return;
   creating = true;
   try {
     error = "";
-    if (!(await leaveEditor())) return false;
+    if (!(await leaveEditor())) return;
     if (!content && !browser) content = creationContent(query);
-    const taken = notes.map((note) => note.path);
-    // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const name = noteFileName(text, taken);
-      const result = capture
-        ? await notesCreateWithImage(capture.folder, name, content, capture.image)
-        : await notesSave(name, content, "");
-      if (result.status === "saved") {
-        await relist();
-        expanded = name;
-        selection = name;
-        // Leaving the reader view first, so hiding the page returns to Notes.
-        article = null;
-        await webSetVisible(false);
-        await edit(name);
-        return true;
-      }
-      taken.push(name);
-    }
-    error = errorText({ code: "saveFailed", detail: text });
+    const name = await createNamed(text, (name) => notesSave(name, content, ""));
+    if (!name) return;
+    await relist();
+    await openCreated(name);
   } catch (e) {
     error = errorText(e);
   } finally {
     creating = false;
   }
-  return false;
 }
 
 let savingPage = $state(false);
@@ -829,30 +836,49 @@ let capturing = $state(false);
  * asks it again, since the menu reads a copy kept in Rust that can lag behind.
  */
 const canCapture = $derived(
-  browser && ready && !!pageUrl && !pageUnavailable && !savingPage && !capturing && !article,
+  browser &&
+    !inactive &&
+    ready &&
+    !!pageUrl &&
+    !pageUnavailable &&
+    !savingPage &&
+    !capturing &&
+    !choosing &&
+    !creating &&
+    !article,
 );
 $effect(() => {
   void webOfferCapture(canCapture).catch(() => {});
 });
 /**
- * A screenshot of the page into a new note titled and sourced from the page it shows, opened in
- * the editor. The note goes only into the folder that was in use when the capture started.
+ * A screenshot of the page into a new note titled and sourced from the page it shows, always
+ * created, in the notes folder the capture started in. It opens in the editor only if the page is
+ * still shown, not covered by Preferences, and the editor can be left; otherwise a notice names it.
  */
 async function capturePage(full: boolean) {
-  if (!canCapture || !folder || choosing || creating) return;
-  const started = folder.path;
+  if (!canCapture) return;
   capturing = true;
   try {
     error = "";
     warning = "";
     const shot = await webCapture(full);
-    if (folder?.path !== started) {
-      error = errorText({ code: "folderChanged" });
-      return;
-    }
     const note = pageNote({ url: shot.url, title: shot.title, selection: "" });
-    const created = await create(note.name, note.text, { image: shot.image, folder: started });
-    if (created && shot.clipped) warning = t("capture.clipped");
+    // Saved whatever the panel shows now; a create meanwhile is serialized by Rust.
+    const name = await createNamed(note.name, (name) =>
+      notesCreateWithImage(shot.folder, shot.folderId, name, note.text, shot.image),
+    );
+    if (!name) return;
+    await relist();
+    let opened = false;
+    if (browser && !inactive && (await leaveEditor())) {
+      await openCreated(name);
+      opened = editing && selected === name;
+    }
+    const notices = [
+      ...(opened ? [] : [t("capture.saved", { title: note.name })]),
+      ...(shot.clipped ? [t("capture.clipped")] : []),
+    ];
+    warning = notices.join(" ");
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -1211,8 +1237,8 @@ let removed = $state<{
   undo: boolean;
 } | null>(null);
 let deleting = false;
-/** Why the app would not delete a note, or that a capture was clipped, until dismissed, the next
- * delete or the panel hides. */
+/** Why the app would not delete a note, or a capture saved without opening or clipped, until
+ * dismissed, the next delete or the panel hides. */
 let warning = $state("");
 /** The note being deleted; it cannot open in the editor meanwhile. */
 let deletingPath = "";
@@ -2306,7 +2332,7 @@ onMount(() => {
     </div>
   {/if}
   <p class="announce" aria-live="polite">{announced}</p>
-  {#if browser && error}<p class="error" role="alert">{error}</p>{/if}
+  {#if browser && error}<p class="error" role="alert" bind:this={webErrorElement}>{error}</p>{/if}
   {#if browser && !pageUrl}<div class="empty"><p>{t("web.empty")}</p></div>{/if}
   {#if browser && article}<Reader {article} onlink={linkClick} />{/if}
   <div class="content" hidden={browser}>

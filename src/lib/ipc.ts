@@ -171,9 +171,17 @@ export const webReader = () => invoke<PageArticle | null>("web_reader");
  * A screenshot of the shown page drawn by the browser engine: the visible area, or with `full` the
  * whole page. `image` is a PNG, or a JPEG when a PNG would exceed the attachment limit; `url` and
  * `title` are those of the document it shows, and untrusted. `clipped`: the page was too large and
- * only its start was captured.
+ * only its start was captured. `folder` and `folderId`: the notes folder it started in, which
+ * `notesCreateWithImage` requires.
  */
-export type PageCapture = { url: string; title: string; image: Uint8Array; clipped: boolean };
+export type PageCapture = {
+  url: string;
+  title: string;
+  image: Uint8Array;
+  clipped: boolean;
+  folder: string;
+  folderId: string;
+};
 export async function webCapture(full: boolean): Promise<PageCapture> {
   // A raw body: a little-endian u32 with the length of the page's JSON, that JSON, then the image.
   const body = new Uint8Array(await invoke<ArrayBuffer>("web_capture", { full }));
@@ -298,11 +306,13 @@ export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   });
 /**
  * Creates the note `path` holding `content` and then a link to `image`, put beside it as a pasted
- * image is, in one write: `conflict` if the name is taken. Fails with `folderChanged` unless the
- * notes folder is still `folder`.
+ * image is, in one write: `conflict` if the name is taken, before the image is written. Fails with
+ * `folderChanged` unless the notes folder is still `folder` with the marker id `folderId`, and with
+ * `imageKept` if the note could not be created after the image was.
  */
 export function notesCreateWithImage(
   folder: string,
+  folderId: string,
   path: string,
   content: string,
   image: Uint8Array,
@@ -317,6 +327,7 @@ export function notesCreateWithImage(
     headers: {
       "x-note-path": encodeURIComponent(path),
       "x-notes-folder": encodeURIComponent(folder),
+      "x-notes-folder-id": encodeURIComponent(folderId),
     },
   });
 }

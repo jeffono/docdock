@@ -156,15 +156,20 @@ pub async fn web_selection(app: AppHandle) -> Result<Option<web::PageSelection>,
 
 /// A screenshot of the shown page, `full` or its visible area, waiting off the async runtime as
 /// `web_selection` does. Raw bytes avoid expanding the image into JSON numbers: a little-endian
-/// `u32` gives the length of a JSON object with the page's `url`, `title` and whether it was
-/// `clipped` to the size limits, and the image follows it.
+/// `u32` gives the length of a JSON object with the page's `url`, `title`, whether it was
+/// `clipped` to the size limits, and the notes `folder` and `folderId` it started in, which
+/// `notes_create_with_image` requires; the image follows it.
 #[tauri::command]
 pub async fn web_capture(app: AppHandle, full: bool) -> Result<tauri::ipc::Response, Error> {
-    let capture = tauri::async_runtime::spawn_blocking(move || web::capture(&app, full))
-        .await
-        .map_err(Error::unexpected)??;
+    let (capture, (folder, folder_id)) = tauri::async_runtime::spawn_blocking(move || {
+        let folder = crate::notes::capture_folder(&app)?;
+        web::capture(&app, full).map(|capture| (capture, folder))
+    })
+    .await
+    .map_err(Error::unexpected)??;
     let page = serde_json::json!({
         "url": capture.url, "title": capture.title, "clipped": capture.clipped,
+        "folder": folder, "folderId": folder_id,
     })
     .to_string();
     let length = u32::try_from(page.len()).map_err(Error::unexpected)?;
@@ -333,8 +338,8 @@ pub fn notes_paste_image(
 /// A new note holding `content` and then a link to an image put beside it, as
 /// `notes_create_with_image` in `notes.rs` says. Raw IPC as `notes_paste_image`: the body is a
 /// little-endian `u32` with the length of `content` in UTF-8, `content` and the image. The headers
-/// name the note and the notes folder the UI saw when it started, so a folder chosen since refuses
-/// the note with `folderChanged`.
+/// name the note and the notes folder path and marker id `web_capture` started in, so a folder
+/// chosen since refuses the note with `folderChanged`.
 #[tauri::command(async)]
 pub fn notes_create_with_image(
     app: AppHandle,
@@ -351,7 +356,11 @@ pub fn notes_create_with_image(
             .map(|value| value.into_owned())
             .map_err(|_| Error::InvalidPath)
     };
-    let (path, folder) = (header("x-note-path")?, header("x-notes-folder")?);
+    let (path, folder, folder_id) = (
+        header("x-note-path")?,
+        header("x-notes-folder")?,
+        header("x-notes-folder-id")?,
+    );
     let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
         return Err(Error::UnsupportedImage);
     };
@@ -363,7 +372,7 @@ pub fn notes_create_with_image(
         .split_at_checked(length)
         .ok_or(Error::UnsupportedImage)?;
     let content = std::str::from_utf8(content).map_err(Error::unexpected)?;
-    crate::notes::create_with_image(&app, &folder, &path, content, image)
+    crate::notes::create_with_image(&app, &folder, &folder_id, &path, content, image)
 }
 #[tauri::command(async)]
 pub fn notes_leftovers(app: AppHandle) -> Result<Vec<crate::notes::Leftover>, Error> {
