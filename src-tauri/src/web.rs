@@ -1,6 +1,7 @@
 //! Web page in its own window above the panel. Its content is untrusted: the window has no app
 //! capability, only navigates over HTTP(S), and never opens another window.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -10,6 +11,7 @@ use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 use crate::dock::Request;
 use crate::error::Error;
+use crate::i18n::Locale;
 use crate::platform::browser::Read;
 use crate::platform::edge;
 
@@ -106,7 +108,7 @@ pub fn open(app: &AppHandle, requests: &Sender<Request>, raw_url: &str) -> Resul
     let window = build()?;
     crate::platform::exclude_from_capture(&window);
     let setup = crate::platform::guard(&window, frame_allowed)
-        .and_then(|()| edge::filter(&window, edge::Owner::Page))
+        .and_then(|()| edge::filter(&window, edge::Owner::Page, Some(capture_items(app))))
         .and_then(|()| crate::platform::browser::mobile(&window))
         .and_then(|()| crate::platform::browser::observe(&window))
         .and_then(|()| {
@@ -277,6 +279,26 @@ pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
     read_page(app, expression, SELECTION_TIMEOUT)
         .ok()?
         .and_then(|(_, json)| json)
+}
+
+/// Whether the UI would start a capture, as its last report said; the page's context menu reads it
+/// as it opens, without waiting on the UI. The UI checks again when an item is chosen.
+static CAPTURE_OFFERED: AtomicBool = AtomicBool::new(false);
+
+pub fn offer_capture(offered: bool) {
+    CAPTURE_OFFERED.store(offered, Ordering::Relaxed);
+}
+
+/// The page menu's items for the visible area and the full page, in the interface language.
+fn capture_items(app: &AppHandle) -> edge::CaptureItems {
+    let labels = match *app.state::<Locale>() {
+        Locale::En => ["Capture visible area", "Capture full page"],
+        Locale::PtBr => ["Capturar área visível", "Capturar página inteira"],
+    };
+    edge::CaptureItems {
+        labels,
+        enabled: || CAPTURE_OFFERED.load(Ordering::Relaxed),
+    }
 }
 
 /// A large page takes the engine a few seconds to draw and encode; a hung one fails after this.

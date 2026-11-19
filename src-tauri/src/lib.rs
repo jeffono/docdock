@@ -96,6 +96,7 @@ pub fn run() {
         commands::web_selection,
         commands::web_reader,
         commands::web_capture,
+        commands::web_offer_capture,
         commands::web_suggestions,
         commands::web_addresses,
         commands::web_overlay,
@@ -159,7 +160,7 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev::setup(app)?;
             let window = main_window::create(app)?;
-            platform::edge::filter(&window, platform::edge::Owner::Ui)
+            platform::edge::filter(&window, platform::edge::Owner::Ui, None)
                 .map_err(|error| format!("{error:?}"))?;
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();

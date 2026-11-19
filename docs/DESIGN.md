@@ -434,14 +434,14 @@ immediately left of the address field, sharing its row without taking space from
 its icon, not its larger hit area, starts at the bar's content edge.
 Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
 site and reloads the page, without a popover. The tooltip and accessible label name the site and
-current state. It is hidden without an HTTP(S) page and disabled while saving. In Browser a quiet
-camera button sits between the address field and "+", opening a menu under it with "Capture visible
-area" and "Capture full page"; the page is cut out behind the menu as behind suggestions. It is
-disabled without a page, in the reader view, without the notes folder, while the page is unavailable
-and while a capture or save is pending; its menu items follow the same rule. A capture always goes
-into a new note titled and sourced from the page, and the panel returns to Notes with that note in
-the editor; after a failure the page stays. A page too long for one image is clipped to its start with a dismissible
-notice above the list; failures use the usual error line. Browser starts with a short hint and the
+current state. It is hidden without an HTTP(S) page and disabled while saving. The page's native
+context menu keeps only editing items and back/forward/reload, then, after a separator, ends with
+"Capture visible area" and "Capture full page", on a link, image or selection too; they capture the
+page. They are disabled without the notes folder, while the page is unavailable and while a capture
+or save is pending. A capture always goes into a new note titled and sourced from the page, and the
+panel returns to Notes with that note in the editor; after a failure the page stays. A page too long
+for one image is clipped to its start with a dismissible notice above the list; failures use the
+usual error line. Browser starts with a short hint and the
 field focused; switching tabs retains the page document and history. The native page is clipped two
 logical pixels inside the panel sides and bottom so the focus band remains visible.
 

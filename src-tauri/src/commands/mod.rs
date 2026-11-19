@@ -175,6 +175,11 @@ pub async fn web_capture(app: AppHandle, full: bool) -> Result<tauri::ipc::Respo
     Ok(tauri::ipc::Response::new(body))
 }
 
+#[tauri::command]
+pub fn web_offer_capture(offered: bool) {
+    web::offer_capture(offered);
+}
+
 /// The shown page's article for the reader view; waits off the async runtime as `web_selection`
 /// does, and extraction runs there too.
 #[tauri::command]

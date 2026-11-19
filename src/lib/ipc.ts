@@ -184,6 +184,11 @@ export async function webCapture(full: boolean): Promise<PageCapture> {
   >;
   return { ...page, image: body.slice(4 + length) };
 }
+/** Whether the page's context menu enables its capture items. */
+export const webOfferCapture = (offered: boolean) => invoke<void>("web_offer_capture", { offered });
+/** A capture item chosen in the page's native context menu: `full` page or the visible area. */
+export const onWebCapture = (handler: (full: boolean) => void) =>
+  listen<boolean>("web-capture", (event) => handler(event.payload));
 export type PageState = { url: string; title: string; canGoBack: boolean; canGoForward: boolean };
 export const onWebState = (handler: (state: PageState | null) => void) =>
   listen<PageState | null>("web-state", (event) => handler(event.payload));

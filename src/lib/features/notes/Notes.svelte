@@ -32,6 +32,7 @@ import {
   onNotesChanged,
   onPanelHidden,
   onPanelSearch,
+  onWebCapture,
   openExternal,
   type PageArticle,
   type Pinned,
@@ -45,6 +46,7 @@ import {
   type Removal,
   webAddresses,
   webCapture,
+  webOfferCapture,
   webOpen,
   webOverlay,
   webSearchUrl,
@@ -289,10 +291,9 @@ $effect(() => {
     .catch(() => {});
 });
 $effect(() => {
-  // All float from the top of the page: the cutout is the taller one.
-  const menu = browser && captureMenuOpen ? document.getElementById("capture-menu") : null;
+  // Both float from the top of the page: the cutout is the taller one.
   const elements = browser
-    ? [addressEditing ? suggestionsElement : undefined, permissionElement, menu].filter(
+    ? [addressEditing ? suggestionsElement : undefined, permissionElement].filter(
         (element): element is HTMLElement => !!element,
       )
     : [];
@@ -301,12 +302,7 @@ $effect(() => {
     return;
   }
   const observer = new ResizeObserver(() => {
-    const heights = elements.map((element) =>
-      // The menu sits a margin below the bar, where the page starts.
-      element === menu
-        ? element.getBoundingClientRect().bottom - (tools?.getBoundingClientRect().bottom ?? 0)
-        : element.getBoundingClientRect().height,
-    );
+    const heights = elements.map((element) => element.getBoundingClientRect().height);
     void webOverlay(Math.ceil(Math.max(...heights)));
   });
   for (const element of elements) observer.observe(element);
@@ -828,19 +824,16 @@ async function savePage() {
 }
 
 let capturing = $state(false);
-/** A capture can start: the button, its menu items and the capture itself all ask this. */
+/**
+ * A capture can start: the page's context menu offers its items by this, and the capture itself
+ * asks it again, since the menu reads a copy kept in Rust that can lag behind.
+ */
 const canCapture = $derived(
-  ready && !!pageUrl && !pageUnavailable && !savingPage && !capturing && !article,
+  browser && ready && !!pageUrl && !pageUnavailable && !savingPage && !capturing && !article,
 );
-let captureMenu: Menu;
-let captureMenuOpen = $state(false);
-let captureAnchor = $state<HTMLElement>();
-function openCaptureMenu() {
-  // The wrapper has no box of its own: the menu opens under the button.
-  const button = captureAnchor?.querySelector("button");
-  const rect = button?.getBoundingClientRect();
-  captureMenu.show({ at: rect && { x: rect.left, y: rect.bottom }, from: button });
-}
+$effect(() => {
+  void webOfferCapture(canCapture).catch(() => {});
+});
 /**
  * A screenshot of the page into a new note titled and sourced from the page it shows, opened in
  * the editor. The note goes only into the folder that was in use when the capture started.
@@ -2153,6 +2146,8 @@ onMount(() => {
     relativeNow = Date.now();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
+  // Chosen in the page's native context menu.
+  const captureChosen = onWebCapture((full) => void capturePage(full));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden(() => {
     noteSearchTyped = false;
@@ -2196,6 +2191,7 @@ onMount(() => {
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
+    void captureChosen.then((stop) => stop());
   };
 });
 </script>
@@ -2209,10 +2205,6 @@ onMount(() => {
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
-<Menu bind:this={captureMenu} id="capture-menu" label={t("capture.label")} ontoggle={(open) => { captureMenuOpen = open; }}>
-  <button role="menuitem" tabindex="-1" disabled={!canCapture} onclick={() => capturePage(false)}>{t("capture.visible")}</button>
-  <button role="menuitem" tabindex="-1" disabled={!canCapture} onclick={() => capturePage(true)}>{t("capture.full")}</button>
-</Menu>
 <Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
 </Menu>
@@ -2291,9 +2283,6 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
-      {#if browser}
-        <span class="capture" bind:this={captureAnchor}><IconButton quiet icon="camera" label={t("capture.label")} disabled={!canCapture} onclick={openCaptureMenu} /></span>
-      {/if}
       <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage || capturing))} onclick={() => browser ? savePage() : create(creationText(query))} />
       <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->
       {#if !browser && ready && listing.skipped.length > 0 && !skippedOpen}
@@ -2684,8 +2673,7 @@ onMount(() => {
     padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
   }
 
-  .skipped-toggle,
-  .capture {
+  .skipped-toggle {
     display: contents;
   }
 

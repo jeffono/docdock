@@ -1,21 +1,27 @@
 //! Edge features foreign to the app. WebView2 brings Edge's accelerator keys and context menu
 //! (downloads on Ctrl+J, print, save, history, view source, DevTools), which open dialogs or popup
 //! windows: some cannot be closed in a panel, and any of them takes focus and closes the panel.
-//! They are filtered natively, before any script runs, so the page needs no channel.
-use tauri::{Emitter, Manager, WebviewWindow};
+//! They are filtered natively, before any script runs, so the page needs no channel. The page's menu
+//! also gets the app's capture items, chosen natively too.
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
-    COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, ICoreWebView2_11,
-    ICoreWebView2AcceleratorKeyPressedEventArgs2,
+    COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
+    COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR, COREWEBVIEW2_KEY_EVENT_KIND,
+    COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
+    ICoreWebView2_11, ICoreWebView2AcceleratorKeyPressedEventArgs2,
+    ICoreWebView2ContextMenuItemCollection, ICoreWebView2Environment9,
 };
-use webview2_com::{AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler};
+use webview2_com::{
+    AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler,
+    CustomItemSelectedEventHandler,
+};
+use windows::Win32::System::Com::IStream;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VIRTUAL_KEY, VK_ADD, VK_BROWSER_BACK, VK_BROWSER_FORWARD, VK_CONTROL, VK_F5,
     VK_F12, VK_LEFT, VK_MENU, VK_NUMPAD0, VK_OEM_MINUS, VK_OEM_PLUS, VK_RIGHT, VK_SHIFT,
     VK_SUBTRACT, VK_TAB,
 };
-use windows::core::Interface;
+use windows::core::{HSTRING, Interface};
 
 use super::text;
 use crate::error::Error;
@@ -152,16 +158,85 @@ fn menu_removals(owner: Owner, items: &[Option<String>]) -> Vec<usize> {
         .collect()
 }
 
+/// The page menu's capture items, last, after a separator: the visible area, then the full page.
+pub struct CaptureItems {
+    /// In the interface language.
+    pub labels: [&'static str; 2],
+    /// Whether they are enabled, read as the menu opens.
+    pub enabled: fn() -> bool,
+}
+
+/// Appends `capture`'s items to the filtered menu. Choosing one sends `web-capture` to the UI with
+/// whether it is the full page; only a native menu item can, never the page.
+unsafe fn append_capture(
+    environment: &ICoreWebView2Environment9,
+    capture: &CaptureItems,
+    items: &ICoreWebView2ContextMenuItemCollection,
+    app: &AppHandle,
+) -> windows::core::Result<()> {
+    let mut count = 0;
+    unsafe { items.Count(&mut count) }?;
+    let no_icon = None::<&IStream>;
+    if count > 0 {
+        let separator = unsafe {
+            environment.CreateContextMenuItem(
+                &HSTRING::new(),
+                no_icon,
+                COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
+            )
+        }?;
+        unsafe { items.InsertValueAtIndex(count, &separator) }?;
+        count += 1;
+    }
+    let enabled = (capture.enabled)();
+    for (label, full) in capture.labels.into_iter().zip([false, true]) {
+        let item = unsafe {
+            environment.CreateContextMenuItem(
+                &HSTRING::from(label),
+                no_icon,
+                COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
+            )
+        }?;
+        unsafe { item.SetIsEnabled(enabled) }?;
+        let app = app.clone();
+        let chosen = CustomItemSelectedEventHandler::create(Box::new(move |_, _| {
+            let _ = app.emit_to("main", "web-capture", full);
+            Ok(())
+        }));
+        let mut token = 0;
+        unsafe { item.add_CustomItemSelected(&chosen, &mut token) }?;
+        unsafe { items.InsertValueAtIndex(count, &item) }?;
+        count += 1;
+    }
+    Ok(())
+}
+
 fn down(key: VIRTUAL_KEY) -> bool {
     unsafe { GetKeyState(i32::from(key.0)) < 0 }
 }
 
-/// Installs the filter. For the page, waits for it before the first navigation, so call it off
-/// the WebView2 UI thread; for the UI, which loads only trusted content, it returns at once.
-pub fn filter(window: &WebviewWindow, owner: Owner) -> Result<(), Error> {
+/// Installs the filter, and `capture`'s items if any. For the page, waits for it before the first
+/// navigation, so call it off the WebView2 UI thread; for the UI, which loads only trusted content,
+/// it returns at once.
+pub fn filter(
+    window: &WebviewWindow,
+    owner: Owner,
+    capture: Option<CaptureItems>,
+) -> Result<(), Error> {
     let (sender, receiver) = std::sync::mpsc::channel();
     let app = window.app_handle().clone();
+    let menu_app = app.clone();
     window.with_webview(move |view| unsafe {
+        // The same runtime as the menu event; without it the menu would only lack capture items.
+        let capture = capture.and_then(|capture| {
+            match view.environment().cast::<ICoreWebView2Environment9>() {
+                Ok(environment) => Some((environment, capture)),
+                Err(error) => {
+                    eprintln!("[edge] capture items unavailable: {error}");
+                    None
+                }
+            }
+        });
         let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
             let Some(args) = args else { return Ok(()) };
             let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
@@ -215,6 +290,11 @@ pub fn filter(window: &WebviewWindow, owner: Owner) -> Result<(), Error> {
             }
             for index in menu_removals(owner, &described) {
                 items.RemoveValueAtIndex(index as u32)?;
+            }
+            if let Some((environment, capture)) = &capture
+                && let Err(error) = append_capture(environment, capture, &items, &menu_app)
+            {
+                eprintln!("[edge] capture items: {error}");
             }
             Ok(())
         }));

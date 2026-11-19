@@ -91,8 +91,9 @@ the screen. Region capture is out: Win+Shift+S and paste already cover it (see
   title from the image's document.
 - [x] Destination (standard): a new note titled and sourced from the page holds the image and opens
   in the editor, created with its link in one write in the folder the capture started in.
-- [x] Bar control (standard): a camera button with a two-item menu in the web tab's bar, disabled
-  without a page, in the reader view, while unavailable or while a capture is pending.
+- [x] Page menu control (advanced): "Capture visible area" and "Capture full page" at the end of
+  the page's native context menu, replacing the bar's camera button; disabled while unavailable,
+  without the notes folder or while a capture or save is pending.
 - [x] Docs (basic): `docs/ARCHITECTURE.md`, `docs/DESIGN.md` and `docs/EXPLORATIONS.md`.
 
 ## Later

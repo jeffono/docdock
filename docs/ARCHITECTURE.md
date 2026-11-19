@@ -447,7 +447,8 @@ per-monitor DPI awareness (PMv2).
   DevTools in debug builds. Ctrl+Tab on the page is consumed natively and emitted to `main` as
   `panel-toggle-mode`; the page never sees it. Context menus keep only editing items, plus
   back/forward/reload on the page; unknown or future items are dropped. The UI's menu also drops Copy
-  link and Copy image, which bypass the copy event (see "Copy and cut" in Notes).
+  link and Copy image, which bypass the copy event (see "Copy and cut" in Notes). The page's menu
+  ends with the capture items (see "Page captures").
 - **Page selection:** `web_selection` returns the native URL, the page title and its selected text,
   or null without an http(s) page. `platform/browser.rs` evaluates one constant expression,
   `[document.title, getSelection().toString()]` sliced to 4,096 and 20,000 UTF-16 units and made
@@ -813,7 +814,13 @@ it before leaving. Reloads are refused during that wait; insertion then creates 
 Markdown edit protected by autosave's existing watcher guard. Errors use the existing editor notice.
 The reading view resolves the inserted link through `markdown::image_url` and `note-asset`.
 
-**Page captures.** `web_capture` asks the browser engine, not the screen, for an image of the page
+**Page captures.** The page's context menu ends with native items for the visible area and the full
+page, labeled in the Rust `Locale` and created by `platform/edge.rs` as the menu opens. They are
+enabled from a flag in `web.rs` that the UI sets through `web_offer_capture` whenever its `canCapture`
+changes, so the menu never waits on the UI; choosing one emits `web-capture` to `main` only, and the
+UI checks `canCapture` again before capturing, since the flag can lag behind. Only a native menu item
+emits it: the page has no IPC and cannot choose one. A page that cancels its `contextmenu` event shows
+no menu, and so no capture items. `web_capture` asks the browser engine, not the screen, for an image of the page
 window through `platform/browser.rs`'s `capture`: `Page.captureScreenshot` for the visible area, or
 for the whole page with `captureBeyondViewport` and a clip from `Page.getLayoutMetrics`. Nothing runs in
 the page, and the page window's capture exclusion does not apply to the engine's own rendering. The
