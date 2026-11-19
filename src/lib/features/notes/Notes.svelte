@@ -377,6 +377,14 @@ export function leaveEditor(): Promise<boolean> {
   if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
   leaving = (async () => {
+    // An editor that never mounted, as when Browser came back while the note was read, holds no
+    // edits: leaving must not depend on it.
+    if (!editor) {
+      leftPath = selected;
+      selected = "";
+      editing = false;
+      return true;
+    }
     // A title being typed is renamed first, while the editor still holds the note.
     const field = document.activeElement;
     if (field instanceof HTMLInputElement && field.closest(".card.editing .rename")) field.blur();
