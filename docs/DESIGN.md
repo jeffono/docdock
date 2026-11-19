@@ -1,9 +1,12 @@
 # Design
 
-Identity chosen by the user: a neutral, compact system utility. Values live in
-`src/lib/styles/tokens.css`; this file says how to use them. Only the user changes the identity.
+The first part is the identity, chosen by the user: read it for any UI work. The rest specifies visible
+behavior per feature: read only the section touched. Values live in `src/lib/styles/tokens.css`; how
+they are implemented is in `docs/ARCHITECTURE.md` and the code.
 
-Development builds tune it live in the tweak window; see "Tweak window" at the end.
+# Identity
+
+A neutral, compact system utility. Only the user changes the identity.
 
 ## Principles
 
@@ -13,29 +16,33 @@ Development builds tune it live in the tweak window; see "Tweak window" at the e
 
 ## Color
 
-- Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the primary action.
+- Neutrals for almost everything. Blue accent marks only selection, enabled state, links, focus and the
+  primary action.
 - Light and dark themes follow Windows by default, with a System, Light or Dark choice in Preferences.
-  Every new color starts in both themes, in `light-dark`.
-- Red only for errors. Fixed colors outside `tokens.css` fail `check:fast`.
-- Amber (`--color-warning*`, chosen by the user) only tints notices that need attention without being
+  Every new color starts in both themes, in `light-dark`. Fixed colors outside `tokens.css` fail
+  `check:fast`.
+- Red only for errors. Amber (`--color-warning*`) only tints notices that need attention without being
   errors, such as Undo after a delete. A light scrim (`--color-scrim`) dims the panel only behind a
-  confirmation dialog.
-- Code syntax uses the GitHub Light Default and GitHub Dark Default colors (chosen by the user): red
-  keywords and operators, dark-blue strings, blue constants, properties and definitions, violet
-  functions, orange types, green tags and gray comments. Punctuation and other identifiers keep the
-  foreground color. Shared by reading and editing, without added emphasis or italics.
+  dialog.
+- Code syntax uses the GitHub Light Default and GitHub Dark Default colors: red keywords and
+  operators, dark-blue strings, blue constants, properties and definitions, violet functions, orange
+  types, green tags and gray comments; punctuation and other identifiers keep the foreground color.
+  Same in reading and editing, without added emphasis or italics.
 
 ## Typography
 
 - Segoe UI throughout, and Cascadia Mono only for code.
 - Body in `--font-size-md`. Lists, fields and tables in `--font-size-sm`.
-- Weights 400 and 600, no decorative italics.
+- Weights 400 and 600, no decorative italics; Markdown emphasis uses italics as content.
 
 ## Space and shape
 
 - Spacing only from the `--space-*` scale, in 4 px increments.
-- Controls use `--size-control`, bars use `--size-bar` and corners use `--radius-sm`.
+- Controls use `--size-control`, bars use `--size-bar`, icons `--size-icon` and corners `--radius-sm`.
 - `--color-line` lines separate areas; no shadows.
+- One content column for the whole panel: bars, section labels and cards start `--space-4` +
+  `--space-2` from the panel's left edge (the chevron gutter) and end `--space-3` from the right edge.
+  Nothing else uses its own margin.
 
 ## Components
 
@@ -44,16 +51,19 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 | Component       | Use                                                                                           |
 | --------------- | --------------------------------------------------------------------------------------------- |
 | `Button`        | Primary action (at most one per area), neutral secondary action, or danger (deletes for good) |
-| `IconButton`    | Secondary action, always labeled; toggles on and off                                          |
+| `IconButton`    | Secondary action, always labeled; toggles on and off; `quiet` for card actions                |
 | `TextField`     | Single-line input; Esc leaves the field                                                       |
 | `Menu`          | In-panel menu of items with optional check and shortcut                                       |
 | `ConfirmDialog` | In-panel question before a costly action, focus on Cancel                                     |
 | `Notice`        | Amber-tinted message with an icon and actions; `attention` for Undo                           |
 | `Icon`          | Lucide stroke, text color, width 2                                                            |
 
+Menus, dialogs and popups are drawn in the panel's WebView: no native popup takes the panel's focus.
+The CSP forbids inline styles, so no component depends on a `style` attribute.
+
 ## States
 
-- **Hover:** lighter surface. Note metadata slides aside to reveal header actions.
+- **Hover:** lighter surface.
 - **Focus:** 2 px accent outline, keyboard only.
 - **Selected or enabled:** `--color-selected` background with accent text.
 - **Empty:** one sentence explaining what to do and the action immediately below.
@@ -61,255 +71,227 @@ Use `src/lib/ui/` before creating anything. Create a component only if nothing e
 
 ## Motion
 
-- The panel slides in 150 ms and the edge handle in 100 ms, with a cubic ease-in-out, defined in
-  `motion.rs`.
-  Hover uses `--duration`.
+- The panel slides in 150 ms and the edge handle in 100 ms, with a cubic ease-in-out (`motion.rs`).
+  CSS transitions use `--duration`; reduced motion removes them.
 - Nothing animates for decoration or delays access. The one exception that calls for attention is the
-  delete notice's entrance and Undo pulse, described under Deleting.
+  delete notice (see "Deleting").
 
 ## Text
 
-- English by default and pt-BR, both in `src/lib/i18n.ts`; tray labels in `tray.rs`. Short and direct
-  sentences.
+- English by default and pt-BR, in `src/lib/i18n.ts`; tray labels in `tray.rs`. Short and direct.
 - Buttons with infinitive verbs: "Open", "Choose folder".
 - No exclamation marks, technical jargon or blaming the user.
+- Tooltips and accessible labels include working shortcuts, such as "Pin (Ctrl+D)".
 
-## Rendered content
+# Behavior
 
-Reading and editing share `features/notes/content.css`, scoped by `.note-content`, including the
-frontmatter title and tag header. The editor loads it through an external link in its shadow root.
-CSP forbids inline styles: no component depends on a `style` attribute. Footnote references and
-labels are small raised text, references in the accent color; definitions are small muted text where
-they are written. Raw HTML keeps its shape as plain text. List paragraphs stay tight, like editor lines.
+## Panel and edge handle
 
-Inline code and code blocks use the recessed `--color-bg` on the card surface in both themes.
-Inline code has `--space-1` on each side. Blocks share `--space-2` vertical padding,
-`--space-3` horizontal padding and a `--color-line` border. Both use `--radius-sm`. The editor
-frames the code lines as one block, including the fence lines while their syntax is visible.
+- **Opening:** touching the screen edge beside the handle (a centered stretch of 300% of the tab
+  height, clipped to the work area) opens the panel after 150 ms. A rush, reaching the edge at 500
+  logical pixels per second or more, opens it at once: in real use the pause only slowed an
+  intentional move, so the threshold is low on purpose. The shortcut (Ctrl+Alt+Space by default)
+  opens it and goes to the search bar with its text selected.
+- **Closing:** without focus (hover only), it closes when the cursor leaves; passing over the taskbar
+  or an app bar in the panel's columns does not count as leaving, but clicking there does. Clicking
+  the panel or using the shortcut gives it focus; it then stays until focus moves to another app, or
+  Esc or the shortcut from the search bar. A pinned panel closes only by unpinning or the tab: Esc or
+  the shortcut from its search bar returns focus to the previous app and it stays shown.
+- **Focus band:** while the panel or its page has focus, a 2 px `--color-accent` band runs the full
+  height of the inner edge, over the border, without moving anything.
+- **Side and width:** right by default, or left (Preferences or tray), mirroring everything. 460
+  logical pixels wide by default, at least 320 and at most half the work area; a 6-pixel grip on the
+  inner edge resizes it (arrows when focused, double-click restores the default). The native page is
+  clipped two logical pixels inside the panel's sides and bottom so the band stays visible.
+- **Edge handle:** a tab that bulges out of the panel's inner edge, 20 logical pixels deep and 152
+  tall, joined by S-curves 28 pixels tall, filled with `--color-bg` and without a line between tab and
+  panel. The inner-edge line (1 px `--color-line`, or the focus band) runs around its outline. The
+  user's wordmark (`src-tauri/icons/source/wordmark.svg`), 52 pixels long, reads from bottom to top,
+  in `--color-fg` when pinned or focused, otherwise `--color-muted`. Closed, it slides in, vertically
+  centered on the work area, while the cursor is within 400% of the tab height of it (or beside the
+  activation stretch, if longer), and slides out when the cursor leaves; a rush skips it. Open, it
+  slides with the panel; a click released on its shape closes the panel, even pinned. No hover state,
+  tooltip or focus; dragging does nothing.
 
-Right click on a web or email link in a note opens the shared in-panel menu. It offers Open in browser
-and Copy link, and Open here for web links. Shift+click and middle click open the system browser in
-reading and editing. A normal click opens a web link in the panel when reading and places the cursor
-when editing. Ctrl+click in reading also opens the system browser. Email links open the system mail
-handler. Tab reaches links in the expanded note. Shift+F10 or the Menu key on a focused link or at
-the editor caret opens the menu. Arrows navigate, Enter selects and Esc restores focus.
+## Top bars
 
-GitHub alert titles use the English kind names, matching the Markdown source, without icons. Note,
-Tip and Important reuse the accent token; Warning and Caution reuse the danger token as content
-semantics. No colors were added. Raw frontmatter uses the existing surface, line and monospace tokens.
+- **Top bar:** subtle Notes and Browser tabs, then, in Browser, back/forward and the Reader view
+  toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and the panel pin
+  (Ctrl+Shift+D), filled when active and 12% smaller than other icons. No app name or page title.
+  Ctrl+Tab switches Notes/Browser anywhere in the panel, including the editor and the page.
+- **Second bar:** the same search field and "+" action in both modes. In Browser a quiet shield sits
+  left of the address field, its icon at the bar's content edge.
+- **Shield:** shield means content blocking on, shield-off allowed. One click toggles the whole
+  registrable site and reloads the page, without a popover. The tooltip names the site and state.
+  Hidden without an HTTP(S) page, disabled while saving.
+
+## Unified address bar
+
+- **Notes mode:** the search persists until the user replaces or deletes it; Esc, creating a note,
+  opening a page, hiding the panel and focus loss never clear it. Returning to the bar with Esc or the
+  shortcut selects its text. Enter always activates the selected entry. URL-like text offers an
+  explicit Open entry after notes, selected by default only with an http(s) prefix; otherwise
+  matches, then Create, keep priority, including names such as `todo.md` and `1.5`. Other text offers
+  "Search the web", which, like typing `?`, enters `?` mode with remote suggestions. Ordinary note
+  searches stay local unless "Web suggestions while searching notes" is on: then engine phrases appear
+  after 300 ms and at least three characters of free text, never for filters or while editing. Web
+  actions follow the notes as a last "Search the web" section, with note row geometry.
+- **Browser mode:** the bar shows the page URL; typing offers Open/Search, matching local addresses,
+  then engine suggestions. With suggestions closed, ↓ opens the five most recent local addresses
+  without asking the engine. Suggestions float below the bar on one solid surface, with icons for
+  search, history and Open; the page is cut out behind them without moving. Esc restores the URL and
+  dismisses suggestions before the next Esc closes the panel. Untrusted suggestions appear as text.
 
 ## Note list
 
-One list fills the panel under the search bar at the top. Every note is the same card component;
-pinned and unpinned notes differ only in section and starting state.
+One list fills the panel under the search bar. Every note is the same card component; pinned and other
+notes differ only in section and starting state.
 
-- **Sections:** section titles use small semibold primary text, CSS uppercase and slight letter spacing.
-  "Pinned" cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters
-  both in place and pinned matches stay cards. The root `_pinned.md` file is hidden from the list and
-  search. A "Create “…”" item appears when no visible note title matches exactly.
-- **Order:** a muted, borderless text button at the right end of the section header shares the
-  title baseline. It shows Name, Date modified or Date created with ↓ for descending (newest first,
-  Z–A) and ↑ for ascending (oldest first, A–Z), matching the menu. Its in-webview menu and the same control in Preferences > General share
-  one saved choice: name (display title), modified or created, ascending or descending. The default is
-  modified, newest first. Only the unfiltered Notes section is sorted; searches keep relevance and
-  Pinned keeps file order. Creation time comes from the filesystem, falling back to modified time.
-- **Unreadable folders:** when some folders inside the notes folder cannot be opened, an amber
-  `Notice` with an alert icon under the search bar says "Some folders could not be opened, so their
-  notes may be missing or out of date.", with the folders' paths in muted text below. Notes already
-  known from those folders stay as they were. Its quiet close button folds it into a quiet alert
-  icon at the end of the search bar, after "+", which reopens it (Space, since Enter acts on the
-  selection); the bar keeps its height, so the list never moves. The choice lasts for the session.
-  The notice leaves by itself once every folder opens again.
-- **Folder away:** a notes folder the app cannot reach replaces the list with the empty state: one
-  sentence, the folder path in muted text and Choose folder. "Unavailable" names the usual causes (a
-  locked vault, an unplugged drive, an offline share) and says the folder opens again when it is back;
-  "not found" (the folder above it is there) adds that a moved or renamed folder is chosen again;
-  "not the folder you chose" (a folder is at the path but its identity marker is not the chosen one's)
-  says nothing is written to it, a locked vault's folder opens again once unlocked, and notes moved
-  there are accepted with "Use this folder" or by choosing the folder again. "Use this folder" appears
-  in both the list empty state and the editor notice for an unrecognized folder. The
-  list, previews, pinned items and tag suggestions disappear with it. An editor holding unsaved text
-  stays as the only card, with a notice at the top of its body that the text stays there and is saved
-  when the folder is back, and Discard my changes; Preferences shows the same sentence under the path.
-- **Order menu:** six single-choice items show a check on the current order; a separator precedes
-  the checkable "Group by date" and "Group by folder" items; checking one clears the other. Enter/Space and arrows open and navigate it; Esc, selection and
-  outside click dismiss it. Keyboard dismissal and selection return focus to its button. The menu
-  stays within the panel, flipping above its button near the bottom. No native popup takes focus.
-- **Note dates:** modified dates on cards and rows are absolute by default. General Preferences
-  offers "Use relative dates", remembered on this computer. Relative text uses the app locale: now,
-  minutes and hours within today; calendar days across midnight, then weeks from 7 days, months
-  from 30 days and years from 365 days. One shared 30-second tick refreshes dates and date groups.
-  Hovering a note date shows the full local date and time with either display option.
-- **Date groups:** the optional menu item defaults off. It groups only unfiltered Notes when ordered
-  by modified or created date. Name order keeps the choice but disables the item with a visible hint.
-  Quiet, regular-weight labels keep sentence case below the stronger section titles:
-  Today, Yesterday, Previous 7 days (2–7 days ago), Previous 30 days (8–30 days ago), then earlier
-  months of this year (month names in the user's locale), then earlier years. Boundaries use local
-  calendar dates; ascending order puts older groups first. Labels are not interactive or selectable.
-- **Folder groups:** the other optional item, also off by default, groups unfiltered Notes in any
-  order. Root notes come first, right under the section title and without a label; then each folder,
-  labelled with its path, by path segment, so a subfolder follows its parent. Each group keeps the
-  chosen order. Labels appear only for folders containing notes directly or below (including pinned
-  notes), or completely empty folders. Folders containing only images or other files have no label
-  and cannot be deleted from the app. Tab enters the list once; arrows select folder labels as well
-  as cards, with a spoken path. Selectable labels gain a discreet triangle
-  and an inset of `--space-3` on hover, focus or selection, with no background, higher text contrast
-  (accent when selected) and transitions
-  over `--duration` (ease-out for the inset and triangle). Reduced motion removes transitions.
-  Date labels and the unlabelled root keep their existing appearance. Label buttons stay outside the Tab sequence; right click, Shift+F10 or the Menu key opens one "Delete folder"
-  item without a shortcut. It deletes at once, without asking: an empty folder is removed, any
-  other goes whole (hidden files and attachments included) to the Recycle Bin, or to the trash inside
-  the notes folder where the Recycle Bin refuses it. A folder with notes then shows the deletion notice:
-  "Folder “name” moved to the Recycle Bin." with only a close button, since it is restored there, or
-  the trash text with Undo, as for a note. Root has no deletion label. Folders left empty by moves or note deletion stay.
-- **Reorder pins:** drag a pinned header to move it to another pinned position. A native image of
-  the whole card follows the pointer; a dashed gap marks its pending position while the other cards
-  stay still until the pointer crosses a neighbouring slot midpoint, then move once with an eased
-  transform animation over `--duration`. Slots use captured card heights and the current preview
-  order, independent of animated hit targets; gaps accept the shown drop position.
-  Only dropping saves the order; Esc or dropping outside
-  restores it. Reduced motion disables the animation. Note bodies keep text selection. Or use
-  Alt+Shift+↑ / Alt+Shift+↓ on the selected pinned item (including web and missing items). Selection
-  follows the item. Reordering is unavailable while editing. A stale file produces a nearby error.
-- **Web pins:** one-line cards in the Pinned section, in file order alongside notes: link label as
-  title, host as secondary text, no chevron or preview. Click or Enter opens the page in the panel;
-  the bookmark removes it. Existing web pins remain usable; new pages are saved as notes and pinned from their cards.
-- **Page notes:** the shared bar offers a "+" action: create a note in Notes (typed text becomes its title, otherwise Untitled), or save the current page in Browser. It saves the page title,
-  URL and quoted selection (in the reader view, the whole article instead), then returns to notes with the new card expanded and editing, ready for
-  annotations. A note with an http(s) `url:` has an "Open page" globe action left of the pencil; it
-  keeps the usual expand/edit behavior and header action visibility. Other URL schemes have no action.
-- **States:** line (title, modified date and first tag, with +N for more tags); preview (up to about
-  eight lines, fading at the bottom; the default for pinned cards); expanded (full content, reading);
-  editing (expanded, with the editor). Only line versus open is remembered across app restarts, with the
-  notes folder, so it follows the folder to other computers. Hiding the panel leaves editing through its save guard, keeping the card expanded.
-  The expanded card and list scroll survive hiding and focus loss; only collapsing the card or
-  expanding another changes the expanded note. Selection navigation and explicit opening may reveal
-  a card, but returning to the search bar does not scroll the list.
-- **Expanded:** no height limit and no inner scroll. While scrolling inside the card, its header
-  (title and actions) sticks to the top. Only one card is expanded: expanding another returns
-  the previous one to preview. Clicking a Notes row turns it into an expanded card in place, and it
-  returns to a row when closed; there is no separate note view. Opening grows the card from its top
-  edge while the entries below slide (translation only, never scaling). An opened card whose end falls
-  below the list scrolls into view in twice `--duration`, never pushing its top out.
-- **Renaming:** while editing, the card title is a borderless field in place of the title and
-  metadata; when it has focus, the line under the header turns accent instead of a nested focus ring.
-  F2 on the selected card, or in its editor, enters editing with the title selected. Enter, ↓ or Esc
-  (which first restores the title) go on to the text; leaving the field renames, and an empty or
-  unchanged title does nothing. The file name follows the title in the same folder, with " 2" and so
-  on when taken; a frontmatter title changes with it. When the file name cannot hold the typed title
-  (characters such as ":", or a taken name), the field also writes it as the frontmatter title,
-  creating the block if needed, so the card keeps showing what was typed. A double click on the title only opens and
-  closes, as a click does; a double click on the text of a card enters editing
-  with the clicked word selected and kept where it was on screen. A note still named
-  `Untitled` or `Untitled N` is named when its editor is left, from what the card shows: the
-  frontmatter title, else a first heading, else its first words (cut at a word near 60 characters).
+- **Sections:** titles in small semibold primary text, uppercase, slight letter spacing. "Pinned"
+  cards in `_pinned.md` order, then "Notes" as one-line rows. Typing filters both in place; pinned
+  matches stay cards. The root `_pinned.md` is hidden from list and search. A "Create “…”" item, first
+  under the bar, appears when no visible title matches exactly; the first match is selected, so Enter
+  expands it and Ctrl+Enter or ↑ reaches Create.
+- **States:** line (title, modified date and first tag, +N for more); preview (about eight lines,
+  fading at the bottom only when clipped; the default for pinned cards); expanded (full content, no
+  height limit or inner scroll, sticky header); editing. Only line versus open is remembered across
+  restarts, with the notes folder. One card is expanded at a time; expanding another returns the
+  previous one to preview. A Notes row expands in place and returns to a row when closed; there is no
+  separate note view. Opening grows the card from its top while the entries below slide (translation
+  only); a card whose end falls below scrolls into view in twice `--duration`, never pushing its top
+  out. Hiding the panel or losing focus keeps the expanded card, the search and the scroll; returning
+  to the search bar does not scroll the list.
+- **Mouse:** the header and the chevron toggle line and open; the preview body and "Show all" expand
+  the card; an expanded pinned card ends with "Show less". Links work in reading.
 - **Names:** a card shows the frontmatter title, else the file name. When the file name differs from
-  the title beyond characters a file name cannot hold (a taken name got " 2", or the file was renamed
-  elsewhere), the file name follows the title in muted text, so the two notes stay apart and the rule
-  shows itself without any explanation. A note in a subfolder shows its folder path before the title,
-  muted and in regular weight, except inside a folder group that already names it.
-- **Editing:** The browser "+" opens a newly captured page in edit mode. Otherwise use the pencil in
-  the card header, Ctrl+E on the selected card or a double click on its text; entering from preview
-  expands the card. One card edits at a time and shows its own save status, conflict and
-  errors. If the search would hide it, it stays at the top until editing ends. Closing the card,
-  expanding another, typing in the search or the panel closing first leave editing, which saves; on a
-  conflict or error nothing else happens until it is resolved. The Note editor rules below apply
-  inside the card.
-- **Mouse:** the header and the chevron toggle line and open (preview for pinned cards, expanded for
-  Notes rows); the preview body and its "Show all" button expand the card; an expanded pinned card ends
-  with "Show less", back to preview. Links work in reading.
-- **Alignment:** one content column for the whole panel. The top bar title, the search field, section
-  labels and cards start `--space-4` + `--space-2` from the panel's left edge and end `--space-3` from
-  the right edge; the left inset holds the chevron gutter. Nothing else uses its own margin.
-- **Selection:** a line, like a missing-note row, keeps the selected background, accent title and
-  accent border. An open card shows only the accent border, so long content and text selection stay
-  readable. The editing card shows no selection style; its editing border already marks it.
-- **Chevron:** in the gutter, aligned with the title, right for a line and down for an open card. It
-  shows on hover, on the selected item and on keyboard focus; its space is always reserved.
-- **Header actions:** no expand or collapse button. From right to left, pin, then the pencil only when
-  expanded, with `--space-1` gaps and `--size-control` click targets. Actions show only on hover, on the
-  selected item and on keyboard focus. At rest, pinned metadata has the same border inset as the title. Row titles align with section
-  titles and date-group labels; their metadata ends at the order button text edge. On hover, focus
-  or selection the existing inset row box appears, the title slides right and metadata slides left
-  into its inner padding. These transitions share the actions' duration and easing.
-  Metadata slides left and actions fade in over `--duration` using only
-  transform and opacity; title clearance prevents overlap and preserves ellipsis in both states.
-  The slide distance includes every visible action, including the globe and expanded card's pencil.
-  Reduced motion disables these transitions. Icons use `--size-icon`, muted color,
-  no border and no background; the bookmark is filled when pinned and outline otherwise. While
-  editing, all header actions stay visible and the pencil uses the accent color, still without border or background. Icon hover changes only foreground contrast; the row hover surface covers exactly the same inset
-  and radius as its selected surface. Tooltips and accessible labels include shortcuts:
-  "Pin (Ctrl+D)" / "Unpin (Ctrl+D)", "Edit (Ctrl+E)", "Open (→)" / "Close (←)" and "Remove from
-  pinned (Delete)".
-  Headers have `--space-1` inner padding on every side in every state; missing-note rows use the same
-  vertical and right inset and a quiet remove icon.
-- **Card menu:** a right click on a note card, Shift+F10 or the Menu key on the selected card opens
-  the same in-panel menu as the order menu: Rename (F2), Pin or Unpin (Ctrl+D), Move (Ctrl+M), then
-  after a separator Delete (Ctrl+Delete), each with its shortcut in muted text at the right. A right click opens it at the pointer, kept inside the panel; the keyboard opens it under
-  the card header. Text fields, the editor and selected reading text keep the native menu. Web pins
-  and missing items have none.
-- **Moving:** Move in the card menu, or Ctrl+M on the selected card from the search bar or the list
-  (not the editor), opens a picker placed and dimmed as the delete dialog: the question "Move “title”",
-  a field with the focus, and a list of fixed height below it. The list holds "Root folder" and every
-  folder, filtered as the field is typed (ignoring case), with a check on the note's own folder; when
-  no folder has the typed name, "Create folder “name”" with a plus icon ends the list. `/` nests a new
-  folder. ↑ / ↓ move the selected-surface highlight, the pointer follows it, and Enter or a click
-  takes it; Esc or a click on the scrim cancels, and focus returns to the list. Taking the note's own
-  folder does nothing. The note keeps its file name, or " 2" and so on where it is taken, and stays
-  selected; an edited note stays in its editor. Folders a move leaves empty stay.
-- **Deleting:** Delete in the card menu, or Ctrl+Delete on the selected card from the list (not in
-  the search bar or the editor, where it deletes the next word), deletes at once, without asking. An
-  edited note leaves editing first, which saves. Then a `Notice` under the search bar, on the amber
-  tint with a trash icon, says where the note went, with a neutral Undo button and a quiet close
-  button: "“title” moved to the Recycle Bin." (Undo until the panel closes), or, where the Recycle Bin
-  refuses it (an encrypted vault, a network folder), "Deleted “title”. It stays in the trash for 30
-  days (Preferences)." (Undo while the item is in the trash, also after the panel closes). It leaves
-  after 10 seconds in sight, or when closed, undone or replaced by another delete; time stops while the
-  pointer or focus is on it and while the panel is hidden or Preferences or a page covers the
-  notes. So that an undoable delete is noticed even by a distracted
-  user, the notice slides down and fades in over two `--duration`, then the Undo button pulses twice
-  (an accent outline with the selected background and accent text, five `--duration` each); with
-  reduced motion it appears at once and Undo keeps that selected look. Undo brings the note and its
-  pinned items back and selects it. The selection otherwise moves to the next item. A note over the
-  2 MB limit is not deleted: the same notice, with an alert icon and a close button, says it is too
-  large to keep a copy for Undo and to delete it in File Explorer.
-- **Focus:** clicking the panel or the shortcut gives it focus; it then stays open until focus moves to
-  another app, Esc from the search bar, or the shortcut from the search bar. A pinned panel only
-  closes by unpinning: Esc or the shortcut from its search bar returns focus to the previous app and it
-  stays shown; the shortcut then takes focus back. Without focus (hover only), it closes when the cursor leaves; passing over the taskbar or an app bar in the panel's columns does not count as leaving, but clicking there does. While the panel or its
-  page has focus, a 2 px `--color-accent` band runs the full height of the inner edge, over the border and
-  above the content, without moving anything.
-- **Tab stops:** search bar → add note (+) → unreadable folders icon when folded → recovery actions when shown (Undo after a delete, "Restore" on
-  leftovers, then "Restore pinned items"; in Browser, the permission bar's Block and Allow) → list → note order button → top bar buttons (including
-  Preferences) → resize grip → search bar, reversed with Shift+Tab. Card
-  controls stay clickable and labeled but are outside the Tab sequence. The list is one Tab stop;
-  entering it without a selection selects the first item. Its only focus indicator is the selected
-  card's existing style, without an additional outline. The editor keeps Tab indentation. The list is a
-  labeled region of plain groups, not a listbox, since cards hold buttons, links and the editor; the
-  selected item has `aria-current` and a polite live region announces it.
-- **Section jumps:** Ctrl+↑ / Ctrl+↓ select the first note of the previous / next visible section:
-  Pinned, Notes and each folder or date group inside Notes. Folder labels are never destinations, and
-  folders without notes are skipped; from a selected label, Ctrl+↓ goes to its first note. Notes and
-  its first group share a destination when there is no root item before it.
-  Jumps stay at the first / last section at the ends; with no selection they select the first section.
-  Search and the editor keep their native Ctrl+arrow behavior.
-- **Keyboard:** with focus anywhere in the panel except a text field or the editor, the list keys below
-  work as from the search bar, and typing a character goes to the search bar. Enter acts on the
-  selection even on a focused button; Space presses the button.
-- **Details:** the "Create" item is the first item, under the bar; the first match is selected, so Enter
-  expands it and Ctrl+Enter or ↑ reaches Create. Every way of creating opens the new note expanded and
-  editing, so typing goes into it. Pinning uses a bookmark icon, distinct from the header's
-  thumbtack that keeps the panel open. Rows and lines show a snippet with the matches highlighted under
-  the title; previews and expanded cards show the content. Reading cards hide the frontmatter title
-  (the header has it); the frontmatter title stays visible while editing. The expanded card lists every
-  tag. → and ← act on the selected card only with the caret at the end of the text, otherwise they move it.
+  the title beyond characters a file name cannot hold, the file name follows the title in muted text.
+  A note in a subfolder shows its folder path before the title, muted and regular, except inside a
+  folder group that names it.
+- **Content:** rows and lines show a snippet with matches highlighted; previews and expanded cards show
+  the content, hiding the frontmatter title (the header has it). The expanded card lists every tag.
+- **Selection:** a line keeps the selected background, accent title and accent border; an open card
+  only the accent border; the editing card none, since its border marks it. The chevron, in the
+  gutter, points right for a line and down for an open card, and shows on hover, selection and
+  keyboard focus; its space is always reserved.
+- **Header actions:** no expand or collapse button. From right to left: pin (a bookmark, filled when
+  pinned, distinct from the panel's thumbtack), then the pencil when expanded, and the globe "Open
+  page" for a note with an http(s) `url:`. `--space-1` gaps, `--size-control` targets, muted icons
+  without border or background; hover changes only foreground contrast. They show on hover, selection
+  and keyboard focus, and always while editing, with the pencil in accent. On hover, focus or
+  selection the inset row box appears, the title slides right and metadata slides left, while actions
+  fade in, using only transform and opacity over `--duration`; ellipsis survives in both states.
+  Hovering a date shows the full local date and time.
+- **Order:** a muted, borderless text button at the right of the Notes header shows Name, Date
+  modified or Date created with ↓ (newest first, Z–A) or ↑. Its menu has the six orders with a check,
+  a separator and the checkable "Group by date" and "Group by folder" (checking one clears the other);
+  it flips above its button near the bottom and returns focus on keyboard dismissal. Preferences >
+  General has the same control. Default: modified, newest first. Only unfiltered Notes are sorted;
+  searches keep relevance and Pinned keeps file order. Creation time comes from the filesystem.
+- **Dates:** absolute by default; "Use relative dates" in Preferences shows now, minutes and hours
+  within today, then calendar days, weeks from 7 days, months from 30 and years from 365. One
+  30-second tick refreshes dates and groups.
+- **Date groups:** off by default; only unfiltered Notes ordered by date. Name order keeps the choice
+  but disables the item with a hint. Quiet, regular-weight sentence-case labels: Today, Yesterday,
+  Previous 7 days, Previous 30 days, earlier months of this year, then earlier years, by local
+  calendar date; ascending order puts older groups first. Not selectable.
+- **Folder groups:** off by default; unfiltered Notes in any order. Root notes first without a label,
+  then each folder labeled with its path, a subfolder after its parent. Labels appear for folders with
+  notes at any depth (pinned included) or completely empty ones, not for folders holding only other
+  files. Arrows select labels too, with a spoken path; selectable labels gain a triangle and a
+  `--space-3` inset on hover, focus or selection, accent when selected. A label's menu (right click,
+  Shift+F10, Menu key) has "Delete folder" (see "Deleting").
+- **Unreadable folders:** an amber `Notice` under the search bar says "Some folders could not be
+  opened, so their notes may be missing or out of date.", with the paths muted below; notes known from
+  them stay. Its close button folds it into a quiet alert icon at the end of the bar, after "+", which
+  reopens it with Space; the bar keeps its height. The choice lasts for the session; the notice leaves
+  once every folder opens.
+- **Folder away:** an unreachable notes folder replaces the list with the empty state: one sentence,
+  the path muted and Choose folder. "Unavailable" names the usual causes (a locked vault, an unplugged
+  drive, an offline share) and says it opens again when back; "not found" adds that a moved folder is
+  chosen again; "not the folder you chose" says nothing is written to it, a locked vault's folder
+  opens again once unlocked, and notes moved there are accepted with "Use this folder" or by choosing
+  it again. List, previews, pinned items and tag suggestions disappear. An editor with unsaved text
+  stays as the only card, with a notice that the text is saved when the folder is back, and Discard my
+  changes; Preferences shows the same sentence under the path. With a vault file configured, these
+  places also offer Unlock.
+- **Web pins:** one-line cards in Pinned: link label as title, host as secondary text, no chevron or
+  preview. Click or Enter opens the page in the panel; the bookmark removes it. New pages are saved as
+  notes instead.
+- **Missing pinned notes:** a "note not found" row with a quiet remove icon; Enter or Delete removes it.
+- **Reorder pins:** drag a pinned header: a native image of the card follows the pointer, a dashed gap
+  marks the drop position, and the other cards move once the pointer crosses a slot midpoint, with an
+  eased transform over `--duration`. Only dropping saves; Esc or dropping outside restores. Or
+  Alt+Shift+↑/↓ on the selected pinned item, which stays selected. Unavailable while editing; a stale
+  file gives a nearby error.
+
+### Creating and editing
+
+- **Creating:** "+" creates a note in Notes (typed text becomes its title, otherwise Untitled) or saves
+  the current page in Browser: title, URL and quoted selection, or the whole article in the reader
+  view. Every way of creating opens the new note expanded and editing.
+- **Editing:** the pencil, Ctrl+E on the selected card or a double click on its text (which selects
+  the clicked word, kept where it was on screen). One card edits at a time and shows its own save
+  status, conflict and errors. If the search would hide it, it stays at the top until editing ends.
+  Closing the card, expanding another, typing in the search or hiding the panel first leave editing,
+  which saves; on a conflict or error nothing else happens until it is resolved.
+- **Renaming:** while editing, the title is a borderless field; focused, the line under the header
+  turns accent. F2 on the selected card or in its editor enters it with the title selected; Enter, ↓
+  or Esc (which restores the title) go on to the text, and leaving the field renames. The file name
+  follows the title in the same folder, with " 2" and so on when taken; when it cannot hold the title,
+  the title is also written to the frontmatter. A note still named `Untitled` or `Untitled N` is named
+  on leaving the editor from the frontmatter title, else a first heading, else its first words (cut
+  near 60 characters).
+- **Card menu:** right click on a note card, Shift+F10 or the Menu key opens Rename (F2), Pin or Unpin
+  (Ctrl+D), Move (Ctrl+M), a separator and Delete (Ctrl+Delete), shortcuts muted at the right. At the
+  pointer, or under the header from the keyboard. Text fields, the editor and selected reading text
+  keep the native menu; web pins and missing items have none.
+- **Moving:** Move, or Ctrl+M from the search bar or list, opens a picker placed and dimmed as a
+  dialog: "Move “title”", a focused field and a fixed-height list of "Root folder" and every folder,
+  filtered as typed, with a check on the note's own folder; "Create folder “name”" with a plus icon
+  ends the list when none matches, and `/` nests. Arrows and the pointer move the highlight, Enter or
+  a click takes it, Esc or the scrim cancels. The note keeps its file name (or " 2"), stays selected,
+  and an edited note stays in its editor. Folders a move leaves empty stay.
+
+### Deleting
+
+- **Notes:** Delete in the menu, or Ctrl+Delete on the selected card from the list (not the search bar
+  or editor, where it deletes a word), deletes at once, without asking; an edited note leaves editing
+  first. A `Notice` under the search bar, amber with a trash icon, a neutral Undo and a quiet close,
+  says "“title” moved to the Recycle Bin." (Undo until the panel closes) or, where the bin refuses it
+  (a vault, a network folder), "Deleted “title”. It stays in the trash for 30 days (Preferences)."
+  (Undo while it is in the trash). It leaves after 10 seconds in sight, or when closed, undone or
+  replaced; time stops while hovered, focused or hidden. To be noticed, it slides down and fades in
+  over two `--duration`, then Undo pulses twice (accent outline, selected background, five
+  `--duration` each); with reduced motion it appears at once with that look. Undo brings back the
+  note and its pinned items and selects it; otherwise selection moves to the next item. A note over
+  2 MB is not deleted: the notice says it is too large to keep a copy for Undo and to delete it in
+  File Explorer.
+- **Folders:** "Delete folder" deletes at once: an empty folder is removed, any other goes whole to the
+  Recycle Bin or the trash. A folder with notes shows "Folder “name” moved to the Recycle Bin." with
+  only a close button, or the trash text with Undo. Root has no label to delete.
+
+### Keyboard
+
+- **Tab stops:** search bar → "+" → folded unreadable-folders icon → recovery actions when shown (Undo,
+  Restore leftovers, Restore pinned items; in Browser, the permission bar's Block and Allow) → list →
+  order button → top bar buttons → resize grip, reversed with Shift+Tab. The list is one stop;
+  entering without a selection selects the first item, shown only by the card's selection style. Card
+  controls and label buttons stay clickable and labeled outside the Tab sequence. The list is a
+  labeled region of plain groups, not a listbox; the selected item has `aria-current` and a polite
+  live region announces it.
+- **List keys** work from the search bar and from anywhere in the panel except a text field or the
+  editor, where typing a character goes to the search bar. Enter acts on the selection even on a
+  focused button; Space presses the button. → and ← in the bar act on the card only with the caret
+  at the end of the text.
+- **Esc** leaves one layer at a time: editing, then back to the bar with its text selected, then from
+  the bar it closes the panel.
 
 | Shortcut                  | Action                                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
 | ↑ / ↓                     | Select a card, folder label or row; on a long expanded card, first scroll about three lines to its end |
-| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                                |
 | Alt+↑ / Alt+↓             | Select the previous / next item directly                                                               |
-| Ctrl+↑ / Ctrl+↓           | Jump to the previous / next section, only with focus on the list                                       |
+| Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                                |
+| Ctrl+↑ / Ctrl+↓           | Jump to the first note of the previous / next section (Pinned, Notes, each group); list focus only     |
 | PgUp / PgDn               | Scroll the list by about one screen                                                                    |
 | → / ←                     | Open / close one level: line, preview, expanded                                                        |
 | Enter                     | Expand the selected item, run "Create", or remove a selected missing pinned item                       |
@@ -323,214 +305,45 @@ pinned and unpinned notes differ only in section and starting state.
 | Ctrl+,                    | Open / close Preferences                                                                               |
 | Ctrl+/                    | Open / close the shortcut sheet                                                                        |
 | Ctrl+E                    | Toggle editing on the selected card                                                                    |
+| F2                        | Rename the selected card                                                                               |
 | Ctrl+F                    | Focus the search bar and select its text; the editor finds in the note first                           |
 | Esc                       | Leave editing; next, return to the bar and select its text; from the bar, close                        |
 | Ctrl+Alt+Space (default)  | Open and go to the search bar with its text selected; from the search bar, close                       |
 
 ### Search filters
 
-Tag filters in Notes use whitespace-delimited `#tag` tokens. All tags must match a complete
-frontmatter tag, ignoring case and accents, alongside the existing free-text search. Inline body
-hashtags are ordinary text. A lone `#`, headings like `# Title`, and hashes inside words or URLs stay
-literal. Tags containing spaces or quotes use a JSON-quoted token, such as `#"two words"`.
-While the caret is in a tag token, the folder's matching tags appear below the bar in the existing
-suggestion style. Up/Down select, Enter or Tab inserts the whole token and a space, and clicking also
-accepts. Esc dismisses completion first, then follows the existing focus/close layers. Selecting the
-bar's text and typing replaces the whole query. Browser and `?` modes keep their web suggestions.
-Queries containing filters (or beginning with `#`) never offer automatic Create. Explicit Ctrl+Enter
-and "+" create from the free text only; a tags-only query creates an untitled note. Creation seeds
-all tag filters in frontmatter so the note remains in the results; date filters are ignored for
-creation, and the new note is dated now. Typing in such a note starts after its frontmatter. The web
-search row offers only the free text, and none for a filters-only query.
-While completion is open, its partial tag token is ignored for filtering; accepting it applies the
-complete tag. A sole suggestion identical to the complete token leaves list navigation available.
-Keyboard caret movement updates completion; leaving the token dismisses it.
-
-Date filters share the tag completion list: `date:` offers Today (`date:today`), Last 7 days
-(`date:7d`, today and six preceding local days), This month (`date:month`) and Last month
-(`date:last-month`). Labels are localized; tokens are language-neutral. Typed years, months and days
-(`date:2026`, `date:2026-10`, `date:2026-10-03`) and inclusive ranges
-(`date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`) work without a calendar or chips.
-Invalid or reversed date tokens are ignored and excluded from free text and note names.
-All valid date filters, tag filters and free-text words apply together.
-
-## Preferences
-
-The top bar gear replaces the folder action and opens a third view with quiet General, Appearance,
-Browser, Shortcuts, Trash and About section buttons, wrapping when the panel is narrow. The page stays
-loaded but hidden. The gear or Esc returns to the previous Notes/Browser tab; either tab also leaves
-Preferences, and the global shortcut returns to Notes and search. Opening a page preserves the Notes
-query. The active section has an accessible name without repeating the tab label as a heading.
-Sections scroll inside the panel, use the same insets and tokens, and have no new colors. Folder
-choice and width reset use neutral buttons.
-
-- **General:** folder path and picker, optional Vault file, note order, date grouping, relative dates,
-  "Web suggestions while searching notes" (off by default) with a hint that typed note searches go to
-  the search provider, "Check spelling" (on by default) with the languages found and where Windows
-  adds more, panel side and a "Start with Windows" checkbox. Side and startup mirror the tray, also while
-  Preferences is open. Startup is read from Windows, with the control disabled until that read
-  completes; failures appear in the existing notice and the actual state stays shown.
-- **Vault file:** its path (wrapping when necessary), or a short optional hint, with neutral Choose
-  file and Clear buttons; the native picker filters `.cryptomator` files. With a configured vault and
-  a notes folder that is not available, the list's empty state, the editor's folder-away notice
-  (including missing and unrecognized folders) and the folder setting show Unlock, beside the neutral
-  Choose folder action in the list and Preferences. Unlock opens the saved file in its associated app;
-  Cryptomator handles authentication, including Windows Hello when configured. A missing vault file
-  shows a nearby error asking to choose it again. The existing folder poll restores the list without
-  another action.
-- **Appearance:** System (default), Light and Dark theme radio buttons, applied immediately and
-  remembered on this computer; the panel width, how to resize it and a reset.
-- **About:** the Updates section shows the installed version, live update status and the last
-  successful check when known. A neutral Check now button starts a check; development builds show
-  that updates are disabled and omit the button. A verified download replaces it with a neutral Restart
-  to update button and enables the matching action in the tray. The tray tooltip also signals readiness. A
-  download or failure leaves the panel and focus where they are.
-- **Browser:** a search provider choice (DuckDuckGo by default), then a compact Allowed sites list
-  with a neutral Remove per site. A short hint explains the subdomain scope, and the empty list
-  explains how to add an exception with the shield. Site permissions follow in the same row style:
-  the site, and below it in muted text
-  the kind and the answer ("Location · Allowed"), with a neutral Remove; the hint says answers cover
-  subdomains and that removing one asks again, and the empty list says a bar above the page asks when
-  a site needs one. Custom reveals a URL field and Save. An invalid URL shows a hint beside the
-  field and searches open in DuckDuckGo. Local address history remains available for every provider.
-- **Shortcuts:** starts with the activation shortcut, the combination in a field-like box and a neutral
-  Change button. Change records: the box asks for a combination and shows the held modifiers, the
-  button becomes Cancel, the current global and panel shortcuts stand aside, and the next
-  non-modifier key ends recording; the key shown is the one the layout gives, such as A for the AZERTY
-  key at QWERTY's Q. Esc, Tab, leaving or hiding the panel, or 30 seconds without a key cancels. A
-  refused combination (no Ctrl, Alt or Win; Ctrl+Alt with a letter or digit, which is AltGr on layouts
-  such as ABNT2; a key that is not a letter, digit, F1–F24, arrow, Space or navigation key on the
-  current layout) or one taken by another app keeps the previous shortcut and explains why in the
-  danger color below the hint. If the saved combination cannot be registered at startup, the default
-  is used and a dismissible warning notice under the top bar names both. The rest of the section and
-  the Ctrl+/ sheet share one list of panel/list and editor keys, with formatting keys derived from the
-  editor bindings and the activation row showing the current combination.
-- **Shortcut sheet:** from anywhere in Notes (including search and editing), Ctrl+/ opens a quiet,
-  scrollable in-webview dialog using the existing surface and line tokens, without a shadow or
-  dimming. Focus stays inside; Esc, Ctrl+/ again or the close button dismisses it and restores the
-  previous focus, including the editor cursor. No native popup takes panel focus.
-- **Trash:** one muted paragraph says that items the Recycle Bin cannot take stay there 30 days, inside
-  the notes folder (encrypted in a vault) and synced with it. Then one row per item, newest first,
-  between lines: the name (a note's title without `.md`) and, muted below it, its original folder
-  ("Notes folder" for the root) and the relative deletion date, with the full date on hover; a neutral
-  Restore button on the right. Restoring says "Restored as path." below, since a taken name gives a
-  free one such as "name (2)". Under the list, the danger "Empty trash" button asks in the
-  confirmation dialog with the item count, confirmed by the danger "Delete for good": the only
-  permanent action, so the only question. Empty: "The trash is empty."; while the folder is away, a
-  sentence that the trash appears when it is back. An entry whose item cannot be told, as after a sync
-  conflict, shows "Unrecognized item" with its place in the trash and no Restore; Empty removes it.
-  The trash is never shown in the notes list.
-
-## Panel navigation
-
-The top bar shows subtle Notes and Browser tabs, followed in Browser by discreet back/forward
-controls and the Reader view toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and panel pin (Ctrl+Shift+D). The panel is 460 logical pixels wide by default;
-a 6-pixel resize grip along the inner edge resizes it (double-click restores the default).
-The panel pin is filled when active, outlined otherwise, and 12% smaller than other icons.
-Ctrl+Tab switches Notes/Browser while the main window has focus, including in the editor.
-Button tooltips include their working shortcuts, including Ctrl+, on Preferences and Ctrl+Shift+D on the panel pin. There is no app name or page title. The same search
-field and "+" action occupy the second bar in both modes. In Browser a quiet shield button sits
-immediately left of the address field, sharing its row without taking space from the top navigation;
-its icon, not its larger hit area, starts at the bar's content edge.
-Shield means content blocking on; shield-off means allowed. One click toggles the whole registrable
-site and reloads the page, without a popover. The tooltip and accessible label name the site and
-current state. It is hidden without an HTTP(S) page and disabled while saving. The page's native
-context menu keeps only editing items and back/forward/reload, then, after a separator, ends with
-"Capture visible area" and "Capture full page", on a link, image or selection too; they capture the
-page. They are disabled without the notes folder, while the page is unavailable or loading, in the
-reader view, under Preferences and while a capture, save, note creation or folder choice is pending.
-A capture always goes into a new note titled and sourced from the page. If the panel still shows that
-page in Browser when it is saved, and has not hidden it since, the panel returns to Notes with that
-note in the editor. If the user navigated, opened the reader view, moved to Notes or Preferences, or
-the panel collapsed meanwhile, even to come back, nothing switches and a dismissible notice above the
-list names the saved note.
-After a failure the page stays and the error line shows above it, over the page's top. A page too long
-for one image is clipped to its start with a dismissible notice above the list. Browser starts with a short hint and the
-field focused; switching tabs retains the page document and history. The native page is clipped two
-logical pixels inside the panel sides and bottom so the focus band remains visible.
-
-The edge handle shows the app identity as a tab that bulges out of the panel's inner edge: 20
-logical pixels deep and 152 tall, joined to the edge by S-curves 28 pixels tall (vertical where they
-meet the edge, rounding into the straight outer side), filled with `--color-bg`, with no line
-between tab and panel. The panel's inner-edge line, 1 px `--color-line`, runs around the tab's
-outline; while the panel has focus, its 2 px `--color-accent` band does instead. The user's wordmark
-(`src-tauri/icons/source/wordmark.svg`) runs along the tab, 52 pixels long, reading from bottom to
-top, filled with `--color-fg` when pinned or focused, otherwise `--color-muted`, and centered
-between the band and the panel's edge. Edges are antialiased. The panel's WebView draws it with those
-tokens, in a strip of the panel's own window beside the panel. Closed, it slides in from the screen edge,
-vertically centered on the work area, only while the cursor is within 400% of the tab height of the
-tab (or beside the activation stretch, where that reaches further), and slides back out when the
-cursor leaves; touching the edge within a centered stretch of 300% of the tab height, clipped to the
-work area, opens the panel after a 150 ms pause. A rush, reaching the edge at 500 logical pixels per
-second or more, opens it at once and skips the handle's slide-in: in real use the pause only slowed
-an intentional move, so the threshold is low on purpose. Open, it
-slides with the panel and sits outside the inner edge at the same height; clicking it closes the
-panel, even pinned, only when released on its shape, not in the cutouts beside the curves; dragging
-it does nothing. It has no hover state or tooltip and never takes focus.
-
-A site asking for the location, camera, microphone or clipboard gets a `Notice` over the top of the
-page, under the address bar, on the panel background with a line below it: the kind's icon (map pin,
-camera, microphone, clipboard), "example.com wants to use your location." naming the site the answer
-covers and, when a frame of another origin of that site asked, a muted line naming it; then neutral
-Block and Allow buttons, neither primary, so the panel does not lean either way. The page is cut out
-behind it without moving or resizing, as for suggestions, which float over it. Focus stays where it
-was. The panel stays open until an answer; Notes, Preferences, the reader view, closing the panel or
-leaving the page deny it without remembering. Further requests wait and show one at a time. Each
-answer is remembered for the site; other kinds are denied without a bar.
-
-Reader view replaces the page, under the same bars, with its article as a note reads: the title as
-the note header, then text, headings, lists, quotes, code and tables in the reading styles, with the
-panel's insets and its own scroll. Images are left out. The toggle is disabled while the article is
-read; a failure says so under the top bar ("No article text was found on this page."). Links open in
-the page as in notes. The bar keeps the page URL, and "+" saves the whole article. Pressing the
-toggle again, back/forward, opening a page, switching tabs or Preferences return to the page.
-
-## Unified address bar
-
-In browser mode the bar shows the current page URL; typing offers an Open/Search action, matching
-local addresses, then engine suggestions. The same arrows, Enter and selected row style apply.
-When the suggestion list is closed, ↓ opens the five most recent local addresses (including
-search result URLs), even with an empty bar or the current URL. This does not request engine
-suggestions; typing resumes the normal suggestion rules.
-Suggestions float below the bar on one solid surface, with icons for search, history and Open;
-only the selected row is highlighted. The native page is clipped behind them without moving or resizing. Esc restores
-the current URL and dismisses suggestions before the next Esc closes the panel.
-
-In notes mode the search persists until the user replaces or deletes its text; Esc, note creation,
-opening a page, hiding the panel and focus loss never clear it. Returning to the bar with Esc or the
-activation shortcut selects its text so typing replaces the previous search.
-
-In notes mode Enter always activates the selected entry. URL-like text offers an explicit Open entry
-after notes; only an explicit http(s) prefix selects it by default. Otherwise matches, then Create,
-keep priority, including names such as `todo.md` and `1.5`. Other text offers Search the web; choosing
-it enters `?` mode and enables remote suggestions, as does typing `?`. Ordinary note queries stay
-local by default. With web suggestions enabled in General Preferences, ordinary note searches can
-also show engine phrases in the same section after 300 ms and at least three characters of free text.
-Tag and date filters stay local and suggestions pause while a note is being edited. Web actions use
-neutral icon rows; all untrusted suggestions appear as text. In Notes they
-follow the notes as a last "Search the web" section, with note row geometry and selection.
+- **Tags:** whitespace-delimited `#tag` tokens must each match a complete frontmatter tag, ignoring case
+  and accents, alongside the free text. Body hashtags are ordinary text; a lone `#`, `# Title` and
+  hashes inside words or URLs stay literal. Tags with spaces or quotes use a JSON-quoted token, such as
+  `#"two words"`.
+- **Dates:** `date:` offers Today (`date:today`), Last 7 days (`date:7d`), This month (`date:month`)
+  and Last month (`date:last-month`), with localized labels. Years, months, days and inclusive ranges
+  also work: `date:2026`, `date:2026-10-03`, `date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`.
+  The date is the frontmatter `created`, else `date`, else the modified time. Invalid or reversed
+  tokens are ignored. All filters and free-text words apply together.
+- **Completion:** while the caret is in a token, matching tags or dates appear below the bar in the
+  suggestion style: arrows select, Enter or Tab inserts the token and a space, a click accepts, Esc
+  dismisses first. The partial token is ignored for filtering until accepted.
+- **Creating:** queries with filters never offer automatic Create. Ctrl+Enter and "+" create from the
+  free text only (untitled for tags only), seeding the tags in the frontmatter so the note stays in
+  the results; dates are ignored. The web search row offers only the free text.
 
 ## Note editor
 
-The editor lives in the card being edited, in place of its content; there is no separate note view and
-no separate editor toolbar. The card keeps its header and its button order: the pencil, left of pin, stays
-visible in the accent color while editing (see Header actions), and the small Saving… / Saved status sits in the
-header, left of the actions. The status is absent on conflict or error, whose notices sit at the top
-of the card body, above the text. The editing card has an accent border, and its text keeps the reading body's padding, so
-toggling does not move it. Reading remains the default. Light-theme tags use the selected background
-and accent text in both views; dark-theme tags keep their surface background and muted text.
-The feature-specific Editor uses Segoe UI for text and Cascadia Mono for code, with existing tokens.
-Markdown emphasis uses italics to represent the content. Syntax is visible on selection lines and
-hidden elsewhere. When a cursor or selection touches a line of an inline code span or fenced
-block, both delimiters are visible, including the opening fence's info string. Conflict actions
-appear above the editor: one primary Keep my version button and a secondary Discard my changes
-button. Errors appear in red beside this notice.
-A muted footer shows word and character counts and fast-to-slow time ranges for silent reading
-(300–175 words per minute) and speaking (160–130 words per minute). It uses the selection when
-editing with a selection and the whole note otherwise, including on the focused card in reading mode.
-Frontmatter is excluded in both views.
-
-Windows editor shortcuts:
+- **Place:** the editor lives in the card, in place of its content; no separate view or toolbar. The
+  card keeps its header; the small Saving… / Saved status sits left of the actions, absent on conflict
+  or error, whose notices sit at the top of the body. The editing card has an accent border, and its
+  text keeps the reading padding, so toggling does not move it. Reading is the default.
+- **Live formatting:** syntax is visible on selection lines and hidden elsewhere. A cursor touching an
+  inline code span or fenced block shows both delimiters, including the info string. During a pointer
+  gesture the reveal waits, so text does not move under a click.
+- **Conflicts:** a primary Keep my version and a secondary Discard my changes above the text; errors in
+  red beside it.
+- **Footer:** muted word and character counts and reading (300–175 words per minute) and speaking
+  (160–130) time ranges, for the selection or the whole note, also for the focused card in reading.
+  Frontmatter is excluded.
+- **Tags:** light theme uses the selected background and accent text in both views; dark theme keeps
+  the surface background and muted text.
 
 | Shortcut                                      | Action                                                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -553,90 +366,152 @@ Windows editor shortcuts:
 | Alt+click                                     | Add a cursor                                                                               |
 | Esc                                           | Close the transform menu, completion list or find panel before leaving editing             |
 
-Find and replace is one compact row stuck to the top of the editing card: a replace toggle, the
-field, a muted "3 of 12" count, match case (Aa) and regular expression (.*) toggles, previous, next
-and close. The replace row, aligned with the field, shows only after Ctrl+H or the toggle. Matches
-look like search highlights in the list, and the current one is outlined in the accent color.
+- **Formatting:** inline commands wrap the selection, unwrap matching markers or insert a pair at an
+  empty cursor; block commands touch only line prefixes. Every command is one undo step.
+- **Pairs:** `(`, `[`, `{` and quotes insert their closer, and typing the closer steps over it. Quotes
+  after word characters stay literal (`don't`); backticks stay literal. Backspace removes an empty
+  pair first.
+- **Formatting bar:** a compact bar floats above a single non-empty selection after mouse release,
+  hiding while dragging, on blur or while read-only. Icon buttons: bold, italic, strike, inline code,
+  heading 1, bullet list, task list, quote, link and property; the last opens a menu for case changes,
+  sorting lines either way and removing duplicate lines. Surface, line and control tokens, no shadow;
+  editor focus and selection are kept; buttons stay outside the Tab sequence; the menu takes arrows,
+  Home/End, Enter or Space and Esc.
+- **Transforms:** case changes use the interface locale on each selection or the word at the cursor,
+  keeping Markdown punctuation; the shortcut skips equivalent styles and starts at lowercase for mixed
+  case. Line actions expand to whole lines; sorting is numeric and ignores case and accents;
+  deduplication keeps the first exact match. Each change is one undo step and selects the result.
+- **Slash commands:** `/` at a line start or after whitespace, outside code, URLs and frontmatter,
+  opens the quiet completion list, filtered by localized label or English id. Esc, moving away or no
+  match closes it and keeps the text. Commands format the line, insert a code block, divider, link or
+  local date, or add a property, in one undo step.
+- **Find and replace:** one compact row stuck to the top of the editing card: replace toggle, field, a
+  muted "3 of 12" count, match case (Aa) and regular expression (.*) toggles, previous, next and close.
+  The replace row shows after Ctrl+H or the toggle. Matches look like list search highlights; the
+  current one has an accent outline.
+- **Frontmatter:** stays YAML text, revealed as a framed raw block on click or keyboard activation.
+  Typing at a line start offers missing common keys (title, tags, aliases, date, author, description,
+  status, url), and typing a tag offers the folder's tags, in a quiet monospace list. Unreadable tags
+  have a muted wavy underline and a tooltip. Leaving editing repairs comma-separated plain words into a
+  list and quotes plain `word: word` items in a flow list, as one undoable edit; ambiguous YAML stays
+  untouched, and typing never repairs.
+- **Spelling:** misspelled words have a wavy danger underline, waiting until the cursor leaves the
+  word. A right click on one, outside links, offers up to six suggestions (or "No suggestions") and Add
+  to dictionary; other text keeps the native menu.
 
-Frontmatter stays YAML text, with no property form. Inside the raw block, typing at the start of a
-line offers common keys not yet present (title, tags, aliases, date, author, description, status,
-url), and typing a tag offers the folder's tags, in a quiet monospace list with the selected
-background. Esc first closes the list. Unreadable tags have a muted wavy underline on their raw
-frontmatter line and an explanatory tooltip. Leaving editing repairs comma-separated plain words
-into a list and quotes plain `word: word` items inside a flow list, as one undoable edit saved by
-autosave. Typing never triggers repair. Ambiguous YAML (including a scalar `tags: Plano: Q3`,
-duplicate tag keys, incomplete lists, structured values and unreadable block items) stays untouched.
+## Rendered content
 
-Typing `/` at the start of a line or after whitespace opens the quiet completion list outside code,
-URLs and frontmatter. Filter by the localized label or English command ID, ignoring accents and
-case. Esc, moving the cursor or typing a query with no match closes the list and keeps the text.
-Choosing a command replaces the query and applies the action in one undo step. Slash commands can
-format the current line, insert a code block, divider, link or local date, or add a property. Case
-commands apply to the current line and line actions apply to its surrounding non-blank block.
+- Reading and editing share `features/notes/content.css`, scoped by `.note-content`. Raw HTML shows as
+  plain text. List paragraphs stay tight, like editor lines.
+- Code: inline code and blocks use the recessed `--color-bg` with `--radius-sm`; inline code has
+  `--space-1` at each side; blocks have `--space-2` vertical and `--space-3` horizontal padding and a
+  `--color-line` border. The editor frames code lines, fences included while visible, as one block.
+- Footnote references and labels are small raised text, references in accent; definitions are small
+  muted text where they are written.
+- GitHub alerts show the English kind names without icons; Note, Tip and Important use the accent,
+  Warning and Caution the danger color.
+- Links: a click opens a web link in the panel when reading and places the cursor when editing.
+  Shift+click, middle click and, in reading, Ctrl+click open the system browser; email links open the
+  mail handler. A right click, or Shift+F10 / Menu on a focused link or at the editor caret, opens a
+  menu: Open in browser, Copy link and, for web links, Open here. Tab reaches links in the expanded
+  note.
+- Copy and cut in the panel put plain text on the clipboard, kept out of clipboard history (Win+V) and
+  cloud clipboard, never cleared later. The web page copies as any browser does.
 
-Inline formatting wraps the selection, unwraps matching markers inside or included in the selection,
-and inserts a pair around an empty cursor. Block commands touch only selected line prefixes. Every
-formatting command is one undo step. Shared checkbox styling and code-block framing keep the same
-appearance in reading and editing.
+## Browser
 
-Typing `(`, `[`, `{`, single or double quotes inserts the closing character; typing that closer
-steps over it. Quotes after word characters stay literal, as in `don't`. Backspace removes an empty
-pair before trying list/quote markup removal. Backticks remain literal for Markdown code fences;
-the inline-code shortcut still wraps a selection or inserts a pair.
+- **Start:** Browser starts with a short hint and the field focused; switching tabs keeps the page and
+  history.
+- **Context menu:** the page keeps only editing items and back/forward/reload, then, after a
+  separator, "Capture visible area" and "Capture full page", also on a link, image or selection. They
+  are disabled without the notes folder, while the page is unavailable or loading, in the reader view,
+  under Preferences, and while a capture, save, note creation or folder choice is pending.
+- **Captures:** each goes into a new note titled and sourced from the page. If the panel still shows
+  that page in Browser when it is saved, and has not hidden it since, it returns to Notes with the note
+  in the editor; otherwise nothing switches and a dismissible notice above the list names the note. A
+  page too long for one image is clipped to its start, with a notice. On failure the page stays and
+  the error line shows over its top.
+- **Reader view:** replaces the page under the same bars with its article in the reading styles: the
+  title as header, then text, headings, lists, quotes, code and tables, with its own scroll and no
+  images. The toggle is disabled while reading the page; a failure says "No article text was found on
+  this page." under the top bar. Links open in the page; "+" saves the whole article. The toggle,
+  back/forward, opening a page, switching tabs or Preferences return to the page.
+- **Permission requests:** a site asking for the location, camera, microphone or clipboard gets a
+  `Notice` over the top of the page, under the address bar, on the panel background with a line below:
+  the kind's icon (map pin, camera, microphone, clipboard), "example.com wants to use your location."
+  and, when a frame of another origin of the site asked, a muted line naming it; then neutral Block and
+  Allow, neither primary. The page is cut out behind it. Focus stays where it was, and the panel stays
+  open until an answer; Notes, Preferences, the reader view, closing the panel or leaving the page deny
+  it without remembering. Requests show one at a time; each answer is remembered for the site.
 
-A compact formatting bar floats above a single non-empty selection, appearing after mouse release
-and hiding during selection dragging, on blur, or while the editor is read-only (including image
-paste). Its icon buttons toggle bold, italic, strike, inline code, heading level 1, bullet list,
-task list and quote, insert a link, or add a frontmatter property. The final button opens a menu for
-case changes, sorting lines in either direction, and removing duplicate lines. The bar and menu use
-the surface, line and control tokens without a shadow and preserve editor focus and selection.
-Buttons stay outside the Tab sequence. While the menu is open, arrows and Home/End move through
-the items, Enter or Space runs the highlighted item, and Esc closes the menu before leaving editing.
+## Preferences
 
-Case changes use the interface locale and act on each selection or the word at an empty cursor.
-Markdown punctuation stays intact. Case changes can affect letters in link destinations and code.
-The case shortcut skips equivalent styles and starts at lowercase for mixed case. Line actions
-expand non-empty selections to whole lines, excluding a final line whose start is the end of
-the selection. Sorting uses numeric order and ignores case and accents for comparison.
-Deduplication keeps the first exact match. Each change is one undo step and selects the result.
+The gear opens a third view with quiet General, Appearance, Browser, Shortcuts, Trash and About section
+buttons, wrapping when narrow. The page stays loaded but hidden. The gear or Esc returns to the
+previous tab; either tab also leaves, and the global shortcut returns to Notes and search. Sections
+scroll inside the panel with the same insets, tokens and neutral buttons, and no heading repeating the
+tab label.
 
-Misspelled words have a wavy underline in the danger color, which waits until the cursor leaves the
-word being typed. Outside links, a right click on a marked word opens an in-panel menu with up to six
-suggestions, or "No suggestions", and Add to dictionary. Other editor text keeps the native context menu.
-
-Copy and cut in the panel (editor, reading views, search bar and other fields) put plain text on the
-clipboard, kept out of clipboard history (Win+V) and cloud clipboard, and never cleared after a delay.
-Pasting elsewhere keeps the text, not formatting or images. Copy link uses the same private text
-clipboard. The web page copies as any browser does.
+- **General:** folder path and picker, optional vault file, note order, date grouping, relative dates,
+  "Web suggestions while searching notes" (off by default, with a hint that typed searches go to the
+  provider), "Check spelling" (on by default, with the languages found and where Windows adds more),
+  panel side and "Start with Windows". Side and startup mirror the tray, also while open; startup is
+  read from Windows, disabled until read, and keeps showing the actual state after a failure.
+- **Vault file:** its path, or a short optional hint, with Choose file (filtered to `.cryptomator`) and
+  Clear. Unlock opens it in its app, where Cryptomator handles authentication, including Windows
+  Hello. A missing file shows a nearby error asking to choose it again. The folder returns without
+  another action once unlocked.
+- **Appearance:** System, Light and Dark radio buttons, applied at once; the panel width, how to resize
+  it and a reset.
+- **Browser:** the search provider (DuckDuckGo by default; Custom reveals a URL field and Save, and an
+  invalid URL shows a hint and searches in DuckDuckGo). Then Allowed sites with Remove, a hint on the
+  subdomain scope and, when empty, how to add one with the shield. Then site permissions in the same
+  rows: the site and, muted below, "Location · Allowed", with Remove; the hint says answers cover
+  subdomains and removing asks again, and the empty list says a bar above the page asks.
+- **Shortcuts:** the activation shortcut in a field-like box with Change. Recording: the box asks for
+  a combination and shows held modifiers, the button becomes Cancel, current shortcuts stand aside, and
+  the next non-modifier key ends it, shown as the layout gives it (A for AZERTY's Q key). Esc, Tab,
+  leaving or hiding the panel, or 30 seconds cancel. A refused combination (no Ctrl, Alt or Win;
+  Ctrl+Alt with a letter or digit, which is AltGr on layouts such as ABNT2; a key other than a letter,
+  digit, F1–F24, arrow, Space or navigation key) or one taken by another app keeps the previous one and
+  says why in the danger color. If the saved one fails at startup, the default is used and a
+  dismissible notice under the top bar names both. Below, the same key list as the Ctrl+/ sheet.
+- **Shortcut sheet:** Ctrl+/ anywhere in Notes opens a quiet, scrollable dialog with surface and line
+  tokens, no shadow or dimming. Focus stays inside; Esc, Ctrl+/ or close restores the previous focus,
+  including the editor cursor.
+- **Trash:** a muted paragraph says items the Recycle Bin cannot take stay 30 days inside the notes
+  folder (encrypted in a vault) and synced with it. Rows newest first: the name and, muted below, its
+  folder ("Notes folder" for the root) and relative deletion date (full date on hover), with Restore,
+  which says "Restored as path." since a taken name gets a free one. "Empty trash" (danger) asks with
+  the item count, confirmed by "Delete for good", the only permanent action and so the only question.
+  Empty: "The trash is empty."; folder away: the trash appears when it is back. An entry that cannot
+  be identified shows "Unrecognized item" without Restore. The trash never shows in the list.
+- **About:** the installed version, live update status and last successful check. Check now starts a
+  check; development builds say updates are disabled. A verified download shows Restart to update and
+  enables the tray action and tooltip. Nothing moves the panel or focus.
 
 ## Tweak window
 
 Development builds only: a small Tweak button at the bottom of the panel opens an ordinary resizable
-window that can stay on another monitor while the panel behaves as in production. Every change
-applies live to the panel, even hidden, in both color schemes; how it reaches the panel and what it
-exports is in "Tweak window" in `docs/ARCHITECTURE.md`. No identity is selected by the tool: a look
-becomes the identity only when the user applies its export.
+window that can stay on another monitor while the panel behaves as in production. Every change applies
+live to the panel, even hidden, in both color schemes. A look becomes the identity only when the user
+applies its export, a set of unified diffs for the source files.
 
-- **Layout:** options scroll beside an always-visible WCAG AA/AAA contrast table, stacked below them in
-  narrow windows. Collapsible groups: typography, colors, layout, CSS transitions, slides, edge
-  handle, tab shape, presets and export.
-- **Numbers:** apply on input, with bounded steppers and Up/Down keys; Shift multiplies the step by ten.
-- **Colors:** HSB by default, a swatch beside the CSS/hex field and an alpha control; untouched source
-  spellings stay unchanged.
-- **Fonts:** each font-family token has a filtering combobox (Up/Down, Enter, Esc): curated stacks first,
-  then installed families, each quoted with a sans-serif or monospace fallback.
-- **Slides:** a duration and a `cubic-bezier` curve for the panel opening and closing and the handle
-  sliding in and out, with presets (including overshooting `back` curves), four numbers and a
-  draggable curve editor. A slide reads its motion when it starts. `--duration` affects only CSS
-  transitions.
-- **Edge handle:** activation height (100–1000% of the tab), reveal radius (10–1000% of the tab) and rush
-  speed (500–20000 logical pixels per second).
-- **Tab shape:** depth (4–64 logical pixels), height (40–400) and curve height (at most half the
-  height), applied at the next cursor poll, open or parked; the wordmark length (10–300 pixels) is a
-  UI-only override.
-- **Presets:** named sets of tokens, motions, handle values and tab shape for A/B switching; rename,
-  delete or overwrite, the last two with inline confirmation. A storage failure keeps the previous
-  map; a preset saved before the tab shape keeps the source shape. Reset restores the source values.
-  The window remembers its last state across reloads and restarts.
-- **Limits:** the native page's position uses a fixed Rust bar offset, so trying another bar size needs
-  a matching code change before adoption.
+- **Layout:** options scroll beside an always-visible WCAG AA/AAA contrast table, stacked in narrow
+  windows. Collapsible groups: typography, colors, layout, CSS transitions, slides, edge handle, tab
+  shape, presets and export.
+- **Numbers:** apply on input, with bounded steppers and Up/Down; Shift multiplies the step by ten.
+- **Colors:** HSB by default, a swatch beside the CSS/hex field and alpha; untouched source spellings
+  stay unchanged.
+- **Fonts:** each font token has a filtering combobox: curated stacks, then installed families, each
+  with a sans-serif or monospace fallback.
+- **Slides:** duration and `cubic-bezier` curve for the panel and the handle, with presets (overshooting
+  `back` curves included), four numbers and a draggable curve editor; a slide reads its motion when it
+  starts.
+- **Edge handle:** activation height (100–1000% of the tab), reveal radius (10–1000%) and rush speed
+  (500–20000 logical pixels per second).
+- **Tab shape:** depth (4–64), height (40–400) and curve height (at most half the height), applied at
+  the next cursor poll; the wordmark length (10–300) is UI-only.
+- **Presets:** named sets for A/B switching; rename, delete or overwrite, the last two with inline
+  confirmation. Reset restores the source values. The window remembers its state across restarts.
+- **Limit:** the page window uses a fixed bar offset in Rust, so another bar size needs a code change.
