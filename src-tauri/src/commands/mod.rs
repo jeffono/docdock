@@ -375,6 +375,25 @@ pub fn note_image(
 }
 
 #[tauri::command(async)]
+pub fn web_search_preferences(app: AppHandle) -> web::SearchPreferences {
+    crate::notes::search_preferences(&app)
+}
+
+#[tauri::command(async)]
+pub fn web_set_search_preferences(
+    app: AppHandle,
+    engine: web::SearchEngine,
+    custom_url: String,
+) -> Result<web::SearchPreferences, Error> {
+    crate::notes::set_search_preferences(&app, engine, custom_url)
+}
+
+#[tauri::command(async)]
+pub fn web_search_url(app: AppHandle, query: String) -> Result<String, Error> {
+    crate::notes::search_preferences(&app).results_url(&query)
+}
+
+#[tauri::command(async)]
 pub fn web_suggestions(app: AppHandle, query: String) -> Vec<String> {
     web::suggestions(&app, &query)
 }
@@ -454,6 +473,14 @@ pub fn permission_forget(
     crate::permissions::forget(&app, &site, kind)
 }
 
+#[tauri::command]
+pub fn note_search_suggestions(app: AppHandle) -> Result<bool, Error> {
+    crate::notes::note_search_suggestions(&app)
+}
+#[tauri::command]
+pub fn note_search_set_suggestions(app: AppHandle, enabled: bool) -> Result<(), Error> {
+    crate::notes::set_note_search_suggestions(&app, enabled)
+}
 #[tauri::command]
 pub fn spelling_enabled(app: AppHandle) -> Result<bool, Error> {
     crate::notes::spelling(&app)

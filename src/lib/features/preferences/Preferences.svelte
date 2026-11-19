@@ -37,9 +37,15 @@ import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import { relativeDate } from "../notes/relative-date";
 import ShortcutList from "../notes/ShortcutList.svelte";
+import {
+  loadNoteSearchSuggestions,
+  noteSearchSuggestions,
+  setNoteSearchSuggestions,
+} from "../notes/search-suggestions-store";
 import { loadSpelling, setSpelling, spellingOn } from "../notes/spelling-store";
 import { blockingRevision } from "../web/blocking-store";
 import ActivationShortcut from "./ActivationShortcut.svelte";
+import SearchProvider from "./SearchProvider.svelte";
 import UnlockVault from "./UnlockVault.svelte";
 import { loadVault, vaultPath } from "./vault-store";
 
@@ -184,6 +190,9 @@ async function refreshFolder() {
   folder = await notesFolder();
 }
 onMount(() => {
+  void loadNoteSearchSuggestions().catch((e) => {
+    error = errorText(e);
+  });
   void action(async () => {
     allowedSites = await blockingSites();
     sitePermissions = await permissionList();
@@ -261,6 +270,10 @@ onMount(() => {
         <label><input type="checkbox" checked={$relativeDates} disabled={busy || $noteOrderBusy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $relativeDates; void action(() => setRelativeDates(enabled)); }} />{t("preferences.relativeDates")}</label>
       </div>
       <div class="setting">
+        <label><input type="checkbox" checked={$noteSearchSuggestions === true} disabled={busy || $noteSearchSuggestions === null} aria-describedby="note-search-suggestions-hint" onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $noteSearchSuggestions === true; void action(() => setNoteSearchSuggestions(enabled)); }} />{t("preferences.noteSearchSuggestions")}</label>
+        <p id="note-search-suggestions-hint">{t("preferences.noteSearchSuggestionsHint")}</p>
+      </div>
+      <div class="setting">
         <label><input type="checkbox" checked={$spellingOn} disabled={busy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $spellingOn; void action(() => setSpelling(enabled)); }} />{t("preferences.spelling")}</label>
         {#if spellingNames}<p>{spellingNames.length > 0 ? t("preferences.spellingLanguages", { languages: spellingNames.join(", ") }) : t("preferences.spellingNone")}</p>{/if}
       </div>
@@ -287,7 +300,7 @@ onMount(() => {
         <Button variant="neutral" disabled={busy} onclick={() => action(() => panelResize(null, true))}>{t("preferences.widthReset")}</Button>
       </div>
     {:else if section === "browser"}
-      <div class="setting"><h3>{t("preferences.engine")}</h3><p>{t("preferences.engineName")}</p></div>
+      <div class="setting"><SearchProvider /></div>
       <div class="setting">
         <h3>{t("blocking.sites")}</h3>
         <p>{t("blocking.hint")}</p>

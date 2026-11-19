@@ -23,16 +23,20 @@ export function webEntries(
   browser: boolean,
   history: string[],
   remote: string[],
+  noteSuggestions = false,
 ): WebEntry[] {
-  const intent = webQuery(query, browser);
+  const intent = noteSuggestions ? null : webQuery(query, browser);
   const text = (intent ?? query).trim();
   if (!text) return [];
   const url = parseAddress(text);
   const primary: WebEntry = url
     ? { key: "web:open", kind: "open", text: url, url }
     : { key: "web:search", kind: intent === null ? "intent" : "search", text };
-  if (intent === null) return [primary];
-  const local = history.filter((url) => url.toLowerCase().includes(text.toLowerCase())).slice(0, 5);
+  if (intent === null && !noteSuggestions) return [primary];
+  const local =
+    intent === null
+      ? []
+      : history.filter((url) => url.toLowerCase().includes(text.toLowerCase())).slice(0, 5);
   return [
     primary,
     ...local.map((url): WebEntry => ({ key: `web:history:${url}`, kind: "open", text: url, url })),
@@ -61,10 +65,6 @@ export class LatestQuery {
     return revision === this.revision;
   }
 }
-export function searchAddress(text: string): string {
-  return `https://duckduckgo.com/?q=${encodeURIComponent(text)}`;
-}
-
 /** Down in Notes must never replace the note selection with URL history. */
 export function downOpensHistory(browser: boolean, suggestionCount: number): boolean {
   return browser && suggestionCount === 0;

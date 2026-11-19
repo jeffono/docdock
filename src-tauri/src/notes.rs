@@ -47,12 +47,20 @@ struct Settings {
     theme: Theme,
     #[serde(default, deserialize_with = "lenient")]
     search_engine: crate::web::SearchEngine,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "String::is_empty"
+    )]
+    custom_search_url: String,
     #[serde(default, deserialize_with = "lenient")]
     note_order: NoteOrder,
     #[serde(default, deserialize_with = "lenient")]
     group_by_date: bool,
     #[serde(default, deserialize_with = "lenient")]
     relative_dates: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    note_search_suggestions: bool,
     /// Spell checking is on unless turned off.
     #[serde(default, deserialize_with = "lenient")]
     spelling_off: bool,
@@ -187,6 +195,12 @@ pub fn relative_dates(app: &AppHandle) -> Result<bool, Error> {
 }
 pub fn set_relative_dates(app: &AppHandle, enabled: bool) -> Result<(), Error> {
     update(app, |settings| settings.relative_dates = enabled)
+}
+pub fn note_search_suggestions(app: &AppHandle) -> Result<bool, Error> {
+    Ok(load(&config(app)?).note_search_suggestions)
+}
+pub fn set_note_search_suggestions(app: &AppHandle, enabled: bool) -> Result<(), Error> {
+    update(app, |settings| settings.note_search_suggestions = enabled)
 }
 pub fn spelling(app: &AppHandle) -> Result<bool, Error> {
     Ok(!load(&config(app)?).spelling_off)
@@ -464,6 +478,23 @@ pub fn search_engine(app: &AppHandle) -> crate::web::SearchEngine {
         .map(|p| load(&p).search_engine)
         .unwrap_or_default()
 }
+pub fn search_preferences(app: &AppHandle) -> crate::web::SearchPreferences {
+    let settings = config(app).map(|p| load(&p)).unwrap_or_default();
+    crate::web::SearchPreferences::new(settings.search_engine, settings.custom_search_url)
+}
+
+pub fn set_search_preferences(
+    app: &AppHandle,
+    engine: crate::web::SearchEngine,
+    custom_url: String,
+) -> Result<crate::web::SearchPreferences, Error> {
+    update(app, |settings| {
+        settings.search_engine = engine;
+        settings.custom_search_url = custom_url.trim().to_owned();
+    })?;
+    Ok(search_preferences(app))
+}
+
 pub fn side(app: &AppHandle) -> Side {
     config(app).map(|p| load(&p).side).unwrap_or_default()
 }
@@ -2434,10 +2465,12 @@ mod tests {
             ("allowed_sites", ["42", "{}"].as_slice()),
             ("site_permissions", &["42", "{}"]),
             ("theme", &["null", "42", "{}", "true", r#""future-theme""#]),
-            ("search_engine", &["42", "{}"]),
+            ("search_engine", &["null", "42", "{}", r#""future-engine""#]),
+            ("custom_search_url", &["null", "42", "{}"]),
             ("note_order", &["null", "42", "{}", r#""future-order""#]),
             ("group_by_date", flags),
             ("relative_dates", flags),
+            ("note_search_suggestions", flags),
             ("spelling_off", flags),
             ("group_by_folder", flags),
             ("vault_file", &["42", "{}", "[]"]),
@@ -2451,6 +2484,27 @@ mod tests {
                 let settings: Settings = serde_json::from_str(&json).unwrap();
                 assert_eq!(serde_json::to_value(settings).unwrap(), defaults, "{json}");
             }
+        }
+    }
+    #[test]
+    fn search_provider_settings_read_existing_and_new_choices() {
+        use crate::web::SearchEngine;
+        for (name, engine) in [
+            ("duckduckgo", SearchEngine::DuckDuckGo),
+            ("brave", SearchEngine::Brave),
+            ("startpage", SearchEngine::Startpage),
+            ("ecosia", SearchEngine::Ecosia),
+            ("google", SearchEngine::Google),
+            ("bing", SearchEngine::Bing),
+            ("custom", SearchEngine::Custom),
+        ] {
+            let json = serde_json::json!({"search_engine": name});
+            let settings: Settings = serde_json::from_value(json).unwrap();
+            assert_eq!(settings.search_engine, engine);
+            assert_eq!(
+                serde_json::to_value(settings).unwrap()["search_engine"],
+                name
+            );
         }
     }
     #[test]

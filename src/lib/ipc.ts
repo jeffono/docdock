@@ -317,6 +317,22 @@ export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
 /** Resolves to the path of the restored note. */
 export const notesRestore = (path: string) => invoke<string>("notes_restore", { path });
 
+export const searchEngines = [
+  "duckduckgo",
+  "brave",
+  "startpage",
+  "ecosia",
+  "google",
+  "bing",
+  "custom",
+] as const;
+export type SearchEngine = (typeof searchEngines)[number];
+export type SearchPreferences = { engine: SearchEngine; customUrl: string; invalidCustom: boolean };
+
+export const webSearchPreferences = () => invoke<SearchPreferences>("web_search_preferences");
+export const webSetSearchPreferences = (engine: SearchEngine, customUrl: string) =>
+  invoke<SearchPreferences>("web_set_search_preferences", { engine, customUrl });
+export const webSearchUrl = (query: string) => invoke<string>("web_search_url", { query });
 export const webSuggestions = (query: string) => invoke<string[]>("web_suggestions", { query });
 export const webAddresses = () => invoke<string[]>("web_addresses");
 export const webOverlay = (height: number) => invoke<void>("web_overlay", { height });
@@ -371,6 +387,10 @@ export const permissionList = () => invoke<SitePermission[]>("permission_list");
 /** Forgets a choice: the site asks again. */
 export const permissionForget = (site: string, kind: PermissionKind) =>
   invoke<void>("permission_forget", { site, kind });
+
+export const noteSearchSuggestionsEnabled = () => invoke<boolean>("note_search_suggestions");
+export const noteSearchSetSuggestions = (enabled: boolean) =>
+  invoke<void>("note_search_set_suggestions", { enabled });
 
 /** Spell checking in the editor, on unless turned off in Preferences. */
 export const spellingEnabled = () => invoke<boolean>("spelling_enabled");

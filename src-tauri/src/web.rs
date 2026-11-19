@@ -279,13 +279,115 @@ pub fn evaluate(app: &AppHandle, expression: String) -> Option<String> {
         .and_then(|(_, json)| json)
 }
 
-/// Only the supported engine is persisted; unknown values use the privacy default.
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchEngine {
     #[default]
-    #[serde(other)]
     DuckDuckGo,
+    Brave,
+    Startpage,
+    Ecosia,
+    Google,
+    Bing,
+    Custom,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchPreferences {
+    engine: SearchEngine,
+    custom_url: String,
+    invalid_custom: bool,
+}
+
+impl SearchEngine {
+    fn results_template(self) -> &'static str {
+        match self {
+            Self::DuckDuckGo | Self::Custom => "https://duckduckgo.com/?q=%s",
+            Self::Brave => "https://search.brave.com/search?q=%s",
+            Self::Startpage => "https://www.startpage.com/sp/search?q=%s",
+            Self::Ecosia => "https://www.ecosia.org/search?q=%s",
+            Self::Google => "https://www.google.com/search?q=%s",
+            Self::Bing => "https://www.bing.com/search?q=%s",
+        }
+    }
+
+    // Anonymous endpoints shipped in Firefox's search-config-v2.json.
+    fn suggestions_endpoint(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::DuckDuckGo => Some(("https://ac.duckduckgo.com/ac/?type=list", "q")),
+            Self::Startpage => Some((
+                "https://www.startpage.com/suggestions?partner=apex&format=opensearch&segment=startpage.apex.desktop",
+                "q",
+            )),
+            Self::Ecosia => Some(("https://ac.ecosia.org/autocomplete?type=list", "q")),
+            Self::Google => Some((
+                "https://www.google.com/complete/search?client=firefox&channel=fen",
+                "q",
+            )),
+            Self::Bing => Some(("https://www.bing.com/osjson.aspx?form=OSDJAS", "query")),
+            Self::Brave | Self::Custom => None,
+        }
+    }
+}
+
+fn valid_custom_search(template: &str) -> bool {
+    let Some((scheme, rest)) = template.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    (scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+        && template.contains("%s")
+        && !authority.is_empty()
+        && !authority.contains("%s")
+        && !template.contains('\\')
+        && !template.chars().any(char::is_control)
+        && parse_url(template).is_ok()
+}
+
+impl SearchPreferences {
+    pub fn new(engine: SearchEngine, custom_url: String) -> Self {
+        Self {
+            invalid_custom: engine == SearchEngine::Custom && !valid_custom_search(&custom_url),
+            engine,
+            custom_url,
+        }
+    }
+
+    pub fn results_url(&self, query: &str) -> Result<String, Error> {
+        use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+        const QUERY: &AsciiSet = &NON_ALPHANUMERIC
+            .remove(b'-')
+            .remove(b'.')
+            .remove(b'_')
+            .remove(b'~');
+        let query = utf8_percent_encode(query, QUERY).to_string();
+        if self.engine == SearchEngine::Custom && !self.invalid_custom {
+            // URL parsers collapse dot segments even when the dots are percent encoded.
+            let traverses_path = self
+                .custom_url
+                .split(['?', '#'])
+                .next()
+                .unwrap_or_default()
+                .split('/')
+                .filter(|segment| segment.contains("%s"))
+                .any(|segment| {
+                    matches!(
+                        segment
+                            .replace("%s", &query)
+                            .to_ascii_lowercase()
+                            .replace("%2e", ".")
+                            .as_str(),
+                        "." | ".."
+                    )
+                });
+            if traverses_path {
+                return Err(Error::SearchPathInvalid);
+            }
+            return Ok(self.custom_url.replace("%s", &query));
+        }
+        Ok(self.engine.results_template().replace("%s", &query))
+    }
 }
 
 const HISTORY_CAP: usize = 300;
@@ -351,17 +453,27 @@ pub fn addresses(app: &AppHandle, visit: Option<&str>) -> Vec<String> {
 }
 
 fn phrases(value: serde_json::Value) -> Vec<String> {
-    let Some(items) = value.as_array() else {
+    let (items, opensearch) = if value.get(0).is_some_and(|query| query.is_string()) {
+        (value.get(1).and_then(|items| items.as_array()), true)
+    } else {
+        (value.as_array(), false)
+    };
+    let Some(items) = items else {
         return vec![];
     };
     let mut result = Vec::new();
     for item in items.iter().take(50) {
-        if let Some(text) = item.get("phrase").and_then(|v| v.as_str()) {
+        let text = if opensearch {
+            item.as_str()
+        } else {
+            item.get("phrase").and_then(|v| v.as_str())
+        };
+        if let Some(text) = text {
+            if text.chars().any(char::is_control) {
+                continue;
+            }
             let text = text.trim();
-            if !text.is_empty()
-                && text.chars().count() <= 200
-                && !text.chars().any(char::is_control)
-                && !result.iter().any(|s| s == text)
+            if !text.is_empty() && text.chars().count() <= 200 && !result.iter().any(|s| s == text)
             {
                 result.push(text.to_owned());
                 if result.len() == 8 {
@@ -378,13 +490,11 @@ pub fn suggestions(app: &AppHandle, query: &str) -> Vec<String> {
     if query.chars().count() < 2 || query.len() > 800 {
         return vec![];
     }
-    let endpoint = match crate::notes::search_engine(app) {
-        SearchEngine::DuckDuckGo => "https://duckduckgo.com/ac/",
+    let Some((endpoint, key)) = crate::notes::search_engine(app).suggestions_endpoint() else {
+        return vec![];
     };
     let mut url = Url::parse(endpoint).expect("constant endpoint");
-    url.query_pairs_mut()
-        .append_pair("q", query)
-        .append_pair("type", "json");
+    url.query_pairs_mut().append_pair(key, query);
     static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
     let agent = AGENT.get_or_init(|| {
         ureq::Agent::config_builder()
@@ -394,7 +504,11 @@ pub fn suggestions(app: &AppHandle, query: &str) -> Vec<String> {
             .into()
     });
     let fetch = || -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let mut response = agent.get(url.as_str()).call()?;
+        let mut response = agent
+            .get(url.as_str())
+            .header("Accept", "application/json")
+            .header("User-Agent", "DocDock")
+            .call()?;
         let bytes = response
             .body_mut()
             .with_config()
@@ -422,6 +536,63 @@ mod tests {
         assert!(parse_url("http://tauri.app/").is_err());
         assert!(parse_url("http://note-asset.example/").is_err());
         assert!(parse_url("https://tauri.app/").is_ok());
+    }
+
+    #[test]
+    fn custom_search_requires_a_web_template_with_a_fixed_authority() {
+        assert!(valid_custom_search("http://example.com/%s"));
+        assert!(valid_custom_search("https://example.com/?q=%s"));
+        for template in [
+            "",
+            "https://example.com/",
+            "file:///search/%s",
+            "https://%s.example.com/search",
+            "https://%s@example.com/search",
+            "https://ipc.localhost/?q=%s",
+        ] {
+            assert!(!valid_custom_search(template), "{template}");
+        }
+    }
+
+    #[test]
+    fn invalid_custom_search_uses_default_results() {
+        let preferences = SearchPreferences::new(SearchEngine::Custom, "file:///%s".into());
+        assert_eq!(
+            preferences.results_url("rust").unwrap(),
+            "https://duckduckgo.com/?q=rust"
+        );
+    }
+
+    #[test]
+    fn custom_search_substitution_encodes_query_without_injecting_url_components() {
+        let preferences = SearchPreferences::new(
+            SearchEngine::Custom,
+            "https://example.com/search/%s?q=%s".into(),
+        );
+        let query = "//out.test/?q=olá&x=1#top%";
+        let url = parse_url(&preferences.results_url(query).unwrap()).unwrap();
+        assert_eq!(url.host_str(), Some("example.com"));
+        assert_eq!(
+            url.path(),
+            "/search/%2F%2Fout.test%2F%3Fq%3Dol%C3%A1%26x%3D1%23top%25"
+        );
+        assert_eq!(
+            url.query_pairs().collect::<Vec<_>>(),
+            vec![("q".into(), query.into())]
+        );
+        assert_eq!(url.fragment(), None);
+    }
+
+    #[test]
+    fn a_query_cannot_traverse_the_custom_search_path() {
+        let preferences =
+            SearchPreferences::new(SearchEngine::Custom, "https://example.com/search/%s".into());
+        for query in [".", ".."] {
+            assert_eq!(
+                preferences.results_url(query),
+                Err(Error::SearchPathInvalid)
+            );
+        }
     }
 
     /// A `Runtime.evaluate` response whose selection is the JSON literal `value`.
@@ -560,5 +731,16 @@ mod tests {
             ),
             vec!["safe"]
         );
+    }
+
+    #[test]
+    fn opensearch_suggestions_use_only_valid_unique_strings_from_the_suggestions_list() {
+        let payload = serde_json::json!([
+            "query",
+            [42, {}, {"phrase": "object"}, "\nleading", "has\tcontrol", "x".repeat(201),
+                "", " safe ", "safe", "next"],
+            ["metadata"]
+        ]);
+        assert_eq!(phrases(payload), vec!["safe", "next"]);
     }
 }
