@@ -1,4 +1,10 @@
 //! Moving a file to the Recycle Bin through the shell's `IFileOperation`.
+//!
+//! A progress sink cancels any item whose `PreDeleteItem` lacks `TSF_DELETE_RECYCLE_IF_POSSIBLE`:
+//! without it, `FOF_ALLOWUNDO` with `FOF_NO_UI` deletes such a file for good without asking.
+//! `SHQueryRecycleBinW` cannot decide this: it says nothing about the bin's size limit or the
+//! "remove files immediately" setting, while the sink sees the shell's own decision per item. The
+//! shell also cannot parse a vault path mounted by WinFsp, which answers the same as no bin.
 
 use std::cell::{Cell, RefCell};
 use std::io;

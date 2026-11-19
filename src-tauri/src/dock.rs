@@ -709,8 +709,9 @@ impl Dock {
         }
         if parked {
             self.set_click_through(true);
-            // The UI folds its expanded card back to a preview while nobody sees it, and a
-            // deleted note can no longer be undone.
+            // A hide ends the session: a deleted note can no longer be undone. The UI hears of it
+            // only through `panel-hidden`: `visibilitychange` does not fire for a window moved
+            // off-screen.
             crate::notes::forget_deleted();
             crate::notes::purge_trash(&self.app);
             crate::shortcut::end_recording(&self.app);
