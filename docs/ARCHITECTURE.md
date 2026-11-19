@@ -724,7 +724,11 @@ editor stops it when replacing a clean base, discarding or unmounting.
 footnotes, and holds link, image, alert and frontmatter rules. `render.ts` turns the tree into a model
 of allowlisted tags and attributes, then DOM nodes, rebuilt when the note or its path changes. Raw
 HTML stays text; links and images follow the shared destination rules; footnote definitions render
-where they are written.
+where they are written. Model elements keep their source range beside the model, and DOM elements
+their model element, so `reading-position.ts` maps a double-clicked word back to the text: from the
+innermost element's range, it matches the text between elements in order, skipping the syntax the
+reading view hides. The editor selects that word when the text still matches, and scrolls the list so
+the word stays where it was clicked.
 
 Fenced code uses `code-colors.ts`: a shared registry of lazy local Lezer grammars for JavaScript,
 TypeScript, JSX/TSX, JSON, CSS and HTML. These cover common web snippets with four grammar packages;
@@ -750,7 +754,12 @@ facet on rename, rebuilding relative-image decorations without replacing text or
 state is reported to the card header's status. CodeMirror 6
 parses GFM; `live-formatting.ts` decorates visible ranges on document, selection, parser and viewport
 changes. Headings, emphasis, strikethrough, quotes, lists, rules, tasks, code and local images hide
-syntax outside selection lines. Quotes nest up to three drawn bars; alerts and links follow the
+syntax outside selection lines. During a pointer gesture (`pointer-reveal.ts`), syntax keeps
+following the selection from before it: CodeMirror resolves the pointer again on mouseup and on each
+drag move, so text that a reveal moved under the pointer would change where the click lands. It catches
+up once the gesture can no longer become a double or triple click (500 ms after the last mousedown, at
+the earliest on mouseup), and at once on a keyboard selection, an edit or blur; the clicked line keeps
+its height on screen (`keep-in-place.ts`) when the list can scroll. Quotes nest up to three drawn bars; alerts and links follow the
 reading parser (an alert marker alone on its line, `[text]` without a destination stays text). Lines and
 widgets are spaced with padding only: CodeMirror maps clicks and vertical motion from measured line
 boxes and ignores margins. Tables remain raw. Multiline image syntax is replaced one line at a time. Task checkboxes make

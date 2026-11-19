@@ -123,6 +123,7 @@ import {
   queryCompletion,
 } from "./query";
 import { datePresets } from "./query-date";
+import type { EditStart } from "./reading-position";
 import { noteName } from "./render";
 import ShortcutSheet from "./ShortcutSheet.svelte";
 import {
@@ -387,7 +388,9 @@ export function leaveEditor(): Promise<boolean> {
 }
 /** Note whose editor read is in flight; a rename of it cancels the open. */
 let opening: string | null = null;
-async function edit(path: string) {
+/** Where the next editor starts, from a double click on the reading view. */
+let editStartAt = $state<EditStart>();
+async function edit(path: string, start?: EditStart) {
   // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
   if (editing || choosing || path === deletingPath || path === movingPath || inDeletingFolder(path))
     return;
@@ -404,6 +407,7 @@ async function edit(path: string) {
     version = note.version;
     selected = path;
     expanded = path;
+    editStartAt = start;
     editing = true;
     noteSearchTyped = false;
   } catch (e) {
@@ -2108,6 +2112,7 @@ onMount(() => {
       bind:this={editor}
       path={selected}
       note={opened}
+      start={editStartAt}
       onstatus={(state) => {
         saveStatus = state;
       }}
@@ -2303,7 +2308,7 @@ onMount(() => {
             onexpand={() => setLevel(card, "expanded")}
             onpreview={() => setLevel(card, "preview")}
             onpin={() => pinOrUnpin(card)}
-            onedit={() => (edited ? leaveEditor() : edit(card.hit.path))}
+            onedit={(start) => (edited ? leaveEditor() : edit(card.hit.path, start))}
             onlink={linkClick}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
