@@ -10,7 +10,8 @@
 //! index file: `a/b/note.md` deleted becomes `<entry>/a/b/note.md`, with depth 2. A note deleted with
 //! the images only it referenced keeps them in the same entry, in its `.images` folder at their own
 //! original paths: `a/attachments/map.png` becomes `<entry>/.images/a/attachments/map.png` (decision
-//! 0013). No item path starts with a dot, so that folder never reads as part of the item's chain.
+//! 0013). No item path starts with a dot, so that folder never reads as part of the item's chain. An
+//! entry left with only that folder, its note restored without some images, holds those images alone.
 
 use std::fs;
 use std::io;
@@ -119,9 +120,11 @@ pub struct Item {
 
 /// The item of an entry, as a restore needs it.
 pub struct Found {
-    /// Where the item is now.
-    pub source: PathBuf,
-    /// Its original path, relative to the notes folder, with `/`.
+    /// Where the item is now. None for an entry left with only images, whose note came back without
+    /// them: the images are all it holds.
+    pub source: Option<PathBuf>,
+    /// Its original path, relative to the notes folder, with `/`; for an entry with only images, the
+    /// first image's.
     pub path: String,
     pub folder: bool,
     /// The images deleted with it: where each is now and its original path, as `path`.
@@ -232,8 +235,9 @@ fn one_child(
 /// The item of `entry`, whose name parsed as `parsed`: one chain of `depth` real folders, then one
 /// file or folder, and the images in its `.images` folder. Files beside the chain and shell or sync
 /// noise are ignored; anything else, such as two candidates, a link or a name that is not Unicode, is
-/// no item. Each folder is held, without following links, before it is read, and stays held in the
-/// handles answered: none can be swapped for a link while the caller uses the item.
+/// no item. An entry with nothing but images in its `.images` folder holds those images alone. Each
+/// folder is held, without following links, before it is read, and stays held in the handles answered:
+/// none can be swapped for a link while the caller uses the item.
 fn item_in(entry: &Path, parsed: &Entry) -> Option<Found> {
     let mut dir = entry.to_owned();
     let mut held = vec![platform::hold_directory(&dir).ok()?];
@@ -241,10 +245,28 @@ fn item_in(entry: &Path, parsed: &Entry) -> Option<Found> {
     let found = fs::symlink_metadata(entry.join(IMAGES));
     if found.as_ref().is_ok_and(|metadata| metadata.is_dir()) {
         images_in(&entry.join(IMAGES), "", 0, &mut images, &mut held)?;
+        images.sort_by(|a, b| a.1.cmp(&b.1));
     } else if found.is_ok() {
         return None;
     }
     let outside = |child: &fs::DirEntry| !child.file_name().eq_ignore_ascii_case(IMAGES);
+    let only_images = !images.is_empty()
+        && fs::read_dir(entry).ok()?.all(|child| {
+            child.is_ok_and(|child| {
+                !outside(&child)
+                    || child.file_type().is_ok_and(|kind| kind.is_file())
+                        && noise(&child.file_name())
+            })
+        });
+    if only_images {
+        return Some(Found {
+            source: None,
+            path: images[0].1.clone(),
+            folder: false,
+            images,
+            held,
+        });
+    }
     let mut names = Vec::new();
     for level in 0..parsed.depth {
         let child = one_child(&dir, |child, kind| {
@@ -262,7 +284,7 @@ fn item_in(entry: &Path, parsed: &Entry) -> Option<Found> {
     let kind = child.file_type().ok()?;
     names.push(child.file_name().into_string().ok()?);
     Some(Found {
-        source: child.path(),
+        source: Some(child.path()),
         path: names.join("/"),
         folder: kind.is_dir(),
         images,

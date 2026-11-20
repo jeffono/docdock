@@ -304,13 +304,15 @@ export const notesDelete = (path: string) => invoke<Removal>("notes_delete", { p
 /**
  * Brings back the note and the images that went with it. `restoreTaken`: a file took one of their
  * names or one of their folders'; nothing changed and undoing stays possible. `imagesLeftInBin`: the
- * note is back, but those images stay in the Recycle Bin.
+ * note is back, but those images could not be written; undoing again writes them, until the panel
+ * hides.
  */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
 /**
  * An entry of the trash inside the notes folder; `deleted` is in ms since the Unix epoch. `path` is
  * null when its item cannot be told, as when a sync conflict left two items in it: it can only be
- * emptied.
+ * emptied. An entry left with only images a note's restore could not move names the first of them
+ * and restores them all.
  */
 export type TrashItem = { id: string; path: string | null; folder: boolean; deleted: number };
 /** Newest first. */
@@ -320,8 +322,8 @@ export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
  * resolves to the path it took; the images deleted with a note return to their own paths with it.
  * `undo` also puts back the pinned items its delete removed. `trashItemMissing`: it is no longer in
  * the trash. `restoreTaken`: a file took one of its images' names or one of their folders'; nothing
- * moved. `imagesLeftInTrash`: the item is back at `path`, but those images stay in the trash, each as
- * an item of its own.
+ * moved. `imagesLeftInTrash`: the item is back at `path`, but those images stay in the trash, as one
+ * item.
  */
 export const notesTrashRestore = (id: string, undo = false) =>
   invoke<string>("notes_trash_restore", { id, undo });

@@ -1410,6 +1410,8 @@ async function undoDelete() {
   if (!item) return;
   error = "";
   let path = item.path;
+  // Images Undo could not write stay in its memory: Undo again writes them.
+  let retry = false;
   try {
     if (item.trash) path = await notesTrashRestore(item.trash, true);
     else await notesUndoDelete(item.path);
@@ -1419,11 +1421,11 @@ async function undoDelete() {
     if (failed.code === "undoUnavailable" || failed.code === "trashItemMissing") removed = null;
     // Only the pinned items or some images failed: the item is back. Otherwise, a taken name keeps
     // Undo to retry.
-    if (failed.code === "imagesLeftInBin" || failed.code === "imagesLeftInTrash")
-      path = failed.path ?? path;
+    retry = failed.code === "imagesLeftInBin";
+    if (retry || failed.code === "imagesLeftInTrash") path = failed.path ?? path;
     else if (failed.code !== "pinnedNotRestored") return;
   }
-  removed = null;
+  if (!retry) removed = null;
   const inside = `${item.path.toLowerCase()}/`;
   for (const name of renamedAway)
     if (name === item.path || (item.folder && name.toLowerCase().startsWith(inside)))

@@ -111,13 +111,13 @@ pub enum Error {
     /// The note is back, but its pinned items are not.
     PinnedNotRestored,
     /// The note is back at `path`, but `images`, joined with ", ", could not return to their paths:
-    /// they stay in the Recycle Bin.
+    /// Undo keeps them, and undoing again retries them, until the panel hides.
     ImagesLeftInBin {
         path: String,
         images: String,
     },
-    /// The note is back at `path`, but `images`, joined with ", ", could not return to their paths:
-    /// each stays in the notes folder's own trash as an entry of its own.
+    /// The item is back at `path`, but `images`, joined with ", ", could not return to their paths:
+    /// they stay in the notes folder's own trash, as one entry.
     ImagesLeftInTrash {
         path: String,
         images: String,

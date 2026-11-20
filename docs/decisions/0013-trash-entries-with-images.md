@@ -22,13 +22,16 @@ leave the note's links broken until the user found each image in Preferences.
   name is taken, by a file or by a Recycle Bin Undo's reservation, or a file took one of its
   folders' names, nothing moves and the restore answers `restoreTaken` naming it: under a free name
   the note would silently show another image or none. The user renames that file and restores again.
-  An image whose name is taken in the instant between that check and its move takes a free name; one
-  that still cannot move becomes a trash entry of its own, restorable from Preferences like an image
-  sent there by "Unused images", with a new 30 days, and the restore answers `imagesLeftInTrash`
-  naming it while the note is back. None is ever overwritten nor deleted.
+  An image only ever returns under its own name: one whose name is taken in the instant between that
+  check and its move, or that cannot move, such as one another app holds open, stays in the entry,
+  and the restore answers `imagesLeftInTrash` naming it while the note is back. The entry then holds
+  only its `.images` folder: it lists under the first image's path, restores every image to its own
+  path under the same check, and counts its 30 days from that restore, the last change to its
+  folder. None is ever overwritten nor deleted.
 - **Recycle Bin Undo** follows the same rule: a taken image or folder name answers `restoreTaken`,
   nothing changes and Undo stays possible until the panel hides. An image that still cannot be
-  written stays in the Recycle Bin, and Undo answers `imagesLeftInBin`.
+  written under its own name keeps its bytes in Undo's memory and its name reserved, since the bin
+  may have been emptied, and Undo answers `imagesLeftInBin`; Undo again retries it.
 - **Emptying and purging** the trash take the save lock, as a restore does, so neither deletes an
   entry a restore is moving.
 
@@ -40,6 +43,7 @@ leave the note's links broken until the user found each image in Preferences.
 - The unused-images scan and the delete's own reference scan read notes in the trash at their
   original path by dropping the entry folder; images in `.images` are never notes, so neither scan
   changes for them, and they are never candidates for the unused-images cleanup.
-- An entry left with only images, which only a failed move that cannot even become an entry of its
-  own can cause, lists as an unrecognized item.
+- An older DocDock version lists an entry left with only images as the folder `.images` or one below
+  it, and refuses to restore it, since it restores no folder whose name starts with a dot; it
+  empties and purges it as any other.
 - Emptying or purging an entry deletes the note and its images together, as one item.

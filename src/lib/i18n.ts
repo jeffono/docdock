@@ -384,9 +384,9 @@ const en = {
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
   "error.restoreTaken": "Another file now uses the name {path}. Rename it and try again.",
   "error.imagesLeftInBin":
-    "The note is back, but these images could not return to their folder and stay in the Recycle Bin: {images}.",
+    "The note is back, but these images could not return to their folder: {images}. Undo keeps them until the panel closes: try again.",
   "error.imagesLeftInTrash":
-    "The note is back, but these images could not return to their folder and stay in the trash (Preferences): {images}.",
+    "These images could not return to their folder and stay in the trash (Preferences): {images}.",
   "error.trashItemMissing":
     "This item is no longer in the trash: it was restored or deleted, perhaps on another computer.",
   "error.pinnedNotRestored":
@@ -794,9 +794,9 @@ const ptBR: Record<MessageKey, string> = {
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
   "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e tente de novo.",
   "error.imagesLeftInBin":
-    "A nota voltou, mas estas imagens não puderam voltar para a pasta e continuam na Lixeira: {images}.",
+    "A nota voltou, mas estas imagens não puderam voltar para a pasta: {images}. O Desfazer as guarda até o painel fechar: tente de novo.",
   "error.imagesLeftInTrash":
-    "A nota voltou, mas estas imagens não puderam voltar para a pasta e continuam na lixeira (Preferências): {images}.",
+    "Estas imagens não puderam voltar para a pasta e continuam na lixeira (Preferências): {images}.",
   "error.trashItemMissing":
     "Este item não está mais na lixeira: foi restaurado ou excluído, talvez em outro computador.",
   "error.pinnedNotRestored":

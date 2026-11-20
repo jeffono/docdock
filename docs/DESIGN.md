@@ -265,8 +265,9 @@ notes differ only in section and starting state.
   images that could not go stay in place with an error line saying so. An image in the bin whose copy
   could not be read back still counts as moved, but Undo cannot bring it: an error line says it stays
   in the Recycle Bin. These lines show together with the pinned-items error when both apply. If Undo
-  brings the note back but an image cannot return, an error line names it and says it stays in the
-  Recycle Bin or in the trash. It leaves after 10 seconds in
+  brings the note back but an image cannot return, an error line names it: from the Recycle Bin, Undo
+  keeps it until the panel closes and the notice stays, so Undo again retries it; from the trash, it
+  stays there as one item to restore from Preferences. It leaves after 10 seconds in
   sight, or when closed, undone or replaced; time stops while hovered, focused or hidden. To be
   noticed, it slides down and fades in
   over two `--duration`, then Undo pulses twice (accent outline, selected background, five
@@ -496,7 +497,9 @@ tab label.
   which says "Restored as path." since a taken name gets a free one. "Empty trash" (danger) asks with
   the item count, confirmed by "Delete for good", the only permanent action and so the only question.
   Empty: "The trash is empty."; folder away: the trash appears when it is back. An entry that cannot
-  be identified shows "Unrecognized item" without Restore. The trash never shows in the list.
+  be identified shows "Unrecognized item" without Restore. Images a note's restore could not move
+  back show as one row named after the first of them, and Restore brings them all. The trash never
+  shows in the list.
 - **Unused images**, under its own heading below the trash: rows show lazy thumbnails, filenames and
   their folders, with checkboxes to select individual images or all of them. Send to bin moves the
   selection through the same bin and fallback as Trash. Empty: "No unused images."; folder away: the
