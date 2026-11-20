@@ -124,6 +124,7 @@ pub fn run() {
         commands::notes_delete,
         commands::notes_delete_folder,
         commands::notes_undo_delete,
+        commands::notes_send_pending,
         commands::notes_trash,
         commands::notes_trash_restore,
         commands::notes_trash_empty,

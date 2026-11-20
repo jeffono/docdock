@@ -262,8 +262,8 @@ notes differ only in section and starting state.
   (Undo while it is in the trash). Images in `attachments/` folders that only this note uses follow
   it, and the notice counts them: "“title” and its 2 images moved to the Recycle Bin." or "Deleted
   “title” and its 2 images. They stay in the trash for 30 days (Preferences)." They actually move
-  when the panel hides, if no note uses them by then: until then Undo needs nothing for them, and one
-  that cannot go stays in place, under "Unused images". It leaves after 10 seconds in sight, or when
+  after the panel hides and the note left open is saved, if no note uses them by then: until then
+  Undo needs nothing for them, and one that cannot go stays in place, under "Unused images". It leaves after 10 seconds in sight, or when
   closed, undone or replaced; time stops while hovered, focused or hidden. To be noticed, it slides
   down and fades in over two `--duration`, then Undo pulses twice (accent outline, selected
   background, five `--duration` each); with reduced motion it appears at once with that look. Undo
@@ -493,8 +493,10 @@ tab label.
   the item count, confirmed by "Delete for good", the only permanent action and so the only question.
   Empty: "The trash is empty."; folder away: the trash appears when it is back. An entry that cannot
   be identified shows "Unrecognized item" without Restore. Restoring a note brings back the images
-  that followed it; one whose name is now taken, or that cannot move, stays, and an error line names
-  it. Such images show as one row named after the first of them, and Restore brings them all. The
+  that followed it; one whose name is now taken, or that cannot move, stays, and an error line counts
+  and names them ("This image could not return…" or "These 2 images could not return…"). Such images
+  show as one row named after the first of them, dated from that restore, and Restore brings them
+  all. The
   trash never shows in the list.
 - **Unused images**, under its own heading below the trash: rows show lazy thumbnails, filenames and
   their folders, with checkboxes to select individual images or all of them. Send to bin moves the

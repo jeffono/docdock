@@ -108,11 +108,12 @@ pub enum Error {
     },
     /// The note is back, but its pinned items are not.
     PinnedNotRestored,
-    /// The item is back at `path`, but `images`, joined with ", ", could not return to their paths:
-    /// they stay in the notes folder's own trash, as one entry.
+    /// The item is back at `path`, but `images`, `count` paths joined with ", ", could not return to
+    /// their paths: they stay in the notes folder's own trash, as one entry.
     ImagesLeftInTrash {
         path: String,
         images: String,
+        count: usize,
     },
     InvalidUrl {
         detail: String,

@@ -25,6 +25,7 @@ import {
   notesRestore,
   notesRewrite,
   notesSave,
+  notesSendPending,
   notesTexts,
   notesTrashRestore,
   notesTrust,
@@ -1255,7 +1256,7 @@ let removed = $state<{
   folder: boolean;
   trash: string | null;
   undo: boolean;
-  /** Images only the note used, which follow it when the panel hides. */
+  /** Images only the note used, which follow it after the panel hides. */
   images: number;
 } | null>(null);
 let deleting = false;
@@ -1348,7 +1349,7 @@ function removedText(item: NonNullable<typeof removed>): string {
 }
 /**
  * Deletes a note at once: to the Recycle Bin, or to the trash inside the notes folder where the
- * Recycle Bin cannot take it; the images only it references follow when the panel hides. The notice
+ * Recycle Bin cannot take it; the images only it references follow after the panel hides. The notice
  * offers Undo. Its editor is left first, the guarded way, so its text is saved before the delete and
  * nothing writes the note back afterwards; a conflict or error there stops the delete. The selection
  * moves to the next item, else the previous.
@@ -2230,7 +2231,11 @@ onMount(() => {
     warning = "";
     panelSession++;
     stopScrolling();
-    void leaveEditor();
+    // The deleted notes' images go only once the note left open is saved, which may just have
+    // gained a link to one; a conflict keeps them for a later hide, an error where they are.
+    void leaveEditor().then((left) => {
+      if (left) notesSendPending().catch(() => {});
+    });
     // A folder that could not be read may send no event when it can be again, such as when a lock
     // ends: the next opening shows a fresh listing.
     if (listing.skipped.length) changed({ renames: [] });

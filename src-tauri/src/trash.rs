@@ -372,6 +372,20 @@ pub fn find(trash: &Path, id: &str) -> io::Result<Found> {
 pub fn discard_entry(trash: &Path, id: &str) {
     discard(&trash.join(id));
 }
+/// Renames entry `id`, which nothing holds, as if made now, keeping its depth, so its `KEEP_MS` start
+/// again; answers the new id. For what a partial restore leaves: the entry's folder does not always
+/// show that change, and purging reads the name's date and the folder's.
+pub fn renew(trash: &Path, id: &str) -> io::Result<String> {
+    let parsed = parse(id).ok_or(io::ErrorKind::InvalidInput)?;
+    loop {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let renewed = entry_name(now_ms(), n, random() >> 24, parsed.depth);
+        match platform::move_new(&trash.join(id), &trash.join(&renewed)) {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            moved => return moved.map(|()| renewed),
+        }
+    }
+}
 /// Each folder is held before it is read or emptied of noise, so a link swapped in never leads
 /// outside; it is released only to be removed, which removes a link swapped in then, not its target.
 fn discard(dir: &Path) {

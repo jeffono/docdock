@@ -11,7 +11,7 @@ git history (`git log --merges`) and releases in the tags.
 M15 — Attachments (standard, S–M):
 
 - Deleting a note sends the images only it references to the Recycle Bin (or the vault trash, in the
-  note's entry) when the panel hides; the Undo notice says the note and its images were deleted, and
+  note's entry) after the panel hides; the Undo notice says the note and its images were deleted, and
   Undo before then leaves them in place.
 - "Unused images" in Preferences: thumbnails of unreferenced files in `attachments/` folders, chosen
   by the user and sent to the bin. An image is in use when any note, trashed vault notes included,
