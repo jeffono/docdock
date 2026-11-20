@@ -186,13 +186,15 @@ export function safeHref(url: string): string | null {
  * protocol: percent-decoded, no scheme, query, fragment or backslash, never above the folder.
  */
 export function imageUrl(source: string, note: string): string | null {
+  // A literal # starts a fragment, but %23 can name a file.
+  if (/[?#]/.test(source)) return null;
   let src: string;
   try {
     src = decodeURIComponent(source.replace(/%(?![a-f\d]{2})/gi, "%25"));
   } catch {
     return null;
   }
-  if (!src || src.startsWith("/") || /[:\\?#]/.test(src)) return null;
+  if (!src || src.startsWith("/") || /[:\\?]/.test(src)) return null;
   const parts = note.split("/");
   parts.pop();
   for (const part of src.split("/")) {

@@ -337,6 +337,9 @@ notes differ only in section and starting state.
 - **Live formatting:** syntax is visible on selection lines and hidden elsewhere. A cursor touching an
   inline code span or fenced block shows both delimiters, including the info string. During a pointer
   gesture the reveal waits, so text does not move under a click.
+- **Images:** paste an image or drop image files from Explorer into the editor to insert them at the
+  current selection. Multiple dropped images are inserted in order. The editor ignores non-image
+  files.
 - **Conflicts:** a primary Keep my version and a secondary Discard my changes above the text; errors in
   red beside it.
 - **Footer:** muted word and character counts and reading (300–175 words per minute) and speaking

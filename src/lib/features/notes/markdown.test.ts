@@ -6,6 +6,11 @@ test("editor image paths follow Rust decoding, traversal and encoding rules", ()
     "http://note-asset.localhost/images/a%20b%21%27%28%29.png",
   );
   expect(imageUrl("100%.png", "note.md")).toBe("http://note-asset.localhost/100%25.png");
+  expect(
+    imageUrl("attachments/Page%20%28%2520%29%20%26%20fragment%20%231.png", "sub/note.md"),
+  ).toBe(
+    "http://note-asset.localhost/sub/attachments/Page%20%28%2520%29%20%26%20fragment%20%231.png",
+  );
   expect(imageUrl("%252e%252e/x.png", "note.md")).toBe(
     "http://note-asset.localhost/%252e%252e/x.png",
   );
@@ -16,7 +21,8 @@ test("editor image paths follow Rust decoding, traversal and encoding rules", ()
     "x%3ay.png",
     "a%5cb.png",
     "x%3fq",
-    "x%23f",
+    "x.png?q",
+    "x.png#f",
     "%FF",
     "https://example.com/x.png",
     "",
