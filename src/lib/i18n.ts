@@ -237,16 +237,12 @@ const en = {
   "delete.done": "“{title}” moved to the Recycle Bin.",
   "deleteFolder.done": "Folder “{title}” moved to the Recycle Bin.",
   "delete.trashed": "Deleted “{title}”. It stays in the trash for 30 days (Preferences).",
-  "delete.doneImage": "“{title}” and 1 image moved to the Recycle Bin.",
-  "delete.doneImages": "“{title}” and {count} images moved to the Recycle Bin.",
+  "delete.doneImage": "“{title}” and its image moved to the Recycle Bin.",
+  "delete.doneImages": "“{title}” and its {count} images moved to the Recycle Bin.",
   "delete.trashedImage":
-    "Deleted “{title}” and 1 image. They stay in the trash for 30 days (Preferences).",
+    "Deleted “{title}” and its image. They stay in the trash for 30 days (Preferences).",
   "delete.trashedImages":
-    "Deleted “{title}” and {count} images. They stay in the trash for 30 days (Preferences).",
-  "delete.imagesKept":
-    "Some images only this note used could not be deleted with it; they stay in their folder.",
-  "delete.imagesNotUndoable":
-    "Undo cannot bring back some of its images; they stay in the Recycle Bin.",
+    "Deleted “{title}” and its {count} images. They stay in the trash for 30 days (Preferences).",
   "delete.tooLarge":
     "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
@@ -382,9 +378,7 @@ const en = {
   "error.pinnedNotRemoved":
     "The note was deleted, but the pinned list could not follow; remove its item.",
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
-  "error.restoreTaken": "Another file now uses the name {path}. Rename it and try again.",
-  "error.imagesLeftInBin":
-    "The note is back, but these images could not return to their folder: {images}. Undo keeps them until the panel closes: try again.",
+  "error.restoreTaken": "Another file now uses the name {path}. Rename it and undo again.",
   "error.imagesLeftInTrash":
     "These images could not return to their folder and stay in the trash (Preferences): {images}.",
   "error.trashItemMissing":
@@ -644,15 +638,12 @@ const ptBR: Record<MessageKey, string> = {
   "delete.done": "“{title}” foi para a Lixeira.",
   "deleteFolder.done": "A pasta “{title}” foi para a Lixeira.",
   "delete.trashed": "“{title}” excluída. Fica 30 dias na lixeira (Preferências).",
-  "delete.doneImage": "“{title}” e 1 imagem foram para a Lixeira.",
-  "delete.doneImages": "“{title}” e {count} imagens foram para a Lixeira.",
-  "delete.trashedImage": "“{title}” e 1 imagem excluídas. Ficam 30 dias na lixeira (Preferências).",
+  "delete.doneImage": "“{title}” e sua imagem foram para a Lixeira.",
+  "delete.doneImages": "“{title}” e suas {count} imagens foram para a Lixeira.",
+  "delete.trashedImage":
+    "“{title}” e sua imagem excluídas. Ficam 30 dias na lixeira (Preferências).",
   "delete.trashedImages":
-    "“{title}” e {count} imagens excluídas. Ficam 30 dias na lixeira (Preferências).",
-  "delete.imagesKept":
-    "Algumas imagens usadas só por esta nota não puderam ser excluídas com ela; continuam na pasta.",
-  "delete.imagesNotUndoable":
-    "Desfazer não consegue trazer de volta algumas das imagens; elas continuam na Lixeira.",
+    "“{title}” e suas {count} imagens excluídas. Ficam 30 dias na lixeira (Preferências).",
   "delete.tooLarge":
     "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
@@ -792,9 +783,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.pinnedNotRemoved":
     "A nota foi excluída, mas a lista de fixados não acompanhou; remova o item dela.",
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
-  "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e tente de novo.",
-  "error.imagesLeftInBin":
-    "A nota voltou, mas estas imagens não puderam voltar para a pasta: {images}. O Desfazer as guarda até o painel fechar: tente de novo.",
+  "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo.",
   "error.imagesLeftInTrash":
     "Estas imagens não puderam voltar para a pasta e continuam na lixeira (Preferências): {images}.",
   "error.trashItemMissing":

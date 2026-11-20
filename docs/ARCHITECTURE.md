@@ -227,26 +227,23 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   Preferences; the shell's decision for each item is final (bin missing, item over its limit or bin set
   to delete at once). Folders go the same way, with Undo only from the trash. Pinned items are removed
   and Undo restores them.
-- **A note's images** go with it in the same command, under the save lock and after the note: those in
-  `attachments/` folders that it references and no other note does, live or in the trash, by the
-  reference rule of "Unused images" (`images_only_in`). Any doubt keeps them, such as a note that
-  cannot be read or a note moved whose bytes, read back from the bin or the trash, are not the text
-  scanned (a sync client swapped it); so do an image the bin refuses, one over 10 MB (too large to
-  keep for Undo) or a failed move, and the delete still succeeds, saying images were kept. The moved
-  note is compared in full, opened through held folders without following a link. To the bin,
-  their bytes are read back and kept with the note's, their paths reserved too; an image whose copy
-  cannot be read back stays in the bin and the answer says Undo will not bring it. To the trash, they
-  join the note's entry ([0013](decisions/0013-trash-entries-with-images.md)).
-- **Undo and restore** check every image's destination before anything moves, holding each existing
-  folder before looking below it, so a link is refused rather than followed: a file at an image's
-  name or a folder's answers `restoreTaken` and moves nothing. An image returns only under its own
-  name, never a free one its note's link would miss. One that still cannot be placed stays
-  recoverable and the answer says so while the note is back: its bytes stay in Undo's memory with
-  its name reserved, so Undo again retries it (`imagesLeftInBin`), or it stays in the trash entry,
-  which then holds only images and lists and restores as an item (`imagesLeftInTrash`).
+- **A note's images** follow it when the panel hides: those in `attachments/` folders that it
+  references and no other note does, live or in the trash, by the reference rule of "Unused images".
+  The delete moves only the note and records their paths as pending (`Pending`), never their bytes,
+  so an Undo needs nothing for them; it drops the record. When the session ends (`forget_deleted`),
+  if the folder is still the one chosen and available, each record is checked again under the save
+  lock, ignoring only the deleted note's own trash entry, and the images still unused go: into that
+  entry under `.images` ([0013](decisions/0013-trash-entries-with-images.md)), so restoring the note
+  brings them back, or, where the note went to the bin or the entry is gone, as "Send to bin" sends
+  them. Any doubt or error keeps an image in place, only logged, where "Unused images" lists it; so
+  does a folder going away or the app closing first.
+- **Restoring an entry with images** returns each to its own path, never under a free name its note's
+  link would miss nor through a link (`place_image`). One whose name is taken or that cannot move
+  stays in the entry, which then holds only images and lists and restores as an item, and the answer
+  says so (`imagesLeftInTrash`) while the note is back.
 - **The save lock** (`SAVING`) also covers emptying and purging the trash, so an entry never goes while
-  a restore moves it, and pastes, so none takes a name a delete is reserving. `DELETED`, the memory
-  for Undo, is only ever locked after it.
+  a restore or a session's end moves something in or out of it. `DELETED`, the memory for Undo, is
+  only ever locked after it.
 
 ### Unused images
 

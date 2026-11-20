@@ -96,8 +96,6 @@ pub enum Error {
         undo: bool,
         trash: Option<String>,
         images: usize,
-        images_kept: bool,
-        images_not_undoable: bool,
     },
     /// The panel closed since the delete, or it was already undone.
     UndoUnavailable,
@@ -110,12 +108,6 @@ pub enum Error {
     },
     /// The note is back, but its pinned items are not.
     PinnedNotRestored,
-    /// The note is back at `path`, but `images`, joined with ", ", could not return to their paths:
-    /// Undo keeps them, and undoing again retries them, until the panel hides.
-    ImagesLeftInBin {
-        path: String,
-        images: String,
-    },
     /// The item is back at `path`, but `images`, joined with ", ", could not return to their paths:
     /// they stay in the notes folder's own trash, as one entry.
     ImagesLeftInTrash {

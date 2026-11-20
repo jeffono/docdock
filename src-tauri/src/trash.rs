@@ -189,7 +189,7 @@ fn fill(
 }
 
 /// Moves `target`, an image at `relative` below the notes folder, into entry `id` of `trash`, beside
-/// the note just put there. The same care as `put`: `trash` and the entry are held, each folder is
+/// its note; fails if the entry is gone. The same care as `put`: `trash` and the entry are held, each folder is
 /// created or found, then held, and none may be a link. The caller holds `target`'s ancestry. On
 /// failure the image stays where it is; a folder made for it stays empty until the entry goes.
 pub fn put_image(trash: &Path, id: &str, relative: &Path, target: &Path) -> io::Result<()> {
@@ -251,13 +251,9 @@ fn item_in(entry: &Path, parsed: &Entry) -> Option<Found> {
     }
     let outside = |child: &fs::DirEntry| !child.file_name().eq_ignore_ascii_case(IMAGES);
     let only_images = !images.is_empty()
-        && fs::read_dir(entry).ok()?.all(|child| {
-            child.is_ok_and(|child| {
-                !outside(&child)
-                    || child.file_type().is_ok_and(|kind| kind.is_file())
-                        && noise(&child.file_name())
-            })
-        });
+        && fs::read_dir(entry)
+            .ok()?
+            .all(|child| child.is_ok_and(|child| !outside(&child) || nothing(&child, 0)));
     if only_images {
         return Some(Found {
             source: None,
@@ -290,6 +286,16 @@ fn item_in(entry: &Path, parsed: &Entry) -> Option<Found> {
         images,
         held,
     })
+}
+/// Whether `child` is shell or sync noise, or a folder with nothing else in it at any depth, such as
+/// the folders a restore emptied but could not remove. A link is something.
+fn nothing(child: &fs::DirEntry, depth: usize) -> bool {
+    match child.file_type() {
+        Ok(kind) if kind.is_file() => noise(&child.file_name()),
+        Ok(kind) if kind.is_dir() && depth < MAX_DEPTH => fs::read_dir(child.path())
+            .is_ok_and(|mut inner| inner.all(|c| c.is_ok_and(|c| nothing(&c, depth + 1)))),
+        _ => false,
+    }
 }
 /// Adds the files below `dir`, the `.images` folder of an entry or a folder in it, to `images` with
 /// their original paths, `prefix` being `dir`'s. Each folder is held before it is read. A link or a
@@ -505,6 +511,18 @@ mod tests {
         assert!(expired(old, old, NOW));
         // A clock ahead of this one.
         assert!(!expired(NOW + 1000, old, NOW));
+    }
+    #[test]
+    fn an_entry_left_with_images_and_empty_folders_lists_its_images() {
+        let trash = std::env::temp_dir().join(format!("docdock-trash-images-{}", random()));
+        let entry = trash.join("1-0-0-1");
+        fs::create_dir_all(entry.join("sub/deeper")).unwrap();
+        fs::create_dir_all(entry.join(".images/attachments")).unwrap();
+        fs::write(entry.join(".images/attachments/map.png"), "map").unwrap();
+        let items = list(&trash);
+        let _ = fs::remove_dir_all(&trash);
+        let item = &items.unwrap()[0];
+        assert_eq!(item.path.as_deref(), Some("attachments/map.png"));
     }
     #[test]
     fn a_found_items_folders_stay_held_until_released() {

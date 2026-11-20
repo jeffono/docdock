@@ -1255,7 +1255,7 @@ let removed = $state<{
   folder: boolean;
   trash: string | null;
   undo: boolean;
-  /** Images that went with the note. */
+  /** Images only the note used, which follow it when the panel hides. */
   images: number;
 } | null>(null);
 let deleting = false;
@@ -1319,19 +1319,10 @@ function noticeBack() {
   noticeAway = false;
   noticeRun();
 }
-/**
- * A delete's answer, also when only its pinned items could not follow; `problem` says so, and what
- * happened to images that did not go or that Undo cannot bring back.
- */
+/** A delete's answer, also when only its pinned items could not follow; `problem` says so. */
 async function removal(work: Promise<Removal>): Promise<Removal & { problem: string }> {
-  const images = (done: Partial<Removal>) => [
-    done.imagesKept ? t("delete.imagesKept") : "",
-    done.imagesNotUndoable ? t("delete.imagesNotUndoable") : "",
-  ];
-  const problem = (lines: string[]) => lines.filter(Boolean).join(" ");
   try {
-    const done = await work;
-    return { ...done, problem: problem(images(done)) };
+    return { ...(await work), problem: "" };
   } catch (e) {
     const failed = e as { code?: string } & Partial<Removal>;
     if (failed.code !== "pinnedNotRemoved") throw e;
@@ -1339,13 +1330,11 @@ async function removal(work: Promise<Removal>): Promise<Removal & { problem: str
       undo: failed.undo === true,
       trash: failed.trash ?? null,
       images: failed.images ?? 0,
-      imagesKept: failed.imagesKept === true,
-      imagesNotUndoable: failed.imagesNotUndoable === true,
-      problem: problem([errorText(e), ...images(failed)]),
+      problem: errorText(e),
     };
   }
 }
-/** What the notice says: where the item went, with the images that went with a note. */
+/** What the notice says: where the item went, with the images that follow a note. */
 function removedText(item: NonNullable<typeof removed>): string {
   const params = { title: item.title, count: item.images };
   const many = item.images > 1;
@@ -1359,10 +1348,10 @@ function removedText(item: NonNullable<typeof removed>): string {
 }
 /**
  * Deletes a note at once: to the Recycle Bin, or to the trash inside the notes folder where the
- * Recycle Bin cannot take it, with the images only it references; the notice offers Undo. Its editor
- * is left first, the guarded way, so its text is saved before the delete and nothing writes the note
- * back afterwards; a conflict or error there stops the delete. The selection moves to the next item,
- * else the previous.
+ * Recycle Bin cannot take it; the images only it references follow when the panel hides. The notice
+ * offers Undo. Its editor is left first, the guarded way, so its text is saved before the delete and
+ * nothing writes the note back afterwards; a conflict or error there stops the delete. The selection
+ * moves to the next item, else the previous.
  */
 async function deleteNote(card: Card) {
   if (deleting || card.url) return;
@@ -1401,17 +1390,15 @@ async function deleteNote(card: Card) {
   }
 }
 /**
- * Puts the deleted note or folder back where it was, with its pinned items and the images that went
- * with it; it is a normal note or folder again. From the trash it takes a free name if its own is
- * taken.
+ * Puts the deleted note or folder back where it was, with its pinned items, and any images that went
+ * with it into the trash; it is a normal note or folder again. From the trash it takes a free name if
+ * its own is taken.
  */
 async function undoDelete() {
   const item = removed;
   if (!item) return;
   error = "";
   let path = item.path;
-  // Images Undo could not write stay in its memory: Undo again writes them.
-  let retry = false;
   try {
     if (item.trash) path = await notesTrashRestore(item.trash, true);
     else await notesUndoDelete(item.path);
@@ -1421,11 +1408,10 @@ async function undoDelete() {
     if (failed.code === "undoUnavailable" || failed.code === "trashItemMissing") removed = null;
     // Only the pinned items or some images failed: the item is back. Otherwise, a taken name keeps
     // Undo to retry.
-    retry = failed.code === "imagesLeftInBin";
-    if (retry || failed.code === "imagesLeftInTrash") path = failed.path ?? path;
+    if (failed.code === "imagesLeftInTrash") path = failed.path ?? path;
     else if (failed.code !== "pinnedNotRestored") return;
   }
-  if (!retry) removed = null;
+  removed = null;
   const inside = `${item.path.toLowerCase()}/`;
   for (const name of renamedAway)
     if (name === item.path || (item.folder && name.toLowerCase().startsWith(inside)))
