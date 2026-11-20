@@ -311,11 +311,11 @@ pub fn notes_delete(app: AppHandle, path: String) -> Result<crate::notes::Remova
 pub fn notes_undo_delete(app: AppHandle, path: String) -> Result<(), Error> {
     crate::notes::undo_delete(&app, &path)
 }
-/// After the panel hid and the editor it left saved: the images of the notes deleted in ended
-/// sessions follow them.
+/// After the panel hid, ending `session`, and the editor it left saved: the images of the notes
+/// deleted in that session and before follow them.
 #[tauri::command(async)]
-pub fn notes_send_pending(app: AppHandle) -> Result<(), Error> {
-    if crate::notes::send_pending(&app)? {
+pub fn notes_send_pending(app: AppHandle, session: u64) -> Result<(), Error> {
+    if crate::notes::send_pending(&app, session)? {
         crate::watch::notify(&app);
     }
     Ok(())

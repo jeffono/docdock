@@ -688,8 +688,11 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     let (_guard, dialog) = dialog(app, requests)?;
     if let Some(path) = dialog.pick_folder() {
         choose_in(&config(app)?, path)?;
-        // Images pending from the folder before stay where they are.
+        // Images pending from the folder before stay where they are, including those a send
+        // already took: it finds the count changed once it holds the lock.
+        let _saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         deleted().pending.clear();
+        CHOSEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         crate::watch::stop();
         purge_trash(app);
     }
@@ -958,6 +961,12 @@ pub fn texts(app: &AppHandle, paths: &[String]) -> Result<Vec<NoteText>, Error> 
 }
 /// Serializes saves so the conflict check and the write are not interleaved within the app.
 static SAVING: Mutex<()> = Mutex::new(());
+/// Counts the folders chosen, under `SAVING`, so work that started on the folder before a choice
+/// can tell once it holds the lock.
+static CHOSEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn folder_choices() -> u64 {
+    CHOSEN.load(std::sync::atomic::Ordering::SeqCst)
+}
 /// Writes `content` only if the file still holds the version identified by `base`. The early check
 /// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
@@ -1766,40 +1775,46 @@ pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
 }
 /// The panel closed: deleted notes stay in the Recycle Bin and their names are free again. Items in
 /// the notes folder's own trash stay there, with what their Undo needs. The images pending wait for
-/// `send_pending`.
-pub fn forget_deleted() {
+/// `send_pending`. Answers the session that ended.
+pub fn forget_deleted() -> u64 {
     let mut trash = deleted();
     trash.session += 1;
     trash.notes.clear();
+    trash.session - 1
 }
 /// The notes folder went away, such as a vault that locked: nothing derived from its notes stays in memory,
 /// including the pinned items kept for a trash item's Undo (decision 0009) and the images pending,
 /// which then stay where they are. The items stay in the trash; only their Undo no longer puts pinned
 /// items back.
 pub fn forget_unavailable() {
-    forget_deleted();
+    let _ = forget_deleted();
     let mut trash = deleted();
     trash.trashed.clear();
     trash.pending.clear();
 }
 /// The UI saved what an ended panel session left open, such as a note that just gained a link to a
 /// pending image: the images only the notes deleted in ended sessions referenced follow them
-/// (`send_pending_in`). Those of the current session wait for it to end. Answers whether any were
-/// pending.
-pub fn send_pending(app: &AppHandle) -> Result<bool, Error> {
+/// (`send_pending_in`). Only those of `session`, the one whose hide the UI saved after, and before:
+/// a late request must not take the images of a later session whose editor is still saving. Answers
+/// whether any were pending.
+pub fn send_pending(app: &AppHandle, session: u64) -> Result<bool, Error> {
+    let chosen = folder_choices();
     let root = root(app)?;
-    let ended = ended_pending();
+    let ended = ended_pending(session);
     let any = !ended.is_empty();
-    send_pending_in(&root, ended, platform::recycle);
+    send_pending_in(&root, ended, chosen, platform::recycle);
     Ok(any)
 }
-/// Takes the images pending from notes deleted in ended panel sessions.
-fn ended_pending() -> Vec<Pending> {
+/// Takes the images pending from notes deleted in panel sessions up to `session`, if it ended.
+fn ended_pending(session: u64) -> Vec<Pending> {
     let mut trash = deleted();
-    let session = trash.session;
+    let ended = session.min(trash.session.saturating_sub(1));
+    if trash.session == 0 {
+        return Vec::new();
+    }
     let (ended, current) = std::mem::take(&mut trash.pending)
         .into_iter()
-        .partition(|p| p.session < session);
+        .partition(|p| p.session <= ended);
     trash.pending = current;
     ended
 }
@@ -1811,11 +1826,13 @@ fn ended_pending() -> Vec<Pending> {
 fn send_pending_in(
     root: &Path,
     pending: Vec<Pending>,
+    chosen: u64,
     recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
 ) {
     for pending in pending.into_iter().filter(|p| p.root == root) {
         let entry = pending.trash.as_deref();
-        let sent = send_images_in(root, &pending.images, entry, &pending.folder_id, &recycle);
+        let folder = (pending.folder_id.as_str(), chosen);
+        let sent = send_images_in(root, &pending.images, entry, folder, &recycle);
         if let Err(error) = sent {
             eprintln!("[delete] images kept: {error:?}");
         }
@@ -2549,11 +2566,11 @@ fn send_images_in(
     root: &Path,
     paths: &[String],
     entry: Option<&str>,
-    folder_id: &str,
+    (folder_id, chosen): (&str, u64),
     recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
 ) -> Result<(), Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-    if read_marker(root)?.as_deref() != Some(folder_id) {
+    if folder_choices() != chosen || read_marker(root)?.as_deref() != Some(folder_id) {
         return Err(Error::ImagesFolderChanged);
     }
     let root = root.canonicalize()?;
@@ -2589,7 +2606,14 @@ fn send_images_in(
 }
 
 pub fn recycle_images(app: &AppHandle, folder_id: &str, paths: &[String]) -> Result<(), Error> {
-    send_images_in(&root(app)?, paths, None, folder_id, platform::recycle)
+    let chosen = folder_choices();
+    send_images_in(
+        &root(app)?,
+        paths,
+        None,
+        (folder_id, chosen),
+        platform::recycle,
+    )
 }
 
 fn paste_image_in(root: &Path, path: &str, bytes: &[u8]) -> Result<String, Error> {
@@ -3979,7 +4003,10 @@ mod tests {
         assert_eq!(selected, [path]);
         fs::write(t.0.join("note.md"), "Look at NEW.PNG.").unwrap();
         let id = stamp(&t.0).unwrap();
-        send_images_in(&t.0, &selected, None, &id, |_| panic!("image is in use")).unwrap();
+        send_images_in(&t.0, &selected, None, (&id, folder_choices()), |_| {
+            panic!("image is in use")
+        })
+        .unwrap();
         assert!(exists(&t.0.join(path)));
     }
     #[test]
@@ -3989,7 +4016,7 @@ mod tests {
         fs::write(t.0.join("other.png"), b"fixture").unwrap();
         let selected = ["other.png".into(), "attachments/../other.png".into()];
         let id = stamp(&t.0).unwrap();
-        send_images_in(&t.0, &selected, None, &id, |_| {
+        send_images_in(&t.0, &selected, None, (&id, folder_choices()), |_| {
             panic!("image is outside attachments")
         })
         .unwrap();
@@ -4003,7 +4030,14 @@ mod tests {
         fs::create_dir_all(image.parent().unwrap()).unwrap();
         fs::write(&image, b"image bytes").unwrap();
         let id = stamp(&t.0).unwrap();
-        send_images_in(&t.0, &[path.into()], None, &id, refused_bin).unwrap();
+        send_images_in(
+            &t.0,
+            &[path.into()],
+            None,
+            (&id, folder_choices()),
+            refused_bin,
+        )
+        .unwrap();
         assert!(!exists(&image));
         let [item] = &trash_items_in(&t.0).unwrap()[..] else {
             panic!("one image should be in the trash");
@@ -4442,13 +4476,13 @@ mod tests {
     }
     /// The UI saved what the panel left open and asks for the images pending, which go through
     /// `recycle`.
-    fn send(root: &Path, recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>) {
-        send_pending_in(root, ended_pending(), recycle);
+    fn send(root: &Path, session: u64, recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>) {
+        send_pending_in(root, ended_pending(session), folder_choices(), recycle);
     }
     /// The panel hides, then the UI asks for the images pending.
     fn hide(root: &Path, recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>) {
-        forget_deleted();
-        send(root, recycle);
+        let session = forget_deleted();
+        send(root, session, recycle);
     }
     fn nothing_moves(_: &Path) -> io::Result<Option<PathBuf>> {
         panic!("nothing should move")
@@ -4654,12 +4688,40 @@ mod tests {
         let t = Temp::new();
         let root = note_with_image(&t);
         let bin = t.0.join("bin");
+        let earlier = deleted().session.wrapping_sub(1);
         assert_eq!(delete_to(&root, &bin, "a.md").images, 1);
         // A late request for a session that ended before this delete.
-        send(&root, nothing_moves);
+        send(&root, earlier, nothing_moves);
         assert!(exists(&root.join("attachments/map.png")));
         hide(&root, |file| to_bin(file, &bin));
         assert!(!exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_late_request_leaves_the_images_of_a_later_session() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let first = forget_deleted();
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+        // The second hide ended; the first hide's request arrives only now.
+        let _ = forget_deleted();
+        send(&root, first, nothing_moves);
+        assert!(exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_send_that_started_before_a_folder_was_chosen_moves_nothing() {
+        let t = Temp::new();
+        let id = stamp(&t.0).unwrap();
+        fs::create_dir(t.0.join("attachments")).unwrap();
+        fs::write(t.0.join("attachments/map.png"), b"map").unwrap();
+        // A count from before a choice; changing the real one would race the other tests.
+        let before = folder_choices().wrapping_sub(1);
+        let paths = ["attachments/map.png".to_owned()];
+        assert_eq!(
+            send_images_in(&t.0, &paths, None, (&id, before), nothing_moves),
+            Err(Error::ImagesFolderChanged)
+        );
+        assert!(exists(&t.0.join("attachments/map.png")));
     }
     #[test]
     fn a_folder_whose_marker_changed_keeps_the_pending_images() {

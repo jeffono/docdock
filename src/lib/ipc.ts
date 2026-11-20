@@ -300,7 +300,8 @@ export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete
  * Once the panel hid and the editor it left saved: the images of the notes deleted in ended panel
  * sessions follow them, if no note uses them by then (`Removal.images`).
  */
-export const notesSendPending = () => invoke<void>("notes_send_pending");
+export const notesSendPending = (session: number) =>
+  invoke<void>("notes_send_pending", { session });
 /**
  * An entry of the trash inside the notes folder; `deleted` is in ms since the Unix epoch. `path` is
  * null when its item cannot be told, as when a sync conflict left two items in it: it can only be
@@ -390,9 +391,9 @@ export type NotesChanges = { renames: [string, string][] };
 export const onNotesChanged = (handler: (changes: NotesChanges) => void): Promise<UnlistenFn> =>
   listen<NotesChanges>("notes-changed", (event) => handler(event.payload));
 
-/** The panel finished sliding out of sight. */
-export const onPanelHidden = (handler: () => void): Promise<UnlistenFn> =>
-  listen("panel-hidden", handler);
+/** The panel finished sliding out of sight, ending the panel session it carries. */
+export const onPanelHidden = (handler: (session: number) => void): Promise<UnlistenFn> =>
+  listen<number>("panel-hidden", (event) => handler(event.payload));
 
 /** A backup an interrupted save left next to `note`; `modified` is in ms since the Unix epoch. */
 export type Leftover = { path: string; note: string; modified: number };

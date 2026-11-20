@@ -712,10 +712,10 @@ impl Dock {
             // A hide ends the session: a deleted note can no longer be undone. The UI hears of it
             // only through `panel-hidden`: `visibilitychange` does not fire for a window moved
             // off-screen. Once it saved the editor it leaves, it sends the deleted notes' images.
-            crate::notes::forget_deleted();
+            let session = crate::notes::forget_deleted();
             crate::notes::purge_trash(&self.app);
             crate::shortcut::end_recording(&self.app);
-            let _ = self.app.emit_to("main", "panel-hidden", ());
+            let _ = self.app.emit_to("main", "panel-hidden", session);
         }
         self.update_handle();
     }

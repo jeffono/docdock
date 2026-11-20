@@ -2220,7 +2220,7 @@ onMount(() => {
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
-  const hidden = onPanelHidden(() => {
+  const hidden = onPanelHidden((ended) => {
     noteSearchTyped = false;
     shortcutSheet.close();
     closeLinkMenu();
@@ -2234,7 +2234,7 @@ onMount(() => {
     // The deleted notes' images go only once the note left open is saved, which may just have
     // gained a link to one; a conflict keeps them for a later hide, an error where they are.
     void leaveEditor().then((left) => {
-      if (left) notesSendPending().catch(() => {});
+      if (left) notesSendPending(ended).catch(() => {});
     });
     // A folder that could not be read may send no event when it can be again, such as when a lock
     // ends: the next opening shows a fresh listing.

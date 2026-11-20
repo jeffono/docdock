@@ -233,13 +233,18 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   marker id and the panel session, never their bytes, so an Undo needs nothing for them; it drops the
   record. A hide ends the session (`forget_deleted`); the UI then leaves the editor the guarded way
   and, once that save succeeded, calls `notes_send_pending`, so a note that just gained a link to an
-  image is on disk first. Only records of ended sessions go, and only if the folder is still the one
-  recorded, by path and, under the save lock, by marker id. Each is checked again under that lock,
+  image is on disk first. The request names the session its hide ended, so a late one never takes a
+  later session's images. Only records of ended sessions go, and only if the folder is still the one
+  recorded, by path and, under the save lock, by marker id and no folder chosen since. Each is checked again under that lock,
   ignoring only the deleted note's own trash entry, and the images still unused go: into that entry
   under `.images` ([0013](decisions/0013-trash-entries-with-images.md)), so restoring the note brings
   them back, or, where the note went to the bin or the entry is confirmed gone, as "Send to bin" sends
   them. Any doubt or error keeps an image in place, only logged, where "Unused images" lists it; so
   does a folder going away or chosen anew, a failed save, or the app closing first.
+  Accepted gaps: the record holds paths, not file identities, so an image another app replaces under
+  the same name before the panel hides goes in its place (to the bin or the entry, recoverable); and a
+  sync client holding an entry's folders or adding a conflicted copy of its note can leave images in
+  an entry that keeps its old date or does not restore from Preferences.
 - **Restoring an entry with images** returns each to its own path, never under a free name its note's
   link would miss nor through a link (`place_image`), each on its own. One whose name is taken, that
   cannot move or that is no image, such as a file another app left there, stays in the entry and never
