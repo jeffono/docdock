@@ -688,6 +688,11 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
     let (_guard, dialog) = dialog(app, requests)?;
     if let Some(path) = dialog.pick_folder() {
         choose_in(&config(app)?, path)?;
+        // Images pending from the folder before stay where they are, including those a send
+        // already took: it finds the count changed once it holds the lock.
+        let _saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+        deleted().pending.clear();
+        CHOSEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         crate::watch::stop();
         purge_trash(app);
     }
@@ -956,6 +961,12 @@ pub fn texts(app: &AppHandle, paths: &[String]) -> Result<Vec<NoteText>, Error> 
 }
 /// Serializes saves so the conflict check and the write are not interleaved within the app.
 static SAVING: Mutex<()> = Mutex::new(());
+/// Counts the folders chosen, under `SAVING`, so work that started on the folder before a choice
+/// can tell once it holds the lock.
+static CHOSEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn folder_choices() -> u64 {
+    CHOSEN.load(std::sync::atomic::Ordering::SeqCst)
+}
 /// Writes `content` only if the file still holds the version identified by `base`. The early check
 /// avoids a write in the common cases; `replace_note` confirms it against the version actually replaced.
 fn save_note_in(root: &Path, relative: &str, content: &str, base: &str) -> Result<Saved, Error> {
@@ -1352,12 +1363,14 @@ fn inside_folder(path: &str, folder: &str) -> bool {
         .starts_with(&(folder.to_lowercase() + "/"))
 }
 /// Where a deleted note or folder went.
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Serialize)]
 pub struct Removal {
     /// `undo_delete` can bring the note back from the Recycle Bin, until the panel hides.
     undo: bool,
     /// The entry of the notes folder's own trash that holds it, which `restore_trashed` brings back.
     trash: Option<String>,
+    /// How many images only the note referenced follow it after the panel hides (`Pending`).
+    images: usize,
 }
 /// Where `send_away` put an item.
 enum Gone {
@@ -1430,6 +1443,7 @@ fn unpin_deleted(
         Error::PinnedNotRemoved {
             undo: removal.undo,
             trash: removal.trash.clone(),
+            images: removal.images,
         }
     })?;
     let Some(change) = change.into_inner() else {
@@ -1496,7 +1510,10 @@ fn delete_folder_in(
         deleted()
             .notes
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
-        Removal { undo: false, trash }
+        Removal {
+            trash,
+            ..Removal::default()
+        }
     };
     unpin_deleted(root, relative, true, &removal, |text| {
         pinned::parse(text)
@@ -1567,18 +1584,35 @@ struct Trashed {
     /// `_pinned.md` before and after the item's pinned items were removed.
     pinned: (String, String),
 }
+/// The images in `attachments/` folders that only a deleted note referenced, which follow it once its
+/// panel session ended and the UI saved what it left open (`send_pending`). Until then they stay where
+/// they are, so an Undo needs nothing for them; only their paths are kept, never their bytes.
+struct Pending {
+    root: PathBuf,
+    /// The folder's marker id at the delete: the images go only from that very folder.
+    folder_id: String,
+    /// The panel session of the delete, which must have ended before the images go.
+    session: u64,
+    /// The note's path, which a Recycle Bin Undo names.
+    note: String,
+    images: Vec<String>,
+    /// The trash entry that holds the note, when it went to the notes folder's own trash.
+    trash: Option<String>,
+}
 /// What Undo needs that the disk does not keep. `session` counts the panel hides, so a delete to the
 /// Recycle Bin that finishes after one keeps nothing for Undo. Locked after `SAVING` when both are
-/// needed.
+/// needed, never the other way.
 struct Trash {
     session: u64,
     notes: Vec<Deleted>,
     trashed: Vec<Trashed>,
+    pending: Vec<Pending>,
 }
 static DELETED: Mutex<Trash> = Mutex::new(Trash {
     session: 0,
     notes: Vec::new(),
     trashed: Vec::new(),
+    pending: Vec::new(),
 });
 fn deleted() -> std::sync::MutexGuard<'static, Trash> {
     DELETED.lock().unwrap_or_else(|e| e.into_inner())
@@ -1597,7 +1631,9 @@ fn reserved(root: &Path, relative: &str) -> bool {
 /// folder's own trash instead. Its pinned items are removed after; if they cannot be, the answer is
 /// `PinnedNotRemoved`: the note is deleted all the same. A note too large to keep a copy of for Undo
 /// is refused where `recyclable` says the Recycle Bin would take it (or cannot tell); the trash needs
-/// no copy.
+/// no copy. The images in `attachments` folders that only this note references stay for now: they are
+/// pending until the panel session ends (`Pending`), and `images` counts them; a folder without a
+/// marker id keeps them.
 fn delete_note_in(
     root: &Path,
     relative: &str,
@@ -1619,10 +1655,15 @@ fn delete_note_in(
         if too_large(size).is_err() && recyclable(&target).unwrap_or(true) {
             too_large(size)?;
         }
-        match send_away(root, &target, recycle)? {
+        let canonical = root.canonicalize()?;
+        let mine = images_of(&canonical, &target).unwrap_or_else(|error| {
+            eprintln!("[delete] images not checked: {error:?}");
+            Vec::new()
+        });
+        let removal = match send_away(root, &target, recycle)? {
             Gone::Trash(id) => Removal {
-                undo: false,
                 trash: Some(id),
+                ..Removal::default()
             },
             Gone::Bin(landed) => {
                 let bytes = landed.and_then(|bin| read_bytes(&bin).ok());
@@ -1639,8 +1680,39 @@ fn delete_note_in(
                     }
                     _ => false,
                 };
-                Removal { undo, trash: None }
+                Removal {
+                    undo,
+                    ..Removal::default()
+                }
             }
+        };
+        // Of those, the ones no other note references, live or in the trash. Any doubt keeps them all.
+        let selection = mine.iter().map(String::as_str).collect();
+        let folder_id = read_marker(root).ok().flatten();
+        let images = match &folder_id {
+            Some(_) if !mine.is_empty() => {
+                unused_images_in(&canonical, Some(&selection), removal.trash.as_deref())
+                    .unwrap_or_else(|error| {
+                        eprintln!("[delete] images kept: {error:?}");
+                        Vec::new()
+                    })
+            }
+            _ => Vec::new(),
+        };
+        let count = images.len();
+        if let Some(folder_id) = folder_id.filter(|_| count > 0) {
+            deleted().pending.push(Pending {
+                root: root.to_owned(),
+                folder_id,
+                session,
+                note: relative.to_owned(),
+                images,
+                trash: removal.trash.clone(),
+            });
+        }
+        Removal {
+            images: count,
+            ..removal
         }
     };
     unpin_deleted(root, relative, false, &removal, |text| {
@@ -1649,7 +1721,8 @@ fn delete_note_in(
     Ok(removal)
 }
 /// Writes a note deleted to the Recycle Bin back at its path, never over a file that took the name
-/// since (`RestoreTaken`, and Undo stays possible). Its pinned items return too.
+/// since (`RestoreTaken`, and Undo stays possible). Its pinned items return too. Its images never
+/// left: they are no longer pending.
 fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
     let pinned = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
@@ -1664,12 +1737,35 @@ fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
                 path: relative.to_owned(),
             });
         }
-        deleted.remove(at).pinned
+        let pinned = deleted.remove(at).pinned;
+        trash
+            .pending
+            .retain(|p| p.root != root || p.trash.is_some() || p.note != relative);
+        pinned
     };
     match pinned {
         Some((before, after)) => repin(root, relative, false, &before, &after),
         None => Ok(()),
     }
+}
+/// Moves `source` to `path`, an image's path below the canonical `root`, recreating the folders above
+/// it. Only under that very name: notes link an image by its name, so a free name such as
+/// `map (2).png` would leave the link broken while the image looked restored. A name taken, a link, a
+/// file in a folder's place or a path that is no image in an `attachments` folder fails, and `source`
+/// stays where it is.
+fn place_image(root: &Path, source: &Path, path: &str) -> Result<(), Error> {
+    let image = checked(path, attachment_path)?;
+    if !image
+        .iter()
+        .all(|name| name.to_str().is_some_and(windows_name))
+    {
+        return Err(Error::InvalidPath);
+    }
+    let parent = image.parent().ok_or(Error::InvalidPath)?;
+    let name = image.file_name().ok_or(Error::InvalidPath)?;
+    let _held = ensure_folders(root, parent)?;
+    let into = root.join(parent);
+    place(source, &into, name, false, std::iter::empty(), |_| false).map(|_| ())
 }
 pub fn delete_note(app: &AppHandle, path: &str) -> Result<Removal, Error> {
     delete_note_in(&root(app)?, path, platform::recycle, platform::recyclable)
@@ -1678,18 +1774,69 @@ pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
     undo_delete_in(&root(app)?, path)
 }
 /// The panel closed: deleted notes stay in the Recycle Bin and their names are free again. Items in
-/// the notes folder's own trash stay there, with what their Undo needs.
-pub fn forget_deleted() {
+/// the notes folder's own trash stay there, with what their Undo needs. The images pending wait for
+/// `send_pending`. Answers the session that ended.
+pub fn forget_deleted() -> u64 {
     let mut trash = deleted();
     trash.session += 1;
     trash.notes.clear();
+    trash.session - 1
 }
-/// The notes folder went away, such as a vault that locked: nothing derived from its notes stays in
-/// memory, including the pinned items kept for a trash item's Undo (decision 0009). The items stay in
-/// the trash; only their Undo no longer puts pinned items back.
+/// The notes folder went away, such as a vault that locked: nothing derived from its notes stays in memory,
+/// including the pinned items kept for a trash item's Undo (decision 0009) and the images pending,
+/// which then stay where they are. The items stay in the trash; only their Undo no longer puts pinned
+/// items back.
 pub fn forget_unavailable() {
-    forget_deleted();
-    deleted().trashed.clear();
+    let _ = forget_deleted();
+    let mut trash = deleted();
+    trash.trashed.clear();
+    trash.pending.clear();
+}
+/// The UI saved what an ended panel session left open, such as a note that just gained a link to a
+/// pending image: the images only the notes deleted in ended sessions referenced follow them
+/// (`send_pending_in`). Only those of `session`, the one whose hide the UI saved after, and before:
+/// a late request must not take the images of a later session whose editor is still saving. Answers
+/// whether any were pending.
+pub fn send_pending(app: &AppHandle, session: u64) -> Result<bool, Error> {
+    let chosen = folder_choices();
+    let root = root(app)?;
+    let ended = ended_pending(session);
+    let any = !ended.is_empty();
+    send_pending_in(&root, ended, chosen, platform::recycle);
+    Ok(any)
+}
+/// Takes the images pending from notes deleted in panel sessions up to `session`, if it ended.
+fn ended_pending(session: u64) -> Vec<Pending> {
+    let mut trash = deleted();
+    let ended = session.min(trash.session.saturating_sub(1));
+    if trash.session == 0 {
+        return Vec::new();
+    }
+    let (ended, current) = std::mem::take(&mut trash.pending)
+        .into_iter()
+        .partition(|p| p.session <= ended);
+    trash.pending = current;
+    ended
+}
+/// Sends away the images `pending` for notes deleted in `root`, those no note references now, live or
+/// in the trash, but the deleted note in its own entry (`send_images_in`), if `root` is still the
+/// folder each was recorded in, by path and marker id. Where the note went to the notes folder's own
+/// trash, they join its entry, so restoring it brings them back. Any doubt or error keeps an image
+/// where it is, only logged: Preferences then lists it among the unused images.
+fn send_pending_in(
+    root: &Path,
+    pending: Vec<Pending>,
+    chosen: u64,
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) {
+    for pending in pending.into_iter().filter(|p| p.root == root) {
+        let entry = pending.trash.as_deref();
+        let folder = (pending.folder_id.as_str(), chosen);
+        let sent = send_images_in(root, &pending.images, entry, folder, &recycle);
+        if let Err(error) = sent {
+            eprintln!("[delete] images kept: {error:?}");
+        }
+    }
 }
 /// The trash's place in `root`, which may not exist.
 fn trash_path(root: &Path) -> Result<PathBuf, Error> {
@@ -1722,22 +1869,30 @@ pub fn trash_items(app: &AppHandle) -> Result<Vec<trash::Item>, Error> {
 /// is ever overwritten. `undo`: also put back the pinned items its delete removed, when it returns
 /// under its own name. `TrashItemMissing` when the entry is gone, such as restored or emptied
 /// elsewhere.
+///
+/// The images deleted with a note come back with it, each to its own path, so the note's links find
+/// them again; the note's own new name, if any, is in the same folder, where its relative links still
+/// hold. An image returns only under its own name (`place_image`): one whose name is taken, or that
+/// cannot move, such as one another app holds open, stays in the entry, which then holds only images
+/// and lists and restores as any item; the answer is `ImagesLeftInTrash`: the note is back all the
+/// same. Restoring an entry with only images answers the first image's path.
 fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error> {
-    let (item, restored) = {
+    let (item, restored, left) = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         let canonical = root.canonicalize()?;
         let dir = trash_path(&canonical)?;
         let _held_trash = hold_ancestry(&dir).map_err(|error| trash_error(&dir, error))?;
         // The entry's folders stay held from the moment they are read until the item has moved.
-        let (source, path, folder, held_source) =
-            trash::find(&dir, id).map_err(|error| match error.kind() {
-                io::ErrorKind::NotFound => Error::TrashItemMissing,
-                io::ErrorKind::InvalidData => Error::InvalidPath,
-                _ => trash_error(&dir, error),
-            })?;
-        let item = (path, folder);
+        let found = trash::find(&dir, id).map_err(|error| match error.kind() {
+            io::ErrorKind::NotFound => Error::TrashItemMissing,
+            io::ErrorKind::InvalidData => Error::InvalidPath,
+            _ => trash_error(&dir, error),
+        })?;
+        let (folder, held_source) = (found.folder, found.held);
+        let item = (found.path, folder);
         let path = checked(&item.0, |_| true)?;
         let name = path.file_name().ok_or(Error::InvalidPath)?;
+        let parent = path.parent().unwrap_or(Path::new(""));
         let allowed = name.to_str().is_some_and(|name| {
             windows_name(name)
                 && if folder {
@@ -1746,23 +1901,53 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
                     markdown(path) || attachment_path(path)
                 }
         });
-        if !allowed || path.as_os_str().eq_ignore_ascii_case(PINNED) {
+        // An entry with only images checks each as it places it, as the images of a note.
+        if found.source.is_some() && (!allowed || path.as_os_str().eq_ignore_ascii_case(PINNED)) {
             return Err(Error::InvalidPath);
         }
-        let parent = path.parent().unwrap_or(Path::new(""));
-        let held_parent = ensure_folders(&canonical, parent)?;
-        let landed = {
-            let (_held_parent, _held_source) = (held_parent, held_source);
-            let into = canonical.join(parent);
-            let numbered = (2..=100).map(|n| format!(" ({n})"));
-            place(&source, &into, name, folder, numbered, |candidate| {
-                !folder && reserved(root, &relative(&canonical, candidate))
-            })?
+        let held_parent = match found.source {
+            Some(_) => ensure_folders(&canonical, parent)?,
+            None => Vec::new(),
+        };
+        let mut left = Vec::new();
+        let (landed, moved) = {
+            let _held = (held_parent, held_source);
+            let landed = match &found.source {
+                Some(source) => Some(place(
+                    source,
+                    &canonical.join(parent),
+                    name,
+                    folder,
+                    (2..=100).map(|n| format!(" ({n})")),
+                    |candidate| !folder && reserved(root, &relative(&canonical, candidate)),
+                )?),
+                None => None,
+            };
+            let images = found.images.len();
+            for (source, image) in found.images {
+                // Each on its own: one that cannot return, or a file that is no image, such as one
+                // another app left there, stays in this entry and never holds back the rest.
+                if let Err(error) = place_image(&canonical, &source, &image) {
+                    eprintln!("[restore] image stays in the trash: {error:?}");
+                    left.push(image);
+                }
+            }
+            let moved = landed.is_some() || left.len() < images;
+            (landed, moved)
         };
         // Once nothing holds the entry's folders.
         trash::discard_entry(&dir, id);
-        let restored = relative(&canonical, &landed);
-        (item, restored)
+        // What stays of a partial restore is a new item: its 30 days start again, under a name dated
+        // now, since the entry's folder may not show the change.
+        if moved
+            && !left.is_empty()
+            && let Err(error) = trash::renew(&dir, id)
+        {
+            eprintln!("[restore] entry not renewed: {error:?}");
+        }
+        let restored =
+            landed.map_or_else(|| item.0.clone(), |landed| relative(&canonical, &landed));
+        (item, restored, left)
     };
     let pinned = {
         let mut state = deleted();
@@ -1770,16 +1955,30 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
             .trashed
             .iter()
             .position(|t| t.root == root && t.id == id);
+        // Its images never left if they were still pending.
+        state
+            .pending
+            .retain(|p| p.root != root || p.trash.as_deref() != Some(id));
         at.map(|at| state.trashed.remove(at))
     };
-    if let Some(trashed) = pinned
-        && undo
-        && restored == item.0
-    {
-        let (before, after) = &trashed.pinned;
-        repin(root, &item.0, trashed.folder, before, after)?;
+    let repinned = match pinned {
+        Some(trashed) if undo && restored == item.0 => {
+            let (before, after) = &trashed.pinned;
+            repin(root, &item.0, trashed.folder, before, after)
+        }
+        _ => Ok(()),
+    };
+    if left.is_empty() {
+        return repinned.map(|()| restored);
     }
-    Ok(restored)
+    if repinned.is_err() {
+        eprintln!("[restore] pinned items not restored either");
+    }
+    Err(Error::ImagesLeftInTrash {
+        path: restored,
+        count: left.len(),
+        images: left.join(", "),
+    })
 }
 pub fn restore_trashed(app: &AppHandle, id: &str, undo: bool) -> Result<String, Error> {
     restore_trashed_in(&root(app)?, id, undo)
@@ -1857,8 +2056,10 @@ fn place(
     }
     Err(Error::unexpected("no free name"))
 }
-/// Deletes for good the entries `ids` of the notes folder's own trash: those the user saw listed.
+/// Deletes for good the entries `ids` of the notes folder's own trash: those the user saw listed. Under
+/// the save lock, as a restore, so an entry never goes while a restore moves its note and images.
 fn empty_trash_in(root: &Path, ids: &[String]) -> Result<(), Error> {
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     let dir = trash_path(root)?;
     let result = trash::empty(&dir, ids);
     // An entry that could not be deleted keeps the pinned items its Undo puts back.
@@ -1874,11 +2075,13 @@ pub fn empty_trash(app: &AppHandle, ids: &[String]) -> Result<(), Error> {
 }
 /// Deletes for good, away from the caller's thread, what has been in the notes folder's own trash
 /// longer than `trash::KEEP_MS`: at startup, on choosing a folder and when the panel hides. Only in
-/// the folder chosen, checked by its marker, and never while it is unavailable.
+/// the folder chosen, checked by its marker, and never while it is unavailable. Under the save lock,
+/// as `empty_trash_in`.
 pub fn purge_trash(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Ok(root) = root(&app) else { return };
+        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
         if let Ok(dir) = trash_path(&root) {
             trash::purge(&dir, trash::now_ms());
         }
@@ -2254,9 +2457,14 @@ fn attachment_note(path: &Path) -> Result<String, Error> {
     Ok(text)
 }
 
-/// Finds available attachments and checks references against live and trashed notes. With a
-/// selection, only those exact paths are considered, even when another name aliases a real file.
-fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<Vec<String>, Error> {
+/// Finds available attachments and checks references against live and trashed notes, but those of
+/// trash entry `except`. With a selection, only those exact paths are considered, even when another
+/// name aliases a real file.
+fn unused_images_in(
+    root: &Path,
+    selection: Option<&BTreeSet<&str>>,
+    except: Option<&str>,
+) -> Result<Vec<String>, Error> {
     let root = root.canonicalize()?;
     let _held = hold_ancestry(&root)?;
     let mut candidates = Vec::new();
@@ -2284,6 +2492,9 @@ fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<V
                 // Each entry holds what was deleted at its original path. For a deleted folder,
                 // that includes every note below it.
                 let path = file.strip_prefix(&dir).map_err(|_| Error::OutsideFolder)?;
+                if except.is_some_and(|id| path.starts_with(id)) {
+                    return Ok(());
+                }
                 let original: PathBuf = path.iter().skip(1).collect();
                 let original = if original.as_os_str().is_empty() {
                     path
@@ -2313,6 +2524,23 @@ fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<V
     Ok(unused)
 }
 
+/// The images in `attachments` folders below the canonical `root`, which the caller holds, that the
+/// note at `note` references (`attachments::referenced`).
+fn images_of(root: &Path, note: &Path) -> Result<Vec<String>, Error> {
+    let mut candidates = Vec::new();
+    scan_notes(root, &mut |file| {
+        let path = file.strip_prefix(root).map_err(|_| Error::OutsideFolder)?;
+        if attachment_path(path) {
+            candidates.push(relative(root, file));
+        }
+        Ok(())
+    })?;
+    let text = attachment_note(note)?;
+    let path = relative(root, note);
+    let mine = attachments::referenced(&candidates, [(path.as_str(), text.as_str())]);
+    Ok(mine.into_iter().map(str::to_owned).collect())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnusedImages {
@@ -2326,19 +2554,28 @@ pub fn unused_images(app: &AppHandle) -> Result<UnusedImages, Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     Ok(UnusedImages {
         folder_id,
-        paths: unused_images_in(&root, None)?,
+        paths: unused_images_in(&root, None, None)?,
     })
 }
 
-fn recycle_images_in(
+/// Sends away those of `paths` that no note references, live or in the trash but in entry `entry`:
+/// into that entry of the notes folder's own trash, under `.images` (decision 0013), otherwise as
+/// `send_away` does, but only once the entry is known to be gone: any other failure keeps the image
+/// where it is. Only while `root`'s marker still holds `folder_id` (`ImagesFolderChanged`).
+fn send_images_in(
     root: &Path,
     paths: &[String],
+    entry: Option<&str>,
+    (folder_id, chosen): (&str, u64),
     recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
 ) -> Result<(), Error> {
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    if folder_choices() != chosen || read_marker(root)?.as_deref() != Some(folder_id) {
+        return Err(Error::ImagesFolderChanged);
+    }
     let root = root.canonicalize()?;
     let selection = paths.iter().map(String::as_str).collect();
-    for path in unused_images_in(&root, Some(&selection))? {
+    for path in unused_images_in(&root, Some(&selection), entry)? {
         let path = checked(&path, attachment_path)?;
         let parent = path.parent().ok_or(Error::InvalidPath)?;
         let (dir, _held) = hold_folder(&root, parent)?;
@@ -2349,19 +2586,34 @@ fn recycle_images_in(
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),
         }
-        if target.canonicalize()? == target {
-            send_away(&root, &target, &recycle)?;
+        if target.canonicalize()? != target {
+            continue;
         }
+        if let Some(id) = entry {
+            let put = trash_dir(&root).and_then(|(trash, _held)| {
+                trash::put_image(&trash, id, path, &target).map_err(Error::from)
+            });
+            let Err(error) = put else { continue };
+            eprintln!("[delete] image not in its note's entry: {error:?}");
+            let gone = trash_path(&root).map(|trash| fs::symlink_metadata(trash.join(id)));
+            if !matches!(gone, Ok(Err(e)) if e.kind() == io::ErrorKind::NotFound) {
+                continue;
+            }
+        }
+        send_away(&root, &target, &recycle)?;
     }
     Ok(())
 }
 
 pub fn recycle_images(app: &AppHandle, folder_id: &str, paths: &[String]) -> Result<(), Error> {
-    let root = root(app)?;
-    if read_marker(&root)?.as_deref() != Some(folder_id) {
-        return Err(Error::ImagesFolderChanged);
-    }
-    recycle_images_in(&root, paths, platform::recycle)
+    let chosen = folder_choices();
+    send_images_in(
+        &root(app)?,
+        paths,
+        None,
+        (folder_id, chosen),
+        platform::recycle,
+    )
 }
 
 fn paste_image_in(root: &Path, path: &str, bytes: &[u8]) -> Result<String, Error> {
@@ -3444,10 +3696,7 @@ mod tests {
             delete_folder_in(&t.0, "parent/empty", |_| panic!(
                 "empty folder must not recycle"
             )),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert!(!t.0.join("parent/empty").exists());
         assert!(t.0.join("parent").is_dir());
@@ -3460,10 +3709,7 @@ mod tests {
         let bin = t.0.join("bin");
         assert_eq!(
             delete_folder_in(&t.0, "folder", |p| to_bin(p, &bin)),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert_eq!(
             fs::read_to_string(bin.join("folder/.hidden")).unwrap(),
@@ -3479,10 +3725,7 @@ mod tests {
         let bin = t.0.join("bin");
         assert_eq!(
             delete_folder_in(&t.0, "folder", |p| to_bin(p, &bin)),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert_eq!(
             fs::read_to_string(t.0.join(PINNED)).unwrap(),
@@ -3733,7 +3976,7 @@ mod tests {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, b"fixture").unwrap();
         }
-        assert_eq!(unused_images_in(&t.0, None).unwrap(), [candidates[0]]);
+        assert_eq!(unused_images_in(&t.0, None, None).unwrap(), [candidates[0]]);
     }
     #[test]
     fn a_note_in_a_trashed_folder_resolves_links_from_its_original_path() {
@@ -3748,7 +3991,7 @@ mod tests {
         )
         .unwrap();
         delete_folder_in(&t.0, "sub/folder", refused_bin).unwrap();
-        assert!(unused_images_in(&t.0, None).unwrap().is_empty());
+        assert!(unused_images_in(&t.0, None, None).unwrap().is_empty());
     }
     #[test]
     fn recycling_skips_an_attachment_referenced_since_it_was_listed() {
@@ -3756,10 +3999,14 @@ mod tests {
         let path = "attachments/new.png";
         fs::create_dir(t.0.join("attachments")).unwrap();
         fs::write(t.0.join(path), b"fixture").unwrap();
-        let selected = unused_images_in(&t.0, None).unwrap();
+        let selected = unused_images_in(&t.0, None, None).unwrap();
         assert_eq!(selected, [path]);
         fs::write(t.0.join("note.md"), "Look at NEW.PNG.").unwrap();
-        recycle_images_in(&t.0, &selected, |_| panic!("image is in use")).unwrap();
+        let id = stamp(&t.0).unwrap();
+        send_images_in(&t.0, &selected, None, (&id, folder_choices()), |_| {
+            panic!("image is in use")
+        })
+        .unwrap();
         assert!(exists(&t.0.join(path)));
     }
     #[test]
@@ -3768,7 +4015,11 @@ mod tests {
         fs::create_dir(t.0.join("attachments")).unwrap();
         fs::write(t.0.join("other.png"), b"fixture").unwrap();
         let selected = ["other.png".into(), "attachments/../other.png".into()];
-        recycle_images_in(&t.0, &selected, |_| panic!("image is outside attachments")).unwrap();
+        let id = stamp(&t.0).unwrap();
+        send_images_in(&t.0, &selected, None, (&id, folder_choices()), |_| {
+            panic!("image is outside attachments")
+        })
+        .unwrap();
         assert!(exists(&t.0.join("other.png")));
     }
     #[test]
@@ -3778,7 +4029,15 @@ mod tests {
         let image = t.0.join(path);
         fs::create_dir_all(image.parent().unwrap()).unwrap();
         fs::write(&image, b"image bytes").unwrap();
-        recycle_images_in(&t.0, &[path.into()], refused_bin).unwrap();
+        let id = stamp(&t.0).unwrap();
+        send_images_in(
+            &t.0,
+            &[path.into()],
+            None,
+            (&id, folder_choices()),
+            refused_bin,
+        )
+        .unwrap();
         assert!(!exists(&image));
         let [item] = &trash_items_in(&t.0).unwrap()[..] else {
             panic!("one image should be in the trash");
@@ -4189,6 +4448,354 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(t.0.join(&restored)).unwrap(), "old");
     }
+    /// A notes folder in `t`, with its marker, and `files` in it, each with the folders above it; the
+    /// Recycle Bin of `to_bin` stays outside, so what lands there is no note of the folder.
+    fn folder_with(t: &Temp, files: &[(&str, &[u8])]) -> PathBuf {
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        stamp(&root).unwrap();
+        for (path, content) in files {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, content).unwrap();
+        }
+        root
+    }
+    /// A notes folder where `a.md` uses the one image `attachments/map.png`.
+    fn note_with_image(t: &Temp) -> PathBuf {
+        folder_with(
+            t,
+            &[
+                ("a.md", b"![](attachments/map.png)"),
+                ("attachments/map.png", b"map"),
+            ],
+        )
+    }
+    fn delete_to(root: &Path, bin: &Path, path: &str) -> Removal {
+        delete_note_bin(root, path, |file| to_bin(file, bin)).unwrap()
+    }
+    /// The UI saved what the panel left open and asks for the images pending, which go through
+    /// `recycle`.
+    fn send(root: &Path, session: u64, recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>) {
+        send_pending_in(root, ended_pending(session), folder_choices(), recycle);
+    }
+    /// The panel hides, then the UI asks for the images pending.
+    fn hide(root: &Path, recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>) {
+        let session = forget_deleted();
+        send(root, session, recycle);
+    }
+    fn nothing_moves(_: &Path) -> io::Result<Option<PathBuf>> {
+        panic!("nothing should move")
+    }
+    /// Deletes `a.md` to the trash and hides the panel, so its image joins its entry, whose id it
+    /// answers.
+    fn trash_with_image(root: &Path) -> String {
+        let id = trash_note(root, "a.md");
+        hide(root, refused_bin);
+        id
+    }
+    #[test]
+    fn the_images_only_a_deleted_note_used_go_when_the_panel_hides() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                (
+                    "a.md",
+                    b"![](attachments/only.png) ![](attachments/shared.png) ![](other/loose.png)",
+                ),
+                ("b.md", b"Also see SHARED.png."),
+                ("attachments/only.png", b"only"),
+                ("attachments/shared.png", b"shared"),
+                ("other/loose.png", b"loose"),
+            ],
+        );
+        let bin = t.0.join("bin");
+        assert_eq!(delete_to(&root, &bin, "a.md").images, 1);
+        assert!(exists(&root.join("attachments/only.png")));
+        hide(&root, |file| to_bin(file, &bin));
+        assert!(!exists(&root.join("attachments/only.png")));
+        assert_eq!(fs::read(bin.join("only.png")).unwrap(), b"only");
+        assert!(exists(&root.join("attachments/shared.png")));
+        assert!(exists(&root.join("other/loose.png")));
+    }
+    #[test]
+    fn undo_before_the_panel_hides_moves_no_image() {
+        let _serial = deleting();
+        for to_trash in [false, true] {
+            let t = Temp::new();
+            let root = note_with_image(&t);
+            if to_trash {
+                let id = trash_note(&root, "a.md");
+                assert_eq!(restore_trashed_in(&root, &id, true), Ok("a.md".into()));
+            } else {
+                assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+                assert_eq!(undo_delete_in(&root, "a.md"), Ok(()));
+            }
+            hide(&root, nothing_moves);
+            assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+        }
+    }
+    #[test]
+    fn an_image_another_note_uses_when_the_panel_hides_stays() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+        fs::write(root.join("b.md"), "![](attachments/map.png)").unwrap();
+        hide(&root, nothing_moves);
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+    }
+    #[test]
+    fn an_image_a_note_in_the_trash_references_stays() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let link = b"![](attachments/map.png)" as &[u8];
+        let root = folder_with(
+            &t,
+            &[
+                ("a.md", link),
+                ("old.md", link),
+                ("attachments/map.png", b"map"),
+            ],
+        );
+        trash_note(&root, "old.md");
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 0);
+        hide(&root, nothing_moves);
+        assert!(exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_note_that_cannot_be_read_keeps_the_images() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                ("a.md", b"![](attachments/map.png)"),
+                ("b.md", b"\xff not UTF-8"),
+                ("attachments/map.png", b"map"),
+            ],
+        );
+        let removal = delete_to(&root, &t.0.join("bin"), "a.md");
+        assert_eq!((removal.undo, removal.images), (true, 0));
+        hide(&root, nothing_moves);
+        assert!(exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn the_folder_going_away_keeps_the_pending_images() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+        forget_unavailable();
+        hide(&root, nothing_moves);
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+    }
+    #[test]
+    fn a_note_in_the_trash_takes_its_images_into_its_entry_and_brings_them_back() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                ("sub/a.md", b"![](attachments/map.png)"),
+                ("sub/attachments/map.png", b"map"),
+            ],
+        );
+        let removal = delete_note_bin(&root, "sub/a.md", refused_bin).unwrap();
+        assert_eq!(removal.images, 1);
+        let id = removal.trash.unwrap();
+        hide(&root, refused_bin);
+        assert!(!exists(&root.join("sub/attachments/map.png")));
+        let image = trash_of(&root)
+            .join(&id)
+            .join(".images/sub/attachments/map.png");
+        assert_eq!(fs::read(image).unwrap(), b"map");
+        let items = trash_items_in(&root).unwrap();
+        let shape: Vec<_> = items
+            .iter()
+            .map(|i| (i.id.as_str(), i.path.as_deref()))
+            .collect();
+        assert_eq!(shape, [(id.as_str(), Some("sub/a.md"))]);
+        assert_eq!(restore_trashed_in(&root, &id, false), Ok("sub/a.md".into()));
+        assert!(exists(&root.join("sub/a.md")));
+        assert_eq!(
+            fs::read(root.join("sub/attachments/map.png")).unwrap(),
+            b"map"
+        );
+        assert!(!exists(&trash_of(&root).join(&id)));
+    }
+    #[test]
+    fn an_image_whose_name_is_taken_stays_in_its_entry_which_lists_and_restores_it() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let id = trash_with_image(&root);
+        fs::write(root.join("attachments/map.png"), "other").unwrap();
+        assert_eq!(
+            restore_trashed_in(&root, &id, false),
+            Err(Error::ImagesLeftInTrash {
+                path: "a.md".into(),
+                images: "attachments/map.png".into(),
+                count: 1,
+            })
+        );
+        assert!(exists(&root.join("a.md")));
+        assert_eq!(
+            fs::read(root.join("attachments/map.png")).unwrap(),
+            b"other"
+        );
+        assert!(!exists(&root.join("attachments/map (2).png")));
+        let [item] = &trash_items_in(&root).unwrap()[..] else {
+            panic!("the image should stay as one item");
+        };
+        assert_eq!(item.path.as_deref(), Some("attachments/map.png"));
+        fs::remove_file(root.join("attachments/map.png")).unwrap();
+        assert_eq!(
+            restore_trashed_in(&root, &item.id, false),
+            Ok("attachments/map.png".into())
+        );
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+        assert!(trash_items_in(&root).unwrap().is_empty());
+    }
+    #[test]
+    fn restoring_never_looks_through_a_link_that_took_an_images_folder() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let id = trash_with_image(&root);
+        fs::remove_dir(root.join("attachments")).unwrap();
+        fs::create_dir(t.0.join("outside")).unwrap();
+        assert!(mklink(
+            &["/J"],
+            &root.join("attachments"),
+            &t.0.join("outside")
+        ));
+        assert_eq!(
+            restore_trashed_in(&root, &id, false),
+            Err(Error::ImagesLeftInTrash {
+                path: "a.md".into(),
+                images: "attachments/map.png".into(),
+                count: 1,
+            })
+        );
+        assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
+    }
+    #[test]
+    fn images_wait_for_the_panel_session_of_their_delete_to_end() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let bin = t.0.join("bin");
+        let earlier = deleted().session.wrapping_sub(1);
+        assert_eq!(delete_to(&root, &bin, "a.md").images, 1);
+        // A late request for a session that ended before this delete.
+        send(&root, earlier, nothing_moves);
+        assert!(exists(&root.join("attachments/map.png")));
+        hide(&root, |file| to_bin(file, &bin));
+        assert!(!exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_late_request_leaves_the_images_of_a_later_session() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let first = forget_deleted();
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+        // The second hide ended; the first hide's request arrives only now.
+        let _ = forget_deleted();
+        send(&root, first, nothing_moves);
+        assert!(exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_send_that_started_before_a_folder_was_chosen_moves_nothing() {
+        let t = Temp::new();
+        let id = stamp(&t.0).unwrap();
+        fs::create_dir(t.0.join("attachments")).unwrap();
+        fs::write(t.0.join("attachments/map.png"), b"map").unwrap();
+        // A count from before a choice; changing the real one would race the other tests.
+        let before = folder_choices().wrapping_sub(1);
+        let paths = ["attachments/map.png".to_owned()];
+        assert_eq!(
+            send_images_in(&t.0, &paths, None, (&id, before), nothing_moves),
+            Err(Error::ImagesFolderChanged)
+        );
+        assert!(exists(&t.0.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_folder_whose_marker_changed_keeps_the_pending_images() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+        fs::write(root.join(DERIVED).join(MARKER), new_folder_id()).unwrap();
+        hide(&root, nothing_moves);
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+    }
+    #[test]
+    fn an_image_its_notes_entry_cannot_take_stays_in_place() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let id = trash_note(&root, "a.md");
+        // A file where the entry's `.images` folder would go.
+        fs::write(trash_of(&root).join(&id).join(".images"), "").unwrap();
+        hide(&root, nothing_moves);
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+        assert_eq!(trash_items_in(&root).unwrap().len(), 1);
+    }
+    #[test]
+    fn a_stray_file_among_an_entrys_images_never_holds_back_the_rest() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let id = trash_with_image(&root);
+        let images = trash_of(&root).join(&id).join(".images/attachments");
+        fs::write(images.join("map.png.tmp"), "partial").unwrap();
+        assert_eq!(
+            restore_trashed_in(&root, &id, false),
+            Err(Error::ImagesLeftInTrash {
+                path: "a.md".into(),
+                images: "attachments/map.png.tmp".into(),
+                count: 1,
+            })
+        );
+        assert!(exists(&root.join("a.md")));
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+    }
+    #[test]
+    fn images_left_by_a_partial_restore_start_their_30_days_again() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        let id = trash_with_image(&root);
+        let before = trash::now_ms();
+        fs::write(root.join("attachments/map.png"), "other").unwrap();
+        assert!(restore_trashed_in(&root, &id, false).is_err());
+        let [item] = &trash_items_in(&root).unwrap()[..] else {
+            panic!("the image should stay as one item");
+        };
+        assert_ne!(item.id, id);
+        assert!(item.deleted >= before);
+    }
+    #[test]
+    fn an_entry_from_before_images_still_lists_and_restores_its_one_item() {
+        let _serial = deleting();
+        let t = Temp::new();
+        plant(&t.0, "1-0-0-1", "sub/a.md", "a");
+        let items = trash_items_in(&t.0).unwrap();
+        let shape: Vec<_> = items
+            .iter()
+            .map(|i| (i.id.as_str(), i.path.as_deref()))
+            .collect();
+        assert_eq!(shape, [("1-0-0-1", Some("sub/a.md"))]);
+        assert_eq!(
+            restore_trashed_in(&t.0, "1-0-0-1", false),
+            Ok("sub/a.md".into())
+        );
+        assert_eq!(fs::read_to_string(t.0.join("sub/a.md")).unwrap(), "a");
+    }
     #[test]
     fn a_too_large_note_goes_to_the_trash_but_not_to_the_recycle_bin() {
         let _serial = deleting();
@@ -4230,10 +4837,7 @@ mod tests {
         let bin = t.0.join("bin");
         assert_eq!(
             delete_folder_in(&t.0, "folder", |p| to_bin(p, &bin)),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert!(exists(&bin.join("folder/a.md")));
     }

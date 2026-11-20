@@ -25,6 +25,7 @@ import {
   notesRestore,
   notesRewrite,
   notesSave,
+  notesSendPending,
   notesTexts,
   notesTrashRestore,
   notesTrust,
@@ -1255,6 +1256,8 @@ let removed = $state<{
   folder: boolean;
   trash: string | null;
   undo: boolean;
+  /** Images only the note used, which follow it after the panel hides. */
+  images: number;
 } | null>(null);
 let deleting = false;
 /** Why the app would not delete a note, or a capture saved without opening or clipped, until
@@ -1324,14 +1327,32 @@ async function removal(work: Promise<Removal>): Promise<Removal & { problem: str
   } catch (e) {
     const failed = e as { code?: string } & Partial<Removal>;
     if (failed.code !== "pinnedNotRemoved") throw e;
-    return { undo: failed.undo === true, trash: failed.trash ?? null, problem: errorText(e) };
+    return {
+      undo: failed.undo === true,
+      trash: failed.trash ?? null,
+      images: failed.images ?? 0,
+      problem: errorText(e),
+    };
   }
+}
+/** What the notice says: where the item went, with the images that follow a note. */
+function removedText(item: NonNullable<typeof removed>): string {
+  const params = { title: item.title, count: item.images };
+  const many = item.images > 1;
+  if (item.trash) {
+    if (!item.images) return t("delete.trashed", params);
+    return t(many ? "delete.trashedImages" : "delete.trashedImage", params);
+  }
+  if (item.folder) return t("deleteFolder.done", params);
+  if (!item.images) return t("delete.done", params);
+  return t(many ? "delete.doneImages" : "delete.doneImage", params);
 }
 /**
  * Deletes a note at once: to the Recycle Bin, or to the trash inside the notes folder where the
- * Recycle Bin cannot take it; the notice offers Undo. Its editor is left first, the guarded way, so
- * its text is saved before the delete and nothing writes the note back afterwards; a conflict or
- * error there stops the delete. The selection moves to the next item, else the previous.
+ * Recycle Bin cannot take it; the images only it references follow after the panel hides. The notice
+ * offers Undo. Its editor is left first, the guarded way, so its text is saved before the delete and
+ * nothing writes the note back afterwards; a conflict or error there stops the delete. The selection
+ * moves to the next item, else the previous.
  */
 async function deleteNote(card: Card) {
   if (deleting || card.url) return;
@@ -1351,8 +1372,8 @@ async function deleteNote(card: Card) {
     const session = panelSession;
     const at = keys.indexOf(path);
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
-    const { undo, trash, problem } = await removal(notesDelete(path));
-    removed = { path, title, folder: false, trash, undo: undo && session === panelSession };
+    const { undo, trash, images, problem } = await removal(notesDelete(path));
+    removed = { path, title, folder: false, trash, undo: undo && session === panelSession, images };
     renamedAway.add(path);
     forgetRemoved(path);
     delete contents[path];
@@ -1370,8 +1391,9 @@ async function deleteNote(card: Card) {
   }
 }
 /**
- * Puts the deleted note or folder back where it was, with its pinned items; it is a normal note or
- * folder again. From the trash it takes a free name if its own is taken.
+ * Puts the deleted note or folder back where it was, with its pinned items, and any images that went
+ * with it into the trash; it is a normal note or folder again. From the trash it takes a free name if
+ * its own is taken.
  */
 async function undoDelete() {
   const item = removed;
@@ -1382,11 +1404,13 @@ async function undoDelete() {
     if (item.trash) path = await notesTrashRestore(item.trash, true);
     else await notesUndoDelete(item.path);
   } catch (e) {
-    const code = (e as { code?: string }).code;
+    const failed = e as { code?: string; path?: string };
     error = errorText(e);
-    if (code === "undoUnavailable" || code === "trashItemMissing") removed = null;
-    // Only the pinned items failed: the item is back. Otherwise, a taken name keeps Undo to retry.
-    if (code !== "pinnedNotRestored") return;
+    if (failed.code === "undoUnavailable" || failed.code === "trashItemMissing") removed = null;
+    // Only the pinned items or some images failed: the item is back. Otherwise, a taken name keeps
+    // Undo to retry.
+    if (failed.code === "imagesLeftInTrash") path = failed.path ?? path;
+    else if (failed.code !== "pinnedNotRestored") return;
   }
   removed = null;
   const inside = `${item.path.toLowerCase()}/`;
@@ -1537,7 +1561,8 @@ async function deleteFolder() {
     // Only a folder with notes says where it went; an empty one is just gone.
     const hadNotes = notes.some((note) => inDeletingFolder(note.path));
     const { trash, problem } = await removal(notesDeleteFolder(path));
-    if (trash || hadNotes) removed = { path, title: path, folder: true, trash, undo: false };
+    if (trash || hadNotes)
+      removed = { path, title: path, folder: true, trash, undo: false, images: 0 };
     else if (removed && inDeletingFolder(removed.path)) removed = null;
     for (const note of notes) {
       if (!inDeletingFolder(note.path)) continue;
@@ -2195,7 +2220,7 @@ onMount(() => {
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
-  const hidden = onPanelHidden(() => {
+  const hidden = onPanelHidden((ended) => {
     noteSearchTyped = false;
     shortcutSheet.close();
     closeLinkMenu();
@@ -2206,7 +2231,11 @@ onMount(() => {
     warning = "";
     panelSession++;
     stopScrolling();
-    void leaveEditor();
+    // The deleted notes' images go only once the note left open is saved, which may just have
+    // gained a link to one; a conflict keeps them for a later hide, an error where they are.
+    void leaveEditor().then((left) => {
+      if (left) notesSendPending(ended).catch(() => {});
+    });
     // A folder that could not be read may send no event when it can be again, such as when a lock
     // ends: the next opening shows a fresh listing.
     if (listing.skipped.length) changed({ renames: [] });
@@ -2365,9 +2394,7 @@ onMount(() => {
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="notice-hold" onpointerenter={() => { noticeHovered = true; noticePause(); }} onpointerleave={() => { noticeHovered = false; noticeRun(); }} onfocusin={() => { noticeFocused = true; noticePause(); }} onfocusout={(event) => { if (event.currentTarget.contains(event.relatedTarget as Node | null)) return; noticeFocused = false; noticeRun(); }}>
         <Notice icon="trash" attention={item.trash !== null || item.undo}>
-          {item.trash
-            ? t("delete.trashed", { title: item.title })
-            : t(item.folder ? "deleteFolder.done" : "delete.done", { title: item.title })}
+          {removedText(item)}
           {#snippet actions()}
             {#if item.trash || item.undo}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/if}
             <IconButton quiet icon="x" label={t("search.close")} onclick={() => { removed = null; }} />

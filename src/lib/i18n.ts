@@ -237,6 +237,12 @@ const en = {
   "delete.done": "“{title}” moved to the Recycle Bin.",
   "deleteFolder.done": "Folder “{title}” moved to the Recycle Bin.",
   "delete.trashed": "Deleted “{title}”. It stays in the trash for 30 days (Preferences).",
+  "delete.doneImage": "“{title}” and its image moved to the Recycle Bin.",
+  "delete.doneImages": "“{title}” and its {count} images moved to the Recycle Bin.",
+  "delete.trashedImage":
+    "Deleted “{title}” and its image. They stay in the trash for 30 days (Preferences).",
+  "delete.trashedImages":
+    "Deleted “{title}” and its {count} images. They stay in the trash for 30 days (Preferences).",
   "delete.tooLarge":
     "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
@@ -373,6 +379,10 @@ const en = {
     "The note was deleted, but the pinned list could not follow; remove its item.",
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
   "error.restoreTaken": "Another file now uses the name {path}. Rename it and undo again.",
+  "error.imagesLeftInTrash.one":
+    "This image could not return to its folder and stays in the trash (Preferences): {images}.",
+  "error.imagesLeftInTrash.other":
+    "These {count} images could not return to their folder and stay in the trash (Preferences): {images}.",
   "error.trashItemMissing":
     "This item is no longer in the trash: it was restored or deleted, perhaps on another computer.",
   "error.pinnedNotRestored":
@@ -630,6 +640,12 @@ const ptBR: Record<MessageKey, string> = {
   "delete.done": "“{title}” foi para a Lixeira.",
   "deleteFolder.done": "A pasta “{title}” foi para a Lixeira.",
   "delete.trashed": "“{title}” excluída. Fica 30 dias na lixeira (Preferências).",
+  "delete.doneImage": "“{title}” e sua imagem foram para a Lixeira.",
+  "delete.doneImages": "“{title}” e suas {count} imagens foram para a Lixeira.",
+  "delete.trashedImage":
+    "“{title}” e sua imagem excluídas. Ficam 30 dias na lixeira (Preferências).",
+  "delete.trashedImages":
+    "“{title}” e suas {count} imagens excluídas. Ficam 30 dias na lixeira (Preferências).",
   "delete.tooLarge":
     "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
@@ -770,6 +786,10 @@ const ptBR: Record<MessageKey, string> = {
     "A nota foi excluída, mas a lista de fixados não acompanhou; remova o item dela.",
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
   "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e desfaça de novo.",
+  "error.imagesLeftInTrash.one":
+    "Esta imagem não pôde voltar para a pasta e continua na lixeira (Preferências): {images}.",
+  "error.imagesLeftInTrash.other":
+    "Estas {count} imagens não puderam voltar para a pasta e continuam na lixeira (Preferências): {images}.",
   "error.trashItemMissing":
     "Este item não está mais na lixeira: foi restaurado ou excluído, talvez em outro computador.",
   "error.pinnedNotRestored":
@@ -805,10 +825,15 @@ export function t(key: MessageKey, params: Params = {}): string {
   );
 }
 
-/** Text for a failed command: Rust errors arrive as `{ code, ...fields }`. */
+/**
+ * Text for a failed command: Rust errors arrive as `{ code, ...fields }`. One with a `count` field may
+ * have `.one` and `.other` forms.
+ */
 export function errorText(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
-    const key = `error.${String(error.code)}`;
+    const base = `error.${String(error.code)}`;
+    const form = "count" in error ? `${base}.${error.count === 1 ? "one" : "other"}` : base;
+    const key = form in en ? form : base;
     if (key in en) return t(key as MessageKey, error as Params);
     return t("error.unexpected", { detail: JSON.stringify(error) });
   }

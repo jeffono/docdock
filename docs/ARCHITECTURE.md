@@ -227,6 +227,33 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   Preferences; the shell's decision for each item is final (bin missing, item over its limit or bin set
   to delete at once). Folders go the same way, with Undo only from the trash. Pinned items are removed
   and Undo restores them.
+- **A note's images** follow it after the panel hides: those in `attachments/` folders that it
+  references and no other note does, live or in the trash, by the reference rule of "Unused images".
+  The delete moves only the note and records their paths as pending (`Pending`), with the folder's
+  marker id and the panel session, never their bytes, so an Undo needs nothing for them; it drops the
+  record. A hide ends the session (`forget_deleted`); the UI then leaves the editor the guarded way
+  and, once that save succeeded, calls `notes_send_pending`, so a note that just gained a link to an
+  image is on disk first. The request names the session its hide ended, so a late one never takes a
+  later session's images. Only records of ended sessions go, and only if the folder is still the one
+  recorded, by path and, under the save lock, by marker id and no folder chosen since. Each is checked again under that lock,
+  ignoring only the deleted note's own trash entry, and the images still unused go: into that entry
+  under `.images` ([0013](decisions/0013-trash-entries-with-images.md)), so restoring the note brings
+  them back, or, where the note went to the bin or the entry is confirmed gone, as "Send to bin" sends
+  them. Any doubt or error keeps an image in place, only logged, where "Unused images" lists it; so
+  does a folder going away or chosen anew, a failed save, or the app closing first.
+  Accepted gaps: the record holds paths, not file identities, so an image another app replaces under
+  the same name before the panel hides goes in its place (to the bin or the entry, recoverable); and a
+  sync client holding an entry's folders or adding a conflicted copy of its note can leave images in
+  an entry that keeps its old date or does not restore from Preferences.
+- **Restoring an entry with images** returns each to its own path, never under a free name its note's
+  link would miss nor through a link (`place_image`), each on its own. One whose name is taken, that
+  cannot move or that is no image, such as a file another app left there, stays in the entry and never
+  holds back the note or the other images. The entry then holds only images, lists and restores as an
+  item, and is renamed as made now (`trash::renew`), so its 30 days start again; the answer says so
+  (`imagesLeftInTrash`, with their count) while the note is back.
+- **The save lock** (`SAVING`) also covers emptying and purging the trash, so an entry never goes while
+  a restore or a session's end moves something in or out of it. `DELETED`, the memory for Undo, is
+  only ever locked after it.
 
 ### Unused images
 
@@ -236,7 +263,8 @@ or HTML link resolves to it relative to the note, or the note contains its filen
 Matching ignores case and recognizes percent encoding. Notes in the folder's trash use their
 original paths, including notes inside deleted folders. The scan reads Markdown text in Rust and keeps
 it in memory only. A scan that cannot read a note or folder stops. Before moving any selected image,
-Rust scans again under the save lock and skips images now in use.
+Rust scans again under the save lock and skips images now in use. Accepted gap: a reference through a
+Windows 8.3 short name (`MAPA~1.PNG`) is not recognized; DocDock never writes one.
 
 ### Pinned items
 

@@ -278,9 +278,11 @@ export const notesCreateFolder = (path: string) => invoke<void>("notes_create_fo
  * Where a deleted note or folder went. `undo`: `notesUndoDelete` can bring the note back from the
  * Recycle Bin until the panel closes. `trash`: the Recycle Bin could not take it, as on an encrypted
  * vault or a network folder, so it went to the trash inside the notes folder for 30 days, as this
- * entry, which `notesTrashRestore` brings back.
+ * entry, which `notesTrashRestore` brings back. `images`: how many images only the note referenced
+ * follow it the same way after the panel hides (`notesSendPending`); an Undo before then needs
+ * nothing for them.
  */
-export type Removal = { undo: boolean; trash: string | null };
+export type Removal = { undo: boolean; trash: string | null; images: number };
 /**
  * Deletes a folder and everything in it at once. Its notes' pinned items are removed;
  * `pinnedNotRemoved` (with the `Removal` fields): the folder was deleted all the same.
@@ -295,17 +297,26 @@ export const notesDelete = (path: string) => invoke<Removal>("notes_delete", { p
 /** `restoreTaken`: a file took the name; nothing changed and undoing stays possible. */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
 /**
+ * Once the panel hid and the editor it left saved: the images of the notes deleted in ended panel
+ * sessions follow them, if no note uses them by then (`Removal.images`).
+ */
+export const notesSendPending = (session: number) =>
+  invoke<void>("notes_send_pending", { session });
+/**
  * An entry of the trash inside the notes folder; `deleted` is in ms since the Unix epoch. `path` is
  * null when its item cannot be told, as when a sync conflict left two items in it: it can only be
- * emptied.
+ * emptied. An entry left with only images a note's restore could not move names the first of them
+ * and restores them all.
  */
 export type TrashItem = { id: string; path: string | null; folder: boolean; deleted: number };
 /** Newest first. */
 export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
 /**
  * Moves an item back to its path, or a free name such as "name (2).md" when that is taken, and
- * resolves to the path it took. `undo` also puts back the pinned items its delete removed.
- * `trashItemMissing`: it is no longer in the trash.
+ * resolves to the path it took; the images deleted with a note return to their own paths with it.
+ * `undo` also puts back the pinned items its delete removed. `trashItemMissing`: it is no longer in
+ * the trash. `imagesLeftInTrash`: the item is back at `path`, but `count` images, whose names are
+ * taken or which could not move, stay in the trash, as one item.
  */
 export const notesTrashRestore = (id: string, undo = false) =>
   invoke<string>("notes_trash_restore", { id, undo });
@@ -380,9 +391,9 @@ export type NotesChanges = { renames: [string, string][] };
 export const onNotesChanged = (handler: (changes: NotesChanges) => void): Promise<UnlistenFn> =>
   listen<NotesChanges>("notes-changed", (event) => handler(event.payload));
 
-/** The panel finished sliding out of sight. */
-export const onPanelHidden = (handler: () => void): Promise<UnlistenFn> =>
-  listen("panel-hidden", handler);
+/** The panel finished sliding out of sight, ending the panel session it carries. */
+export const onPanelHidden = (handler: (session: number) => void): Promise<UnlistenFn> =>
+  listen<number>("panel-hidden", (event) => handler(event.payload));
 
 /** A backup an interrupted save left next to `note`; `modified` is in ms since the Unix epoch. */
 export type Leftover = { path: string; note: string; modified: number };
