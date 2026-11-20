@@ -7,7 +7,10 @@
 //! lowercase base36 (the deletion time in ms since the Unix epoch, a counter, a random value against
 //! collisions between computers syncing one folder, and how many folders lie above the item). The
 //! entry holds the item at its original path below the notes folder, so the path and the date need no
-//! index file: `a/b/note.md` deleted becomes `<entry>/a/b/note.md`, with depth 2.
+//! index file: `a/b/note.md` deleted becomes `<entry>/a/b/note.md`, with depth 2. A note deleted with
+//! the images only it referenced keeps them in the same entry, in its `.images` folder at their own
+//! original paths: `a/attachments/map.png` becomes `<entry>/.images/a/attachments/map.png` (decision
+//! 0013). No item path starts with a dot, so that folder never reads as part of the item's chain.
 
 use std::fs;
 use std::io;
@@ -23,6 +26,8 @@ pub const DIR: &str = "trash";
 pub const KEEP_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 /// Deeper paths are not DocDock's: Windows paths cannot nest this far anyway.
 const MAX_DEPTH: usize = 128;
+/// The folder of an entry that holds the images deleted with its note.
+const IMAGES: &str = ".images";
 
 /// A random 64-bit value: `RandomState` is seeded by the system's random source.
 pub(crate) fn random() -> u64 {
@@ -112,6 +117,19 @@ pub struct Item {
     pub deleted: u64,
 }
 
+/// The item of an entry, as a restore needs it.
+pub struct Found {
+    /// Where the item is now.
+    pub source: PathBuf,
+    /// Its original path, relative to the notes folder, with `/`.
+    pub path: String,
+    pub folder: bool,
+    /// The images deleted with it: where each is now and its original path, as `path`.
+    pub images: Vec<(PathBuf, String)>,
+    /// The entry's folders above the item and the images, held until dropped.
+    pub held: Vec<fs::File>,
+}
+
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 /// Moves `target`, a note or a folder at `relative` below the notes folder, into `trash` as a new
@@ -167,6 +185,29 @@ fn fill(
     platform::move_new(target, &dir.join(name))
 }
 
+/// Moves `target`, an image at `relative` below the notes folder, into entry `id` of `trash`, beside
+/// the note just put there. The same care as `put`: `trash` and the entry are held, each folder is
+/// created or found, then held, and none may be a link. The caller holds `target`'s ancestry. On
+/// failure the image stays where it is; a folder made for it stays empty until the entry goes.
+pub fn put_image(trash: &Path, id: &str, relative: &Path, target: &Path) -> io::Result<()> {
+    let names: Vec<_> = relative.iter().collect();
+    let (name, folders) = names.split_last().ok_or(io::ErrorKind::InvalidInput)?;
+    if folders.len() > MAX_DEPTH || parse(id).is_none() {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let _held_trash = platform::hold_ancestry(trash)?;
+    let mut dir = trash.join(id);
+    let mut held = vec![platform::hold_directory(&dir)?];
+    for folder in std::iter::once(std::ffi::OsStr::new(IMAGES)).chain(folders.iter().copied()) {
+        dir.push(folder);
+        match fs::create_dir(&dir) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => held.push(platform::hold_directory(&dir)?),
+        }
+    }
+    platform::move_new(target, &dir.join(name))
+}
+
 /// Files the shell or a sync client may drop into any folder, which never make an item.
 fn noise(name: &std::ffi::OsStr) -> bool {
     let name = name.to_string_lossy().to_lowercase();
@@ -189,26 +230,73 @@ fn one_child(
     found
 }
 /// The item of `entry`, whose name parsed as `parsed`: one chain of `depth` real folders, then one
-/// file or folder. Files beside the chain and shell or sync noise are ignored; anything else, such as
-/// two candidates, a link or a name that is not Unicode, is no item. Each folder is held, without
-/// following links, before it is read, and the chain stays held in the handles answered: none can be
-/// swapped for a link while the caller uses the item.
-fn item_in(entry: &Path, parsed: &Entry) -> Option<(PathBuf, String, bool, Vec<fs::File>)> {
+/// file or folder, and the images in its `.images` folder. Files beside the chain and shell or sync
+/// noise are ignored; anything else, such as two candidates, a link or a name that is not Unicode, is
+/// no item. Each folder is held, without following links, before it is read, and stays held in the
+/// handles answered: none can be swapped for a link while the caller uses the item.
+fn item_in(entry: &Path, parsed: &Entry) -> Option<Found> {
     let mut dir = entry.to_owned();
     let mut held = vec![platform::hold_directory(&dir).ok()?];
+    let mut images = Vec::new();
+    let found = fs::symlink_metadata(entry.join(IMAGES));
+    if found.as_ref().is_ok_and(|metadata| metadata.is_dir()) {
+        images_in(&entry.join(IMAGES), "", 0, &mut images, &mut held)?;
+    } else if found.is_ok() {
+        return None;
+    }
+    let outside = |child: &fs::DirEntry| !child.file_name().eq_ignore_ascii_case(IMAGES);
     let mut names = Vec::new();
-    for _ in 0..parsed.depth {
-        let child = one_child(&dir, |_, kind| kind.is_dir())?;
+    for level in 0..parsed.depth {
+        let child = one_child(&dir, |child, kind| {
+            kind.is_dir() && (level > 0 || outside(child))
+        })?;
         names.push(child.file_name().into_string().ok()?);
         dir = child.path();
         held.push(platform::hold_directory(&dir).ok()?);
     }
     let child = one_child(&dir, |child, kind| {
-        (kind.is_dir() || kind.is_file()) && !noise(&child.file_name())
+        (kind.is_dir() || kind.is_file())
+            && !noise(&child.file_name())
+            && (parsed.depth > 0 || outside(child))
     })?;
     let kind = child.file_type().ok()?;
     names.push(child.file_name().into_string().ok()?);
-    Some((child.path(), names.join("/"), kind.is_dir(), held))
+    Some(Found {
+        source: child.path(),
+        path: names.join("/"),
+        folder: kind.is_dir(),
+        images,
+        held,
+    })
+}
+/// Adds the files below `dir`, the `.images` folder of an entry or a folder in it, to `images` with
+/// their original paths, `prefix` being `dir`'s. Each folder is held before it is read. A link or a
+/// name that is not Unicode is no image list.
+fn images_in(
+    dir: &Path,
+    prefix: &str,
+    depth: usize,
+    images: &mut Vec<(PathBuf, String)>,
+    held: &mut Vec<fs::File>,
+) -> Option<()> {
+    if depth > MAX_DEPTH {
+        return None;
+    }
+    held.push(platform::hold_directory(dir).ok()?);
+    for child in fs::read_dir(dir).ok()? {
+        let child = child.ok()?;
+        let kind = child.file_type().ok()?;
+        let name = child.file_name().into_string().ok()?;
+        let path = format!("{prefix}{name}");
+        if kind.is_dir() {
+            images_in(&child.path(), &format!("{path}/"), depth + 1, images, held)?;
+        } else if !kind.is_file() {
+            return None;
+        } else if !noise(&child.file_name()) {
+            images.push((child.path(), path));
+        }
+    }
+    Some(())
 }
 
 /// Every entry in `trash`, newest first. No trash lists nothing; a trash that is a link fails.
@@ -230,8 +318,8 @@ pub fn list(trash: &Path) -> io::Result<Vec<Item>> {
         let item = item_in(&entry.path(), &parsed);
         items.push(Item {
             id,
-            folder: item.as_ref().is_some_and(|(_, _, folder, _)| *folder),
-            path: item.map(|(_, path, _, _)| path),
+            folder: item.as_ref().is_some_and(|item| item.folder),
+            path: item.map(|item| item.path),
             deleted: parsed.deleted,
         });
     }
@@ -239,10 +327,9 @@ pub fn list(trash: &Path) -> io::Result<Vec<Item>> {
     Ok(items)
 }
 
-/// The item of entry `id` in `trash`: where it is now, its original path, whether it is a folder,
-/// and the folders above it in the entry, held until the handles drop. `NotFound` when there is no
+/// The item of entry `id` in `trash`, with the images deleted with it. `NotFound` when there is no
 /// such entry, `InvalidData` when its item cannot be told. The caller holds `trash`'s ancestry.
-pub fn find(trash: &Path, id: &str) -> io::Result<(PathBuf, String, bool, Vec<fs::File>)> {
+pub fn find(trash: &Path, id: &str) -> io::Result<Found> {
     let parsed = parse(id).ok_or(io::ErrorKind::NotFound)?;
     let entry = trash.join(id);
     if !fs::symlink_metadata(&entry)?.is_dir() {
@@ -251,36 +338,30 @@ pub fn find(trash: &Path, id: &str) -> io::Result<(PathBuf, String, bool, Vec<fs
     item_in(&entry, &parsed).ok_or_else(|| io::ErrorKind::InvalidData.into())
 }
 
-/// Removes entry `id` once its item has moved out: only the folders it held, from the deepest up, and
-/// the shell or sync noise in them, so anything else that arrived meanwhile stays. The caller holds
-/// `trash`'s ancestry.
+/// Removes entry `id` once its item and images have moved out: only its empty folders, from the
+/// deepest up, and the shell or sync noise in them, so anything else that arrived meanwhile, or an
+/// image that could not move, stays. The caller holds `trash`'s ancestry.
 pub fn discard_entry(trash: &Path, id: &str) {
     discard(&trash.join(id));
 }
 /// Each folder is held before it is read or emptied of noise, so a link swapped in never leads
 /// outside; it is released only to be removed, which removes a link swapped in then, not its target.
-fn discard(entry: &Path) {
-    let mut chain = Vec::new();
-    let mut dir = entry.to_owned();
-    while let Ok(handle) = platform::hold_directory(&dir) {
-        let next = one_child(&dir, |_, kind| kind.is_dir());
-        chain.push((dir, handle));
-        match next {
-            Some(child) => dir = child.path(),
-            None => break,
+fn discard(dir: &Path) {
+    let Ok(handle) = platform::hold_directory(dir) else {
+        return;
+    };
+    for child in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let Ok(kind) = child.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            discard(&child.path());
+        } else if kind.is_file() && noise(&child.file_name()) {
+            let _ = fs::remove_file(child.path());
         }
     }
-    while let Some((dir, handle)) = chain.pop() {
-        for child in fs::read_dir(&dir).into_iter().flatten().flatten() {
-            if noise(&child.file_name()) && child.file_type().is_ok_and(|kind| kind.is_file()) {
-                let _ = fs::remove_file(child.path());
-            }
-        }
-        drop(handle);
-        if fs::remove_dir(&dir).is_err() {
-            break;
-        }
-    }
+    drop(handle);
+    let _ = fs::remove_dir(dir);
 }
 
 /// Deletes for good the entries of `trash` that `expired` lets go at `now`, then the trash itself if
@@ -408,7 +489,7 @@ mod tests {
         let trash = std::env::temp_dir().join(format!("docdock-trash-held-{}", random()));
         fs::create_dir_all(trash.join("1-0-0-1").join("sub")).unwrap();
         fs::write(trash.join("1-0-0-1").join("sub").join("a.md"), "a").unwrap();
-        let (_, path, _, held) = find(&trash, "1-0-0-1").unwrap();
+        let Found { path, held, .. } = find(&trash, "1-0-0-1").unwrap();
         assert_eq!(path, "sub/a.md");
         // Held folders cannot be swapped: neither renamed away nor replaced.
         let sub = trash.join("1-0-0-1").join("sub");

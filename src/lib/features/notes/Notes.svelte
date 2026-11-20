@@ -1255,6 +1255,8 @@ let removed = $state<{
   folder: boolean;
   trash: string | null;
   undo: boolean;
+  /** Images that went with the note. */
+  images: number;
 } | null>(null);
 let deleting = false;
 /** Why the app would not delete a note, or a capture saved without opening or clipped, until
@@ -1320,16 +1322,35 @@ function noticeBack() {
 /** A delete's answer, also when only its pinned items could not follow; `problem` says so. */
 async function removal(work: Promise<Removal>): Promise<Removal & { problem: string }> {
   try {
-    return { ...(await work), problem: "" };
+    const done = await work;
+    return { ...done, problem: done.imagesKept ? t("delete.imagesKept") : "" };
   } catch (e) {
     const failed = e as { code?: string } & Partial<Removal>;
     if (failed.code !== "pinnedNotRemoved") throw e;
-    return { undo: failed.undo === true, trash: failed.trash ?? null, problem: errorText(e) };
+    return {
+      undo: failed.undo === true,
+      trash: failed.trash ?? null,
+      images: failed.images ?? 0,
+      imagesKept: failed.imagesKept === true,
+      problem: errorText(e),
+    };
   }
+}
+/** What the notice says: where the item went, with the images that went with a note. */
+function removedText(item: NonNullable<typeof removed>): string {
+  const params = { title: item.title, count: item.images };
+  const many = item.images > 1;
+  if (item.trash) {
+    if (!item.images) return t("delete.trashed", params);
+    return t(many ? "delete.trashedImages" : "delete.trashedImage", params);
+  }
+  if (item.folder) return t("deleteFolder.done", params);
+  if (!item.images) return t("delete.done", params);
+  return t(many ? "delete.doneImages" : "delete.doneImage", params);
 }
 /**
  * Deletes a note at once: to the Recycle Bin, or to the trash inside the notes folder where the
- * Recycle Bin cannot take it; the notice offers Undo. Its editor is left first, the guarded way, so
+ * Recycle Bin cannot take it, with the images only it references; the notice offers Undo. Its editor is left first, the guarded way, so
  * its text is saved before the delete and nothing writes the note back afterwards; a conflict or
  * error there stops the delete. The selection moves to the next item, else the previous.
  */
@@ -1351,8 +1372,8 @@ async function deleteNote(card: Card) {
     const session = panelSession;
     const at = keys.indexOf(path);
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
-    const { undo, trash, problem } = await removal(notesDelete(path));
-    removed = { path, title, folder: false, trash, undo: undo && session === panelSession };
+    const { undo, trash, images, problem } = await removal(notesDelete(path));
+    removed = { path, title, folder: false, trash, undo: undo && session === panelSession, images };
     renamedAway.add(path);
     forgetRemoved(path);
     delete contents[path];
@@ -1370,8 +1391,9 @@ async function deleteNote(card: Card) {
   }
 }
 /**
- * Puts the deleted note or folder back where it was, with its pinned items; it is a normal note or
- * folder again. From the trash it takes a free name if its own is taken.
+ * Puts the deleted note or folder back where it was, with its pinned items and the images that went
+ * with it; it is a normal note or folder again. From the trash it takes a free name if its own is
+ * taken.
  */
 async function undoDelete() {
   const item = removed;
@@ -1537,7 +1559,8 @@ async function deleteFolder() {
     // Only a folder with notes says where it went; an empty one is just gone.
     const hadNotes = notes.some((note) => inDeletingFolder(note.path));
     const { trash, problem } = await removal(notesDeleteFolder(path));
-    if (trash || hadNotes) removed = { path, title: path, folder: true, trash, undo: false };
+    if (trash || hadNotes)
+      removed = { path, title: path, folder: true, trash, undo: false, images: 0 };
     else if (removed && inDeletingFolder(removed.path)) removed = null;
     for (const note of notes) {
       if (!inDeletingFolder(note.path)) continue;
@@ -2365,9 +2388,7 @@ onMount(() => {
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="notice-hold" onpointerenter={() => { noticeHovered = true; noticePause(); }} onpointerleave={() => { noticeHovered = false; noticeRun(); }} onfocusin={() => { noticeFocused = true; noticePause(); }} onfocusout={(event) => { if (event.currentTarget.contains(event.relatedTarget as Node | null)) return; noticeFocused = false; noticeRun(); }}>
         <Notice icon="trash" attention={item.trash !== null || item.undo}>
-          {item.trash
-            ? t("delete.trashed", { title: item.title })
-            : t(item.folder ? "deleteFolder.done" : "delete.done", { title: item.title })}
+          {removedText(item)}
           {#snippet actions()}
             {#if item.trash || item.undo}<Button variant="neutral" onclick={undoDelete}>{t("editor.undo")}</Button>{/if}
             <IconButton quiet icon="x" label={t("search.close")} onclick={() => { removed = null; }} />

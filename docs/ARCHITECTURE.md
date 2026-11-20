@@ -227,6 +227,14 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   Preferences; the shell's decision for each item is final (bin missing, item over its limit or bin set
   to delete at once). Folders go the same way, with Undo only from the trash. Pinned items are removed
   and Undo restores them.
+- **A note's images** go with it in the same command, under the save lock and after the note: those in
+  `attachments/` folders that it references and no other note does, live or in the trash, by the
+  reference rule of "Unused images" (`images_only_in`). Any doubt keeps them, such as a note that
+  cannot be read; so do an image the bin refuses, one over 10 MB (too large to keep for Undo) or a
+  failed move, and the delete still succeeds, saying images were kept. To the bin, their bytes are
+  read back and kept with the note's, their paths reserved too; to the trash, they join the note's
+  entry ([0013](decisions/0013-trash-entries-with-images.md)). Undo and restore bring them back to
+  their own paths and refuse with `restoreTaken`, moving nothing, if a file took one's name.
 
 ### Unused images
 

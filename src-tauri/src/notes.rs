@@ -1352,12 +1352,17 @@ fn inside_folder(path: &str, folder: &str) -> bool {
         .starts_with(&(folder.to_lowercase() + "/"))
 }
 /// Where a deleted note or folder went.
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Removal {
     /// `undo_delete` can bring the note back from the Recycle Bin, until the panel hides.
     undo: bool,
     /// The entry of the notes folder's own trash that holds it, which `restore_trashed` brings back.
     trash: Option<String>,
+    /// How many images only the note referenced went with it, the same way.
+    images: usize,
+    /// Some images only the note referenced could not go: they stay where they were.
+    images_kept: bool,
 }
 /// Where `send_away` put an item.
 enum Gone {
@@ -1430,6 +1435,8 @@ fn unpin_deleted(
         Error::PinnedNotRemoved {
             undo: removal.undo,
             trash: removal.trash.clone(),
+            images: removal.images,
+            images_kept: removal.images_kept,
         }
     })?;
     let Some(change) = change.into_inner() else {
@@ -1496,7 +1503,10 @@ fn delete_folder_in(
         deleted()
             .notes
             .retain(|d| d.root != root || !inside_folder(&d.path, relative));
-        Removal { undo: false, trash }
+        Removal {
+            trash,
+            ..Removal::default()
+        }
     };
     unpin_deleted(root, relative, true, &removal, |text| {
         pinned::parse(text)
@@ -1555,6 +1565,9 @@ struct Deleted {
     root: PathBuf,
     path: String,
     bytes: Vec<u8>,
+    /// The images that went with it, by path, as read back from the Recycle Bin; their paths are
+    /// reserved too.
+    images: Vec<(String, Vec<u8>)>,
     /// `_pinned.md` before and after the note's items were removed.
     pinned: Option<(String, String)>,
 }
@@ -1585,10 +1598,11 @@ fn deleted() -> std::sync::MutexGuard<'static, Trash> {
 }
 fn reserved(root: &Path, relative: &str) -> bool {
     let trash = deleted();
+    let same = |path: &str| same_name(Path::new(path), Path::new(relative));
     trash
         .notes
         .iter()
-        .any(|d| d.root == root && same_name(Path::new(&d.path), Path::new(relative)))
+        .any(|d| d.root == root && (same(&d.path) || d.images.iter().any(|(path, _)| same(path))))
 }
 /// Moves the note to the Recycle Bin through `recycle`, which answers where the file landed there.
 /// Undo keeps the bytes read from that file, so they are what the Recycle Bin holds even if another
@@ -1598,6 +1612,11 @@ fn reserved(root: &Path, relative: &str) -> bool {
 /// `PinnedNotRemoved`: the note is deleted all the same. A note too large to keep a copy of for Undo
 /// is refused where `recyclable` says the Recycle Bin would take it (or cannot tell); the trash needs
 /// no copy.
+///
+/// The images only this note references (`images_only_in`) go with it, after it, the same way: to the
+/// Recycle Bin, with their bytes kept for Undo, or into the note's trash entry. Any doubt keeps them:
+/// a scan that fails, an image too large to keep a copy of, one the Recycle Bin refuses or a move
+/// that fails leaves the image in place and `images_kept` says so; the note is deleted all the same.
 fn delete_note_in(
     root: &Path,
     relative: &str,
@@ -1619,13 +1638,51 @@ fn delete_note_in(
         if too_large(size).is_err() && recyclable(&target).unwrap_or(true) {
             too_large(size)?;
         }
-        match send_away(root, &target, recycle)? {
-            Gone::Trash(id) => Removal {
-                undo: false,
-                trash: Some(id),
-            },
+        let canonical = root.canonicalize()?;
+        let (images, mut images_kept) = images_only_in(&canonical, &target);
+        match send_away(root, &target, &recycle)? {
+            Gone::Trash(id) => {
+                let gone = trash_dir(&canonical).map(|(dir, _held)| {
+                    images
+                        .iter()
+                        .filter(|path| {
+                            let moved = held_image(&canonical, path).and_then(|(image, _held)| {
+                                trash::put_image(&dir, &id, Path::new(path.as_str()), &image)
+                                    .map_err(Error::from)
+                            });
+                            moved
+                                .inspect_err(|e| eprintln!("[delete] image kept: {e:?}"))
+                                .is_ok()
+                        })
+                        .count()
+                });
+                let gone = gone.unwrap_or(0);
+                Removal {
+                    undo: false,
+                    trash: Some(id),
+                    images: gone,
+                    images_kept: images_kept || gone < images.len(),
+                }
+            }
             Gone::Bin(landed) => {
                 let bytes = landed.and_then(|bin| read_bytes(&bin).ok());
+                let mut gone = 0;
+                let mut kept = Vec::new();
+                for path in &images {
+                    match recycle_image(&canonical, path, &recycle) {
+                        Ok(bytes) => {
+                            gone += 1;
+                            match bytes {
+                                Some(bytes) => kept.push((path.clone(), bytes)),
+                                None => eprintln!("[delete] an image cannot come back with Undo"),
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("[delete] image kept: {error:?}");
+                            images_kept = true;
+                        }
+                    }
+                }
                 let mut trash = deleted();
                 let undo = match bytes {
                     Some(bytes) if trash.session == session => {
@@ -1633,13 +1690,19 @@ fn delete_note_in(
                             root: root.to_owned(),
                             path: relative.to_owned(),
                             bytes,
+                            images: kept,
                             pinned: None,
                         });
                         true
                     }
                     _ => false,
                 };
-                Removal { undo, trash: None }
+                Removal {
+                    undo,
+                    trash: None,
+                    images: gone,
+                    images_kept,
+                }
             }
         }
     };
@@ -1648,28 +1711,99 @@ fn delete_note_in(
     })?;
     Ok(removal)
 }
-/// Writes a note deleted to the Recycle Bin back at its path, never over a file that took the name
-/// since (`RestoreTaken`, and Undo stays possible). Its pinned items return too.
+/// The image at `path`, below the canonical `root`, held in its folder: only while it is still a
+/// plain file under that exact name, never through a link or a short-name alias.
+fn held_image(root: &Path, path: &str) -> Result<(PathBuf, Vec<fs::File>), Error> {
+    let path = checked(path, attachment_path)?;
+    let (dir, held) = hold_folder(root, path.parent().ok_or(Error::InvalidPath)?)?;
+    let image = dir.join(path.file_name().ok_or(Error::InvalidPath)?);
+    if !fs::symlink_metadata(&image)?.is_file() || image.canonicalize()? != image {
+        return Err(Error::InvalidPath);
+    }
+    Ok((image, held))
+}
+/// Sends the image at `path` to the Recycle Bin through `recycle` and answers the bytes read back
+/// from where it landed, for Undo, if they can be. An image larger than a paste may be is not sent:
+/// Undo could not keep a copy of it.
+fn recycle_image(
+    root: &Path,
+    path: &str,
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) -> Result<Option<Vec<u8>>, Error> {
+    let (image, _held) = held_image(root, path)?;
+    let small =
+        |file: &Path| fs::metadata(file).is_ok_and(|m| m.len() <= MAX_ATTACHMENT_BYTES as u64);
+    if !small(&image) {
+        return Err(image_too_large());
+    }
+    let landed = recycle(&image)?;
+    Ok(landed
+        .filter(|bin| small(bin))
+        .and_then(|bin| fs::read(bin).ok()))
+}
+/// Writes a note deleted to the Recycle Bin back at its path, with the images that went with it,
+/// never over a file that took one of their names since (`RestoreTaken`, nothing changes and Undo
+/// stays possible). Its pinned items return too. An image whose name is taken in the instant between
+/// that check and its write comes back under a free name instead, such as `map (2).png`.
 fn undo_delete_in(root: &Path, relative: &str) -> Result<(), Error> {
     let pinned = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-        let mut trash = deleted();
-        let deleted = &mut trash.notes;
-        let at = deleted
-            .iter()
-            .position(|d| d.root == root && d.path == relative)
-            .ok_or(Error::UndoUnavailable)?;
-        if let Saved::Conflict = recreate_note(root, relative, &deleted[at].bytes)? {
-            return Err(Error::RestoreTaken {
-                path: relative.to_owned(),
-            });
+        let canonical = root.canonicalize()?;
+        let entry = {
+            let mut trash = deleted();
+            let deleted = &mut trash.notes;
+            let at = deleted
+                .iter()
+                .position(|d| d.root == root && d.path == relative)
+                .ok_or(Error::UndoUnavailable)?;
+            if let Some((path, _)) = deleted[at]
+                .images
+                .iter()
+                .find(|(path, _)| exists(&canonical.join(path)))
+            {
+                return Err(Error::RestoreTaken { path: path.clone() });
+            }
+            if let Saved::Conflict = recreate_note(root, relative, &deleted[at].bytes)? {
+                return Err(Error::RestoreTaken {
+                    path: relative.to_owned(),
+                });
+            }
+            deleted.remove(at)
+        };
+        // Its paths are free now: a restore below takes them only if nothing else did.
+        for (path, bytes) in &entry.images {
+            if let Err(error) = recreate_image(root, &canonical, path, bytes) {
+                // It is still in the Recycle Bin.
+                eprintln!("[undo] image not restored: {error:?}");
+            }
         }
-        deleted.remove(at).pinned
+        entry.pinned
     };
     match pinned {
         Some((before, after)) => repin(root, relative, false, &before, &after),
         None => Ok(()),
     }
+}
+/// Writes `bytes` as the image at `path` below `canonical`, recreating the folders above it, never
+/// over another file: a taken name gives a free one, as a restore from the trash does.
+fn recreate_image(root: &Path, canonical: &Path, path: &str, bytes: &[u8]) -> Result<(), Error> {
+    let path = checked(path, attachment_path)?;
+    let parent = path.parent().ok_or(Error::InvalidPath)?;
+    let name = path.file_name().ok_or(Error::InvalidPath)?;
+    let _held = ensure_folders(canonical, parent)?;
+    let dir = canonical.join(parent);
+    let temp = write_temp(&dir.join(name), bytes)?;
+    let placed = place(&temp, &dir, name, false, numbered, |candidate| {
+        reserved(root, &relative(canonical, candidate))
+    });
+    if placed.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    placed.map(|_| ())
+}
+/// The suffix a restore puts between stem and extension when the name is taken: `name (2).md`.
+fn numbered(n: u32) -> String {
+    format!(" ({n})")
 }
 pub fn delete_note(app: &AppHandle, path: &str) -> Result<Removal, Error> {
     delete_note_in(&root(app)?, path, platform::recycle, platform::recyclable)
@@ -1722,6 +1856,12 @@ pub fn trash_items(app: &AppHandle) -> Result<Vec<trash::Item>, Error> {
 /// is ever overwritten. `undo`: also put back the pinned items its delete removed, when it returns
 /// under its own name. `TrashItemMissing` when the entry is gone, such as restored or emptied
 /// elsewhere.
+///
+/// The images deleted with a note come back with it, each to its own path, so the note's links find
+/// them again; the note's own new name, if any, is in the same folder, where its relative links still
+/// hold. If a file took an image's name, nothing moves (`RestoreTaken` names it): under a free name the
+/// note would silently show another image or none. One whose name is taken in the instant between that
+/// check and its move takes a free name all the same, and one that cannot move stays in the entry.
 fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error> {
     let (item, restored) = {
         let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
@@ -1729,13 +1869,13 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
         let dir = trash_path(&canonical)?;
         let _held_trash = hold_ancestry(&dir).map_err(|error| trash_error(&dir, error))?;
         // The entry's folders stay held from the moment they are read until the item has moved.
-        let (source, path, folder, held_source) =
-            trash::find(&dir, id).map_err(|error| match error.kind() {
-                io::ErrorKind::NotFound => Error::TrashItemMissing,
-                io::ErrorKind::InvalidData => Error::InvalidPath,
-                _ => trash_error(&dir, error),
-            })?;
-        let item = (path, folder);
+        let found = trash::find(&dir, id).map_err(|error| match error.kind() {
+            io::ErrorKind::NotFound => Error::TrashItemMissing,
+            io::ErrorKind::InvalidData => Error::InvalidPath,
+            _ => trash_error(&dir, error),
+        })?;
+        let (source, folder, held_source) = (found.source, found.folder, found.held);
+        let item = (found.path, folder);
         let path = checked(&item.0, |_| true)?;
         let name = path.file_name().ok_or(Error::InvalidPath)?;
         let allowed = name.to_str().is_some_and(|name| {
@@ -1749,15 +1889,55 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
         if !allowed || path.as_os_str().eq_ignore_ascii_case(PINNED) {
             return Err(Error::InvalidPath);
         }
+        for (_, image) in &found.images {
+            let path = checked(image, attachment_path)?;
+            if !path
+                .iter()
+                .all(|name| name.to_str().is_some_and(windows_name))
+            {
+                return Err(Error::InvalidPath);
+            }
+        }
+        if let Some((_, image)) = found
+            .images
+            .iter()
+            .find(|(_, image)| exists(&canonical.join(image)) || reserved(root, image))
+        {
+            return Err(Error::RestoreTaken {
+                path: image.clone(),
+            });
+        }
+        let taken = |candidate: &Path| reserved(root, &relative(&canonical, candidate));
         let parent = path.parent().unwrap_or(Path::new(""));
         let held_parent = ensure_folders(&canonical, parent)?;
         let landed = {
             let (_held_parent, _held_source) = (held_parent, held_source);
             let into = canonical.join(parent);
-            let numbered = |n| format!(" ({n})");
-            place(&source, &into, name, folder, numbered, |candidate| {
-                !folder && reserved(root, &relative(&canonical, candidate))
-            })?
+            let landed = place(&source, &into, name, folder, numbered, |candidate| {
+                !folder && taken(candidate)
+            })?;
+            for (source, image) in &found.images {
+                let image = Path::new(image);
+                let moved = image
+                    .parent()
+                    .zip(image.file_name())
+                    .ok_or(Error::InvalidPath);
+                let moved = moved.and_then(|(parent, name)| {
+                    let _held = ensure_folders(&canonical, parent)?;
+                    place(
+                        source,
+                        &canonical.join(parent),
+                        name,
+                        false,
+                        numbered,
+                        taken,
+                    )
+                });
+                if let Err(error) = moved {
+                    eprintln!("[restore] image stays in the trash: {error:?}");
+                }
+            }
+            landed
         };
         // Once nothing holds the entry's folders.
         trash::discard_entry(&dir, id);
@@ -2254,29 +2434,36 @@ fn attachment_note(path: &Path) -> Result<String, Error> {
     Ok(text)
 }
 
-/// Finds available attachments and checks references against live and trashed notes. With a
-/// selection, only those exact paths are considered, even when another name aliases a real file.
-fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<Vec<String>, Error> {
-    let root = root.canonicalize()?;
-    let _held = hold_ancestry(&root)?;
-    let mut candidates = Vec::new();
-    let mut notes = Vec::new();
-    scan_notes(&root, &mut |file| {
-        let path = file.strip_prefix(&root).map_err(|_| Error::OutsideFolder)?;
-        if markdown(file) {
-            notes.push((relative(&root, file), attachment_note(file)?));
-        } else if attachment_path(path) {
-            let path = relative(&root, file);
-            if selection.is_none_or(|selected| selected.contains(path.as_str())) {
-                candidates.push(path);
-            }
+/// The images below `root`, canonical and held, that may be attachments (`attachment_path`).
+fn attachment_images(root: &Path) -> Result<Vec<String>, Error> {
+    let mut images = Vec::new();
+    scan_notes(root, &mut |file| {
+        let path = file.strip_prefix(root).map_err(|_| Error::OutsideFolder)?;
+        if attachment_path(path) {
+            images.push(relative(root, file));
         }
         Ok(())
     })?;
-    if candidates.is_empty() {
-        return Ok(candidates);
-    }
-
+    Ok(images)
+}
+/// Every note below `root`, canonical and held, with its text and its path in it.
+fn live_notes(root: &Path) -> Result<Vec<(String, String, PathBuf)>, Error> {
+    let mut notes = Vec::new();
+    scan_notes(root, &mut |file| {
+        if markdown(file) {
+            notes.push((
+                relative(root, file),
+                attachment_note(file)?,
+                file.to_owned(),
+            ));
+        }
+        Ok(())
+    })?;
+    Ok(notes)
+}
+/// Every note in the trash of `root`, canonical and held, with its text, under its original path.
+fn trashed_notes(root: &Path) -> Result<Vec<(String, String)>, Error> {
+    let mut notes = Vec::new();
     let dir = root.join(DERIVED).join(trash::DIR);
     match hold_ancestry(&dir) {
         Ok(_held) => scan_notes(&dir, &mut |file| {
@@ -2297,12 +2484,26 @@ fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<V
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(trash_error(&dir, error)),
     }
+    Ok(notes)
+}
 
+/// Finds available attachments and checks references against live and trashed notes. With a
+/// selection, only those exact paths are considered, even when another name aliases a real file.
+fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<Vec<String>, Error> {
+    let root = root.canonicalize()?;
+    let _held = hold_ancestry(&root)?;
+    let mut candidates = attachment_images(&root)?;
+    candidates.retain(|path| selection.is_none_or(|selected| selected.contains(path.as_str())));
+    if candidates.is_empty() {
+        return Ok(candidates);
+    }
+    let live = live_notes(&root)?;
+    let trashed = trashed_notes(&root)?;
+    let notes = live.iter().map(|(path, text, _)| (path, text));
+    let notes = notes.chain(trashed.iter().map(|(path, text)| (path, text)));
     let used = attachments::referenced(
         &candidates,
-        notes
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str())),
+        notes.map(|(path, text)| (path.as_str(), text.as_str())),
     );
     let mut unused: Vec<_> = candidates
         .iter()
@@ -2311,6 +2512,62 @@ fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<V
         .collect();
     sort_paths(&mut unused, |path| path);
     Ok(unused)
+}
+
+/// The images that only the note at `note`, a canonical path below the canonical `root`, references
+/// (`attachments::referenced`): in `attachments` folders, and referenced by no other note, in the
+/// folder or in its trash. Any doubt keeps every image: a note or folder that cannot be read, or a
+/// scan that does not find the note exactly once. The flag says a doubt kept images the note
+/// references; a doubt before those are known, such as a note that cannot be read, keeps them
+/// silently. The caller holds `root`.
+fn images_only_in(root: &Path, note: &Path) -> (Vec<String>, bool) {
+    let mine = || -> Result<Vec<String>, Error> {
+        let candidates = attachment_images(root)?;
+        let path = relative(root, note);
+        let text = attachment_note(note)?;
+        let mine = attachments::referenced(&candidates, [(path.as_str(), text.as_str())]);
+        Ok(mine.into_iter().map(str::to_owned).collect())
+    };
+    let mine = match mine() {
+        Ok(mine) if !mine.is_empty() => mine,
+        Ok(_) => return (Vec::new(), false),
+        Err(error) => {
+            eprintln!("[delete] images not checked: {error:?}");
+            return (Vec::new(), false);
+        }
+    };
+    match unshared(root, note, &mine) {
+        Ok(only) => (only, false),
+        Err(error) => {
+            eprintln!("[delete] images kept: {error:?}");
+            (Vec::new(), true)
+        }
+    }
+}
+/// Which of `mine` no note but `note` references, live or in the trash, as `images_only_in`.
+fn unshared(root: &Path, note: &Path, mine: &[String]) -> Result<Vec<String>, Error> {
+    let mut live = live_notes(root)?;
+    let before = live.len();
+    live.retain(|(_, _, file)| !same_name(file, note));
+    if before - live.len() != 1 {
+        return Err(Error::unexpected(
+            "the deleted note is not in the scan once",
+        ));
+    }
+    let trashed = trashed_notes(root)?;
+    let notes = live.iter().map(|(path, text, _)| (path, text));
+    let notes = notes.chain(trashed.iter().map(|(path, text)| (path, text)));
+    let used = attachments::referenced(
+        mine,
+        notes.map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let mut only: Vec<_> = mine
+        .iter()
+        .filter(|p| !used.contains(p.as_str()))
+        .cloned()
+        .collect();
+    sort_paths(&mut only, |path| path);
+    Ok(only)
 }
 
 #[derive(Serialize)]
@@ -2383,17 +2640,22 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<
     if resolve(root, path, markdown)? != note {
         return Err(Error::AttachmentFolderUnsafe);
     }
-    let image = attach(parent, held, bytes, ext, stamp)?;
+    let canonical = root.canonicalize()?;
+    let image = attach(parent, held, bytes, ext, stamp, |candidate| {
+        reserved(root, &relative(&canonical, candidate))
+    })?;
     Ok(attachment_link(&image))
 }
 /// Writes `bytes` as a new file in the `attachments` folder of `parent`, a canonical folder whose
-/// ancestry `held` holds, never over another file. Answers the file's path.
+/// ancestry `held` holds, never over another file nor a name `taken` refuses, such as one a Recycle
+/// Bin Undo reserves. Answers the file's path.
 fn attach(
     parent: &Path,
     mut held: Vec<fs::File>,
     bytes: &[u8],
     ext: &str,
     stamp: &str,
+    taken: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, Error> {
     let folder = parent.join("attachments");
     match fs::create_dir(&folder) {
@@ -2410,7 +2672,7 @@ fn attach(
         name.as_ref(),
         false,
         |n| format!("-{n}"),
-        |_| false,
+        taken,
     );
     if placed.is_err() {
         let _ = fs::remove_file(&temp);
@@ -2463,7 +2725,10 @@ fn create_with_image_in(
         return Err(Error::AttachmentFolderUnsafe);
     }
     let held = hold_ancestry(parent).map_err(|_| Error::AttachmentFolderUnsafe)?;
-    let attached = attach(parent, held, image, ext, stamp)?;
+    let canonical = root.canonicalize()?;
+    let attached = attach(parent, held, image, ext, stamp, |candidate| {
+        reserved(root, &relative(&canonical, candidate))
+    })?;
     let note = format!("{content}![]({})", attachment_link(&attached));
     match publish(root, path, note.as_bytes()) {
         Ok(saved @ Saved::Saved { .. }) => Ok(saved),
@@ -3470,10 +3735,7 @@ mod tests {
             delete_folder_in(&t.0, "parent/empty", |_| panic!(
                 "empty folder must not recycle"
             )),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert!(!t.0.join("parent/empty").exists());
         assert!(t.0.join("parent").is_dir());
@@ -3486,10 +3748,7 @@ mod tests {
         let bin = t.0.join("bin");
         assert_eq!(
             delete_folder_in(&t.0, "folder", |p| to_bin(p, &bin)),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert_eq!(
             fs::read_to_string(bin.join("folder/.hidden")).unwrap(),
@@ -3505,10 +3764,7 @@ mod tests {
         let bin = t.0.join("bin");
         assert_eq!(
             delete_folder_in(&t.0, "folder", |p| to_bin(p, &bin)),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert_eq!(
             fs::read_to_string(t.0.join(PINNED)).unwrap(),
@@ -4215,6 +4471,210 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(t.0.join(&restored)).unwrap(), "old");
     }
+    /// A notes folder in `t` with `files` in it, each with the folders above it; the Recycle Bin of
+    /// `to_bin` stays outside, so what lands there is no note of the folder.
+    fn folder_with(t: &Temp, files: &[(&str, &[u8])]) -> PathBuf {
+        let root = t.0.join("notes");
+        for (path, content) in files {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, content).unwrap();
+        }
+        root
+    }
+    fn delete_to(root: &Path, bin: &Path, path: &str) -> Removal {
+        delete_note_bin(root, path, |file| to_bin(file, bin)).unwrap()
+    }
+    #[test]
+    fn deleting_a_note_takes_only_the_attachments_no_other_note_references() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                (
+                    "a.md",
+                    b"![](attachments/only.png) ![](attachments/shared.png) ![](other/loose.png)",
+                ),
+                ("b.md", b"Also see SHARED.png."),
+                ("attachments/only.png", b"only"),
+                ("attachments/shared.png", b"shared"),
+                ("other/loose.png", b"loose"),
+            ],
+        );
+        let removal = delete_to(&root, &t.0.join("bin"), "a.md");
+        assert_eq!((removal.images, removal.images_kept), (1, false));
+        assert!(!exists(&root.join("attachments/only.png")));
+        assert_eq!(fs::read(t.0.join("bin/only.png")).unwrap(), b"only");
+        assert!(exists(&root.join("attachments/shared.png")));
+        assert!(exists(&root.join("other/loose.png")));
+    }
+    #[test]
+    fn an_image_a_note_in_the_trash_references_stays() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let link = b"![](attachments/map.png)" as &[u8];
+        let root = folder_with(
+            &t,
+            &[
+                ("a.md", link),
+                ("old.md", link),
+                ("attachments/map.png", b"map"),
+            ],
+        );
+        trash_note(&root, "old.md");
+        let removal = delete_to(&root, &t.0.join("bin"), "a.md");
+        assert_eq!((removal.images, removal.images_kept), (0, false));
+        assert!(exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn a_note_that_cannot_be_read_keeps_the_images_and_says_so() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                ("a.md", b"![](attachments/map.png)"),
+                ("b.md", b"\xff not UTF-8"),
+                ("attachments/map.png", b"map"),
+            ],
+        );
+        let removal = delete_to(&root, &t.0.join("bin"), "a.md");
+        assert_eq!(
+            (removal.undo, removal.images, removal.images_kept),
+            (true, 0, true)
+        );
+        assert!(!exists(&root.join("a.md")));
+        assert!(exists(&root.join("attachments/map.png")));
+    }
+    #[test]
+    fn undo_brings_back_the_note_with_its_images_and_their_folders() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                (
+                    "a.md",
+                    b"![](attachments/one.png) ![](sub/attachments/two.png)",
+                ),
+                ("attachments/one.png", b"one"),
+                ("sub/attachments/two.png", b"two"),
+            ],
+        );
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 2);
+        assert!(reserved(&root, "SUB/attachments/two.png"));
+        fs::remove_dir_all(root.join("sub")).unwrap();
+        assert_eq!(undo_delete_in(&root, "a.md"), Ok(()));
+        assert!(exists(&root.join("a.md")));
+        assert_eq!(fs::read(root.join("attachments/one.png")).unwrap(), b"one");
+        assert_eq!(
+            fs::read(root.join("sub/attachments/two.png")).unwrap(),
+            b"two"
+        );
+        assert!(!reserved(&root, "sub/attachments/two.png"));
+    }
+    #[test]
+    fn undo_never_overwrites_an_image_that_took_the_name() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                ("a.md", b"![](attachments/one.png)"),
+                ("attachments/one.png", b"one"),
+            ],
+        );
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 1);
+        fs::write(root.join("attachments/one.png"), "new").unwrap();
+        assert_eq!(
+            undo_delete_in(&root, "a.md"),
+            Err(Error::RestoreTaken {
+                path: "attachments/one.png".into()
+            })
+        );
+        assert!(!exists(&root.join("a.md")));
+        assert_eq!(fs::read(root.join("attachments/one.png")).unwrap(), b"new");
+        // Once the name is free again, Undo still has both.
+        fs::remove_file(root.join("attachments/one.png")).unwrap();
+        assert_eq!(undo_delete_in(&root, "a.md"), Ok(()));
+        assert_eq!(fs::read(root.join("attachments/one.png")).unwrap(), b"one");
+    }
+    #[test]
+    fn a_note_and_its_images_are_one_trash_entry_and_come_back_together() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                ("sub/a.md", b"![](attachments/map.png)"),
+                ("sub/attachments/map.png", b"map"),
+            ],
+        );
+        let removal = delete_note_bin(&root, "sub/a.md", refused_bin).unwrap();
+        assert_eq!(removal.images, 1);
+        let id = removal.trash.unwrap();
+        assert!(!exists(&root.join("sub/attachments/map.png")));
+        let items = trash_items_in(&root).unwrap();
+        let shape: Vec<_> = items
+            .iter()
+            .map(|i| (i.id.as_str(), i.path.as_deref()))
+            .collect();
+        assert_eq!(shape, [(id.as_str(), Some("sub/a.md"))]);
+        assert_eq!(restore_trashed_in(&root, &id, true), Ok("sub/a.md".into()));
+        assert!(exists(&root.join("sub/a.md")));
+        assert_eq!(
+            fs::read(root.join("sub/attachments/map.png")).unwrap(),
+            b"map"
+        );
+        assert!(!exists(&trash_of(&root).join(&id)));
+    }
+    #[test]
+    fn restoring_a_note_whose_image_name_was_taken_moves_nothing() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = folder_with(
+            &t,
+            &[
+                ("a.md", b"![](attachments/map.png)"),
+                ("attachments/map.png", b"map"),
+            ],
+        );
+        let id = trash_note(&root, "a.md");
+        fs::write(root.join("attachments/map.png"), "other").unwrap();
+        assert_eq!(
+            restore_trashed_in(&root, &id, true),
+            Err(Error::RestoreTaken {
+                path: "attachments/map.png".into()
+            })
+        );
+        assert!(!exists(&root.join("a.md")));
+        assert_eq!(
+            fs::read(root.join("attachments/map.png")).unwrap(),
+            b"other"
+        );
+        assert_eq!(
+            trash_items_in(&root).unwrap()[0].path.as_deref(),
+            Some("a.md")
+        );
+    }
+    #[test]
+    fn an_entry_from_before_images_still_lists_and_restores_its_one_item() {
+        let _serial = deleting();
+        let t = Temp::new();
+        plant(&t.0, "1-0-0-1", "sub/a.md", "a");
+        let items = trash_items_in(&t.0).unwrap();
+        let shape: Vec<_> = items
+            .iter()
+            .map(|i| (i.id.as_str(), i.path.as_deref()))
+            .collect();
+        assert_eq!(shape, [("1-0-0-1", Some("sub/a.md"))]);
+        assert_eq!(
+            restore_trashed_in(&t.0, "1-0-0-1", false),
+            Ok("sub/a.md".into())
+        );
+        assert_eq!(fs::read_to_string(t.0.join("sub/a.md")).unwrap(), "a");
+    }
     #[test]
     fn a_too_large_note_goes_to_the_trash_but_not_to_the_recycle_bin() {
         let _serial = deleting();
@@ -4256,10 +4716,7 @@ mod tests {
         let bin = t.0.join("bin");
         assert_eq!(
             delete_folder_in(&t.0, "folder", |p| to_bin(p, &bin)),
-            Ok(Removal {
-                undo: false,
-                trash: None
-            })
+            Ok(Removal::default())
         );
         assert!(exists(&bin.join("folder/a.md")));
     }

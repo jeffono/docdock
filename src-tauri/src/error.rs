@@ -90,11 +90,13 @@ pub enum Error {
     EmptyFailed {
         detail: String,
     },
-    /// The note or folder is deleted, but its pinned items still point at it. `undo` and `trash` as in
+    /// The note or folder is deleted, but its pinned items still point at it. The fields as in
     /// `notes::Removal`.
     PinnedNotRemoved {
         undo: bool,
         trash: Option<String>,
+        images: usize,
+        images_kept: bool,
     },
     /// The panel closed since the delete, or it was already undone.
     UndoUnavailable,

@@ -259,8 +259,12 @@ notes differ only in section and starting state.
   first. A `Notice` under the search bar, amber with a trash icon, a neutral Undo and a quiet close,
   says "“title” moved to the Recycle Bin." (Undo until the panel closes) or, where the bin refuses it
   (a vault, a network folder), "Deleted “title”. It stays in the trash for 30 days (Preferences)."
-  (Undo while it is in the trash). It leaves after 10 seconds in sight, or when closed, undone or
-  replaced; time stops while hovered, focused or hidden. To be noticed, it slides down and fades in
+  (Undo while it is in the trash). Images in `attachments/` folders that only this note uses go with
+  it, and the notice counts them: "“title” and 2 images moved to the Recycle Bin." or "Deleted “title”
+  and 2 images. They stay in the trash for 30 days (Preferences)."; Undo brings them back too, and
+  images that could not go stay in place with an error line saying so. It leaves after 10 seconds in
+  sight, or when closed, undone or replaced; time stops while hovered, focused or hidden. To be
+  noticed, it slides down and fades in
   over two `--duration`, then Undo pulses twice (accent outline, selected background, five
   `--duration` each); with reduced motion it appears at once with that look. Undo brings back the
   note and its pinned items and selects it; otherwise selection moves to the next item. A note over
