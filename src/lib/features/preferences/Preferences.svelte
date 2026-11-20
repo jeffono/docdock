@@ -8,9 +8,11 @@ import {
   blockingSites,
   type NotesFolder,
   notesFolder,
+  notesRecycleImages,
   notesTrash,
   notesTrashEmpty,
   notesTrashRestore,
+  notesUnusedImages,
   onAutostartChanged,
   onNotesChanged,
   onUpdateState,
@@ -22,6 +24,7 @@ import {
   type SitePermission,
   spellingLanguages,
   type TrashItem,
+  type UnusedImages,
   type UpdateStatus,
   updateCheck,
   updateRestart,
@@ -33,6 +36,7 @@ import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
 import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
 import { folderNotice } from "../notes/folder-state";
+import { noteAssetUrl } from "../notes/markdown";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import { relativeDate } from "../notes/relative-date";
@@ -59,7 +63,15 @@ let {
   width: number;
   choose: () => Promise<string | undefined>;
 } = $props();
-const sections = ["general", "appearance", "browser", "shortcuts", "trash", "about"] as const;
+const sections = [
+  "general",
+  "appearance",
+  "browser",
+  "shortcuts",
+  "trash",
+  "unusedImages",
+  "about",
+] as const;
 const themes = ["system", "light", "dark"] as const;
 let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
@@ -142,6 +154,49 @@ $effect(() => {
   restored = "";
   void action(loadTrash);
 });
+
+/** Undefined while loading, null while the folder is away. */
+let images = $state<UnusedImages | null>();
+let selected = $state<string[]>([]);
+let imageLoads = 0;
+function forgetImages(value: null | undefined) {
+  imageLoads++;
+  images = value;
+  selected = [];
+}
+async function loadImages() {
+  const load = ++imageLoads;
+  try {
+    const items = await notesUnusedImages();
+    if (load !== imageLoads) return;
+    const available = new Set(items.paths);
+    selected =
+      images?.folderId === items.folderId ? selected.filter((path) => available.has(path)) : [];
+    images = items;
+  } catch (e) {
+    if (load !== imageLoads) return;
+    forgetImages(null);
+    if (!away.includes((e as { code?: string }).code ?? "")) throw e;
+  }
+}
+function recycleImages() {
+  if (!images || selected.length === 0) return;
+  const { folderId } = images;
+  const paths = [...selected];
+  void action(async () => {
+    try {
+      await notesRecycleImages(folderId, paths);
+    } finally {
+      if (section === "unusedImages") await loadImages();
+    }
+  });
+}
+$effect(() => {
+  if (section !== "unusedImages") return;
+  void action(loadImages);
+  return () => forgetImages(undefined);
+});
+
 $effect(() => {
   if (section !== "about") return;
   updates = null;
@@ -207,8 +262,11 @@ onMount(() => {
   const notesChanged = onNotesChanged(() => {
     void refreshFolder()
       .then(() => {
-        if (folder?.state !== "available") forgetTrash(null);
-        else if (section === "trash") return loadTrash();
+        if (folder?.state !== "available") {
+          forgetTrash(null);
+          if (section === "unusedImages") forgetImages(null);
+        } else if (section === "trash") return loadTrash();
+        else if (section === "unusedImages") return loadImages();
       })
       .catch((e) => {
         error = errorText(e);
@@ -352,6 +410,42 @@ onMount(() => {
         {/if}
         {#if restored}<p class="restored" role="status">{t("trash.restored", { path: restored })}</p>{/if}
       </div>
+    {:else if section === "unusedImages"}
+      <div class="setting">
+        {#if images === undefined}
+          {#if !error}<p role="status">{t("unusedImages.loading")}</p>{/if}
+        {:else if images === null}
+          {#if !error}<p>{t("unusedImages.unavailable")}</p>{/if}
+        {:else if images.paths.length === 0}
+          <p role="status">{t("unusedImages.empty")}</p>
+        {:else}
+          <p>{t("unusedImages.about")}</p>
+          <div class="image-actions">
+            <label>
+              <input type="checkbox" disabled={busy} checked={selected.length === images.paths.length}
+                indeterminate={selected.length > 0 && selected.length < images.paths.length}
+                onchange={(event) => { selected = event.currentTarget.checked ? [...(images?.paths ?? [])] : []; }} />
+              {t("unusedImages.selectAll")}
+            </label>
+            <Button variant="neutral" disabled={busy || selected.length === 0} onclick={recycleImages}>{t("unusedImages.send")}</Button>
+          </div>
+          <ul class="trash image-list">
+            {#each images.paths as path (path)}
+              {@const slash = path.lastIndexOf("/")}
+              <li>
+                <label title={path}>
+                  <input type="checkbox" value={path} bind:group={selected} disabled={busy} />
+                  <img src={noteAssetUrl(path)} alt="" loading="lazy" />
+                  <span class="item">
+                    <span class="name">{path.slice(slash + 1)}</span>
+                    <small>{path.slice(0, slash)}</small>
+                  </span>
+                </label>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
     {:else if section === "about"}
       <div class="setting">
         <h3>{t("updates.title")}</h3>
@@ -404,4 +498,9 @@ input { accent-color: var(--color-accent); }
 .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); font-size: var(--font-size-sm); }
 .restored { margin-top: var(--space-3); overflow-wrap: anywhere; }
+.image-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+.image-list li { padding: 0; }
+.image-list label { flex: 1; min-width: 0; gap: var(--space-2); margin: 0; padding: var(--space-2) 0; }
+.image-list label:has(:checked) { background: var(--color-selected); }
+.image-list img { inline-size: calc(var(--size-bar) + var(--space-4)); block-size: var(--size-bar); object-fit: contain; border-radius: var(--radius-sm); background: var(--color-surface); }
 </style>

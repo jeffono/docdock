@@ -202,7 +202,20 @@ export function imageUrl(source: string, note: string): string | null {
       parts.pop();
     } else parts.push(part);
   }
-  return `http://note-asset.localhost/${parts.map((p) => encodeURIComponent(p).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)).join("/")}`;
+  return noteAssetUrl(parts.join("/"));
+}
+
+/** Asset URL for a path already relative to the notes folder, with literal file names. */
+export function noteAssetUrl(path: string): string {
+  return `http://note-asset.localhost/${path
+    .split("/")
+    .map((p) =>
+      encodeURIComponent(p).replace(
+        /[!'()*]/g,
+        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+      ),
+    )
+    .join("/")}`;
 }
 
 /** GitHub alert kind, from the text of a quote's first line starting at its `>`. */

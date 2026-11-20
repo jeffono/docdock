@@ -39,6 +39,8 @@ pub enum Error {
     CaptureFailed,
     /// Another notes folder was chosen while a capture was pending; nothing was saved.
     FolderChanged,
+    /// The selection came from a different notes folder.
+    ImagesFolderChanged,
     /// A capture's note could not be created; its image stayed in the attachments folder at `path`.
     ImageKept {
         path: String,

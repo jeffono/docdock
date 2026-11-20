@@ -52,6 +52,22 @@ pub fn open_folder(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
+/// Opens a regular file without following a symlink at its name. The caller holds its parents.
+pub fn open_plain_file(path: &Path) -> io::Result<File> {
+    use windows::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
 /// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
 pub fn hold_ancestry(dir: &Path) -> io::Result<Vec<File>> {
     hold_from_top(dir, hold_directory)

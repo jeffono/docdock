@@ -446,9 +446,9 @@ notes differ only in section and starting state.
 
 ## Preferences
 
-The gear opens a third view with quiet General, Appearance, Browser, Shortcuts, Trash and About section
-buttons, wrapping when narrow. The page stays loaded but hidden. The gear or Esc returns to the
-previous tab; either tab also leaves, and the global shortcut returns to Notes and search. Sections
+The gear opens a third view with quiet General, Appearance, Browser, Shortcuts, Trash, Unused images
+and About section buttons, wrapping when narrow. The page stays loaded but hidden. The gear or Esc
+returns to the previous tab; either tab also leaves, and the global shortcut returns to Notes and search. Sections
 scroll inside the panel with the same insets, tokens and neutral buttons, and no heading repeating the
 tab label.
 
@@ -486,6 +486,10 @@ tab label.
   the item count, confirmed by "Delete for good", the only permanent action and so the only question.
   Empty: "The trash is empty."; folder away: the trash appears when it is back. An entry that cannot
   be identified shows "Unrecognized item" without Restore. The trash never shows in the list.
+- **Unused images:** rows show lazy thumbnails, filenames and their folders, with checkboxes to select
+  individual images or all of them. Send to bin moves the selection through the same bin and fallback
+  as Trash. Empty: "No unused images."; folder away: the images appear when it is back. For the
+  candidate and reference rules, see [Unused images in Architecture](ARCHITECTURE.md#unused-images).
 - **About:** the installed version, live update status and last successful check. Check now starts a
   check; development builds say updates are disabled. A verified download shows Restart to update and
   enables the tray action and tooltip. Nothing moves the panel or focus.

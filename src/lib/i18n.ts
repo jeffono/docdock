@@ -49,6 +49,7 @@ const en = {
   "preferences.widthReset": "Restore default width",
   "preferences.shortcuts": "Shortcuts",
   "preferences.trash": "Trash",
+  "preferences.unusedImages": "Unused images",
   "preferences.about": "About",
   "updates.title": "Updates",
   "updates.version": "DocDock version {version}",
@@ -66,7 +67,7 @@ const en = {
   "updates.check": "Check now",
   "updates.restart": "Restart to update",
   "trash.about":
-    "When the Recycle Bin cannot take a deleted note or folder, as in an encrypted vault or a network folder, it stays here for 30 days. The trash is inside the notes folder, encrypted when the folder is in a vault, and syncs with it.",
+    "When the Recycle Bin cannot take a deleted item, as in an encrypted vault or a network folder, it stays here for 30 days. The trash is inside the notes folder, encrypted when the folder is in a vault, and syncs with it.",
   "trash.empty": "The trash is empty.",
   "trash.unavailable": "The trash appears when the notes folder is available.",
   "trash.root": "Notes folder",
@@ -78,6 +79,12 @@ const en = {
   "trash.emptyOne": "1 item will be deleted for good. This cannot be undone.",
   "trash.emptyMany": "{count} items will be deleted for good. This cannot be undone.",
   "trash.emptyConfirm": "Delete for good",
+  "unusedImages.about": "Select images to send to the bin.",
+  "unusedImages.loading": "Looking for unused images…",
+  "unusedImages.empty": "No unused images.",
+  "unusedImages.unavailable": "Unused images appear when the notes folder is available.",
+  "unusedImages.selectAll": "Select all",
+  "unusedImages.send": "Send to bin",
   "preferences.folder": "Notes folder",
   "preferences.side": "Panel side",
   "preferences.autostart": "Start with Windows",
@@ -344,6 +351,7 @@ const en = {
   "error.saveFailed": "Could not save the note: {detail}",
   "error.captureFailed": "Could not capture the page. Try again once it has loaded.",
   "error.folderChanged": "The notes folder changed during the capture, so nothing was saved.",
+  "error.imagesFolderChanged": "The notes folder changed. Select images again.",
   "error.imageKept":
     "Could not create the note for the capture; the image was kept in the attachments folder at {path}.",
   "error.previousKept":
@@ -430,6 +438,7 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.widthReset": "Restaurar largura padrão",
   "preferences.shortcuts": "Atalhos",
   "preferences.trash": "Lixeira",
+  "preferences.unusedImages": "Imagens sem uso",
   "preferences.about": "Sobre",
   "updates.title": "Atualizações",
   "updates.version": "DocDock versão {version}",
@@ -448,7 +457,7 @@ const ptBR: Record<MessageKey, string> = {
   "updates.check": "Verificar agora",
   "updates.restart": "Reiniciar para atualizar",
   "trash.about":
-    "Quando a Lixeira do Windows não pode receber uma nota ou pasta excluída, como num cofre criptografado ou numa pasta de rede, ela fica aqui por 30 dias. A lixeira fica dentro da pasta de notas, criptografada quando a pasta está num cofre, e é sincronizada com ela.",
+    "Quando a Lixeira do Windows não pode receber um item excluído, como num cofre criptografado ou numa pasta de rede, ele fica aqui por 30 dias. A lixeira fica dentro da pasta de notas, criptografada quando a pasta está num cofre, e é sincronizada com ela.",
   "trash.empty": "A lixeira está vazia.",
   "trash.unavailable": "A lixeira aparece quando a pasta de notas está disponível.",
   "trash.root": "Pasta de notas",
@@ -460,6 +469,13 @@ const ptBR: Record<MessageKey, string> = {
   "trash.emptyOne": "1 item será excluído definitivamente. Isso não pode ser desfeito.",
   "trash.emptyMany": "{count} itens serão excluídos definitivamente. Isso não pode ser desfeito.",
   "trash.emptyConfirm": "Excluir definitivamente",
+  "unusedImages.about": "Selecione as imagens para enviar à lixeira.",
+  "unusedImages.loading": "Procurando imagens sem uso…",
+  "unusedImages.empty": "Nenhuma imagem sem uso.",
+  "unusedImages.unavailable":
+    "As imagens sem uso aparecem quando a pasta de notas está disponível.",
+  "unusedImages.selectAll": "Selecionar todas",
+  "unusedImages.send": "Enviar à lixeira",
   "preferences.folder": "Pasta de notas",
   "preferences.side": "Lado do painel",
   "preferences.autostart": "Iniciar com o Windows",
@@ -731,6 +747,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.captureFailed":
     "Não foi possível capturar a página. Tente de novo depois que ela carregar.",
   "error.folderChanged": "A pasta de notas mudou durante a captura, então nada foi salvo.",
+  "error.imagesFolderChanged": "A pasta de notas mudou. Selecione as imagens novamente.",
   "error.imageKept":
     "Não foi possível criar a nota da captura; a imagem ficou na pasta de anexos em {path}.",
   "error.previousKept":

@@ -1,5 +1,6 @@
 //! App composition: registers modules and commands, without business logic.
 
+mod attachments;
 mod blocking;
 mod commands;
 #[cfg(debug_assertions)]
@@ -126,6 +127,8 @@ pub fn run() {
         commands::notes_trash,
         commands::notes_trash_restore,
         commands::notes_trash_empty,
+        commands::notes_unused_images,
+        commands::notes_recycle_images,
         commands::notes_paste_image,
         commands::notes_create_with_image,
         commands::notes_leftovers,
