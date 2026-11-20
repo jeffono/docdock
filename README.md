@@ -13,7 +13,7 @@ DocDock is an autohiding Windows sidebar for keeping Markdown notes, images and 
 
 DocDock requires Windows 10 or 11. Versions before 1.0 are not yet stable: back up your notes before trying it. Download `DocDock_<version>_x64-setup.exe` from [GitHub Releases](https://github.com/jeffono/docdock/releases) and run it. It installs for the current user without administrator rights and downloads Microsoft Edge WebView2 if it is missing.
 
-The installer is not code-signed. If Windows SmartScreen displays “Windows protected your PC”, select **More info** and then **Run anyway**. DocDock checks for updates when it starts and downloads them in the background; when one is ready, choose **Update available — restart** in the tray menu. Quitting normally does not install it.
+The installer is not code-signed. If Windows SmartScreen displays “Windows protected your PC”, select **More info** and then **Run anyway**. DocDock checks for updates when it starts, every six hours and when Windows resumes, and downloads them in the background; when one is ready, choose **Update available — restart** in the tray menu or **Restart to update** in Preferences > About. Quitting normally does not install it.
 
 ## Getting started
 
@@ -21,7 +21,7 @@ Launch DocDock and choose a folder for your notes. Move the pointer to the right
 
 ## Privacy
 
-Notes are stored locally in your chosen folder. DocDock has no telemetry. At each start it asks GitHub whether a new version exists. Web browsing and web search suggestions contact the sites and search provider you use.
+Notes are stored locally in your chosen folder. DocDock has no telemetry. When checking for updates it asks GitHub whether a new version exists. Web browsing and web search suggestions contact the sites and search provider you use. To block ads and trackers on web pages, DocDock downloads public filter lists from `easylist.to` and `secure.fanboy.co.nz` about every four days, without cookies.
 
 ### Protecting notes with Cryptomator
 

@@ -463,6 +463,9 @@ function discardAndLeave() {
 }
 
 onMount(() => {
+  // The CSP blocks runtime <style> tags. CodeMirror's style-mod (4.1.4) uses an adopted stylesheet
+  // only in a root without `head`, so the editor lives in a shadow root; external links load the
+  // editor and content CSS inside it, with `:host` specificity above CodeMirror's base styles.
   const root = host.attachShadow({ mode: "open" });
   const css = document.createElement("link");
   css.rel = "stylesheet";
