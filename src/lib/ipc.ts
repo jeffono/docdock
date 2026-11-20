@@ -280,13 +280,15 @@ export const notesCreateFolder = (path: string) => invoke<void>("notes_create_fo
  * vault or a network folder, so it went to the trash inside the notes folder for 30 days, as this
  * entry, which `notesTrashRestore` brings back. `images`: how many images only the note referenced
  * went with it, the same way, and come back with it. `imagesKept`: some such images could not go and
- * stay where they were.
+ * stay where they were. `imagesNotUndoable`: Undo is possible, but some images that went cannot come
+ * back with it; they stay in the Recycle Bin.
  */
 export type Removal = {
   undo: boolean;
   trash: string | null;
   images: number;
   imagesKept: boolean;
+  imagesNotUndoable: boolean;
 };
 /**
  * Deletes a folder and everything in it at once. Its notes' pinned items are removed;
@@ -301,7 +303,8 @@ export const notesDeleteFolder = (path: string) => invoke<Removal>("notes_delete
 export const notesDelete = (path: string) => invoke<Removal>("notes_delete", { path });
 /**
  * Brings back the note and the images that went with it. `restoreTaken`: a file took one of their
- * names; nothing changed and undoing stays possible.
+ * names or one of their folders'; nothing changed and undoing stays possible. `imagesLeftInBin`: the
+ * note is back, but those images stay in the Recycle Bin.
  */
 export const notesUndoDelete = (path: string) => invoke<void>("notes_undo_delete", { path });
 /**
@@ -316,7 +319,9 @@ export const notesTrash = () => invoke<TrashItem[]>("notes_trash");
  * Moves an item back to its path, or a free name such as "name (2).md" when that is taken, and
  * resolves to the path it took; the images deleted with a note return to their own paths with it.
  * `undo` also puts back the pinned items its delete removed. `trashItemMissing`: it is no longer in
- * the trash. `restoreTaken`: a file took one of its images' names; nothing moved.
+ * the trash. `restoreTaken`: a file took one of its images' names or one of their folders'; nothing
+ * moved. `imagesLeftInTrash`: the item is back at `path`, but those images stay in the trash, each as
+ * an item of its own.
  */
 export const notesTrashRestore = (id: string, undo = false) =>
   invoke<string>("notes_trash_restore", { id, undo });

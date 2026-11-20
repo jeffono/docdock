@@ -245,6 +245,8 @@ const en = {
     "Deleted “{title}” and {count} images. They stay in the trash for 30 days (Preferences).",
   "delete.imagesKept":
     "Some images only this note used could not be deleted with it; they stay in their folder.",
+  "delete.imagesNotUndoable":
+    "Undo cannot bring back some of its images; they stay in the Recycle Bin.",
   "delete.tooLarge":
     "This note is over {limitMb} MB, too large to keep a copy for Undo, so it was not deleted. Delete it in File Explorer instead.",
   "pinned.deleted": "The pinned list was deleted.",
@@ -381,6 +383,10 @@ const en = {
     "The note was deleted, but the pinned list could not follow; remove its item.",
   "error.undoUnavailable": "The note can no longer be restored here; it is in the Recycle Bin.",
   "error.restoreTaken": "Another file now uses the name {path}. Rename it and try again.",
+  "error.imagesLeftInBin":
+    "The note is back, but these images could not return to their folder and stay in the Recycle Bin: {images}.",
+  "error.imagesLeftInTrash":
+    "The note is back, but these images could not return to their folder and stay in the trash (Preferences): {images}.",
   "error.trashItemMissing":
     "This item is no longer in the trash: it was restored or deleted, perhaps on another computer.",
   "error.pinnedNotRestored":
@@ -645,6 +651,8 @@ const ptBR: Record<MessageKey, string> = {
     "“{title}” e {count} imagens excluídas. Ficam 30 dias na lixeira (Preferências).",
   "delete.imagesKept":
     "Algumas imagens usadas só por esta nota não puderam ser excluídas com ela; continuam na pasta.",
+  "delete.imagesNotUndoable":
+    "Desfazer não consegue trazer de volta algumas das imagens; elas continuam na Lixeira.",
   "delete.tooLarge":
     "Esta nota passa de {limitMb} MB, grande demais para guardar uma cópia para desfazer, por isso não foi excluída. Exclua-a pelo Explorador de Arquivos.",
   "pinned.deleted": "A lista de fixados foi apagada.",
@@ -785,6 +793,10 @@ const ptBR: Record<MessageKey, string> = {
     "A nota foi excluída, mas a lista de fixados não acompanhou; remova o item dela.",
   "error.undoUnavailable": "A nota não pode mais ser restaurada aqui; ela está na Lixeira.",
   "error.restoreTaken": "Outro arquivo agora usa o nome {path}. Renomeie-o e tente de novo.",
+  "error.imagesLeftInBin":
+    "A nota voltou, mas estas imagens não puderam voltar para a pasta e continuam na Lixeira: {images}.",
+  "error.imagesLeftInTrash":
+    "A nota voltou, mas estas imagens não puderam voltar para a pasta e continuam na lixeira (Preferências): {images}.",
   "error.trashItemMissing":
     "Este item não está mais na lixeira: foi restaurado ou excluído, talvez em outro computador.",
   "error.pinnedNotRestored":

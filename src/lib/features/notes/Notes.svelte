@@ -1319,11 +1319,19 @@ function noticeBack() {
   noticeAway = false;
   noticeRun();
 }
-/** A delete's answer, also when only its pinned items could not follow; `problem` says so. */
+/**
+ * A delete's answer, also when only its pinned items could not follow; `problem` says so, and what
+ * happened to images that did not go or that Undo cannot bring back.
+ */
 async function removal(work: Promise<Removal>): Promise<Removal & { problem: string }> {
+  const images = (done: Partial<Removal>) => [
+    done.imagesKept ? t("delete.imagesKept") : "",
+    done.imagesNotUndoable ? t("delete.imagesNotUndoable") : "",
+  ];
+  const problem = (lines: string[]) => lines.filter(Boolean).join(" ");
   try {
     const done = await work;
-    return { ...done, problem: done.imagesKept ? t("delete.imagesKept") : "" };
+    return { ...done, problem: problem(images(done)) };
   } catch (e) {
     const failed = e as { code?: string } & Partial<Removal>;
     if (failed.code !== "pinnedNotRemoved") throw e;
@@ -1332,7 +1340,8 @@ async function removal(work: Promise<Removal>): Promise<Removal & { problem: str
       trash: failed.trash ?? null,
       images: failed.images ?? 0,
       imagesKept: failed.imagesKept === true,
-      problem: errorText(e),
+      imagesNotUndoable: failed.imagesNotUndoable === true,
+      problem: problem([errorText(e), ...images(failed)]),
     };
   }
 }
@@ -1350,9 +1359,10 @@ function removedText(item: NonNullable<typeof removed>): string {
 }
 /**
  * Deletes a note at once: to the Recycle Bin, or to the trash inside the notes folder where the
- * Recycle Bin cannot take it, with the images only it references; the notice offers Undo. Its editor is left first, the guarded way, so
- * its text is saved before the delete and nothing writes the note back afterwards; a conflict or
- * error there stops the delete. The selection moves to the next item, else the previous.
+ * Recycle Bin cannot take it, with the images only it references; the notice offers Undo. Its editor
+ * is left first, the guarded way, so its text is saved before the delete and nothing writes the note
+ * back afterwards; a conflict or error there stops the delete. The selection moves to the next item,
+ * else the previous.
  */
 async function deleteNote(card: Card) {
   if (deleting || card.url) return;
@@ -1404,11 +1414,14 @@ async function undoDelete() {
     if (item.trash) path = await notesTrashRestore(item.trash, true);
     else await notesUndoDelete(item.path);
   } catch (e) {
-    const code = (e as { code?: string }).code;
+    const failed = e as { code?: string; path?: string };
     error = errorText(e);
-    if (code === "undoUnavailable" || code === "trashItemMissing") removed = null;
-    // Only the pinned items failed: the item is back. Otherwise, a taken name keeps Undo to retry.
-    if (code !== "pinnedNotRestored") return;
+    if (failed.code === "undoUnavailable" || failed.code === "trashItemMissing") removed = null;
+    // Only the pinned items or some images failed: the item is back. Otherwise, a taken name keeps
+    // Undo to retry.
+    if (failed.code === "imagesLeftInBin" || failed.code === "imagesLeftInTrash")
+      path = failed.path ?? path;
+    else if (failed.code !== "pinnedNotRestored") return;
   }
   removed = null;
   const inside = `${item.path.toLowerCase()}/`;

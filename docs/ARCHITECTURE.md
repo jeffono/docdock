@@ -230,11 +230,20 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
 - **A note's images** go with it in the same command, under the save lock and after the note: those in
   `attachments/` folders that it references and no other note does, live or in the trash, by the
   reference rule of "Unused images" (`images_only_in`). Any doubt keeps them, such as a note that
-  cannot be read; so do an image the bin refuses, one over 10 MB (too large to keep for Undo) or a
-  failed move, and the delete still succeeds, saying images were kept. To the bin, their bytes are
-  read back and kept with the note's, their paths reserved too; to the trash, they join the note's
-  entry ([0013](decisions/0013-trash-entries-with-images.md)). Undo and restore bring them back to
-  their own paths and refuse with `restoreTaken`, moving nothing, if a file took one's name.
+  cannot be read or a note moved whose bytes, read back from the bin or the trash, are not the text
+  scanned (a sync client swapped it); so do an image the bin refuses, one over 10 MB (too large to
+  keep for Undo) or a failed move, and the delete still succeeds, saying images were kept. To the bin,
+  their bytes are read back and kept with the note's, their paths reserved too; an image whose copy
+  cannot be read back stays in the bin and the answer says Undo will not bring it. To the trash, they
+  join the note's entry ([0013](decisions/0013-trash-entries-with-images.md)).
+- **Undo and restore** check every image's destination before anything moves, holding each existing
+  folder before looking below it, so a link is refused rather than followed: a file at an image's
+  name or a folder's answers `restoreTaken` and moves nothing. An image that still cannot be placed
+  stays recoverable and the answer says so while the note is back: in the Recycle Bin
+  (`imagesLeftInBin`) or as a trash entry of its own (`imagesLeftInTrash`).
+- **The save lock** (`SAVING`) also covers emptying and purging the trash, so an entry never goes while
+  a restore moves it, and pastes, so none takes a name a delete is reserving. `DELETED`, the memory
+  for Undo, is only ever locked after it.
 
 ### Unused images
 
