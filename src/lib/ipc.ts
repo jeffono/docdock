@@ -311,6 +311,11 @@ export const notesTrashRestore = (id: string, undo = false) =>
   invoke<string>("notes_trash_restore", { id, undo });
 /** Deletes the entries `ids`, the ones listed, for good; anything synced in since stays. */
 export const notesTrashEmpty = (ids: string[]) => invoke<void>("notes_trash_empty", { ids });
+
+export type UnusedImages = { folderId: string; paths: string[] };
+export const notesUnusedImages = () => invoke<UnusedImages>("notes_unused_images");
+export const notesRecycleImages = (folderId: string, paths: string[]) =>
+  invoke<void>("notes_recycle_images", { folderId, paths });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },

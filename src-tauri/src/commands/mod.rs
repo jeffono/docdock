@@ -328,6 +328,21 @@ pub fn notes_trash_restore(app: AppHandle, id: String, undo: bool) -> Result<Str
 pub fn notes_trash_empty(app: AppHandle, ids: Vec<String>) -> Result<(), Error> {
     crate::notes::empty_trash(&app, &ids)
 }
+#[tauri::command(async)]
+pub fn notes_unused_images(app: AppHandle) -> Result<crate::notes::UnusedImages, Error> {
+    crate::notes::unused_images(&app)
+}
+#[tauri::command(async)]
+pub fn notes_recycle_images(
+    app: AppHandle,
+    folder_id: String,
+    paths: Vec<String>,
+) -> Result<(), Error> {
+    let result = crate::notes::recycle_images(&app, &folder_id, &paths);
+    // A batch can move some images before a later move fails.
+    crate::watch::notify(&app);
+    result
+}
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]
 pub fn notes_paste_image(

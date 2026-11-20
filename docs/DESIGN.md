@@ -489,6 +489,11 @@ tab label.
   the item count, confirmed by "Delete for good", the only permanent action and so the only question.
   Empty: "The trash is empty."; folder away: the trash appears when it is back. An entry that cannot
   be identified shows "Unrecognized item" without Restore. The trash never shows in the list.
+- **Unused images**, under its own heading below the trash: rows show lazy thumbnails, filenames and
+  their folders, with checkboxes to select individual images or all of them. Send to bin moves the
+  selection through the same bin and fallback as Trash. Empty: "No unused images."; folder away: the
+  images appear when it is back. For the candidate and reference rules, see [Unused images in
+  Architecture](ARCHITECTURE.md#unused-images).
 - **About:** the installed version, live update status and last successful check. Check now starts a
   check; development builds say updates are disabled. A verified download shows Restart to update and
   enables the tray action and tooltip. Nothing moves the panel or focus.

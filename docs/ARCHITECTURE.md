@@ -34,6 +34,7 @@ src-tauri/src/           Backend (Rust)
   notes.rs               Notes folder, settings, listing, reading, atomic saving, renaming, moving,
                          deleting with undo, leftovers, local images and `_pinned.md` reads and writes
   pinned.rs              Pure line rules for `_pinned.md`
+  attachments.rs         Pure reference matching for attachment images
   trash.rs               The notes folder's own 30-day trash for deletes without a Recycle Bin
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
@@ -226,6 +227,16 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   Preferences; the shell's decision for each item is final (bin missing, item over its limit or bin set
   to delete at once). Folders go the same way, with Undo only from the trash. Pinned items are removed
   and Undo restores them.
+
+### Unused images
+
+The cleanup considers PNG, JPEG, GIF and WebP files under folders named `attachments` at any depth,
+ignoring case and skipping hidden folders, symlinks and junctions. An image is in use if a Markdown
+or HTML link resolves to it relative to the note, or the note contains its filename as a substring.
+Matching ignores case and recognizes percent encoding. Notes in the folder's trash use their
+original paths, including notes inside deleted folders. The scan reads Markdown text in Rust and keeps
+it in memory only. A scan that cannot read a note or folder stops. Before moving any selected image,
+Rust scans again under the save lock and skips images now in use.
 
 ### Pinned items
 

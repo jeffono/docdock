@@ -1,4 +1,5 @@
 //! Local note storage and validation.
+use crate::attachments;
 use crate::dock::{Request, Side};
 use crate::error::Error;
 use crate::i18n::Locale;
@@ -1742,7 +1743,7 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
                 && if folder {
                     !name.starts_with('.')
                 } else {
-                    markdown(Path::new(name))
+                    markdown(path) || attachment_path(path)
                 }
         });
         if !allowed || path.as_os_str().eq_ignore_ascii_case(PINNED) {
@@ -2216,6 +2217,153 @@ fn attachment_extension(bytes: &[u8]) -> Result<&'static str, Error> {
         Err(Error::UnsupportedImage)
     }
 }
+
+fn attachment_path(path: &Path) -> bool {
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    is_image(path)
+        && parent
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("attachments"))
+        && !parent
+            .iter()
+            .any(|name| name.to_string_lossy().starts_with('.'))
+}
+
+/// This scan must fail if a note might have been missed. Unlike the display list, a skipped
+/// directory cannot be taken as evidence that a file is unused. Hold each directory while
+/// visiting it, so a link cannot be swapped in during the scan.
+fn scan_notes(dir: &Path, visit: &mut impl FnMut(&Path) -> Result<(), Error>) -> Result<(), Error> {
+    let _held = platform::hold_directory(dir)?;
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_file() {
+            visit(&entry.path())?;
+        } else if kind.is_dir() && !entry.file_name().eq_ignore_ascii_case(DERIVED) {
+            scan_notes(&entry.path(), visit)?;
+        }
+    }
+    Ok(())
+}
+
+fn attachment_note(path: &Path) -> Result<String, Error> {
+    let mut text = String::new();
+    platform::open_plain_file(path)?.read_to_string(&mut text)?;
+    Ok(text)
+}
+
+/// Finds available attachments and checks references against live and trashed notes. With a
+/// selection, only those exact paths are considered, even when another name aliases a real file.
+fn unused_images_in(root: &Path, selection: Option<&BTreeSet<&str>>) -> Result<Vec<String>, Error> {
+    let root = root.canonicalize()?;
+    let _held = hold_ancestry(&root)?;
+    let mut candidates = Vec::new();
+    let mut notes = Vec::new();
+    scan_notes(&root, &mut |file| {
+        let path = file.strip_prefix(&root).map_err(|_| Error::OutsideFolder)?;
+        if markdown(file) {
+            notes.push((relative(&root, file), attachment_note(file)?));
+        } else if attachment_path(path) {
+            let path = relative(&root, file);
+            if selection.is_none_or(|selected| selected.contains(path.as_str())) {
+                candidates.push(path);
+            }
+        }
+        Ok(())
+    })?;
+    if candidates.is_empty() {
+        return Ok(candidates);
+    }
+
+    let dir = root.join(DERIVED).join(trash::DIR);
+    match hold_ancestry(&dir) {
+        Ok(_held) => scan_notes(&dir, &mut |file| {
+            if markdown(file) {
+                // Each entry holds what was deleted at its original path. For a deleted folder,
+                // that includes every note below it.
+                let path = file.strip_prefix(&dir).map_err(|_| Error::OutsideFolder)?;
+                let original: PathBuf = path.iter().skip(1).collect();
+                let original = if original.as_os_str().is_empty() {
+                    path
+                } else {
+                    &original
+                };
+                notes.push((relative(Path::new(""), original), attachment_note(file)?));
+            }
+            Ok(())
+        })?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(trash_error(&dir, error)),
+    }
+
+    let used = attachments::referenced(
+        &candidates,
+        notes
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str())),
+    );
+    let mut unused: Vec<_> = candidates
+        .iter()
+        .filter(|p| !used.contains(p.as_str()))
+        .cloned()
+        .collect();
+    sort_paths(&mut unused, |path| path);
+    Ok(unused)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnusedImages {
+    folder_id: String,
+    paths: Vec<String>,
+}
+
+pub fn unused_images(app: &AppHandle) -> Result<UnusedImages, Error> {
+    let root = root(app)?;
+    let folder_id = read_marker(&root)?.ok_or(Error::FolderUnrecognized)?;
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    Ok(UnusedImages {
+        folder_id,
+        paths: unused_images_in(&root, None)?,
+    })
+}
+
+fn recycle_images_in(
+    root: &Path,
+    paths: &[String],
+    recycle: impl Fn(&Path) -> io::Result<Option<PathBuf>>,
+) -> Result<(), Error> {
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let root = root.canonicalize()?;
+    let selection = paths.iter().map(String::as_str).collect();
+    for path in unused_images_in(&root, Some(&selection))? {
+        let path = checked(&path, attachment_path)?;
+        let parent = path.parent().ok_or(Error::InvalidPath)?;
+        let (dir, _held) = hold_folder(&root, parent)?;
+        let target = dir.join(path.file_name().ok_or(Error::InvalidPath)?);
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.is_file() => {}
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        }
+        if target.canonicalize()? == target {
+            send_away(&root, &target, &recycle)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn recycle_images(app: &AppHandle, folder_id: &str, paths: &[String]) -> Result<(), Error> {
+    let root = root(app)?;
+    if read_marker(&root)?.as_deref() != Some(folder_id) {
+        return Err(Error::ImagesFolderChanged);
+    }
+    recycle_images_in(&root, paths, platform::recycle)
+}
+
 fn paste_image_in(root: &Path, path: &str, bytes: &[u8]) -> Result<String, Error> {
     let ext = attachment_extension(bytes)?;
     let note = resolve(root, path, markdown)?;
@@ -3569,6 +3717,74 @@ mod tests {
             .unwrap()
             .trash
             .unwrap()
+    }
+    #[test]
+    fn unused_candidates_are_supported_images_inside_visible_attachment_folders() {
+        let t = Temp::new();
+        let candidates = [
+            "sub/ATTACHMENTS/deeper/cover.JPEG",
+            "other/cover.png",
+            ".hidden/attachments/hidden.png",
+            "sub/ATTACHMENTS/.hidden/hidden.png",
+            "sub/ATTACHMENTS/vector.svg",
+        ];
+        for path in candidates {
+            let file = t.0.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, b"fixture").unwrap();
+        }
+        assert_eq!(unused_images_in(&t.0, None).unwrap(), [candidates[0]]);
+    }
+    #[test]
+    fn a_note_in_a_trashed_folder_resolves_links_from_its_original_path() {
+        let _serial = deleting();
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("sub/attachments")).unwrap();
+        fs::create_dir_all(t.0.join("sub/folder")).unwrap();
+        fs::write(t.0.join("sub/attachments/a&b.png"), "fixture").unwrap();
+        fs::write(
+            t.0.join("sub/folder/note.md"),
+            "[Map](../attachments/a&amp;b.png)",
+        )
+        .unwrap();
+        delete_folder_in(&t.0, "sub/folder", refused_bin).unwrap();
+        assert!(unused_images_in(&t.0, None).unwrap().is_empty());
+    }
+    #[test]
+    fn recycling_skips_an_attachment_referenced_since_it_was_listed() {
+        let t = Temp::new();
+        let path = "attachments/new.png";
+        fs::create_dir(t.0.join("attachments")).unwrap();
+        fs::write(t.0.join(path), b"fixture").unwrap();
+        let selected = unused_images_in(&t.0, None).unwrap();
+        assert_eq!(selected, [path]);
+        fs::write(t.0.join("note.md"), "Look at NEW.PNG.").unwrap();
+        recycle_images_in(&t.0, &selected, |_| panic!("image is in use")).unwrap();
+        assert!(exists(&t.0.join(path)));
+    }
+    #[test]
+    fn recycling_ignores_paths_outside_attachment_folders() {
+        let t = Temp::new();
+        fs::create_dir(t.0.join("attachments")).unwrap();
+        fs::write(t.0.join("other.png"), b"fixture").unwrap();
+        let selected = ["other.png".into(), "attachments/../other.png".into()];
+        recycle_images_in(&t.0, &selected, |_| panic!("image is outside attachments")).unwrap();
+        assert!(exists(&t.0.join("other.png")));
+    }
+    #[test]
+    fn an_image_sent_to_the_folder_trash_restores_to_its_attachment_folder() {
+        let t = Temp::new();
+        let path = "topic/Attachments/maps/chart.webp";
+        let image = t.0.join(path);
+        fs::create_dir_all(image.parent().unwrap()).unwrap();
+        fs::write(&image, b"image bytes").unwrap();
+        recycle_images_in(&t.0, &[path.into()], refused_bin).unwrap();
+        assert!(!exists(&image));
+        let [item] = &trash_items_in(&t.0).unwrap()[..] else {
+            panic!("one image should be in the trash");
+        };
+        assert_eq!(restore_trashed_in(&t.0, &item.id, false), Ok(path.into()));
+        assert_eq!(fs::read(image).unwrap(), b"image bytes");
     }
     #[test]
     fn a_note_the_recycle_bin_refuses_goes_to_the_trash_inside_the_folder() {
