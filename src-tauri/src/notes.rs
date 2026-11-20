@@ -6,7 +6,7 @@ use crate::i18n::Locale;
 use crate::pinned::{self, Kind};
 use crate::platform::{self, hold_ancestry};
 use crate::trash;
-use percent_encoding::percent_decode_str;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     collections::BTreeSet,
@@ -1793,7 +1793,7 @@ fn recreate_image(root: &Path, canonical: &Path, path: &str, bytes: &[u8]) -> Re
     let _held = ensure_folders(canonical, parent)?;
     let dir = canonical.join(parent);
     let temp = write_temp(&dir.join(name), bytes)?;
-    let placed = place(&temp, &dir, name, false, numbered, |candidate| {
+    let placed = place(&temp, &dir, name, false, numbered(), |candidate| {
         reserved(root, &relative(canonical, candidate))
     });
     if placed.is_err() {
@@ -1801,9 +1801,9 @@ fn recreate_image(root: &Path, canonical: &Path, path: &str, bytes: &[u8]) -> Re
     }
     placed.map(|_| ())
 }
-/// The suffix a restore puts between stem and extension when the name is taken: `name (2).md`.
-fn numbered(n: u32) -> String {
-    format!(" ({n})")
+/// The suffixes a restore tries between stem and extension when the name is taken: `name (2).md`.
+fn numbered() -> impl Iterator<Item = String> {
+    (2..=100).map(|n| format!(" ({n})"))
 }
 pub fn delete_note(app: &AppHandle, path: &str) -> Result<Removal, Error> {
     delete_note_in(&root(app)?, path, platform::recycle, platform::recyclable)
@@ -1913,7 +1913,7 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
         let landed = {
             let (_held_parent, _held_source) = (held_parent, held_source);
             let into = canonical.join(parent);
-            let landed = place(&source, &into, name, folder, numbered, |candidate| {
+            let landed = place(&source, &into, name, folder, numbered(), |candidate| {
                 !folder && taken(candidate)
             })?;
             for (source, image) in &found.images {
@@ -1929,7 +1929,7 @@ fn restore_trashed_in(root: &Path, id: &str, undo: bool) -> Result<String, Error
                         &canonical.join(parent),
                         name,
                         false,
-                        numbered,
+                        numbered(),
                         taken,
                     )
                 });
@@ -2000,7 +2000,7 @@ fn ensure_folders(root: &Path, relative: &Path) -> Result<Vec<fs::File>, Error> 
     Ok(held)
 }
 /// Moves `source` into `folder` as `name`, never over anything. If that is taken, the first free name
-/// among those `numbered` gives for 2 to 100, put between stem and extension, such as `name (2).md`
+/// among those `numbered` gives, put between stem and extension, such as `name (2).md`
 /// or `folder (2)`; the stem is cut so the whole fits the name limit. `taken` refuses a name besides
 /// those on disk, such as one a Recycle Bin Undo reserves.
 fn place(
@@ -2008,7 +2008,7 @@ fn place(
     folder: &Path,
     name: &std::ffi::OsStr,
     is_folder: bool,
-    numbered: impl Fn(u32) -> String,
+    numbered: impl Iterator<Item = String>,
     taken: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, Error> {
     let file = Path::new(name);
@@ -2016,15 +2016,15 @@ fn place(
         (false, Some(stem), Some(extension)) => (stem, format!(".{}", extension.to_string_lossy())),
         _ => (name, String::new()),
     };
-    for n in 1..=100 {
-        let candidate = if n == 1 {
-            folder.join(name)
-        } else {
-            let tail = format!("{}{extension}", numbered(n));
+    for suffix in std::iter::once(None).chain(numbered.map(Some)) {
+        let candidate = if let Some(suffix) = suffix {
+            let tail = format!("{suffix}{extension}");
             let mut numbered =
                 platform::fit_name(stem, platform::MAX_NAME.saturating_sub(tail.len()));
             numbered.push(tail);
             folder.join(numbered)
+        } else {
+            folder.join(name)
         };
         if taken(&candidate) {
             continue;
@@ -2621,7 +2621,7 @@ pub fn recycle_images(app: &AppHandle, folder_id: &str, paths: &[String]) -> Res
     recycle_images_in(&root, paths, platform::recycle)
 }
 
-fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<String, Error> {
+fn paste_image_in(root: &Path, path: &str, bytes: &[u8]) -> Result<String, Error> {
     let ext = attachment_extension(bytes)?;
     let note = resolve(root, path, markdown)?;
     let parent = note.parent().ok_or(Error::InvalidPath)?;
@@ -2641,22 +2641,25 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8], stamp: &str) -> Result<
         return Err(Error::AttachmentFolderUnsafe);
     }
     let canonical = root.canonicalize()?;
-    let image = attach(parent, held, bytes, ext, stamp, |candidate| {
+    let image = attach(&note, held, bytes, ext, |candidate| {
         reserved(root, &relative(&canonical, candidate))
     })?;
     Ok(attachment_link(&image))
 }
-/// Writes `bytes` as a new file in the `attachments` folder of `parent`, a canonical folder whose
-/// ancestry `held` holds, never over another file nor a name `taken` refuses, such as one a Recycle
-/// Bin Undo reserves. Answers the file's path.
+/// Writes an image named after `note` into its canonical parent's `attachments` folder, holding
+/// the ancestry in `held`. Adds a counter when the name is taken on disk or `taken` refuses it,
+/// such as one a Recycle Bin Undo reserves. Answers the new file's path.
 fn attach(
-    parent: &Path,
+    note: &Path,
     mut held: Vec<fs::File>,
     bytes: &[u8],
     ext: &str,
-    stamp: &str,
     taken: impl Fn(&Path) -> bool,
 ) -> Result<PathBuf, Error> {
+    let parent = note.parent().ok_or(Error::InvalidPath)?;
+    let stem = note.file_stem().ok_or(Error::InvalidPath)?;
+    let mut name = platform::fit_name(stem, platform::MAX_NAME - 1 - ext.len());
+    name.push(format!(".{ext}"));
     let folder = parent.join("attachments");
     match fs::create_dir(&folder) {
         Ok(()) => {}
@@ -2664,16 +2667,9 @@ fn attach(
         Err(e) => return Err(e.into()),
     }
     held.push(platform::hold_directory(&folder).map_err(|_| Error::AttachmentFolderUnsafe)?);
-    let temp = write_temp(&folder.join("pasted"), bytes)?;
-    let name = format!("pasted-{stamp}.{ext}");
-    let placed = place(
-        &temp,
-        &folder,
-        name.as_ref(),
-        false,
-        |n| format!("-{n}"),
-        taken,
-    );
+    let temp = write_temp(&folder.join(&name), bytes)?;
+    let numbered = (2..=u32::MAX).map(|n| format!("-{n}"));
+    let placed = place(&temp, &folder, &name, false, numbered, taken);
     if placed.is_err() {
         let _ = fs::remove_file(&temp);
     }
@@ -2681,13 +2677,16 @@ fn attach(
 }
 /// The link from a note to an image `attach` put beside it.
 fn attachment_link(image: &Path) -> String {
-    format!(
-        "attachments/{}",
-        image.file_name().unwrap_or_default().to_string_lossy()
-    )
+    const ENCODE: &AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'.')
+        .remove(b'_')
+        .remove(b'~');
+    let name = image.file_name().unwrap_or_default().to_string_lossy();
+    format!("attachments/{}", utf8_percent_encode(&name, ENCODE))
 }
 pub fn paste_image(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<String, Error> {
-    paste_image_in(&root(app)?, path, bytes, &platform::paste_timestamp())
+    paste_image_in(&root(app)?, path, bytes)
 }
 /// Creates the note `path` holding `content` and then a link to `image`, which goes into the
 /// attachments beside it as a pasted image does, in the folder whose marker holds `folder_id`, the
@@ -2702,7 +2701,6 @@ fn create_with_image_in(
     path: &str,
     content: &str,
     image: &[u8],
-    stamp: &str,
     publish: fn(&Path, &str, &[u8]) -> Result<Saved, Error>,
 ) -> Result<Saved, Error> {
     let ext = attachment_extension(image)?;
@@ -2726,7 +2724,7 @@ fn create_with_image_in(
     }
     let held = hold_ancestry(parent).map_err(|_| Error::AttachmentFolderUnsafe)?;
     let canonical = root.canonicalize()?;
-    let attached = attach(parent, held, image, ext, stamp, |candidate| {
+    let attached = attach(&target, held, image, ext, |candidate| {
         reserved(root, &relative(&canonical, candidate))
     })?;
     let note = format!("{content}![]({})", attachment_link(&attached));
@@ -2759,16 +2757,7 @@ pub fn create_with_image(
     if root.to_string_lossy() != folder {
         return Err(Error::FolderChanged);
     }
-    let stamp = platform::paste_timestamp();
-    create_with_image_in(
-        &root,
-        folder_id,
-        path,
-        content,
-        image,
-        &stamp,
-        recreate_note,
-    )
+    create_with_image_in(&root, folder_id, path, content, image, recreate_note)
 }
 /// A backup a save left behind, for example when the app closed between the two renames that put an
 /// external version back.
@@ -2842,10 +2831,10 @@ fn restore_in(root: &Path, leftover: &str, label: &str) -> Result<String, Error>
     let note = leftover_note(&source).ok_or(Error::InvalidPath)?;
     let (folder, name) = (note.parent(), note.file_name());
     let (folder, name) = folder.zip(name).ok_or(Error::InvalidPath)?;
-    let numbered = |n| match n {
+    let numbered = (2..=100).map(|n| match n {
         2 => format!(" ({label})"),
         _ => format!(" ({label} {})", n - 1),
-    };
+    });
     let target = place(&source, folder, name, false, numbered, |candidate| {
         reserved(root, &relative(&canonical, candidate))
     })?;
@@ -3253,7 +3242,7 @@ mod tests {
         fs::create_dir(t.0.join("sub")).unwrap();
         fs::write(t.0.join("sub/a.md"), "unchanged").unwrap();
         let png = b"\x89PNG\r\n\x1a\n";
-        let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes, "20261103-123456");
+        let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes);
         for (bytes, ext) in [
             (png.as_slice(), "png"),
             (b"\xff\xd8\xff", "jpg"),
@@ -3276,7 +3265,7 @@ mod tests {
             paste(&vec![0; MAX_ATTACHMENT_BYTES + 1]),
             Err(Error::ImageTooLarge { limit_mb: 10 })
         );
-        assert!(paste_image_in(&t.0, "../a.md", png, "stamp").is_err());
+        assert!(paste_image_in(&t.0, "../a.md", png).is_err());
         assert!(!t.0.join("sub/attachments").exists());
         assert_eq!(
             fs::read_to_string(t.0.join("sub/a.md")).unwrap(),
@@ -3289,21 +3278,15 @@ mod tests {
         fs::create_dir(t.0.join("sub")).unwrap();
         fs::write(t.0.join("sub/a.md"), "unchanged").unwrap();
         let png = b"\x89PNG\r\n\x1a\n";
-        let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes, "20261103-123456");
+        let paste = |bytes: &[u8]| paste_image_in(&t.0, "sub/a.md", bytes);
         let first = paste(png).unwrap();
-        assert_eq!(first, "attachments/pasted-20261103-123456.png");
-        let second = paste(b"\x89PNG\r\n\x1a\nsecond").unwrap();
-        assert_eq!(second, "attachments/pasted-20261103-123456-2.png");
-        assert_eq!(fs::read(t.0.join("sub").join(&first)).unwrap(), png);
-        assert_eq!(
-            fs::read_dir(t.0.join("sub/attachments")).unwrap().count(),
-            2
-        );
-        let response = image_response(
-            "main",
-            Some(t.0.clone()),
-            "/sub/attachments/pasted-20261103-123456.png",
-        );
+        assert_eq!(first, "attachments/a.png");
+        let folder = t.0.join("sub/attachments");
+        fs::write(folder.join("A-2.PNG"), "kept").unwrap();
+        let next = paste(b"\x89PNG\r\n\x1a\nnext").unwrap();
+        assert_eq!(next, "attachments/a-3.png");
+        assert_eq!(fs::read_to_string(folder.join("A-2.PNG")).unwrap(), "kept");
+        let response = image_response("main", Some(t.0.clone()), "/sub/attachments/a.png");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body(), png);
         assert_eq!(
@@ -3324,19 +3307,18 @@ mod tests {
         let created = create_with_image_in(
             &t.0,
             &id,
-            "Page.md",
+            "Page (%20) & fragment #1.md",
             "---\n---\n\n",
             PNG,
-            "20261119-1010",
             recreate_note,
         );
         assert!(matches!(created, Ok(Saved::Saved { .. })));
         assert_eq!(
-            fs::read_to_string(t.0.join("Page.md")).unwrap(),
-            "---\n---\n\n![](attachments/pasted-20261119-1010.png)"
+            fs::read_to_string(t.0.join("Page (%20) & fragment #1.md")).unwrap(),
+            "---\n---\n\n![](attachments/Page%20%28%2520%29%20%26%20fragment%20%231.png)"
         );
         assert_eq!(
-            fs::read(t.0.join("attachments/pasted-20261119-1010.png")).unwrap(),
+            fs::read(t.0.join("attachments/Page (%20) & fragment #1.png")).unwrap(),
             PNG
         );
     }
@@ -3345,7 +3327,7 @@ mod tests {
         let (t, id) = marked();
         fs::write(t.0.join("Page.md"), "kept").unwrap();
         assert_eq!(
-            create_with_image_in(&t.0, &id, "Page.md", "new", PNG, "stamp", recreate_note),
+            create_with_image_in(&t.0, &id, "Page.md", "new", PNG, recreate_note),
             Ok(Saved::Conflict)
         );
         assert_eq!(fs::read_to_string(t.0.join("Page.md")).unwrap(), "kept");
@@ -3354,13 +3336,10 @@ mod tests {
     #[test]
     fn a_capture_whose_note_fails_keeps_its_image() {
         let (t, id) = marked();
-        let failed = create_with_image_in(&t.0, &id, "Page.md", "", PNG, "stamp", |_, _, _| {
+        let failed = create_with_image_in(&t.0, &id, "Page.md", "", PNG, |_, _, _| {
             Err(Error::unexpected("disk full"))
         });
-        let image =
-            t.0.canonicalize()
-                .unwrap()
-                .join("attachments/pasted-stamp.png");
+        let image = t.0.canonicalize().unwrap().join("attachments/Page.png");
         assert_eq!(
             failed,
             Err(Error::ImageKept {
@@ -3374,7 +3353,7 @@ mod tests {
         let (t, _) = marked();
         let started = new_folder_id();
         assert_eq!(
-            create_with_image_in(&t.0, &started, "Page.md", "", PNG, "stamp", recreate_note),
+            create_with_image_in(&t.0, &started, "Page.md", "", PNG, recreate_note),
             Err(Error::FolderChanged)
         );
         assert!(!t.0.join("Page.md").exists());
@@ -3392,7 +3371,7 @@ mod tests {
             &t.0.join("outside")
         ));
         assert_eq!(
-            paste_image_in(&t.0.join("notes"), "a.md", b"GIF89a", "stamp"),
+            paste_image_in(&t.0.join("notes"), "a.md", b"GIF89a"),
             Err(Error::AttachmentFolderUnsafe)
         );
         assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
@@ -5450,7 +5429,7 @@ mod tests {
                 .is_err()
             );
             assert!(restore_pinned_in(&root, &store).is_err());
-            assert!(paste_image_in(&root, "a.md", png, "stamp").is_err());
+            assert!(paste_image_in(&root, "a.md", png).is_err());
             assert!(restore_in(&root, "a.md.1-1.docdock-bak", "r").is_err());
             assert!(move_note_in(&root, "a.md", "sub/a.md", "v").is_err());
             assert!(rename_note_in(&root, "a.md", "b.md", "v", ("", "")).is_err());

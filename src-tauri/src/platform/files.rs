@@ -108,14 +108,6 @@ pub fn fit_name(name: &OsStr, units: usize) -> OsString {
     OsString::from_wide(&wide)
 }
 
-pub fn paste_timestamp() -> String {
-    let time = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-    format!(
-        "{:04}{:02}{:02}-{:02}{:02}{:02}",
-        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond
-    )
-}
-
 /// Win32 failures arrive as `HRESULT_FROM_WIN32`; the low word is the Win32 code.
 fn os_error(error: windows::core::Error) -> io::Error {
     io::Error::from_raw_os_error(error.code().0 & 0xFFFF)

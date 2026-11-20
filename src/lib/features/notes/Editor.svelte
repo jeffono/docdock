@@ -254,20 +254,50 @@ function paste(event: ClipboardEvent, editor: EditorView): boolean {
     .find((item) => item.kind === "file")
     ?.getAsFile();
   if (!file) return false;
+  insertImages(editor, [file]);
+  return true;
+}
+
+function dragOver(event: DragEvent) {
+  if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+}
+
+function drop(event: DragEvent) {
+  const files = event.dataTransfer?.files;
+  if (!files?.length) return;
+  // CodeMirror would read dropped files as text.
   event.preventDefault();
-  if (pasting || resolving || editor.state.readOnly) return true;
+  const images = Array.from(files).filter(
+    (file) =>
+      file.type.startsWith("image/") || (!file.type && /\.(gif|jpe?g|png|webp)$/i.test(file.name)),
+  );
+  if (view && images.length) insertImages(view, images);
+}
+
+function insertImages(editor: EditorView, files: File[]) {
+  if (pasting || resolving || holding || editor.state.readOnly) return;
   const selection = editor.state.selection;
   revision++;
   error = "";
   editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
   pasting = (async () => {
     try {
-      const attachment = await notesPasteImage(path, new Uint8Array(await file.arrayBuffer()));
-      if (disposed) return;
-      editor.dispatch({ selection });
-      editor.dispatch(editor.state.replaceSelection(`![](${attachment})`));
-    } catch (e) {
-      if (!disposed) error = failure(e);
+      let nextSelection = selection;
+      for (const file of files) {
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          if (disposed) return;
+          const attachment = await notesPasteImage(path, bytes);
+          if (disposed) return;
+          editor.dispatch({ selection: nextSelection });
+          editor.dispatch(editor.state.replaceSelection(`![](${attachment})`));
+          nextSelection = editor.state.selection;
+        } catch (e) {
+          if (disposed) return;
+          error = failure(e);
+          if (folderGone) break;
+        }
+      }
     } finally {
       pasting = undefined;
       if (!disposed) {
@@ -276,7 +306,6 @@ function paste(event: ClipboardEvent, editor: EditorView): boolean {
       }
     }
   })();
-  return true;
 }
 function autosave(version: string) {
   status = "saved";
@@ -366,7 +395,7 @@ export async function rename(
   if (resolving || pasting || deleted || holding) return false;
   const next = change(raw);
   if (view && next !== null && next !== raw) view.dispatch(diskReload(view.state, next));
-  if ((await saving.flush()) !== "saved" || holding) return false;
+  if ((await saving.flush()) !== "saved" || holding || pasting) return false;
   let release = () => {};
   holding = new Promise((resolve) => {
     release = resolve;
@@ -556,7 +585,7 @@ onMount(() => {
       {/if}
     </div>
   {/if}
-  <div class="surface" bind:this={host}></div>
+  <div class="surface" role="presentation" bind:this={host} ondragover={dragOver} ondropcapture={drop}></div>
   {#if total}
     <NoteStats {total} {selected} />
   {/if}

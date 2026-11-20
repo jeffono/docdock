@@ -262,7 +262,7 @@ times and `notes_texts`; nothing about tags or text is persisted. `query.ts` par
 and `date:` tokens (rules in "Search filters" in `docs/DESIGN.md`). `features/notes/list.ts` is the pure
 model of cards, sections and keyboard actions; `Notes.svelte` runs the effects. The edited card keeps a
 fixed key, so pinning, a `_pinned.md` change or a rename moves it instead of rebuilding the editor.
-`tauri.conf.json` disables native file-drop interception, so HTML drag and drop (pin reordering) works.
+`tauri.conf.json` disables native file-drop interception so HTML drag and drop works.
 
 ### Rendering and editing
 
@@ -276,8 +276,11 @@ serialized. Code fences load local Lezer grammars on demand (`code-colors.ts`) f
 its marks whenever CodeMirror redraws a line and checks only WebView2's languages. The UI sends single
 words, never note text, and a word is misspelled only when every language flags it.
 
-**Pasted images** arrive as a raw IPC body; Rust checks the signature and size and writes them to
-`attachments/` beside the note with `move_new`. **Copy and cut** in `main` go through
+**Pasted images** and image files dropped in the editor arrive as a raw IPC body. Rust checks the
+signature and size. Paste and page capture share the attachment writer, which uses the note's file
+stem and the first free name for that extension (`Note.png`, `Note-2.png`, …) in `attachments/`
+beside the note. `move_new` prevents overwrites, and the relative Markdown link percent-encodes the
+file name. **Copy and cut** in `main` go through
 `lib/clipboard.ts` and `platform/clipboard.rs`, which mark the text to stay out of clipboard history
 and cloud clipboard.
 
