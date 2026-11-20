@@ -8,34 +8,24 @@ git history (`git log --merges`) and releases in the tags.
 
 ## Next
 
-M15 — Attachments (standard, S–M):
+M16 — Reference images (advanced, L):
 
-- Deleting a note sends the images only it references to the Recycle Bin (or the vault trash, in the
-  note's entry) after the panel hides; the Undo notice says the note and its images were deleted, and
-  Undo before then leaves them in place.
-- "Unused images" in Preferences: thumbnails of unreferenced files in `attachments/` folders, chosen
-  by the user and sent to the bin. An image is in use when any note, trashed vault notes included,
-  links it (case-insensitive, percent-decoded) or merely contains its file name, which covers raw
-  HTML and other apps' syntaxes. Files outside `attachments/` are never candidates.
-- Dropping image files from Explorer into a note goes through the paste path.
-- Pasted images are named after the note instead of `pasted-`.
+- A paragraph holding only two or more images renders as a grid of uniform thumbnails; pasting
+  several images in a row joins them with single line breaks. No new syntax: other apps show them
+  side by side.
+- Hovering a thumbnail after a delay, or focusing it and pressing Space, shows it larger in a
+  window beside the panel: borderless, topmost, non-activating, click-through (so the panel's
+  hover state is unaffected) and excluded from capture. A second app window reading `note-asset`
+  touches decision 0004.
+- Detaching an image as a floating window: adjustable opacity, a click-through mode, position kept
+  in `.docdock/`. This builds the floating-window base for M17.
+- Thumbnails are made in memory, never through the Windows thumbnail cache, which would write vault
+  images outside the notes folder. Start with lazy `<img>` and measure memory first.
 
 ## Later
 
 In this order:
 
-- M16 — Reference images (advanced, L):
-  - A paragraph holding only two or more images renders as a grid of uniform thumbnails; pasting
-    several images in a row joins them with single line breaks. No new syntax: other apps show them
-    side by side.
-  - Hovering a thumbnail after a delay, or focusing it and pressing Space, shows it larger in a
-    window beside the panel: borderless, topmost, non-activating, click-through (so the panel's
-    hover state is unaffected) and excluded from capture. A second app window reading `note-asset`
-    touches decision 0004.
-  - Detaching an image as a floating window: adjustable opacity, a click-through mode, position kept
-    in `.docdock/`. This builds the floating-window base for M17.
-  - Thumbnails are made in memory, never through the Windows thumbnail cache, which would write vault
-    images outside the notes folder. Start with lazy `<img>` and measure memory first.
 - M17 — Post-its as floating desktop windows (advanced, M), on M16's window base. Notes marked
   private (M18) do not float.
 - M18 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
