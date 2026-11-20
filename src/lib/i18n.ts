@@ -49,7 +49,6 @@ const en = {
   "preferences.widthReset": "Restore default width",
   "preferences.shortcuts": "Shortcuts",
   "preferences.trash": "Trash",
-  "preferences.unusedImages": "Unused images",
   "preferences.about": "About",
   "updates.title": "Updates",
   "updates.version": "DocDock version {version}",
@@ -79,7 +78,9 @@ const en = {
   "trash.emptyOne": "1 item will be deleted for good. This cannot be undone.",
   "trash.emptyMany": "{count} items will be deleted for good. This cannot be undone.",
   "trash.emptyConfirm": "Delete for good",
-  "unusedImages.about": "Select images to send to the bin.",
+  "unusedImages.title": "Unused images",
+  "unusedImages.about":
+    "Images in attachments folders that no note uses. Select the ones to send to the bin.",
   "unusedImages.loading": "Looking for unused images…",
   "unusedImages.empty": "No unused images.",
   "unusedImages.unavailable": "Unused images appear when the notes folder is available.",
@@ -438,7 +439,6 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.widthReset": "Restaurar largura padrão",
   "preferences.shortcuts": "Atalhos",
   "preferences.trash": "Lixeira",
-  "preferences.unusedImages": "Imagens sem uso",
   "preferences.about": "Sobre",
   "updates.title": "Atualizações",
   "updates.version": "DocDock versão {version}",
@@ -469,7 +469,9 @@ const ptBR: Record<MessageKey, string> = {
   "trash.emptyOne": "1 item será excluído definitivamente. Isso não pode ser desfeito.",
   "trash.emptyMany": "{count} itens serão excluídos definitivamente. Isso não pode ser desfeito.",
   "trash.emptyConfirm": "Excluir definitivamente",
-  "unusedImages.about": "Selecione as imagens para enviar à lixeira.",
+  "unusedImages.title": "Imagens sem uso",
+  "unusedImages.about":
+    "Imagens em pastas de anexos que nenhuma nota usa. Selecione as que devem ir para a lixeira.",
   "unusedImages.loading": "Procurando imagens sem uso…",
   "unusedImages.empty": "Nenhuma imagem sem uso.",
   "unusedImages.unavailable":

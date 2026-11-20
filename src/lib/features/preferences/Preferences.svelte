@@ -63,15 +63,7 @@ let {
   width: number;
   choose: () => Promise<string | undefined>;
 } = $props();
-const sections = [
-  "general",
-  "appearance",
-  "browser",
-  "shortcuts",
-  "trash",
-  "unusedImages",
-  "about",
-] as const;
+const sections = ["general", "appearance", "browser", "shortcuts", "trash", "about"] as const;
 const themes = ["system", "light", "dark"] as const;
 let section = $state<(typeof sections)[number]>("general");
 let folder = $state<NotesFolder | null>(null);
@@ -129,7 +121,7 @@ async function restore(item: TrashItem) {
       const path = await notesTrashRestore(item.id);
       if (load === trashLoads) restored = path;
     } finally {
-      if (load === trashLoads) await loadTrash();
+      if (load === trashLoads) await loadTrashSection();
     }
   });
 }
@@ -145,14 +137,22 @@ async function emptyTrash() {
     try {
       await notesTrashEmpty(ids);
     } finally {
-      if (load === trashLoads) await loadTrash();
+      if (load === trashLoads) await loadTrashSection();
     }
   });
 }
+/** Restoring or emptying the trash changes which images are unused, and sending images away fills it. */
+async function loadTrashSection() {
+  await Promise.all([loadTrash(), loadImages()]);
+}
 $effect(() => {
-  if (section !== "trash") return forgetTrash([]);
+  if (section !== "trash") {
+    forgetTrash([]);
+    forgetImages(undefined);
+    return;
+  }
   restored = "";
-  void action(loadTrash);
+  void action(loadTrashSection);
 });
 
 /** Undefined while loading, null while the folder is away. */
@@ -187,15 +187,10 @@ function recycleImages() {
     try {
       await notesRecycleImages(folderId, paths);
     } finally {
-      if (section === "unusedImages") await loadImages();
+      if (section === "trash") await loadTrashSection();
     }
   });
 }
-$effect(() => {
-  if (section !== "unusedImages") return;
-  void action(loadImages);
-  return () => forgetImages(undefined);
-});
 
 $effect(() => {
   if (section !== "about") return;
@@ -264,9 +259,8 @@ onMount(() => {
       .then(() => {
         if (folder?.state !== "available") {
           forgetTrash(null);
-          if (section === "unusedImages") forgetImages(null);
-        } else if (section === "trash") return loadTrash();
-        else if (section === "unusedImages") return loadImages();
+          if (section === "trash") forgetImages(null);
+        } else if (section === "trash") return loadTrashSection();
       })
       .catch((e) => {
         error = errorText(e);
@@ -410,8 +404,8 @@ onMount(() => {
         {/if}
         {#if restored}<p class="restored" role="status">{t("trash.restored", { path: restored })}</p>{/if}
       </div>
-    {:else if section === "unusedImages"}
       <div class="setting">
+        <h3>{t("unusedImages.title")}</h3>
         {#if images === undefined}
           {#if !error}<p role="status">{t("unusedImages.loading")}</p>{/if}
         {:else if images === null}
