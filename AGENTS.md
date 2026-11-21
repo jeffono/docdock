@@ -93,7 +93,7 @@ Each plan task has a level; use the cheapest model that can resolve it well.
 
 - A subagent starts without context: delegate only a task that can be briefed in a few lines. Then, to
   spread usage limits, send `basic` and `standard` tasks to OpenAI models (Codex) and `advanced` ones
-  to Claude Opus. Never delegate to Antigravity: its permissions misbehave in T3.
+  to Claude Opus. Antigravity is also an option, mainly its Neon and Hydrogen models.
 - After two unsuccessful attempts, stop and move up a level instead of persisting.
 
 ## Git and work between agents
