@@ -3,7 +3,7 @@ import { highlightTree } from "@lezer/highlight";
 import { expect, test } from "vitest";
 import { codeHighlighter, codeLanguage, codeSpans } from "./code-colors";
 import { editorExtensions, editorState } from "./editor";
-import { type Content, noteModel, noteName } from "./render";
+import { type Content, type Element, noteModel, noteName, sourceRange } from "./render";
 
 const html = (content: Content[]): string =>
   content
@@ -96,8 +96,57 @@ test("untrusted markup stays text and only safe destinations become links or ima
     '<p>a <a href="https://x.com">b</a> c <a href="http://y.z">http://y.z</a> <a href="#sec">d</a></p>',
   );
   expect(out).toContain(
-    '<p>e f <img src="http://note-asset.localhost/sub/img/a%20b.png" alt="g"></img></p>',
+    '<p>e f <img src="http://note-asset.localhost/sub/img/a%20b.png" alt="g" loading="lazy" data-image="sub/img/a b.png"></img></p>',
   );
+});
+
+test("a single image stays in its paragraph and loads lazily", () => {
+  expect(html(noteModel("![River](river.png)", "sub/note.md"))).toBe(
+    '<p><img src="http://note-asset.localhost/sub/river.png" alt="River" loading="lazy" data-image="sub/river.png"></img></p>',
+  );
+});
+
+test.each([" ", "\n", "  \n", "\\\n", " <br> ", "<br />", "&nbsp;"])(
+  "local images separated by %j render as thumbnail buttons",
+  (separator) => {
+    const first = '![River](river.png "Wide view")';
+    const second = "![](../img/blue%20sky.png)";
+    const third = '![](field.png "")';
+    const prefix = "---\ntags: [photos]\n---\n\n";
+    const paragraph = [first, second, third].join(separator);
+    const grid = noteModel(prefix + paragraph, "sub/note.md")[1] as Element;
+    expect(html([grid])).toBe(
+      '<div class="image-grid">' +
+        '<button type="button" class="image-thumb" data-image="sub/river.png" aria-label="River">' +
+        '<img src="http://note-asset.localhost/sub/river.png" alt="River" loading="lazy" data-image="sub/river.png" title="Wide view"></img></button>' +
+        '<button type="button" class="image-thumb" data-image="img/blue sky.png" aria-label="blue sky.png">' +
+        '<img src="http://note-asset.localhost/img/blue%20sky.png" alt="" loading="lazy" data-image="img/blue sky.png"></img></button>' +
+        '<button type="button" class="image-thumb" data-image="sub/field.png" aria-label="field.png">' +
+        '<img src="http://note-asset.localhost/sub/field.png" alt="" loading="lazy" data-image="sub/field.png" title=""></img></button>' +
+        "</div>",
+    );
+    const from = prefix.length + first.length + separator.length;
+    const thumb = grid.children?.[1] as Element;
+    expect(sourceRange(grid)).toEqual({
+      from: prefix.length,
+      to: prefix.length + paragraph.length,
+    });
+    expect(sourceRange(thumb)).toEqual({ from, to: from + second.length });
+    expect(sourceRange(thumb.children?.[0] as Element)).toEqual(sourceRange(thumb));
+  },
+);
+
+test.each([
+  ["captions", "captions"],
+  ["![Remote](https://example.com/remote.png)", "Remote"],
+  ["![](../../outside.png)", ""],
+  ["[![Linked](local.png)](javascript:alert)", 'alt="Linked"'],
+  ['<br onclick="alert(1)">', '<br onclick="alert(1)">'],
+])("images next to %s stay in a regular paragraph", (middle, visible) => {
+  const rendered = html(noteModel(`![](a.png) ${middle} ![](b.png)`, "sub/note.md"));
+  expect(rendered).toMatch(/^<p>.*<\/p>$/);
+  expect(rendered).toContain(visible);
+  expect(rendered).not.toContain("image-grid");
 });
 
 test("content without a note path, such as a page article, never shows local images", () => {
@@ -166,4 +215,10 @@ test("an untitled note's name from its words is cut at a word near 60 characters
   // Bug: a cut through an emoji left half of it, which Rust rejects as a path.
   expect(noteName(`${"a".repeat(59)}😀xx`)?.title).toBe(`${"a".repeat(59)}😀`);
   expect(noteName("---\ntags: [a]\n---\n\n![](a.png)\n")).toBeNull();
+});
+
+test("thumbnail labels do not name the note or hide its first heading", () => {
+  const images = "![River](river.png)\n![](field.png)";
+  expect(noteName(images)).toBeNull();
+  expect(noteName(`${images}\n\n# Weekend walk\n\nSunny day`)?.title).toBe("Weekend walk");
 });

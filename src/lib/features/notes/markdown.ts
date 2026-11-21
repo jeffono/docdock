@@ -115,8 +115,10 @@ function normalizeLabel(label: string): string {
   return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+type LinkTarget = { url: string; title?: string };
+
 export type Definitions = {
-  links: Map<string, { url: string; title: string }>;
+  links: Map<string, LinkTarget>;
   footnotes: Set<string>;
 };
 
@@ -134,7 +136,7 @@ export function definitions(top: SyntaxNode, slice: Slice): Definitions {
         if (key && url && !found.links.has(key))
           found.links.set(key, {
             url: decodeMarkdown(slice(url.from, url.to).replace(/^<|>$/g, "")),
-            title: title ? decodeMarkdown(slice(title.from + 1, title.to - 1)) : "",
+            title: title ? decodeMarkdown(slice(title.from + 1, title.to - 1)) : undefined,
           });
       } else if (child.name === "FootnoteDefinition") {
         const mark = child.getChild("FootnoteMark");
@@ -151,17 +153,13 @@ export function definitions(top: SyntaxNode, slice: Slice): Definitions {
  * Destination of a Link or Image node: inline, full reference `[text][label]` or shortcut `[text]`.
  * Null when nothing defines it, in which case CommonMark shows the brackets as text.
  */
-export function linkTarget(
-  node: SyntaxNode,
-  slice: Slice,
-  defs: Definitions,
-): { url: string; title: string } | null {
+export function linkTarget(node: SyntaxNode, slice: Slice, defs: Definitions): LinkTarget | null {
   const url = node.getChild("URL");
   if (url) {
     const title = node.getChild("LinkTitle");
     return {
       url: decodeMarkdown(slice(url.from, url.to).replace(/^<|>$/g, "")),
-      title: title ? decodeMarkdown(slice(title.from + 1, title.to - 1)) : "",
+      title: title ? decodeMarkdown(slice(title.from + 1, title.to - 1)) : undefined,
     };
   }
   const label = node.getChild("LinkLabel");
@@ -182,10 +180,10 @@ export function safeHref(url: string): string | null {
 }
 
 /**
- * Local image address inside the notes folder, relative to the note. Mirrors the `note-asset`
- * protocol: percent-decoded, no scheme, query, fragment or backslash, never above the folder.
+ * Resolve an image destination to a path inside the notes folder, relative to the note. Mirrors the
+ * `note-asset` protocol: percent-decoded, no scheme, query, fragment or backslash, never above the folder.
  */
-export function imageUrl(source: string, note: string): string | null {
+export function imagePath(source: string, note: string): string | null {
   // A literal # starts a fragment, but %23 can name a file.
   if (/[?#]/.test(source)) return null;
   let src: string;
@@ -204,7 +202,12 @@ export function imageUrl(source: string, note: string): string | null {
       parts.pop();
     } else parts.push(part);
   }
-  return noteAssetUrl(parts.join("/"));
+  return parts.join("/") || null;
+}
+
+export function imageUrl(source: string, note: string): string | null {
+  const path = imagePath(source, note);
+  return path === null ? null : noteAssetUrl(path);
 }
 
 /** Asset URL for a path already relative to the notes folder, with literal file names. */

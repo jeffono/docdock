@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { imageUrl, retitle } from "./markdown";
+import { imagePath, imageUrl, retitle } from "./markdown";
+
+test("image paths expose the decoded vault-relative filename", () => {
+  expect(imagePath("../img//./a%20%23%2520.png", "sub/note.md")).toBe("img/a #%20.png");
+  expect(imagePath("..", "sub/note.md")).toBeNull();
+});
 
 test("editor image paths follow Rust decoding, traversal and encoding rules", () => {
   expect(imageUrl("../images/a%20b!'().png", "sub/note.md")).toBe(

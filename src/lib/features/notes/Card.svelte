@@ -104,7 +104,7 @@ function bodyLinkMenu(event: MouseEvent | KeyboardEvent) {
 }
 /** A double click on the text edits it; its first click already expanded a preview. */
 function bodyDoubleClick(event: MouseEvent) {
-  if (editing || card.url || (event.target as Element).closest("a")) return;
+  if (editing || card.url || (event.target as Element).closest("a, .image-thumb, img")) return;
   onedit(body && text !== undefined ? editStart(body, text, event) : undefined);
 }
 
@@ -216,7 +216,8 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
           void renderNote(text ?? "", path).then((fragment) => {
             if (!current) return;
             element.replaceChildren(fragment);
-            for (const link of element.querySelectorAll("a")) link.tabIndex = -1;
+            for (const stop of element.querySelectorAll<HTMLElement>("a, .image-thumb"))
+              stop.tabIndex = -1;
           });
           return () => { current = false; };
         }}
