@@ -8,26 +8,17 @@ git history (`git log --merges`) and releases in the tags.
 
 ## Next
 
-M16 — Reference images (advanced, L):
+M17 — Post-its as floating desktop windows (advanced, M):
 
-- A paragraph holding only two or more images renders as a grid of uniform thumbnails; pasting
-  several images in a row joins them with single line breaks. No new syntax: other apps show them
-  side by side.
-- Hovering a thumbnail after a delay, or focusing it and pressing Space, shows it larger in a
-  window beside the panel: borderless, topmost, non-activating, click-through (so the panel's
-  hover state is unaffected) and excluded from capture. A second app window reading `note-asset`
-  touches decision 0004.
-- Detaching an image as a floating window: adjustable opacity, a click-through mode, position kept
-  in `.docdock/`. This builds the floating-window base for M17.
-- Thumbnails are made in memory, never through the Windows thumbnail cache, which would write vault
-  images outside the notes folder. Start with lazy `<img>` and measure memory first.
+- Built on M16's floating-window base (`.docdock/floating.json` with `kind: "note"`, zero
+  capabilities, per-window IPC channel, opacity, click-through with Alt-reveal and tray actions,
+  capture exclusion and vault lifecycle).
+- Notes marked private (M18) do not float.
 
 ## Later
 
 In this order:
 
-- M17 — Post-its as floating desktop windows (advanced, M), on M16's window base. Notes marked
-  private (M18) do not float.
 - M18 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
   has been hidden for a while, and notes marked private in the frontmatter shown blurred until
   revealed.
