@@ -3,7 +3,7 @@
 //!
 //! The tweak window edits; the panel applies. The window sends its whole state to the panel with the
 //! `tweak-state` event, and the panel asks for it with `tweak-request` after a reload. The window
-//! reaches no app command: `main_only` rejects them, and its capability only grants events. So the
+//! reaches no app command: `by_window` rejects them, and its capability only grants events. So the
 //! panel calls every command here, including `dev_fonts`, whose list it forwards to the window.
 
 use std::sync::Mutex;

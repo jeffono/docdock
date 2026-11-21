@@ -35,8 +35,8 @@ import {
 import { appearance, chooseTheme } from "../../theme.svelte";
 import Button from "../../ui/Button.svelte";
 import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
+import { noteAssetUrl } from "../notes/asset-url";
 import { folderNotice } from "../notes/folder-state";
-import { noteAssetUrl } from "../notes/markdown";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
 import { relativeDate } from "../notes/relative-date";

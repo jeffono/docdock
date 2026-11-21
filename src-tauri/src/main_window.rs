@@ -1,8 +1,12 @@
-//! The main window displays untrusted rendered content: it never leaves the UI origin or opens
-//! another window. It is created here instead of in `tauri.conf.json` for that reason.
+//! App windows display untrusted rendered content: they never leave the UI origin or open another
+//! window. `main` is created here instead of in `tauri.conf.json` for that reason, and secondary app
+//! windows share the same hardening; see `docs/decisions/0014-app-windows.md`.
 
 use tauri::webview::NewWindowResponse;
-use tauri::{App, Url, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, AppHandle, Url, WebviewWindow, WebviewWindowBuilder, Wry};
+
+use crate::error::Error;
+use crate::platform::edge::{self, Owner};
 
 /// Tauri's `freezePrototype` applies to every window and would break sites in `web`.
 const FREEZE_PROTOTYPE: &str = "Object.freeze(Object.prototype)";
@@ -18,22 +22,52 @@ pub fn stays_in_ui(url: &Url, ui: &Url) -> bool {
     url.origin() == ui.origin()
 }
 
-pub fn create(app: &App) -> tauri::Result<WebviewWindow> {
-    let config = app.config();
-    let dev_url = config.build.dev_url.as_ref().filter(|_| tauri::is_dev());
-    let ui = ui_url(dev_url);
-    let window = WebviewWindowBuilder::from_config(app.handle(), &config.app.windows[0])?
-        .theme(crate::notes::theme(app.handle()).native())
+/// Secondary app windows: they reach only their own command list (`by_window` in `lib.rs`) and,
+/// with `main`, read note images.
+pub fn is_secondary(label: &str) -> bool {
+    label == crate::preview::LABEL
+}
+
+/// Windows that may read note images through `note-asset`; any other gets 403.
+pub fn reads_images(label: &str) -> bool {
+    label == "main" || is_secondary(label)
+}
+
+/// Builds an app window with the hardening every one shares: InPrivate, a frozen prototype, no
+/// navigation away from the UI, no new windows, no file drops, excluded from capture while still
+/// hidden and Edge's keys and menu items filtered.
+pub fn app_window(
+    app: &AppHandle,
+    builder: WebviewWindowBuilder<'_, Wry, AppHandle>,
+) -> Result<WebviewWindow, Error> {
+    let dev_url = app
+        .config()
+        .build
+        .dev_url
+        .clone()
+        .filter(|_| tauri::is_dev());
+    let ui = ui_url(dev_url.as_ref());
+    let window = builder
+        .theme(crate::notes::theme(app).native())
         // Notes arrive over IPC and must not become persistent browser site data.
         .incognito(true)
         .initialization_script(FREEZE_PROTOTYPE)
         .on_navigation(move |url| stays_in_ui(url, &ui))
         .on_new_window(|_, _| NewWindowResponse::Deny)
-        // Beside the panel, a strip as deep as the edge tab shows only the tab the UI draws there.
-        .transparent(true)
-        .build()?;
+        .disable_drag_drop_handler()
+        .build()
+        .map_err(Error::unexpected)?;
     crate::platform::exclude_from_capture(&window);
+    edge::filter(&window, Owner::Ui, None)?;
     Ok(window)
+}
+
+pub fn create(app: &App) -> Result<WebviewWindow, Error> {
+    let builder = WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])
+        .map_err(Error::unexpected)?
+        // Beside the panel, a strip as deep as the edge tab shows only the tab the UI draws there.
+        .transparent(true);
+    app_window(app.handle(), builder)
 }
 
 #[cfg(test)]
@@ -65,5 +99,16 @@ mod tests {
             assert!(!stays(url, None), "{url}");
         }
         assert!(!stays("http://tauri.localhost/", DEV));
+    }
+
+    // Catches the page or tweak window gaining note images or secondary commands.
+    #[test]
+    fn only_app_windows_read_images() {
+        assert!(reads_images("main"));
+        assert!(reads_images("image-preview"));
+        for label in ["web", "tweak", "float-1", "image-preview-2", ""] {
+            assert!(!reads_images(label), "{label}");
+            assert!(!is_secondary(label), "{label}");
+        }
     }
 }

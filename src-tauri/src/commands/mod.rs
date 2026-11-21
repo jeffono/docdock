@@ -462,6 +462,33 @@ pub fn open_external(app: AppHandle, url: String) -> Result<(), Error> {
         .map_err(Error::unexpected)
 }
 
+/// Asynchronous because creating its window in a synchronous command hangs on Windows.
+#[tauri::command]
+pub async fn image_preview_show(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    path: String,
+    rect: [i32; 4],
+    natural: (u32, u32),
+) -> Result<(), Error> {
+    crate::preview::show(&app, &requests, path, rect, natural)
+}
+#[tauri::command]
+pub fn image_preview_hide(app: AppHandle, requests: State<'_, Sender<Request>>) {
+    crate::preview::hide(&app, &requests);
+}
+/// The preview window's only command: what it shows when it loads.
+#[tauri::command]
+pub fn image_preview_state(
+    webview: tauri::Webview,
+    locale: State<'_, Locale>,
+) -> Result<crate::preview::State, Error> {
+    if webview.label() != crate::preview::LABEL {
+        return Err(Error::unexpected("command restricted to the image preview"));
+    }
+    Ok(crate::preview::state(*locale))
+}
+
 /// Outside the command barrier in `lib.rs`: the protocol exists in every window and Tauri identifies
 /// the requester. Runs on another thread so file reads do not block the WebView.
 pub fn note_image(

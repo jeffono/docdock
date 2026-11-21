@@ -1,6 +1,7 @@
 // Reading view: notes rendered from the editor's own parser into a small element model, then into
 // DOM nodes. Note text only ever becomes text nodes or allowlisted attribute values; no HTML is parsed.
 import type { SyntaxNode } from "@lezer/common";
+import { noteAssetUrl } from "./asset-url";
 import { codeLanguage, codeSpans } from "./code-colors";
 import {
   alertKind,
@@ -12,7 +13,6 @@ import {
   imagePath,
   linkTarget,
   maxDepth,
-  noteAssetUrl,
   noteParser,
   safeHref,
 } from "./markdown";

@@ -2856,10 +2856,10 @@ fn empty_response(status: StatusCode) -> Response<Vec<u8>> {
     *response.status_mut() = status;
     response
 }
-/// The `web` window also has the protocol, but its content is remote. `no-store` prevents the
-/// WebView2 profile shared between windows from caching the image.
+/// The `web` window also has the protocol, but its content is remote: only app windows read images.
+/// `no-store` prevents the WebView2 profile shared between windows from caching the image.
 fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Response<Vec<u8>> {
-    if webview != "main" {
+    if !crate::main_window::reads_images(webview) {
         return empty_response(StatusCode::FORBIDDEN);
     }
     let Some((body, content_type)) = root.and_then(|root| read_image(&root, uri_path)) else {
@@ -2874,6 +2874,10 @@ fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Respo
 }
 pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec<u8>> {
     image_response(webview, root(app).ok().map(|root| root.path), uri_path)
+}
+/// `path`, relative to the recognized notes folder, is an image `note-asset` would serve.
+pub fn check_image(app: &AppHandle, path: &str) -> Result<(), Error> {
+    resolve(&root(app)?, path, is_image).map(|_| ())
 }
 
 #[cfg(test)]
@@ -3359,7 +3363,7 @@ mod tests {
         assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
     }
     #[test]
-    fn image_only_leaves_folder_for_main_window() {
+    fn images_reach_only_app_windows() {
         let t = Temp::new();
         let (notas, fora) = (t.0.join("notas"), t.0.join("fora"));
         fs::create_dir_all(notas.join("com espaco")).unwrap();
@@ -3377,9 +3381,13 @@ mod tests {
         assert_eq!(ok.headers()[CONTENT_TYPE], "image/png");
         assert_eq!(ok.headers()[X_CONTENT_TYPE_OPTIONS], "nosniff");
 
-        let web = pedir("web", "/com%20espaco/foto.PNG");
-        assert_eq!(web.status(), StatusCode::FORBIDDEN);
-        assert!(web.body().is_empty());
+        let preview = pedir("image-preview", "/com%20espaco/foto.PNG");
+        assert_eq!(preview.status(), StatusCode::OK);
+        for label in ["web", "tweak", "float-9"] {
+            let refused = pedir(label, "/com%20espaco/foto.PNG");
+            assert_eq!(refused.status(), StatusCode::FORBIDDEN, "{label}");
+            assert!(refused.body().is_empty(), "{label}");
+        }
 
         for uri in [
             "/../fora/segredo.png",

@@ -287,8 +287,8 @@ notes differ only in section and starting state.
   editor, where typing a character goes to the search bar. Enter acts on the selection even on a
   focused button; Space presses the button. → and ← in the bar act on the card only with the caret
   at the end of the text.
-- **Esc** leaves one layer at a time: editing, then back to the bar with its text selected, then from
-  the bar it closes the panel.
+- **Esc** leaves one layer at a time: the image preview, editing, then back to the bar with its text
+  selected, then from the bar it closes the panel.
 
 | Shortcut                  | Action                                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -303,6 +303,7 @@ notes differ only in section and starting state.
 | Ctrl+Delete               | Delete the selected note; outside text fields                                                          |
 | Ctrl+M                    | Move the selected note to a folder; from the search bar or the list                                    |
 | Shift+F10 / Menu          | Open the selected note or folder menu                                                                  |
+| Space                     | On a focused grid thumbnail, show or hide it beside the panel                                          |
 | Ctrl+Enter                | Create a note with the exact typed text                                                                |
 | Ctrl+D                    | Toggle pin on the selected card from search or the list; in the editor, see below                      |
 | Ctrl+Shift+D              | Toggle the panel pin                                                                                   |
@@ -413,6 +414,15 @@ notes differ only in section and starting state.
 - Images load lazily. A paragraph containing only two or more local images, separated by whitespace
   or line breaks, shows a grid of square thumbnails. Tab reaches them in the expanded note. A plain
   `<br>` counts as a line break in a grid. Raw HTML elsewhere shows as plain text.
+- **Image preview:** hovering a grid thumbnail for 300 ms, or focusing it and pressing Space, shows
+  the image larger in a window beside the panel's inner edge, past the edge tab, vertically centered
+  on the thumbnail within the work area, at most its natural size and never upscaled. A crisp frame:
+  1 px `--color-line` border, `--radius-sm` corners, `--color-surface` behind the image, no shadow.
+  It never takes focus or clicks, so the panel stays open and hovered as before, and it is excluded
+  from capture. Once shown, hovering or focusing another thumbnail switches at once; moving between
+  thumbnails keeps it, leaving the grid hides it. Esc (its own layer), Space again, a click, scrolling,
+  focus leaving the grid, editing, Browser or Preferences, any menu or dialog, the shortcut and hiding
+  the panel also hide it. Not shown with too little room beside the panel (120 logical px).
 - Code: inline code and blocks use the recessed `--color-bg` with `--radius-sm`; inline code has
   `--space-1` at each side; blocks have `--space-2` vertical and `--space-3` horizontal padding and a
   `--color-line` border. The editor frames code lines, fences included while visible, as one block.

@@ -397,6 +397,27 @@ export const onPanelHidden = (handler: (session: number) => void): Promise<Unlis
 
 /** A backup an interrupted save left next to `note`; `modified` is in ms since the Unix epoch. */
 export type Leftover = { path: string; note: string; modified: number };
+/**
+ * The side image preview, a window beside the panel. `rect` is the thumbnail's box in this
+ * viewport as `[x, y, width, height]` CSS pixels; `natural` is the image's size in pixels. Rust
+ * hides it on its own, as when the panel hides, and then emits `image-preview-closed`.
+ */
+export const imagePreviewShow = (
+  path: string,
+  rect: [number, number, number, number],
+  natural: [number, number],
+) => invoke<void>("image_preview_show", { path, rect, natural });
+export const imagePreviewHide = () => invoke<void>("image_preview_hide");
+export const onImagePreviewClosed = (handler: () => void): Promise<UnlistenFn> =>
+  listen("image-preview-closed", () => handler());
+
+/** In the preview window itself: it reaches only this command and listens to its own event. */
+export const isImagePreviewWindow = () => getCurrentWebviewWindow().label === "image-preview";
+export type ImagePreviewState = { path: string | null; locale: Locale };
+export const imagePreviewState = () => invoke<ImagePreviewState>("image_preview_state");
+export const onImagePreview = (handler: (path: string | null) => void): Promise<UnlistenFn> =>
+  listen<{ path: string | null }>("image-preview", (event) => handler(event.payload.path));
+
 export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
 /** Resolves to the path of the restored note. */
 export const notesRestore = (path: string) => invoke<string>("notes_restore", { path });
