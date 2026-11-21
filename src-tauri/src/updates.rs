@@ -288,14 +288,15 @@ pub fn request_exit(app: &AppHandle, update: bool) {
 
 #[tauri::command]
 pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
+    // The floating windows' last moves, before the gate lets any exit through. Off the main
+    // thread, which their worker may be waiting for.
+    if saved {
+        crate::floating::flush();
+    }
     let action = {
         let mut state = locked(&app);
         state.exit.finish(id, saved)
     };
-    // Off the main thread, which the floating windows' worker may be waiting for.
-    if action.is_some() {
-        crate::floating::flush();
-    }
     let update = match action {
         Some(true) => locked(&app).downloaded.take(),
         Some(false) => {

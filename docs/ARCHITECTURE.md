@@ -160,31 +160,37 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   base for M17's post-its. `floating_open` validates the image, reserves a label in the registry,
   asks the dock thread where the preview would show the image (`Request::PlaceFloat`, through
   `preview::place` and `preview::image_rect`) and builds a hidden secondary window, a tool window
-  that never activates but stays enabled (`platform::prepare_floating`). It saves the window's
-  entry, then shows it topmost with `SetWindowPos` (never Tauri's `show` or `set_focus`) only if
-  no close or folder change came meanwhile, and otherwise removes the entry again
-  (`floating::finish_open`), so a window closed while opening never comes back. Unlike the
+  that never activates but stays enabled (`platform::prepare_floating`). Under `SAVING` it checks
+  that the folder, the image, the epoch and the window are all still there and saves the entry;
+  only then does it show the window topmost with `SetWindowPos` (never Tauri's `show` or
+  `set_focus`), and only if no close or folder change came meanwhile (`floating::save_and_show`).
+  A close after the save removes the entry itself, and a folder change after it destroys the window
+  but keeps the entry, rightly saved in the folder it opened on, so nothing is rolled back across
+  folders. Unlike the
   preview, it is not the dock's: it never slides, and clicking or dragging it changes no
   foreground, so the panel's hover and focus rules are unaffected. Dragging and resizing go
   through Tauri's `start_dragging` and `start_resize_dragging`, from the window's own commands.
   Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
   polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
   started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades
-  500 ms after they pause, and once more when the exit gate lets the app go (`exit_ready`, off the
-  main thread). The registry is never locked on the main thread, since its holders change window
+  500 ms after they pause, and once more in `exit_ready`, off the main thread, before the exit gate
+  lets the app go; exit waits for that save. The registry is never locked on the main thread, since its holders change window
   styles, which waits for it: the main thread's window events and the tray's unlock only message
   the worker, and the command barrier and `note-asset` read a separate set of live labels held
   only for the lookup.
 - **Floating windows and the notes folder:** each window belongs to the folder it opened on, by
   path and marker id (`notes::FolderIdentity`), and to the registry's epoch. A folder leaving
-  (`watch.rs`), or another being chosen or trusted (before and after the settings change), starts
-  a new epoch: every label leaves the live set first, so its commands and images stop at once, then
-  every window is destroyed without touching the file ([0009](decisions/0009-note-privacy.md)).
-  Openings and restores started on an earlier epoch never register or show a window, and every
-  read and write of `.docdock/floating.json` names the identity it started on and fails with
-  `FolderChanged` against any other folder, including one chosen at the same path. Writes take
-  `SAVING`, as the attachment cleanup does, and a new entry is saved only while its image is still
-  there. The file (`floats.rs`, version 1) keeps each window's id, kind, image path, physical
+  (`watch.rs`) starts a new epoch: every label leaves the live set first, so its commands and
+  images stop at once, then every window is destroyed without touching the file
+  ([0009](decisions/0009-note-privacy.md)). Choosing or trusting a folder does the same before the
+  settings change (`floating::begin_switch`), holds every opening and restore off until it ends,
+  then starts another epoch and reopens the configured folder's windows. Work started on an
+  earlier epoch never registers or shows a window, nor saves a move, a close or a pruned entry.
+  `note-asset` answers a floating window only while the configured folder is still the one it
+  opened on. Every read and write of `.docdock/floating.json` checks, under `SAVING`, as the
+  attachment cleanup holds it, that the folder is still the identity it started on, and fails with
+  `FolderChanged` against any other, including one chosen at the same path. Lock order: `SAVING`,
+  then the floating registry. The file (`floats.rs`, version 1) keeps each window's id, kind, image path, physical
   rectangle and opacity, and entries of unknown kinds as they are; a file of another version is
   neither opened nor overwritten, and a corrupt one reads as empty. Startup and the folder's return
   reopen windows unlocked, sized to and then kept on the monitors there are now
