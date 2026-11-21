@@ -10,7 +10,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::handle::{self, Presence};
 use crate::motion::{self, Kind, Motion};
 use crate::panel::{Action, CursorZone, Delays, Focus, Input, Panel, State};
-use crate::platform::{self, Activation, BASE_DPI, Monitor, PanelWindow, Point, Rect, scale_dpi};
+use crate::platform::{
+    self, Activation, BASE_DPI, Monitor, OverlayWindow, PanelWindow, Point, Rect, scale_dpi,
+};
 
 const POLL: Duration = Duration::from_millis(50);
 /// Default width in logical pixels; on the monitor it becomes `width * dpi / 96`.
@@ -56,6 +58,18 @@ pub enum Request {
         width: Option<u32>,
         done: bool,
     },
+    /// The image preview window was created and is still invisible.
+    AttachPreview(isize),
+    /// Shows the image preview beside a thumbnail: `rect` is its CSS box in the panel's viewport,
+    /// as `[x, y, width, height]`, and `natural` the image's size in pixels. Only while
+    /// `generation` is still the preview's current show.
+    ShowPreview {
+        generation: u64,
+        rect: [i32; 4],
+        natural: (u32, u32),
+    },
+    /// Hides the image preview window; whoever sends it already forgot the image.
+    HidePreview,
 }
 
 /// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
@@ -212,6 +226,10 @@ struct Dock {
     click_through: bool,
     /// Web page window, if present.
     web: Option<PanelWindow>,
+    /// The image preview window, once created. It never slides and is never foreground, so it is
+    /// not one of the panel's `windows`.
+    preview: Option<OverlayWindow>,
+    preview_shown: bool,
     /// The edge handle: the tab beside the panel, which the panel's WebView draws.
     handle_presence: Presence,
     /// How far the handle is pushed out beyond its place, toward the screen edge, and the panel's
@@ -279,6 +297,12 @@ impl Dock {
     }
 
     fn place(&mut self, monitor: Monitor) {
+        // Placed for the old monitor, side, tab or width.
+        self.hide_preview();
+        self.place_window(monitor);
+    }
+
+    fn place_window(&mut self, monitor: Monitor) {
         self.monitor = monitor;
         self.rect = panel_rect(&monitor, self.side, self.width);
         self.parked_x = parked_x(&monitor, self.side, self.rect);
@@ -390,11 +414,16 @@ impl Dock {
                 Action::None
             }
             Request::SetDialog(dialog) => {
+                // Choosing another notes folder goes through a picker, so this covers it too.
+                if dialog {
+                    self.hide_preview();
+                }
                 self.dialog = dialog;
                 Action::None
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
+                self.hide_preview();
                 // A page attached while parked gets the low target on the next pass, with `main`.
                 self.memory_low = false;
                 let x = self.window_x();
@@ -409,6 +438,9 @@ impl Dock {
                 Action::None
             }
             Request::SetWebVisible(visible) => {
+                if visible {
+                    self.hide_preview();
+                }
                 let x = self.window_x();
                 if let Some(mut web) = self.web.filter(PanelWindow::exists) {
                     if !visible {
@@ -438,6 +470,7 @@ impl Dock {
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
             Request::SetPinned(false) => self.panel.step(Input::Unpin, now),
             Request::Shortcut => {
+                self.hide_preview();
                 // Read before activating: only a press made inside the panel can close it.
                 let toggle = self.window.is_foreground();
                 let dialog = self.dialog;
@@ -482,10 +515,77 @@ impl Dock {
                 }
                 Action::None
             }
+            Request::AttachPreview(raw) => {
+                self.preview = Some(OverlayWindow::prepare(raw));
+                Action::None
+            }
+            Request::ShowPreview {
+                generation,
+                rect,
+                natural,
+            } => {
+                self.show_preview(generation, rect, natural);
+                Action::None
+            }
+            Request::HidePreview => {
+                self.hide_preview_window();
+                Action::None
+            }
         };
         self.apply(action);
         self.report_shown();
         self.update_handle();
+    }
+
+    /// Shows the image preview beside the thumbnail at `thumb` only over the resting, open panel
+    /// in Notes, without a dialog: anything else hides it.
+    fn show_preview(&mut self, generation: u64, thumb: [i32; 4], natural: (u32, u32)) {
+        let resting = self.is_open() && self.slide.is_none() && !self.web_visible && !self.dialog;
+        let window = self.preview.filter(|window| resting && window.exists());
+        let tab = self.tuning.tab;
+        let framed = handle::framed_rect(&self.monitor, self.rect, self.side, tab);
+        let origin = Point {
+            x: self.window_x() + framed.left - self.rect.left,
+            y: framed.top,
+        };
+        let thumb = crate::preview::to_physical(thumb, origin, self.monitor.dpi);
+        let placement = crate::preview::place(
+            self.monitor.work,
+            self.rect,
+            self.side,
+            thumb,
+            natural,
+            self.monitor.dpi,
+            self.away(),
+        );
+        // A later show, or the hide or close that replaced this one, decides instead; a close
+        // cannot slip in between the check and the show.
+        match window.zip(placement) {
+            Some((window, placement)) => {
+                let show = |rect| window.show(rect);
+                if crate::preview::apply_placement(generation, placement, show) {
+                    self.preview_shown = true;
+                }
+            }
+            None if crate::preview::is_current(generation) => self.hide_preview(),
+            None => {}
+        }
+    }
+
+    /// Hides the image preview, forgetting its image and telling both windows if one was shown or
+    /// about to be.
+    fn hide_preview(&mut self) {
+        let dismissed = crate::preview::dismiss(&self.app);
+        if dismissed || self.preview_shown {
+            self.hide_preview_window();
+        }
+    }
+
+    fn hide_preview_window(&mut self) {
+        if let Some(window) = self.preview {
+            window.hide();
+        }
+        self.preview_shown = false;
     }
 
     fn poll(&mut self) {
@@ -669,6 +769,7 @@ impl Dock {
                 }
             }
             Action::Hide => {
+                self.hide_preview();
                 self.reveal.hold();
                 self.release_focus();
                 self.set_enabled(false);
@@ -764,6 +865,8 @@ pub fn start(
         window,
         click_through: false,
         web: None,
+        preview: None,
+        preview_shown: false,
         handle_presence: Presence::Hidden,
         handle_shift: 0,
         handle_slide: None,
@@ -789,7 +892,9 @@ pub fn start(
         escape_spent: false,
         slide: None,
     };
-    dock.place(monitor);
+    // Runs on the main thread during setup, before any preview exists, so skip `hide_preview`
+    // to keep `preview::SESSION` strictly off the main thread.
+    dock.place_window(monitor);
     std::thread::spawn(move || dock.run(requests));
 }
 

@@ -79,6 +79,8 @@ pub fn monitor(app: AppHandle) {
                 {
                     stop();
                     crate::notes::forget_unavailable();
+                    // The preview shows a note image, which must not outlive the folder.
+                    crate::preview::close(&app);
                 }
                 notify(&app);
             }

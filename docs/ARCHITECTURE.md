@@ -14,12 +14,13 @@ src/                     UI (Svelte 5 + Vite)
   lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
   lib/theme.svelte.ts    Theme setting applied as the root color scheme
   lib/features/<name>/   Components, state and tests: notes, web, tab (edge tab), preferences,
-                         tweak-panel (development builds only)
+                         image-preview, tweak-panel (development builds only)
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
 src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
-  main_window.rs         Creates the main window and limits its navigation
+  main_window.rs         Creates app windows (`main`, the image preview) hardened alike
+  preview.rs             Side image preview: pure placement beside the panel and its commands
   panel.rs               Pure panel state machine
   handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
   motion.rs              Slide duration and easing; tunable live in development builds
@@ -57,9 +58,11 @@ flowchart LR
 
 ## Shared rules
 
-- **Commands** are accepted only from the `main` window (`main_only` in `lib.rs`); events go to it
-  with `emit_to`. Errors are `{ code, ...fields }` (`error.rs`) and `i18n.ts` turns each code into
-  text; `detail` carries the operating system's message. Commands that touch the notes folder run off
+- **Commands** are accepted from the `main` window and, each from its own disjoint list, from
+  secondary app windows such as the image preview (`by_window` in `lib.rs`,
+  [0014](decisions/0014-app-windows.md)). Events always name their window with `emit_to`;
+  secondary windows have no capability and hear Rust only through an IPC channel they hand over.
+  Errors are `{ code, ...fields }` (`error.rs`) and `i18n.ts` turns each code into text; `detail` carries the operating system's message. Commands that touch the notes folder run off
   the main thread, since an offline share can take seconds to answer.
 - **Settings** live in `settings.json` in the app configuration directory and hold only preferences
   and the folder path, never note content or names ([0009](decisions/0009-note-privacy.md)). One
@@ -131,6 +134,26 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
 - **Memory while parked:** `platform/memory.rs` sets WebView2's memory target to low on both webviews
   while parked and back to normal when a slide starts; `dock.rs` derives the level from that state.
   Scripts keep running, so autosave and file events stay live; `TrySuspend` would pause them.
+- **Image preview** ([0014](decisions/0014-app-windows.md)): one reusable `image-preview` window,
+  created hidden on first use by an asynchronous command and handed to `dock.rs`, which alone shows,
+  places and hides it, so it never races a slide. It is a tool window that never activates, stays
+  disabled and is click-through for good, so it is not one of the panel's windows for focus, hover,
+  slides or memory. The UI (`features/image-preview/trigger.ts`, pure) sends the thumbnail's CSS
+  box and the image's natural size; `preview.rs` turns them into physical pixels from the panel
+  window's origin and DPI and places the framed image beside the panel, past the edge tab
+  (`preview::place`); the dock publishes where the frame's arrow points to the preview window and
+  shows the window in one step under the preview's lock (`apply_placement`). It shows only
+  over the resting open panel in Notes without a dialog; hiding the panel, a placement change
+  (monitor, side, tab, width), showing the page, a dialog, the shortcut, the folder going away or
+  another folder chosen hide it, and Rust then tells both windows (no path on the preview's channel,
+  `image-preview-closed` to `main`, also for a show still on its way, so `main` drops the shows it
+  queued after it). Every show, hide and close starts a new generation: a show publishes its image
+  only while its generation is current and no other folder was chosen since it validated the path,
+  and the dock thread checks the generation and shows the window under the same lock, so a slow
+  show never outlives a hide or a locked vault. That lock is never taken on the main thread, which
+  showing the window waits for. What the preview window hears carries a separate version, which
+  changes only with the image shown. The window decodes the next image before swapping and drops any image, decoding or
+  shown, when it hides.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
   `tweak-state`, and `dock.rs` reads the live tuning, or the constants in release builds, once per
@@ -321,7 +344,7 @@ capabilities) and [0003](decisions/0003-panel-and-web-pages.md) (the page window
 - **Page window IPC (as of Tauri 2.12.5):** Tauri injects its scripts into every WebView and frame, so
   pages see `window.ipc` and `__TAURI_INTERNALS__.invoke`, but every call fails: no capability names
   the `web` window, so the ACL rejects plugin and core commands and remote-origin app commands, and
-  `main_only` rejects local-origin ones (the dev UI or `note-asset` loaded in the page). Never grant
+  `by_window` rejects local-origin ones (the dev UI or `note-asset` loaded in the page). Never grant
   the `web` window a capability. Plugins must not add init scripts that change web APIs:
   `tauri-plugin-dialog` replaced the page's `alert` and `confirm`, so native dialogs use `rfd`, and
   opener's link script is disabled.

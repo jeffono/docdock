@@ -16,6 +16,7 @@ mod panel;
 mod permissions;
 mod pinned;
 mod platform;
+mod preview;
 mod reader;
 mod screenshot;
 mod shortcut;
@@ -31,20 +32,31 @@ use std::sync::mpsc;
 use tauri::Manager;
 
 /// App commands need no capability from a local origin. Without this barrier, the page window
-/// could reach all of them if it loaded an app origin.
-pub fn main_only<R: tauri::Runtime>(
-    commands: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+/// could reach all of them if it loaded an app origin. `main` reaches `main`'s list; a secondary app
+/// window (`is_secondary`) reaches only `secondary`, a disjoint list whose commands also check their
+/// caller's label; every other window reaches nothing. See `docs/decisions/0014-app-windows.md`.
+pub fn by_window<R: tauri::Runtime>(
+    main: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+    secondary: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+    is_secondary: impl Fn(&str) -> bool + Send + Sync + 'static,
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     move |invoke| {
-        if invoke.message.webview().label() == "main" {
-            commands(invoke)
+        let webview = invoke.message.webview();
+        let label = webview.label();
+        if label == "main" {
+            main(invoke)
+        } else if is_secondary(label) {
+            secondary(invoke)
         } else {
-            invoke
-                .resolver
-                .reject("command restricted to the main window");
+            invoke.resolver.reject("command restricted to app windows");
             true
         }
     }
+}
+
+/// The production rule for secondary app windows, for `by_window` and its tests.
+pub fn is_secondary_window(label: &str) -> bool {
+    main_window::is_secondary(label)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -149,7 +161,11 @@ pub fn run() {
         commands::spelling_check,
         commands::spelling_suggest,
         commands::spelling_add,
+        commands::image_preview_show,
+        commands::image_preview_hide,
     ];
+    let secondary: fn(tauri::ipc::Invoke) -> bool =
+        tauri::generate_handler![commands::image_preview_state];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -164,9 +180,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(debug_assertions)]
             dev::setup(app)?;
-            let window = main_window::create(app)?;
-            platform::edge::filter(&window, platform::edge::Owner::Ui, None)
-                .map_err(|error| format!("{error:?}"))?;
+            let window = main_window::create(app).map_err(|error| format!("{error:?}"))?;
             let side = notes::side(app.handle());
             let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();
@@ -199,7 +213,7 @@ pub fn run() {
                 updates::request_exit(window.app_handle(), false);
             }
         })
-        .invoke_handler(main_only(commands))
+        .invoke_handler(by_window(commands, secondary, is_secondary_window))
         .build(tauri::generate_context!())
         .expect("failed to start application")
         .run(|app, event| {

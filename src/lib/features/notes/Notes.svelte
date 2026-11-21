@@ -64,6 +64,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
+import { imagePreview } from "../image-preview/preview";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import Permission from "../web/Permission.svelte";
 import Reader from "../web/Reader.svelte";
@@ -193,6 +194,12 @@ async function showSkipped(open: boolean) {
 let folders = $state<string[]>([]);
 let error = $state("");
 let editing = $state(false);
+/** The side image preview of thumbnails in the list. */
+const preview = imagePreview();
+// It belongs to reading the list: editing, Browser and Preferences dismiss it.
+$effect(() => {
+  if (editing || browser || inactive) preview.dismiss();
+});
 let query = $state("");
 let noteSearchTyped = $state(false);
 let completionCaret = $state<number | null>(null);
@@ -2222,10 +2229,12 @@ onMount(() => {
     relativeNow = Date.now();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
+  const stopPreview = preview.attach();
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden((ended) => {
+    preview.closed();
     noteSearchTyped = false;
     shortcutSheet.close();
     closeLinkMenu();
@@ -2268,6 +2277,7 @@ onMount(() => {
     });
   return () => {
     window.clearInterval(clock);
+    stopPreview();
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
@@ -2444,7 +2454,8 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu} onwheel={stopScrolling} onpointerdown={stopScrolling}
+      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu} onwheel={() => { stopScrolling(); preview.dismiss(); }} onpointerdown={stopScrolling}
+      onscroll={preview.dismiss} onpointerover={preview.pointerover} onpointerleave={preview.leave} onfocusin={preview.focusin} onfocusout={preview.focusout} onkeydown={preview.keydown}
       onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
       {#if pinned.restorable}
         <div class="restore">

@@ -1,5 +1,5 @@
 // The only point of contact between the UI and the Rust backend.
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
@@ -397,6 +397,39 @@ export const onPanelHidden = (handler: (session: number) => void): Promise<Unlis
 
 /** A backup an interrupted save left next to `note`; `modified` is in ms since the Unix epoch. */
 export type Leftover = { path: string; note: string; modified: number };
+/**
+ * The side image preview, a window beside the panel. `rect` is the thumbnail's box in this
+ * viewport as `[x, y, width, height]` CSS pixels; `natural` is the image's size in pixels. Rust
+ * hides it on its own, as when the panel hides, and then emits `image-preview-closed`.
+ */
+export const imagePreviewShow = (
+  path: string,
+  rect: [number, number, number, number],
+  natural: [number, number],
+) => invoke<void>("image_preview_show", { path, rect, natural });
+export const imagePreviewHide = () => invoke<void>("image_preview_hide");
+export const onImagePreviewClosed = (handler: () => void): Promise<UnlistenFn> =>
+  listen("image-preview-closed", () => handler());
+
+/**
+ * In the preview window itself, which has no capability: it reaches only this command, which
+ * answers what to show now and sends each later change through `onUpdate`. The highest
+ * `version` is the latest, whichever way it arrives.
+ */
+export const isImagePreviewWindow = () => getCurrentWebviewWindow().label === "image-preview";
+/** `side` is the panel's, which the frame's arrow faces; `arrowY` its tip in CSS pixels. */
+export type ImagePreviewUpdate = {
+  version: number;
+  path: string | null;
+  side: "left" | "right";
+  arrowY: number;
+};
+export function imagePreviewState(onUpdate: (update: ImagePreviewUpdate) => void) {
+  const channel = new Channel<ImagePreviewUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke<ImagePreviewUpdate & { locale: Locale }>("image_preview_state", { channel });
+}
+
 export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
 /** Resolves to the path of the restored note. */
 export const notesRestore = (path: string) => invoke<string>("notes_restore", { path });

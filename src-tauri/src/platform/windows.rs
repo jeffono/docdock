@@ -326,6 +326,59 @@ impl PanelWindow {
     }
 }
 
+/// A window shown beside the panel that never takes focus or a click: a tool window that never
+/// activates, disabled and permanently click-through. Unlike [`PanelWindow`], it does not slide.
+#[derive(Debug, Clone, Copy)]
+pub struct OverlayWindow(isize);
+
+impl OverlayWindow {
+    /// Applies the styles to the still-hidden window.
+    pub fn prepare(raw: isize) -> Self {
+        let window = Self(raw);
+        unsafe {
+            let hwnd = window.hwnd();
+            let _ = EnableWindow(hwnd, false);
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            let added =
+                WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0 | WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
+            let style = (style | added) & !WS_EX_APPWINDOW.0;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+        }
+        window
+    }
+
+    fn hwnd(&self) -> HWND {
+        HWND(self.0 as *mut _)
+    }
+
+    /// Shows the window at `rect`, above other windows, without activating it: Tauri's `show`
+    /// would.
+    pub fn show(&self, rect: Rect) {
+        let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
+        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+        let result = unsafe {
+            SetWindowPos(
+                self.hwnd(),
+                Some(HWND_TOPMOST),
+                rect.left,
+                rect.top,
+                width,
+                height,
+                flags,
+            )
+        };
+        log_failure("SetWindowPos", result);
+    }
+
+    pub fn hide(&self) {
+        let _ = unsafe { ShowWindow(self.hwnd(), SW_HIDE) };
+    }
+
+    pub fn exists(&self) -> bool {
+        unsafe { IsWindow(Some(self.hwnd())) }.as_bool()
+    }
+}
+
 /// The outline's rectangles cut to the visible columns of `visible`, as one region.
 /// The outline clipped to `visible`, or `None` if any part of it could not be built.
 fn outline_region(outline: &Outline, visible: Rect) -> Option<HRGN> {

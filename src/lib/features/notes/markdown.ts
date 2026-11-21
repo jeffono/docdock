@@ -1,6 +1,7 @@
 // Markdown rules shared by the reading view and the editor: one parser, one rule for each construct.
 import type { SyntaxNode } from "@lezer/common";
 import { GFM, type MarkdownConfig, parser } from "@lezer/markdown";
+import { noteAssetUrl } from "./asset-url";
 
 const footnoteStart = /^\[\^([^\]\s]+)\]:/;
 
@@ -208,19 +209,6 @@ export function imagePath(source: string, note: string): string | null {
 export function imageUrl(source: string, note: string): string | null {
   const path = imagePath(source, note);
   return path === null ? null : noteAssetUrl(path);
-}
-
-/** Asset URL for a path already relative to the notes folder, with literal file names. */
-export function noteAssetUrl(path: string): string {
-  return `http://note-asset.localhost/${path
-    .split("/")
-    .map((p) =>
-      encodeURIComponent(p).replace(
-        /[!'()*]/g,
-        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
-      ),
-    )
-    .join("/")}`;
 }
 
 /** GitHub alert kind, from the text of a quote's first line starting at its `>`. */
