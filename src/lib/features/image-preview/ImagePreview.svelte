@@ -1,59 +1,48 @@
 <script lang="ts">
-// The image preview window: one note image, sized by Rust to the window. It takes no input, so it
-// has nothing but the image. The theme follows the native window theme Rust sets.
+// The image preview window: one note image, sized by Rust to the window. It takes no input and has
+// no capability; it hears what to show only through its IPC channel. The theme follows the native
+// window theme Rust sets.
 import { onMount } from "svelte";
-import { imagePreviewState, onImagePreview } from "../../ipc";
+import { type ImagePreviewUpdate, imagePreviewState } from "../../ipc";
 import { noteAssetUrl } from "../notes/asset-url";
+import { imageSwap } from "./image-swap";
 
 let frame: HTMLElement;
 let shown = $state(false);
-/** Changes on each new path, so a slower decode never replaces a later image. */
-let turn = 0;
 
-async function show(path: string | null) {
-  const current = ++turn;
-  if (path === null) {
-    clear();
-    return;
-  }
-  // Decoded before the swap, so switching thumbnails never flashes an empty frame.
-  const image = new Image();
-  image.alt = "";
-  image.draggable = false;
-  image.src = noteAssetUrl(path);
-  try {
-    await image.decode();
-  } catch {
-    if (current === turn) clear();
-    return;
-  }
-  if (current !== turn) return;
-  frame.replaceChildren(image);
-  shown = true;
-}
+const show = imageSwap(
+  () => {
+    const image = new Image();
+    image.alt = "";
+    image.draggable = false;
+    return image;
+  },
+  (image) => {
+    frame.replaceChildren(image);
+    shown = true;
+  },
+  () => {
+    for (const image of frame.querySelectorAll("img")) image.removeAttribute("src");
+    frame.replaceChildren();
+    shown = false;
+  },
+);
 
-/** No note image stays in memory once hidden (decision 0009). */
-function clear() {
-  for (const image of frame.querySelectorAll("img")) image.removeAttribute("src");
-  frame.replaceChildren();
-  shown = false;
+/** The answer and the channel may arrive in either order: only a newer generation counts. */
+let latest = -1;
+function apply(update: ImagePreviewUpdate) {
+  if (update.generation <= latest) return;
+  latest = update.generation;
+  void show(update.path === null ? null : noteAssetUrl(update.path));
 }
 
 onMount(() => {
-  // Listening starts before the query, and a path sent meanwhile wins over its older answer.
-  let heard = false;
-  const stop = onImagePreview((path) => {
-    heard = true;
-    void show(path);
-  });
-  void stop
-    .then(() => imagePreviewState())
+  imagePreviewState(apply)
     .then((state) => {
       document.documentElement.lang = state.locale;
-      if (!heard) void show(state.path);
+      apply(state);
     })
     .catch(() => {});
-  return () => void stop.then((unlisten) => unlisten());
 });
 </script>
 

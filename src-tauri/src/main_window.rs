@@ -58,8 +58,29 @@ pub fn app_window(
         .build()
         .map_err(Error::unexpected)?;
     crate::platform::exclude_from_capture(&window);
-    edge::filter(&window, Owner::Ui, None)?;
+    let filtered = edge::filter(&window, Owner::Ui, None);
+    destroy_on_error(&window, filtered)?;
     Ok(window)
+}
+
+/// A secondary app window: hardened as `main`, and taking no dropped files at all. `main` keeps
+/// WebView2's own drops, for images dropped into the editor. Call it off the main thread.
+pub fn secondary_window(
+    app: &AppHandle,
+    builder: WebviewWindowBuilder<'_, Wry, AppHandle>,
+) -> Result<WebviewWindow, Error> {
+    let window = app_window(app, builder)?;
+    let blocked = edge::block_external_drops(&window);
+    destroy_on_error(&window, blocked)?;
+    Ok(window)
+}
+
+/// A window whose setup failed must not stay half-hardened under its label.
+fn destroy_on_error(window: &WebviewWindow, result: Result<(), Error>) -> Result<(), Error> {
+    if result.is_err() {
+        let _ = window.destroy();
+    }
+    result
 }
 
 pub fn create(app: &App) -> Result<WebviewWindow, Error> {

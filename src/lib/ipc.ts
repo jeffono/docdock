@@ -1,5 +1,5 @@
 // The only point of contact between the UI and the Rust backend.
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { emitTo, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
@@ -411,12 +411,18 @@ export const imagePreviewHide = () => invoke<void>("image_preview_hide");
 export const onImagePreviewClosed = (handler: () => void): Promise<UnlistenFn> =>
   listen("image-preview-closed", () => handler());
 
-/** In the preview window itself: it reaches only this command and listens to its own event. */
+/**
+ * In the preview window itself, which has no capability: it reaches only this command, which
+ * answers what to show now and sends each later change through `onUpdate`. The highest
+ * `generation` is the latest, whichever way it arrives.
+ */
 export const isImagePreviewWindow = () => getCurrentWebviewWindow().label === "image-preview";
-export type ImagePreviewState = { path: string | null; locale: Locale };
-export const imagePreviewState = () => invoke<ImagePreviewState>("image_preview_state");
-export const onImagePreview = (handler: (path: string | null) => void): Promise<UnlistenFn> =>
-  listen<{ path: string | null }>("image-preview", (event) => handler(event.payload.path));
+export type ImagePreviewUpdate = { generation: number; path: string | null };
+export function imagePreviewState(onUpdate: (update: ImagePreviewUpdate) => void) {
+  const channel = new Channel<ImagePreviewUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke<ImagePreviewUpdate & { locale: Locale }>("image_preview_state", { channel });
+}
 
 export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
 /** Resolves to the path of the restored note. */

@@ -1,12 +1,14 @@
 //! The side image preview: a thumbnail shown larger in its own window beside the panel. Where it
 //! goes is pure geometry here; the dock thread alone shows, places and hides its window, so it never
 //! races the panel's slides. The window is a secondary app window
-//! ([0014](../../docs/decisions/0014-app-windows.md)).
+//! ([0014](../../docs/decisions/0014-app-windows.md)): it has no capability and hears which image
+//! to show only through the IPC channel it hands over with `image_preview_state`.
 
-use std::sync::Mutex;
 use std::sync::mpsc::Sender;
+use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::dock::{Request, Side};
@@ -15,8 +17,6 @@ use crate::i18n::Locale;
 use crate::platform::{BASE_DPI, Point, Rect, scale_dpi};
 
 pub const LABEL: &str = "image-preview";
-/// Tells the preview window which image to show, `null` to forget it.
-const EVENT: &str = "image-preview";
 /// Tells `main` that Rust hid the preview on its own, such as when the panel hides.
 const CLOSED: &str = "image-preview-closed";
 
@@ -27,23 +27,90 @@ const MARGIN: u32 = 12;
 /// Below this many logical pixels of room beside the panel, the preview is not worth showing.
 const MIN_ROOM: u32 = 120;
 
-/// The image the preview shows or is about to; the dock thread clears it when it hides the window.
-static PATH: Mutex<Option<String>> = Mutex::new(None);
-/// Only one command creates the window. Never taken on the main thread, which creates it.
-static CREATING: Mutex<()> = Mutex::new(());
-
-fn path() -> std::sync::MutexGuard<'static, Option<String>> {
-    PATH.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+/// Which image the preview shows or is about to, and in which turn.
+#[derive(Debug, Default)]
+struct Preview {
+    /// Changes on every show, hide and close, so work started for an earlier turn is dropped.
+    generation: u64,
+    path: Option<String>,
 }
 
+impl Preview {
+    /// Starts a show; its image is published only if `publish` gets this turn back.
+    fn begin(&mut self) -> u64 {
+        self.generation += 1;
+        self.generation
+    }
+
+    /// Publishes `path` for the show started at `generation`, unless a later show, a hide or a close
+    /// came since, or another notes folder was chosen since validation (`folder` then and now).
+    fn publish(&mut self, generation: u64, folder: u64, folder_now: u64, path: String) -> bool {
+        if generation != self.generation || folder != folder_now {
+            return false;
+        }
+        self.path = Some(path);
+        true
+    }
+
+    /// Ends the turn and forgets the image, returning whether there was one.
+    fn close(&mut self) -> bool {
+        self.generation += 1;
+        self.path.take().is_some()
+    }
+
+    fn is_current(&self, generation: u64) -> bool {
+        self.generation == generation && self.path.is_some()
+    }
+}
+
+struct Session {
+    preview: Preview,
+    /// The preview window's channel, from its latest load.
+    channel: Option<Channel<Update>>,
+}
+
+impl Session {
+    fn push(&self) {
+        if let Some(channel) = &self.channel {
+            let update = Update {
+                generation: self.preview.generation,
+                path: self.preview.path.clone(),
+            };
+            // Paths are far below the size Tauri delivers without a fetch command.
+            if let Err(error) = channel.send(update) {
+                eprintln!("[preview] update not delivered: {error}");
+            }
+        }
+    }
+}
+
+static SESSION: Mutex<Session> = Mutex::new(Session {
+    preview: Preview {
+        generation: 0,
+        path: None,
+    },
+    channel: None,
+});
+/// Whether the window exists and is fully set up. Never taken on the main thread, which creates it.
+static READY: Mutex<bool> = Mutex::new(false);
+
+fn session() -> MutexGuard<'static, Session> {
+    SESSION
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// What the preview window shows: the latest `generation` wins, whichever way it arrived.
 #[derive(Serialize, Clone)]
-struct Shown<'a> {
-    path: Option<&'a str>,
+pub struct Update {
+    generation: u64,
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct State {
-    path: Option<String>,
+    #[serde(flatten)]
+    update: Update,
     locale: Locale,
 }
 
@@ -117,15 +184,17 @@ pub fn preview_rect(
 /// Forgets the image and tells both windows, if one was shown or about to be. The caller hides the
 /// window. Returns whether there was one.
 pub fn dismiss(app: &AppHandle) -> bool {
-    if path().take().is_none() {
+    let mut session = session();
+    if !session.preview.close() {
         return false;
     }
-    let _ = app.emit_to(LABEL, EVENT, Shown { path: None });
+    session.push();
     let _ = app.emit_to("main", CLOSED, ());
     true
 }
 
-/// Hides the preview from outside the dock thread, such as when the notes folder goes away.
+/// Hides the preview from outside the dock thread, such as when the notes folder goes away or
+/// another is chosen.
 pub fn close(app: &AppHandle) {
     dismiss(app);
     if let Some(requests) = app.try_state::<Sender<Request>>() {
@@ -133,13 +202,14 @@ pub fn close(app: &AppHandle) {
     }
 }
 
-/// Whether an image waits to be shown: one hidden meanwhile must not reappear.
-pub fn pending() -> bool {
-    path().is_some()
+/// Whether the show started at `generation` is still the one to show.
+pub fn is_current(generation: u64) -> bool {
+    session().preview.is_current(generation)
 }
 
 /// Shows `image`, a path relative to the notes folder, beside its thumbnail at `thumb` (the
-/// thumbnail's CSS box in `main`), creating the window on first use.
+/// thumbnail's CSS box in `main`), creating the window on first use. Fails if a later show, a hide
+/// or a close came meanwhile, or another folder was chosen.
 pub fn show(
     app: &AppHandle,
     requests: &Sender<Request>,
@@ -147,14 +217,19 @@ pub fn show(
     thumb: [i32; 4],
     natural: (u32, u32),
 ) -> Result<(), Error> {
-    crate::notes::check_image(app, &image)?;
+    let generation = session().preview.begin();
+    let folder = crate::notes::check_image(app, &image)?;
     ensure_window(app, requests)?;
-    // Held while sending, so the dock thread sees the request with the path it goes with.
-    let mut current = path();
-    let _ = app.emit_to(LABEL, EVENT, Shown { path: Some(&image) });
-    *current = Some(image);
+    // Held while sending, so the dock thread never sees the request without its image.
+    let mut session = session();
+    let now = crate::notes::folder_choices();
+    if !session.preview.publish(generation, folder, now, image) {
+        return Err(Error::unexpected("image preview superseded"));
+    }
+    session.push();
     requests
         .send(Request::ShowPreview {
+            generation,
             rect: thumb,
             natural,
         })
@@ -162,29 +237,39 @@ pub fn show(
 }
 
 /// Hides the preview at the UI's request; the UI already knows, so `main` is not told.
-pub fn hide(app: &AppHandle, requests: &Sender<Request>) {
-    if path().take().is_some() {
-        let _ = app.emit_to(LABEL, EVENT, Shown { path: None });
+pub fn hide(requests: &Sender<Request>) {
+    let mut session = session();
+    if session.preview.close() {
+        session.push();
     }
     let _ = requests.send(Request::HidePreview);
 }
 
-pub fn state(locale: Locale) -> State {
+/// The preview window's state when it loads; later changes go to `channel`, replacing the one it
+/// handed over before a reload.
+pub fn state(channel: Channel<Update>, locale: Locale) -> State {
+    let mut session = session();
+    session.channel = Some(channel);
     State {
-        path: path().clone(),
+        update: Update {
+            generation: session.preview.generation,
+            path: session.preview.path.clone(),
+        },
         locale,
     }
 }
 
 /// One reusable window, created hidden and handed to the dock thread, which makes it a tool window
-/// that never activates and lets every click through.
+/// that never activates and lets every click through. Reused only once all of that succeeded; a
+/// window whose setup failed is destroyed, so a later show builds it again.
 fn ensure_window(app: &AppHandle, requests: &Sender<Request>) -> Result<(), Error> {
-    let _creating = CREATING
+    let mut ready = READY
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if app.get_webview_window(LABEL).is_some() {
+    if *ready && app.get_webview_window(LABEL).is_some() {
         return Ok(());
     }
+    *ready = false;
     let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
         .title("DocDock image")
         .transparent(true)
@@ -195,11 +280,18 @@ fn ensure_window(app: &AppHandle, requests: &Sender<Request>) -> Result<(), Erro
         .visible(false)
         .focused(false)
         .resizable(false);
-    let window = crate::main_window::app_window(app, builder)?;
-    let raw = window.hwnd().map_err(Error::unexpected)?.0 as isize;
-    requests
-        .send(Request::AttachPreview(raw))
-        .map_err(Error::unexpected)
+    let window = crate::main_window::secondary_window(app, builder)?;
+    let attached = window.hwnd().map_err(Error::unexpected).and_then(|hwnd| {
+        requests
+            .send(Request::AttachPreview(hwnd.0 as isize))
+            .map_err(Error::unexpected)
+    });
+    if let Err(error) = attached {
+        let _ = window.destroy();
+        return Err(error);
+    }
+    *ready = true;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -308,6 +400,37 @@ mod tests {
     fn an_image_without_size_shows_nothing() {
         assert_eq!(place(Side::Right, 0, (0, 300), 96), None);
         assert_eq!(place(Side::Left, 0, (300, 0), 96), None);
+    }
+
+    // Catches an opening paused between validation and publication bringing back an image after
+    // the preview closed for a locked vault, or showing a same-named image from another folder.
+    #[test]
+    fn a_paused_opening_never_outlives_a_close_or_a_folder_change() {
+        let mut preview = Preview::default();
+        let generation = preview.begin();
+        // The folder became unavailable meanwhile: the monitor closed the preview.
+        preview.close();
+        assert!(!preview.publish(generation, 0, 0, "a.png".into()));
+        assert_eq!(preview.path, None);
+        assert!(!preview.is_current(generation));
+
+        let generation = preview.begin();
+        // Another folder was chosen after validation.
+        assert!(!preview.publish(generation, 0, 1, "a.png".into()));
+        assert_eq!(preview.path, None);
+    }
+
+    #[test]
+    fn only_the_latest_opening_publishes() {
+        let mut preview = Preview::default();
+        let first = preview.begin();
+        let second = preview.begin();
+        assert!(!preview.publish(first, 0, 0, "a.png".into()));
+        assert!(preview.publish(second, 0, 0, "b.png".into()));
+        assert!(preview.is_current(second));
+        assert!(!preview.is_current(first));
+        assert!(preview.close());
+        assert!(!preview.is_current(second));
     }
 
     // Catches the thumbnail's box landing elsewhere on a scaled monitor or overflowing.

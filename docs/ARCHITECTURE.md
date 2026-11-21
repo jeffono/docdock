@@ -60,8 +60,9 @@ flowchart LR
 
 - **Commands** are accepted from the `main` window and, each from its own disjoint list, from
   secondary app windows such as the image preview (`by_window` in `lib.rs`,
-  [0014](decisions/0014-app-windows.md)); events always name their window with `emit_to`. Errors are `{ code, ...fields }` (`error.rs`) and `i18n.ts` turns each code into
-  text; `detail` carries the operating system's message. Commands that touch the notes folder run off
+  [0014](decisions/0014-app-windows.md)). Events always name their window with `emit_to`;
+  secondary windows have no capability and hear Rust only through an IPC channel they hand over.
+  Errors are `{ code, ...fields }` (`error.rs`) and `i18n.ts` turns each code into text; `detail` carries the operating system's message. Commands that touch the notes folder run off
   the main thread, since an offline share can take seconds to answer.
 - **Settings** live in `settings.json` in the app configuration directory and hold only preferences
   and the folder path, never note content or names ([0009](decisions/0009-note-privacy.md)). One
@@ -140,10 +141,14 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   slides or memory. The UI (`features/image-preview/trigger.ts`, pure) sends the thumbnail's CSS
   box and the image's natural size; `preview.rs` turns them into physical pixels from the panel
   window's origin and DPI and places the image beside the panel, past the edge tab. It shows only
-  over the resting open panel in Notes without a dialog; hiding the panel, a placement change (monitor,
-  side, tab, width), showing the page, a dialog, the shortcut or the folder going away hide it, and
-  Rust then tells both windows (`image-preview` with no path, `image-preview-closed` to `main`).
-  The window decodes the next image before swapping and drops it when hidden.
+  over the resting open panel in Notes without a dialog; hiding the panel, a placement change
+  (monitor, side, tab, width), showing the page, a dialog, the shortcut, the folder going away or
+  another folder chosen hide it, and Rust then tells both windows (no path on the preview's channel,
+  `image-preview-closed` to `main`). Every show, hide and close starts a new generation: a show
+  publishes its image, and the dock thread shows it, only while its generation is current and no
+  other folder was chosen since it validated the path, so a slow show never outlives a hide or a
+  locked vault. The window decodes the next image before swapping and drops any image, decoding or
+  shown, when it hides.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
   `tweak-state`, and `dock.rs` reads the live tuning, or the constants in release builds, once per

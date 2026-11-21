@@ -54,6 +54,11 @@ pub fn by_window<R: tauri::Runtime>(
     }
 }
 
+/// The production rule for secondary app windows, for `by_window` and its tests.
+pub fn is_secondary_window(label: &str) -> bool {
+    main_window::is_secondary(label)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
@@ -208,7 +213,7 @@ pub fn run() {
                 updates::request_exit(window.app_handle(), false);
             }
         })
-        .invoke_handler(by_window(commands, secondary, main_window::is_secondary))
+        .invoke_handler(by_window(commands, secondary, is_secondary_window))
         .build(tauri::generate_context!())
         .expect("failed to start application")
         .run(|app, event| {

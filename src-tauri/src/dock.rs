@@ -61,8 +61,10 @@ pub enum Request {
     /// The image preview window was created and is still invisible.
     AttachPreview(isize),
     /// Shows the image preview beside a thumbnail: `rect` is its CSS box in the panel's viewport,
-    /// as `[x, y, width, height]`, and `natural` the image's size in pixels.
+    /// as `[x, y, width, height]`, and `natural` the image's size in pixels. Only while
+    /// `generation` is still the preview's current show.
     ShowPreview {
+        generation: u64,
         rect: [i32; 4],
         natural: (u32, u32),
     },
@@ -513,8 +515,12 @@ impl Dock {
                 self.preview = Some(OverlayWindow::prepare(raw));
                 Action::None
             }
-            Request::ShowPreview { rect, natural } => {
-                self.show_preview(rect, natural);
+            Request::ShowPreview {
+                generation,
+                rect,
+                natural,
+            } => {
+                self.show_preview(generation, rect, natural);
                 Action::None
             }
             Request::HidePreview => {
@@ -529,11 +535,13 @@ impl Dock {
 
     /// Shows the image preview beside the thumbnail at `thumb` only over the resting, open panel
     /// in Notes, without a dialog: anything else hides it.
-    fn show_preview(&mut self, thumb: [i32; 4], natural: (u32, u32)) {
+    fn show_preview(&mut self, generation: u64, thumb: [i32; 4], natural: (u32, u32)) {
+        // A later show, or the hide or close that replaced it, decides instead.
+        if !crate::preview::is_current(generation) {
+            return;
+        }
         let resting = self.is_open() && self.slide.is_none() && !self.web_visible && !self.dialog;
-        let window = self
-            .preview
-            .filter(|window| resting && crate::preview::pending() && window.exists());
+        let window = self.preview.filter(|window| resting && window.exists());
         let tab = self.tuning.tab;
         let framed = handle::framed_rect(&self.monitor, self.rect, self.side, tab);
         let origin = Point {

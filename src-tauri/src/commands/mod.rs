@@ -474,19 +474,21 @@ pub async fn image_preview_show(
     crate::preview::show(&app, &requests, path, rect, natural)
 }
 #[tauri::command]
-pub fn image_preview_hide(app: AppHandle, requests: State<'_, Sender<Request>>) {
-    crate::preview::hide(&app, &requests);
+pub fn image_preview_hide(requests: State<'_, Sender<Request>>) {
+    crate::preview::hide(&requests);
 }
-/// The preview window's only command: what it shows when it loads.
+/// The preview window's only command: what it shows when it loads, and the channel for what it
+/// shows next.
 #[tauri::command]
 pub fn image_preview_state(
     webview: tauri::Webview,
     locale: State<'_, Locale>,
+    channel: tauri::ipc::Channel<crate::preview::Update>,
 ) -> Result<crate::preview::State, Error> {
     if webview.label() != crate::preview::LABEL {
         return Err(Error::unexpected("command restricted to the image preview"));
     }
-    Ok(crate::preview::state(*locale))
+    Ok(crate::preview::state(channel, *locale))
 }
 
 /// Outside the command barrier in `lib.rs`: the protocol exists in every window and Tauri identifies

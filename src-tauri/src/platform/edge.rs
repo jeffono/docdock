@@ -9,7 +9,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR, COREWEBVIEW2_KEY_EVENT_KIND,
     COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
     ICoreWebView2_11, ICoreWebView2AcceleratorKeyPressedEventArgs2,
-    ICoreWebView2ContextMenuItemCollection, ICoreWebView2Environment9,
+    ICoreWebView2ContextMenuItemCollection, ICoreWebView2Controller4, ICoreWebView2Environment9,
 };
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler,
@@ -337,6 +337,26 @@ pub fn filter(
         return Ok(());
     }
     super::installed(receiver, None, "key filter", "key filter not installed")
+}
+
+/// Refuses files and other data dragged in from outside. Tauri's `disable_drag_drop_handler` only
+/// removes its own handler and leaves WebView2's HTML drops on. Waits for the WebView2 UI thread, so
+/// call it off that thread.
+pub fn block_external_drops(window: &WebviewWindow) -> Result<(), Error> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window.with_webview(move |view| unsafe {
+        let blocked = view
+            .controller()
+            .cast::<ICoreWebView2Controller4>()
+            .and_then(|controller| controller.SetAllowExternalDrop(false));
+        let _ = sender.send(blocked);
+    })?;
+    super::installed(
+        receiver,
+        None,
+        "external drops",
+        "external drops not blocked",
+    )
 }
 
 #[cfg(test)]

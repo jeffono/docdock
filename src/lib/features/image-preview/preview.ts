@@ -20,6 +20,22 @@ export function imagePreview() {
   const run = (call: () => Promise<void>) => {
     queue = queue.then(call).catch(() => {});
   };
+  /** Changes on every show, hide and close, so a show still queued behind them is dropped. */
+  let turn = 0;
+  // A note refresh can re-render the shown or hovered thumbnail while the pointer rests: the
+  // preview would then point at nothing.
+  const removal = new MutationObserver(() => {
+    if (state.shown && !state.shown.isConnected) send({ kind: "dismiss" });
+    else if (state.waiting && !state.waiting.isConnected) send({ kind: "leave" });
+  });
+  let observing = false;
+  function observe() {
+    const active = state.shown !== null || state.waiting !== null;
+    if (active === observing) return;
+    observing = active;
+    if (active) removal.observe(document.body, { childList: true, subtree: true });
+    else removal.disconnect();
+  }
 
   function send(input: Input<HTMLElement>) {
     const before = state;
@@ -31,6 +47,8 @@ export function imagePreview() {
       if (waiting)
         timer = window.setTimeout(() => send({ kind: "elapsed", thumb: waiting }), HOVER_DELAY);
     }
+    if (effect !== "none" || input.kind === "closed") turn++;
+    observe();
     if (effect === "show" && next.shown) reveal(next.shown);
     else if (effect === "hide") run(imagePreviewHide);
   }
@@ -51,12 +69,14 @@ export function imagePreview() {
       Math.round(box.height),
     ];
     const natural: [number, number] = [image.naturalWidth, image.naturalHeight];
-    run(() =>
-      imagePreviewShow(path, rect, natural).catch(() => {
+    const mine = turn;
+    run(() => {
+      if (mine !== turn) return Promise.resolve();
+      return imagePreviewShow(path, rect, natural).catch(() => {
         // Gone or no longer in the notes folder: hide whatever showed before it.
         if (state.shown === thumb) send({ kind: "dismiss" });
-      }),
-    );
+      });
+    });
   }
 
   const dismiss = () => send({ kind: "dismiss" });
@@ -112,6 +132,7 @@ export function imagePreview() {
         void closed.then((stop) => stop());
         dismiss();
         window.clearTimeout(timer);
+        removal.disconnect();
       };
     },
   };

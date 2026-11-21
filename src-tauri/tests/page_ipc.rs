@@ -1,5 +1,5 @@
 //! The page window shows untrusted remote pages: it must reach no command, from any origin.
-//! Secondary app windows reach only their own commands and only listen to events.
+//! Secondary app windows reach only their own commands and no core command at all.
 //! An integration test because only test targets can get the comctl32 v6 manifest; see `build.rs`.
 
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
@@ -23,23 +23,40 @@ const COMMANDS: [(&str, &str); 3] = [
     ),
     ("plugin:event|unlisten", r#"{"event":"probe","eventId":0}"#),
 ];
+/// Core commands with valid arguments: `main` reaches the event ones its capability names, and no
+/// other window reaches any.
+const CORE: [(&str, &str); 6] = [
+    (
+        "plugin:event|listen",
+        r#"{"event":"probe","target":{"kind":"Any"},"handler":0}"#,
+    ),
+    ("plugin:event|unlisten", r#"{"event":"probe","eventId":0}"#),
+    ("plugin:event|emit", r#"{"event":"probe"}"#),
+    (
+        "plugin:event|emit_to",
+        r#"{"target":{"kind":"Any"},"event":"probe"}"#,
+    ),
+    ("plugin:window|title", "{}"),
+    ("plugin:window|start_dragging", "{}"),
+];
 const UI: &str = "http://tauri.localhost/";
 /// Origins Tauri treats as local: the UI, `localhost:1420` (the UI in `tauri dev`) and the
 /// registered `note-asset` scheme. A page window that loaded one must still reach nothing.
 const LOCAL: [&str; 3] = [UI, "http://localhost:1420/", "http://note-asset.localhost/"];
-/// Secondary app windows the barrier knows: the image preview and a registered floating window.
-const SECONDARY: [&str; 2] = ["image-preview", "float-1"];
+/// Windows that are neither `main` nor secondary: the page, the development tweak window and a
+/// floating-window label nothing registered.
+const OTHERS: [&str; 3] = ["web", "tweak", "float-9"];
 
 type Window = WebviewWindow<MockRuntime>;
 
-/// The app's real capabilities and barrier, with `probe` standing in for `main`'s commands and
-/// `secondary_probe` for the secondary windows' ones.
+/// The app's real capabilities, barrier and secondary-window rule, with `probe` standing in for
+/// `main`'s commands and `secondary_probe` for the secondary windows' ones.
 fn app() -> App<MockRuntime> {
     mock_builder()
         .invoke_handler(docdock_lib::by_window(
             tauri::generate_handler![probe],
             tauri::generate_handler![secondary_probe],
-            |label| SECONDARY.contains(&label),
+            docdock_lib::is_secondary_window,
         ))
         // Registered as in production: registered schemes take part in classifying local origins.
         .register_uri_scheme_protocol("note-asset", |_, _| tauri::http::Response::new(Vec::new()))
@@ -75,6 +92,11 @@ fn call(
             invoke_key: INVOKE_KEY.into(),
         },
     )
+}
+
+/// The error text, so a test tells a refusal from arguments the command could not take.
+fn refusal(result: Result<InvokeResponseBody, serde_json::Value>) -> String {
+    result.map(|_| ()).unwrap_err().to_string()
 }
 
 #[test]
@@ -124,7 +146,7 @@ fn local_origins_reach_app_commands_only_from_app_windows() {
             invoke(&main, "probe", url).is_ok(),
             "probe from main at {url}"
         );
-        let error = invoke(&web, "probe", url).unwrap_err().to_string();
+        let error = refusal(invoke(&web, "probe", url));
         assert!(
             error.contains("app windows"),
             "probe from web at {url}: {error}"
@@ -145,52 +167,44 @@ fn remote_origins_reach_no_command() {
 }
 
 #[test]
-fn secondary_windows_reach_only_secondary_commands() {
+fn image_preview_reaches_only_secondary_commands() {
+    let app = app();
+    let (main, preview) = (window(&app, "main"), window(&app, "image-preview"));
+    assert!(invoke(&preview, "secondary_probe", UI).is_ok());
+    let error = refusal(invoke(&preview, "probe", UI));
+    assert!(error.contains("not found"), "{error}");
+    let error = refusal(invoke(&main, "secondary_probe", UI));
+    assert!(error.contains("not found"), "{error}");
+}
+
+/// The barrier, not a missing command, refuses every other window, including a `float-*` label no
+/// floating window registered.
+#[test]
+fn other_windows_reach_no_app_command() {
+    let app = app();
+    for label in OTHERS {
+        let other = window(&app, label);
+        for cmd in ["probe", "secondary_probe"] {
+            let error = refusal(invoke(&other, cmd, UI));
+            assert!(error.contains("app windows"), "{cmd} from {label}: {error}");
+        }
+    }
+}
+
+/// Secondary windows have no capability: the ACL refuses every core command with arguments `main`
+/// accepts, so they can neither hear other windows' events nor drive a window.
+#[test]
+fn secondary_and_other_windows_reach_no_core_command() {
     let app = app();
     let main = window(&app, "main");
-    assert!(invoke(&main, "secondary_probe", UI).is_err(), "from main");
-    for label in SECONDARY {
-        let secondary = window(&app, label);
-        assert!(invoke(&secondary, "secondary_probe", UI).is_ok(), "{label}");
-        assert!(invoke(&secondary, "probe", UI).is_err(), "{label}");
+    for (cmd, args) in &CORE[..2] {
+        assert!(call(&main, cmd, args, UI).is_ok(), "{cmd} from main");
     }
-}
-
-/// A `float-*` label matches the capability, but the barrier knows only registered live windows.
-#[test]
-fn unregistered_float_label_reaches_nothing() {
-    let app = app();
-    let stray = window(&app, "float-9");
-    for cmd in ["probe", "secondary_probe"] {
-        assert!(invoke(&stray, cmd, UI).is_err(), "{cmd}");
-    }
-}
-
-/// Secondary windows hear what Rust sends them, and can neither send events nor drive windows.
-#[test]
-fn secondary_windows_only_listen() {
-    let app = app();
-    for label in SECONDARY {
-        let secondary = window(&app, label);
-        let unlisten = r#"{"event":"probe","eventId":0}"#;
-        assert!(
-            call(&secondary, "plugin:event|unlisten", unlisten, UI).is_ok(),
-            "{label}"
-        );
-        for (cmd, args) in [
-            (
-                "plugin:event|emit_to",
-                r#"{"target":{"kind":"Any"},"event":"probe"}"#,
-            ),
-            ("plugin:event|emit", r#"{"event":"probe"}"#),
-            ("plugin:window|title", "{}"),
-            ("plugin:window|show", "{}"),
-            ("plugin:window|set_focus", "{}"),
-        ] {
-            assert!(
-                call(&secondary, cmd, args, UI).is_err(),
-                "{cmd} from {label}"
-            );
+    for label in ["image-preview"].into_iter().chain(OTHERS) {
+        let other = window(&app, label);
+        for (cmd, args) in CORE {
+            let error = refusal(call(&other, cmd, args, UI));
+            assert!(error.contains("not allowed"), "{cmd} from {label}: {error}");
         }
     }
 }
