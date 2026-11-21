@@ -35,6 +35,8 @@ const paths = {
     "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1 M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2",
   /** Lucide picture-in-picture-2: detach as a floating window. */
   pictureInPicture: `${PIP_FRAME} ${PIP_WINDOW}`,
+  /** Lucide blend: transparency. */
+  blend: "M16 9a7 7 0 1 1-14 0 7 7 0 0 1 14 0 M22 15a7 7 0 1 1-14 0 7 7 0 0 1 14 0",
   /** Lucide mouse-pointer-click: clicks pass through to the windows below. */
   clickThrough:
     "M14 4.1 12 6 M5.1 8l-2.9-.8 M6 12l-1.9 2 M7.2 2.2 8 5.1 M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z",

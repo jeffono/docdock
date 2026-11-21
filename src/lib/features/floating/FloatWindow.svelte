@@ -20,6 +20,7 @@ import {
   floatZoom,
   type ResizeDirection,
 } from "../../ipc";
+import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
 import { noteAssetUrl } from "../notes/asset-url";
 import { MIN_OPACITY, OPACITY_STEP, stepOpacity } from "./opacity";
@@ -162,12 +163,16 @@ function wheel(event: WheelEvent) {
   }
 }
 
-/** Ctrl+drag pans an image zoomed inside the window; any other drag moves the window. */
+/**
+ * Ctrl+drag pans an image zoomed inside the window; any other drag moves the window. Ctrl never
+ * moves it: the native move loop would take the second click of a Ctrl+double-click.
+ */
 let panning: { pointer: number; from: Point; start: Point } | null = null;
 function pointerdown(event: PointerEvent) {
   if (event.button !== 0 || (event.target as Element).closest("button, input, .edge")) return;
   event.preventDefault();
-  if (event.ctrlKey && !event.altKey && zoom > 1) {
+  if (event.ctrlKey && !event.altKey) {
+    if (zoom <= 1) return;
     root.setPointerCapture(event.pointerId);
     panning = {
       pointer: event.pointerId,
@@ -192,13 +197,20 @@ function pointerup(event: PointerEvent) {
 }
 
 /** Ctrl+double-click returns to the whole image, at its natural size where it fits. */
-function reset(event: MouseEvent) {
+async function reset(event: MouseEvent) {
   if (!event.ctrlKey || event.altKey) return;
+  if ((event.target as Element).closest("button, input, .edge")) return;
   event.preventDefault();
   zoom = 1;
   pan = { x: 0, y: 0 };
   const natural = naturalSize();
-  if (natural.width > 0) void floatZoom(natural.width).catch(() => {});
+  if (natural.width === 0) return;
+  atMax = false;
+  try {
+    atMax = (await floatZoom(natural.width)).atMax;
+  } catch {
+    // A window closing meanwhile.
+  }
 }
 
 function resize(event: PointerEvent, direction: ResizeDirection) {
@@ -270,6 +282,8 @@ onMount(() => {
   </div>
   <div class="bar" class:shown={controls}>
     {#if percent > 0}<span class="zoom">{percent}%</span>{/if}
+    <span class="opacity" class:apart={percent > 0}>
+      <Icon name="blend" />
     <input
       bind:this={range}
       type="range"
@@ -283,6 +297,7 @@ onMount(() => {
       tabindex="-1"
       oninput={(event) => void setOpacity(Number(event.currentTarget.value) / 100)}
     />
+    </span>
     <IconButton
       icon="clickThrough"
       quiet
@@ -360,17 +375,36 @@ onMount(() => {
 
   /* How large the image shows against its natural size, inside zoom included. */
   .zoom {
-    margin-left: var(--space-1);
+    margin: 0 var(--space-1);
     color: var(--color-muted);
     font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;
     user-select: none;
   }
 
+  /* The opacity's own group, an icon and its slider, set apart from the zoom by a line so the
+     slider never reads as the zoom's. */
+  .opacity {
+    display: flex;
+    align-items: center;
+    color: var(--color-muted);
+  }
+
+  .opacity.apart {
+    margin-left: var(--space-1);
+    padding-left: var(--space-2);
+    border-left: 1px solid var(--color-line);
+  }
+
+  .opacity :global(svg) {
+    width: calc(0.875 * var(--size-icon));
+    height: calc(0.875 * var(--size-icon));
+  }
+
   /* A short, thin monochrome track, solid up to the thumb, and a small round thumb: no accent,
      nothing to compete with the image. `--fill` comes from the script. */
   input[type="range"] {
-    width: calc(2 * var(--size-control));
+    width: calc(1.5 * var(--size-control));
     height: var(--size-control);
     margin: 0 var(--space-1);
     appearance: none;
@@ -399,7 +433,7 @@ onMount(() => {
 
   /* A narrow window keeps room for toggling and closing. */
   @media (max-width: 12rem) {
-    input[type="range"],
+    .opacity,
     .zoom {
       display: none;
     }
