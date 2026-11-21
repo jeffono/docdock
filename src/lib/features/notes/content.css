@@ -145,6 +145,44 @@
   border-radius: var(--radius-sm);
 }
 
+.note-content .image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.note-content .image-thumb {
+  aspect-ratio: 1;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--duration);
+}
+
+.note-content .image-thumb:hover {
+  border-color: var(--color-muted);
+}
+
+.note-content .image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-content .image-thumb {
+    transition: none;
+  }
+}
+
 .note-content :is(table) {
   display: block;
   border-collapse: collapse;

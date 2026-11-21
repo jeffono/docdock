@@ -9,9 +9,10 @@ import {
   definitions,
   footnoteLabel,
   frontmatter,
-  imageUrl,
+  imagePath,
   linkTarget,
   maxDepth,
+  noteAssetUrl,
   noteParser,
   safeHref,
 } from "./markdown";
@@ -20,6 +21,7 @@ type Tag =
   | "a"
   | "blockquote"
   | "br"
+  | "button"
   | "code"
   | "del"
   | "div"
@@ -53,6 +55,10 @@ type Attrs = {
   title?: string;
   src?: string;
   alt?: string;
+  type?: "button";
+  loading?: "lazy";
+  "data-image"?: string;
+  "aria-label"?: string;
   id?: string;
   start?: number;
   checked?: boolean;
@@ -233,6 +239,8 @@ class Renderer {
     switch (name) {
       case "Paragraph": {
         const from = Math.max(node.from, skipTo);
+        const grid = this.imageGrid(node, from);
+        if (grid) return grid;
         const children = this.inline(node, from, node.to);
         return children.length ? this.at(el("p", {}, children), from, node.to) : null;
       }
@@ -316,6 +324,41 @@ class Renderer {
         // Raw HTML blocks, comments and anything unknown stay visible as text.
         return el("p", { class: "raw" }, [this.slice(node.from, node.to)]);
     }
+  }
+
+  imageGrid(node: SyntaxNode, from: number): Element | null {
+    const thumbs: Element[] = [];
+    let pos = from;
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.to <= from) continue;
+      if (child.from < from || this.slice(pos, child.from).trim()) return null;
+      pos = child.to;
+      if (child.name === "HardBreak" || child.name === "QuoteMark") continue;
+      if (child.name === "HTMLTag" && /^<br[ \t]*\/?>$/i.test(this.slice(child.from, child.to)))
+        continue;
+      if (child.name === "Entity" && !decodeEntity(this.slice(child.from, child.to)).trim())
+        continue;
+      if (child.name !== "Image") return null;
+      const [image] = this.inlineNode(child);
+      if (typeof image === "string" || image?.tag !== "img") return null;
+      const path = image.attrs?.["data-image"];
+      if (!path) return null;
+      const label = image.attrs?.alt?.trim() || path.slice(path.lastIndexOf("/") + 1);
+      thumbs.push(
+        this.at(
+          el(
+            "button",
+            { type: "button", class: "image-thumb", "data-image": path, "aria-label": label },
+            [image],
+          ),
+          child.from,
+          child.to,
+        ),
+      );
+    }
+    return thumbs.length >= 2 && !this.slice(pos, node.to).trim()
+      ? this.at(el("div", { class: "image-grid" }, thumbs), from, node.to)
+      : null;
   }
 
   /** Code lines without their fences and without the container prefix the fence itself has. */
@@ -466,10 +509,11 @@ class Renderer {
         );
         const target = linkTarget(node, this.slice, this.defs);
         if (!target) return [this.slice(node.from, node.to)];
-        const src = this.note === null ? null : imageUrl(target.url, this.note);
-        return src
-          ? [whole(el("img", target.title ? { src, alt, title: target.title } : { src, alt }))]
-          : [alt];
+        const path = this.note === null ? null : imagePath(target.url, this.note);
+        if (path === null) return [alt];
+        const attrs: Attrs = { src: noteAssetUrl(path), alt, loading: "lazy", "data-image": path };
+        if (target.title !== undefined) attrs.title = target.title;
+        return [whole(el("img", attrs))];
       }
       case "Autolink":
       case "URL": {
@@ -534,9 +578,13 @@ function toDom(content: Content[], doc: Document = document): DocumentFragment {
     if (attrs.class) node.className = attrs.class;
     if (attrs.id) node.id = attrs.id;
     if (attrs.href) node.setAttribute("href", attrs.href);
-    if (attrs.title) node.title = attrs.title;
+    if (attrs.title !== undefined) node.title = attrs.title;
+    if (attrs.type) node.setAttribute("type", attrs.type);
+    if (attrs.loading) node.setAttribute("loading", attrs.loading);
     if (attrs.src) node.setAttribute("src", attrs.src);
     if (attrs.alt !== undefined) node.setAttribute("alt", attrs.alt);
+    if (attrs["data-image"]) node.setAttribute("data-image", attrs["data-image"]);
+    if (attrs["aria-label"]) node.setAttribute("aria-label", attrs["aria-label"]);
     if (attrs.start !== undefined) node.setAttribute("start", String(attrs.start));
     if (item.tag === "input") {
       const input = node as HTMLInputElement;

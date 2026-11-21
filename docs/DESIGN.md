@@ -342,8 +342,8 @@ notes differ only in section and starting state.
   inline code span or fenced block shows both delimiters, including the info string. During a pointer
   gesture the reveal waits, so text does not move under a click.
 - **Images:** paste an image or drop image files from Explorer into the editor to insert them at the
-  current selection. Multiple dropped images are inserted in order. The editor ignores non-image
-  files.
+  current selection. A drop inserts images in order. Single line breaks join consecutive pastes and
+  images dropped together into one paragraph. The editor ignores non-image files.
 - **Conflicts:** a primary Keep my version and a secondary Discard my changes above the text; errors in
   red beside it.
 - **Footer:** muted word and character counts and reading (300–175 words per minute) and speaking
@@ -408,8 +408,11 @@ notes differ only in section and starting state.
 
 ## Rendered content
 
-- Reading and editing share `features/notes/content.css`, scoped by `.note-content`. Raw HTML shows as
-  plain text. List paragraphs stay tight, like editor lines.
+- Reading and editing share `features/notes/content.css`, scoped by `.note-content`. List paragraphs
+  stay tight, like editor lines.
+- Images load lazily. A paragraph containing only two or more local images, separated by whitespace
+  or line breaks, shows a grid of square thumbnails. Tab reaches them in the expanded note. A plain
+  `<br>` counts as a line break in a grid. Raw HTML elsewhere shows as plain text.
 - Code: inline code and blocks use the recessed `--color-bg` with `--radius-sm`; inline code has
   `--space-1` at each side; blocks have `--space-2` vertical and `--space-3` horizontal padding and a
   `--color-line` border. The editor frames code lines, fences included while visible, as one block.

@@ -26,6 +26,7 @@ import { editorExtensions, editorState } from "./editor";
 import cssUrl from "./editor.css?url";
 import { editorLinkAt, editorLinkClick } from "./editor-links";
 import type { FolderGone } from "./folder-state";
+import { imageInsertion } from "./image-paste";
 import { keepInPlace } from "./keep-in-place";
 import { linkAction, linkMenuKey } from "./link-actions";
 import { notePath } from "./live-formatting";
@@ -282,21 +283,34 @@ function insertImages(editor: EditorView, files: File[]) {
   editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
   pasting = (async () => {
     try {
-      let nextSelection = selection;
+      const attachments: string[] = [];
       for (const file of files) {
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
           if (disposed) return;
           const attachment = await notesPasteImage(path, bytes);
           if (disposed) return;
-          editor.dispatch({ selection: nextSelection });
-          editor.dispatch(editor.state.replaceSelection(`![](${attachment})`));
-          nextSelection = editor.state.selection;
+          attachments.push(attachment);
         } catch (e) {
           if (disposed) return;
           error = failure(e);
           if (folderGone) break;
         }
+      }
+      if (attachments.length) {
+        editor.dispatch({ selection });
+        const { state } = editor;
+        editor.dispatch(
+          state.changeByRange(({ from, to }) => {
+            const before = state.sliceDoc(state.doc.lineAt(from).from, from);
+            const after = state.sliceDoc(to, state.doc.lineAt(to).to);
+            const { insert, cursorOffset } = imageInsertion(before, after, attachments);
+            return {
+              changes: { from, to, insert },
+              range: EditorSelection.cursor(from + cursorOffset),
+            };
+          }),
+        );
       }
     } finally {
       pasting = undefined;

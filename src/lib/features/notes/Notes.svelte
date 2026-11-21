@@ -2122,7 +2122,7 @@ function shortcut(event: KeyboardEvent) {
   const field = !inBar && inField(event);
   const ctrl = event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey;
   const key = event.key.toLowerCase();
-  // Cycle panel areas and expanded note links without leaving the WebView.
+  // Cycle panel areas and expanded note controls without leaving the WebView.
   if (
     key === "tab" &&
     (!field || (event.target instanceof HTMLElement && event.target.closest(".note-order"))) &&
@@ -2143,7 +2143,7 @@ function shortcut(event: KeyboardEvent) {
         ? [
             list,
             ...list.querySelectorAll<HTMLElement>(
-              ".note-order > button, .card.expanded .body a[href]",
+              ".note-order > button, .card.expanded .body a[href], .card.expanded .body .image-thumb",
             ),
           ]
         : []),
@@ -2204,8 +2204,13 @@ function shortcut(event: KeyboardEvent) {
     input?.select();
     return;
   }
-  // Enter activates a focused reading link instead of reopening its card.
-  if (event.key === "Enter" && event.target instanceof HTMLAnchorElement) return;
+  // Let focused reading controls handle Enter.
+  if (
+    event.key === "Enter" &&
+    event.target instanceof HTMLElement &&
+    event.target.matches("a[href], .image-thumb")
+  )
+    return;
   // The bar's keys ran in capture.
   if (!inBar && !field) listKey(event, false);
 }
