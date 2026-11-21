@@ -299,6 +299,10 @@ impl Dock {
     fn place(&mut self, monitor: Monitor) {
         // Placed for the old monitor, side, tab or width.
         self.hide_preview();
+        self.place_window(monitor);
+    }
+
+    fn place_window(&mut self, monitor: Monitor) {
         self.monitor = monitor;
         self.rect = panel_rect(&monitor, self.side, self.width);
         self.parked_x = parked_x(&monitor, self.side, self.rect);
@@ -887,7 +891,9 @@ pub fn start(
         escape_spent: false,
         slide: None,
     };
-    dock.place(monitor);
+    // Runs on the main thread during setup, before any preview exists, so skip `hide_preview`
+    // to keep `preview::SESSION` strictly off the main thread.
+    dock.place_window(monitor);
     std::thread::spawn(move || dock.run(requests));
 }
 
