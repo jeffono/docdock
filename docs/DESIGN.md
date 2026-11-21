@@ -39,7 +39,8 @@ A neutral, compact system utility. Only the user changes the identity.
 
 - Spacing only from the `--space-*` scale, in 4 px increments.
 - Controls use `--size-control`, bars use `--size-bar`, icons `--size-icon` and corners `--radius-sm`.
-- `--color-line` lines separate areas; no shadows.
+- `--color-line` lines separate areas; no shadows, except a hovered floating window's (see
+  "Floating images").
 - One content column for the whole panel: bars, section labels and cards start `--space-4` +
   `--space-2` from the panel's left edge (the chevron gutter) and end `--space-3` from the right edge.
   Nothing else uses its own margin.
@@ -430,25 +431,37 @@ notes differ only in section and starting state.
   shows a `pictureInPicture` `IconButton` on a `--color-surface` backing inside its top right
   corner, `--space-1` from the edges; it never moves the note. It, or "Open as floating window" in
   the image's menu (right click, Shift+F10 or Menu, with "Image actions" as the menu's name),
-  detaches the image into its own window where the preview would show it, a little lower and to
-  the right of each window already open (24 logical px per window), at most 8 at once ("Up to 8
-  floating windows can be open; close one first." in the danger color otherwise). A floating
-  window is borderless, without shadow, topmost and excluded from capture; clicking or dragging it
-  never takes focus from the app in use, and the panel stays as it was. The image fills the window
-  with `object-fit: contain`. While hovered, a thin `--color-line` outline shows the window's edge
-  and a bar of controls appears inside the top right corner (`--color-surface`, 1 px
-  `--color-line`, `--radius-sm`, `--space-1` padding and gaps): an opacity slider from 15% to 100%
-  in 5% steps (also the wheel over the bar, or Ctrl+wheel anywhere), "Let clicks through" as a
-  pressed `IconButton` toggle and Close. Only the image fades: the bar stays opaque. Dragging the
-  image or the bar's background moves the window; invisible strips 6 px wide along the edges and
-  corners resize it, down to 96 logical px each way. Letting clicks through hides the controls and
-  passes every click to the windows below; holding Alt (not AltGr) with the pointer over the window
-  reveals the controls and takes clicks again, also for a drag started meanwhile, until released.
-  "Unlock floating windows" in the tray, available while any window lets clicks through, makes all
-  of them take clicks again. Windows reopen where they were, at their size and opacity, always
-  taking clicks, at the next start or when the notes folder returns; one whose spot is now off
-  every monitor moves onto the nearest. A locked vault, or another folder chosen, closes them at
-  once, without forgetting them; a window whose image was deleted is forgotten.
+  detaches the image into its own window where the preview would show it, each later window 24
+  logical px lower and away from the panel (left of a panel on the right, right of one on the
+  left), staying in the room beside the panel; at most 8 at once ("Up to 8 floating windows can be
+  open; close one first." in the danger color otherwise). A floating window is borderless, topmost
+  and excluded from capture; clicking or dragging it never takes focus from the app in use, and the
+  panel stays as it was. The window keeps the image's proportions, so the image fills it, with a
+  transparent `--space-2` gutter all around. While hovered, a hairline (`--color-float-ring`) and a
+  soft shadow (`--color-float-shadow`) trace the image's own edges, or a transparent image's
+  outline: the identity's one shadow, since the window has no frame to show where it ends. A pill
+  of controls appears `--space-2` inside the image's top right corner (`--color-surface`, 1 px
+  `--color-line`, `--radius-full`): a thin opacity slider from 15% to 100% in 5% steps, with a
+  `--color-muted` track and a small `--color-fg` thumb, no accent; "Let clicks through" as a quiet
+  `IconButton` whose pointer icon is outlined when off and filled when on; and Close. Only the
+  image fades: the pill stays opaque. Alt+wheel anywhere, or the wheel over the pill, changes the
+  opacity. Ctrl+wheel zooms: the window grows or shrinks around its center, stopping at the image's
+  natural size (1:1) on the way, up to the side preview's share of the monitor (72% of its work
+  area's width, 76% of its height); past that the image zooms inside the window, toward the
+  pointer, up to 8×, and zooming out returns to no inner zoom before the window shrinks. While
+  zoomed inside, Ctrl+drag pans the image, never past its edges and settling on the center within
+  6 px; Ctrl+double-click returns to the whole image at its natural size where it fits. Dragging
+  the image or the pill's background moves the window; invisible strips 6 px either side of the
+  image's edges and corners resize it, keeping its proportions, the opposite edge or corner in
+  place, the image's shorter side at least 96 logical px and the window within the monitor's work
+  area. Letting clicks through hides the controls and passes every click to the windows below;
+  holding Alt (not AltGr) with the pointer over the window reveals the controls and takes clicks
+  again, also for a drag started meanwhile, until released. "Unlock floating windows" in the tray,
+  available while any window lets clicks through, makes all of them take clicks again. Windows
+  reopen where they were, at their size and opacity, always taking clicks, at the next start or
+  when the notes folder returns; one whose spot is now off every monitor moves onto the nearest. A
+  locked vault, or another folder chosen, closes them at once, without forgetting them; a window
+  whose image was deleted is forgotten.
 - Code: inline code and blocks use the recessed `--color-bg` with `--radius-sm`; inline code has
   `--space-1` at each side; blocks have `--space-2` vertical and `--space-3` horizontal padding and a
   `--color-line` border. The editor frames code lines, fences included while visible, as one block.

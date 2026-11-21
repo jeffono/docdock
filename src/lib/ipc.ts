@@ -465,6 +465,13 @@ export const floatSetOpacity = (opacity: number) => invoke<void>("float_set_opac
 export const floatSetClickThrough = (clickThrough: boolean) =>
   invoke<void>("float_set_click_through", { clickThrough });
 export const floatClose = () => invoke<void>("float_close");
+/** The image's size after a zoom, in CSS pixels, and whether it reached its largest. */
+export type FloatZoomed = { width: number; height: number; atMax: boolean };
+/**
+ * Grows or shrinks the window so its image is `width` CSS pixels wide, keeping its proportions,
+ * around its center, up to the side preview's share of the monitor.
+ */
+export const floatZoom = (width: number) => invoke<FloatZoomed>("float_zoom", { width });
 /** Moves the window with the pointer; call while the primary button is down. */
 export const floatDrag = () => invoke<void>("float_drag");
 export type ResizeDirection =

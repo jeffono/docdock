@@ -170,6 +170,14 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   preview, it is not the dock's: it never slides, and clicking or dragging it changes no
   foreground, so the panel's hover and focus rules are unaffected. Dragging and resizing go
   through Tauri's `start_dragging` and `start_resize_dragging`, from the window's own commands.
+  The window is the image plus a transparent `floats::SHADOW_PAD` gutter on every side, and keeps
+  the image's aspect ratio: from the natural size on opening, from the saved size on restoring.
+  A `WM_SIZING` subclass, installed on the window's thread (`platform::constrain_sizing`), lets
+  `floats::constrain_sizing` decide every rectangle of a resize; `float_zoom` grows or shrinks it
+  around its center within `floats::zoom_rect`'s bounds; placing and restoring reshape it with
+  `floats::contain`. Later windows cascade down and away from the panel, within the room beside it
+  (`floats::cascade`). Zooming inside the window and panning are the page's own
+  (`features/floating/zoom.ts`).
   Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
   polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
   started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades

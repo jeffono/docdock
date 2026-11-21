@@ -5,7 +5,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::platform::{Monitor, Rect, scale_dpi};
+use crate::dock::Side;
+use crate::platform::{Monitor, Rect, SizingEdge, scale_dpi};
 
 /// The most floating windows open at once.
 pub const MAX_FLOATING: usize = 8;
@@ -17,8 +18,16 @@ pub const MIN_OPACITY: f64 = 0.15;
 const MIN_VISIBLE: u32 = 48;
 /// The smallest side of a window, in logical pixels: room for its controls.
 pub const MIN_SIDE: u32 = 96;
-/// How far each window opened after another moves down and right, in logical pixels.
+/// How far each window opened after another moves down and away from the panel, in logical
+/// pixels.
 const CASCADE: u32 = 24;
+/// Transparent gutter around the image on every side, in logical pixels, where the hover shadow
+/// shows and the resize strips sit: `--space-2` in `FloatWindow.svelte`.
+pub const SHADOW_PAD: u32 = 8;
+/// The most of a monitor's work area an image grows to by zooming, in percent of its width and
+/// height: the side preview's share of the room beside the panel.
+const MAX_WIDTH: u32 = 72;
+const MAX_HEIGHT: u32 = 76;
 const LABEL_PREFIX: &str = "float-";
 
 /// The window label for the `n`th floating window of this run, unrelated to saved ids.
@@ -301,16 +310,222 @@ pub fn fit_to_monitors(rect: Rect, monitors: &[Monitor]) -> Rect {
     }
 }
 
-/// `rect` moved down and right for the `index`th window opened beside the same place, so a new
-/// window never hides one already there.
-pub fn cascade(rect: Rect, index: usize, dpi: u32) -> Rect {
+/// Where the panel thread opens a floating image: the image's box, its monitor's DPI, the panel's
+/// side and the room beside the panel on that monitor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    pub image: Rect,
+    pub dpi: u32,
+    pub side: Side,
+    pub free: Rect,
+}
+
+/// `rect` moved down and away from the panel on `side` for the `index`th window opened beside the
+/// same place, so a new window never hides one already there; kept within `free`, the room beside
+/// the panel, as far as it fits.
+pub fn cascade(rect: Rect, index: usize, dpi: u32, side: Side, free: Rect) -> Rect {
     let step = scale_dpi(dpi, CASCADE).saturating_mul(index as i32);
+    let across = match side {
+        Side::Right => -step,
+        Side::Left => step,
+    };
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    let within = |start: i32, low: i32, high: i32, length: i32| {
+        if length <= high - low {
+            start.clamp(low, high - length)
+        } else {
+            start
+        }
+    };
+    let left = within(
+        rect.left.saturating_add(across),
+        free.left,
+        free.right,
+        width,
+    );
+    let top = within(rect.top.saturating_add(step), free.top, free.bottom, height);
     Rect {
-        left: rect.left.saturating_add(step),
-        top: rect.top.saturating_add(step),
-        right: rect.right.saturating_add(step),
-        bottom: rect.bottom.saturating_add(step),
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
     }
+}
+
+/// `rect` grown by `by` on every side: a window around its image.
+pub fn outset(rect: Rect, by: i32) -> Rect {
+    Rect {
+        left: rect.left - by,
+        top: rect.top - by,
+        right: rect.right + by,
+        bottom: rect.bottom + by,
+    }
+}
+
+/// `rect` shrunk by `by` on every side: the image within its window.
+pub fn inset(rect: Rect, by: i32) -> Rect {
+    outset(rect, -by)
+}
+
+/// Width over height of `rect`, 1 for an empty one.
+pub fn aspect_of(rect: Rect) -> f64 {
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    if width > 0 && height > 0 {
+        f64::from(width) / f64::from(height)
+    } else {
+        1.0
+    }
+}
+
+/// The narrowest an image of `aspect` gets: its shorter side `min` pixels.
+fn min_width(aspect: f64, min: i32) -> f64 {
+    f64::from(min) * aspect.max(1.0)
+}
+
+/// The widest image of `aspect` within `width` by `height` pixels.
+fn fit_width(width: i32, height: i32, aspect: f64) -> f64 {
+    f64::from(width.max(0)).min(f64::from(height.max(0)) * aspect)
+}
+
+/// A window `width` pixels wide for its image of `aspect`, with `pad` around it, its corner at
+/// `left`, `top`.
+fn window_at(left: i32, top: i32, width: f64, aspect: f64, pad: i32) -> Rect {
+    let width = width.round().max(1.0) as i32;
+    let height = (f64::from(width) / aspect).round().max(1.0) as i32;
+    Rect {
+        left,
+        top,
+        right: left + width + 2 * pad,
+        bottom: top + height + 2 * pad,
+    }
+}
+
+/// The window rectangle `rect` with its image, `pad` inside each side, reshaped to `aspect`:
+/// the largest such image within it, keeping its top left corner.
+pub fn contain(rect: Rect, aspect: f64, pad: i32) -> Rect {
+    let image = inset(rect, pad);
+    let width = fit_width(image.right - image.left, image.bottom - image.top, aspect);
+    window_at(rect.left, rect.top, width, aspect, pad)
+}
+
+/// What a resize from `edge` may make of the window `rect`, whose image of `aspect` sits `pad`
+/// inside it: the image keeps its proportions, the edge or corner opposite the one dragged stays,
+/// the image's shorter side never falls under `min` and the window never grows past `work`. A side
+/// edge sets the image's width or height; a corner, whichever grew more.
+pub fn constrain_sizing(
+    rect: Rect,
+    edge: SizingEdge,
+    aspect: f64,
+    pad: i32,
+    min: i32,
+    work: Rect,
+) -> Rect {
+    use SizingEdge::*;
+    let image = inset(rect, pad);
+    let (width, height) = (
+        f64::from(image.right - image.left),
+        f64::from(image.bottom - image.top),
+    );
+    let wanted = match edge {
+        Left | Right => width,
+        Top | Bottom => height * aspect,
+        _ => width.max(height * aspect),
+    };
+    let leftward = matches!(edge, Left | TopLeft | BottomLeft);
+    let upward = matches!(edge, Top | TopLeft | TopRight);
+    let room_width = if leftward {
+        rect.right - work.left
+    } else {
+        work.right - rect.left
+    };
+    let room_height = if upward {
+        rect.bottom - work.top
+    } else {
+        work.bottom - rect.top
+    };
+    let widest = fit_width(room_width - 2 * pad, room_height - 2 * pad, aspect);
+    let width = wanted.min(widest).max(min_width(aspect, min));
+    let sized = window_at(0, 0, width, aspect, pad);
+    let (window_width, window_height) = (sized.right, sized.bottom);
+    let left = if leftward {
+        rect.right - window_width
+    } else {
+        rect.left
+    };
+    let top = if upward {
+        rect.bottom - window_height
+    } else {
+        rect.top
+    };
+    Rect {
+        left,
+        top,
+        right: left + window_width,
+        bottom: top + window_height,
+    }
+}
+
+/// The largest an image may grow to by zooming on a monitor with this work area.
+pub fn max_image_size(work: Rect) -> (i32, i32) {
+    let percent = |length: i32, share: u32| length * share as i32 / 100;
+    (
+        percent(work.right - work.left, MAX_WIDTH),
+        percent(work.bottom - work.top, MAX_HEIGHT),
+    )
+}
+
+/// The window `window` zoomed so its image of `aspect`, `pad` inside it, is `width` pixels wide:
+/// between `min` for its shorter side and `max_image_size`, around the same center, moved into
+/// `work`. Also answers whether the image reached its largest size.
+pub fn zoom_rect(
+    window: Rect,
+    width: f64,
+    aspect: f64,
+    pad: i32,
+    min: i32,
+    work: Rect,
+) -> (Rect, bool) {
+    let (max_width, max_height) = max_image_size(work);
+    let widest = fit_width(max_width, max_height, aspect);
+    let narrowest = min_width(aspect, min).min(widest);
+    let width = if width.is_finite() { width } else { widest };
+    let width = width.clamp(narrowest, widest);
+    let at_max = width >= widest - 0.5;
+    let sized = window_at(0, 0, width, aspect, pad);
+    let (window_width, window_height) = (sized.right, sized.bottom);
+    let center_x = (window.left + window.right) / 2;
+    let center_y = (window.top + window.bottom) / 2;
+    let place = |center: i32, length: i32, low: i32, high: i32| {
+        let start = center - length / 2;
+        if length <= high - low {
+            start.clamp(low, high - length)
+        } else {
+            low
+        }
+    };
+    let left = place(center_x, window_width, work.left, work.right);
+    let top = place(center_y, window_height, work.top, work.bottom);
+    let rect = Rect {
+        left,
+        top,
+        right: left + window_width,
+        bottom: top + window_height,
+    };
+    (rect, at_max)
+}
+
+/// The monitor showing most of `rect`, else the nearest one.
+pub fn monitor_of(rect: Rect, monitors: &[Monitor]) -> Option<Monitor> {
+    let most = monitors
+        .iter()
+        .max_by_key(|monitor| area(intersection(rect, monitor.work)))?;
+    if intersection(rect, most.work).is_some() {
+        return Some(*most);
+    }
+    monitors
+        .iter()
+        .min_by_key(|monitor| distance(rect, monitor.work))
+        .copied()
 }
 
 /// An image of `natural` pixels in the middle of `work`, at its natural size in CSS pixels but no
@@ -575,12 +790,226 @@ mod tests {
         assert_eq!(fit_to_monitors(saved, &[]), saved);
     }
 
+    const FREE_RIGHT: Rect = Rect {
+        left: 0,
+        top: 0,
+        right: 1400,
+        bottom: 1040,
+    };
+
+    // Catches later windows drifting under a panel on the right.
     #[test]
-    fn later_windows_cascade_down_and_right() {
-        assert_eq!(
-            cascade(rect(100, 100, 50, 50), 2, 144),
-            rect(172, 172, 50, 50)
+    fn later_windows_cascade_away_from_a_panel_on_the_right() {
+        let moved = cascade(rect(1000, 100, 300, 200), 2, 144, Side::Right, FREE_RIGHT);
+        assert_eq!(moved, rect(928, 172, 300, 200));
+    }
+
+    #[test]
+    fn later_windows_cascade_away_from_a_panel_on_the_left() {
+        let free = Rect {
+            left: 500,
+            ..FREE_RIGHT
+        };
+        let moved = cascade(rect(520, 100, 300, 200), 1, 96, Side::Left, free);
+        assert_eq!(moved, rect(544, 124, 300, 200));
+    }
+
+    // Catches a cascade pushing a window off the room beside the panel, or under the panel.
+    #[test]
+    fn a_cascade_stays_beside_the_panel() {
+        let moved = cascade(rect(10, 900, 300, 200), 3, 96, Side::Right, FREE_RIGHT);
+        assert_eq!(moved, rect(0, 840, 300, 200));
+        let free = Rect {
+            left: 500,
+            ..FREE_RIGHT
+        };
+        let moved = cascade(rect(1300, 100, 300, 200), 1, 96, Side::Left, free);
+        assert_eq!(moved, rect(1100, 124, 300, 200));
+    }
+
+    const PAD: i32 = 8;
+    const WORK: Rect = Rect {
+        left: 0,
+        top: 0,
+        right: 1920,
+        bottom: 1040,
+    };
+
+    /// A window around an image `width` by `height` at `left`, `top`.
+    fn window(left: i32, top: i32, width: i32, height: i32) -> Rect {
+        rect(left, top, width + 2 * PAD, height + 2 * PAD)
+    }
+
+    fn size(rect: Rect) -> (i32, i32) {
+        (rect.right - rect.left, rect.bottom - rect.top)
+    }
+
+    // Catches a resize from a side edge leaving the image's proportions or moving the opposite
+    // edge, which left the window with transparent margins and the controls off the image.
+    #[test]
+    fn side_edges_keep_the_proportions_and_the_opposite_edge() {
+        use SizingEdge::*;
+        let start = window(400, 300, 400, 200);
+        // Dragged 200 pixels out on each side in turn.
+        let right = constrain_sizing(
+            Rect {
+                right: start.right + 200,
+                ..start
+            },
+            Right,
+            2.0,
+            PAD,
+            96,
+            WORK,
         );
+        assert_eq!(right, window(400, 300, 600, 300));
+        let left = constrain_sizing(
+            Rect {
+                left: start.left - 200,
+                ..start
+            },
+            Left,
+            2.0,
+            PAD,
+            96,
+            WORK,
+        );
+        assert_eq!(left, window(200, 300, 600, 300));
+        assert_eq!(left.right, start.right);
+        let bottom = constrain_sizing(
+            Rect {
+                bottom: start.bottom + 100,
+                ..start
+            },
+            Bottom,
+            2.0,
+            PAD,
+            96,
+            WORK,
+        );
+        assert_eq!(bottom, window(400, 300, 600, 300));
+        let top = constrain_sizing(
+            Rect {
+                top: start.top - 100,
+                ..start
+            },
+            Top,
+            2.0,
+            PAD,
+            96,
+            WORK,
+        );
+        assert_eq!((top.bottom, top.left), (start.bottom, start.left));
+        assert_eq!(size(top), (616, 316));
+    }
+
+    #[test]
+    fn corners_keep_the_opposite_corner_and_follow_the_larger_pull() {
+        use SizingEdge::*;
+        let start = window(400, 300, 400, 200);
+        // Width pulled by 100, height by 100: the height asks for the wider image (600).
+        let pulled = Rect {
+            left: start.left - 100,
+            top: start.top - 100,
+            ..start
+        };
+        let corner = constrain_sizing(pulled, TopLeft, 2.0, PAD, 96, WORK);
+        assert_eq!((corner.right, corner.bottom), (start.right, start.bottom));
+        assert_eq!(size(corner), (616, 316));
+        let pulled = Rect {
+            right: start.right + 300,
+            bottom: start.bottom + 10,
+            ..start
+        };
+        let corner = constrain_sizing(pulled, BottomRight, 2.0, PAD, 96, WORK);
+        assert_eq!(corner, window(400, 300, 700, 350));
+        for edge in [TopRight, BottomLeft] {
+            let corner = constrain_sizing(start, edge, 2.0, PAD, 96, WORK);
+            assert_eq!(size(corner), size(start), "{edge:?}");
+        }
+        let corner = constrain_sizing(start, TopRight, 2.0, PAD, 96, WORK);
+        assert_eq!((corner.left, corner.bottom), (start.left, start.bottom));
+        let corner = constrain_sizing(start, BottomLeft, 2.0, PAD, 96, WORK);
+        assert_eq!((corner.right, corner.top), (start.right, start.top));
+    }
+
+    #[test]
+    fn the_image_never_shrinks_under_the_minimum() {
+        use SizingEdge::*;
+        let tiny = window(100, 100, 20, 10);
+        assert_eq!(
+            size(constrain_sizing(tiny, Right, 2.0, PAD, 96, WORK)),
+            (192 + 16, 96 + 16)
+        );
+        let tall = window(100, 100, 10, 20);
+        assert_eq!(
+            size(constrain_sizing(tall, Bottom, 0.5, PAD, 96, WORK)),
+            (96 + 16, 192 + 16)
+        );
+    }
+
+    // Catches a resize taking the window past the monitor's work area.
+    #[test]
+    fn a_resize_stops_at_the_work_area() {
+        use SizingEdge::*;
+        let start = window(1400, 300, 400, 200);
+        let pulled = Rect {
+            right: start.right + 1000,
+            ..start
+        };
+        let limited = constrain_sizing(pulled, Right, 2.0, PAD, 96, WORK);
+        assert_eq!(limited.right, WORK.right);
+        assert_eq!(size(limited), (520, 252 + 16));
+        let pulled = Rect {
+            bottom: start.bottom + 2000,
+            ..start
+        };
+        let limited = constrain_sizing(pulled, Bottom, 2.0, PAD, 96, WORK);
+        assert!(limited.right <= WORK.right && limited.bottom <= WORK.bottom);
+    }
+
+    #[test]
+    fn a_window_is_reshaped_to_its_image() {
+        assert_eq!(
+            contain(window(10, 10, 400, 400), 2.0, PAD),
+            window(10, 10, 400, 200)
+        );
+        assert_eq!(
+            contain(window(10, 10, 400, 400), 0.5, PAD),
+            window(10, 10, 200, 400)
+        );
+    }
+
+    #[test]
+    fn zooming_stays_between_the_minimum_and_the_preview_share() {
+        let start = window(800, 400, 400, 200);
+        let (zoomed, at_max) = zoom_rect(start, 600.0, 2.0, PAD, 96, WORK);
+        assert_eq!(size(zoomed), (616, 316));
+        assert!(!at_max);
+        // Around the same center.
+        let center = |r: Rect| ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+        assert_eq!(center(zoomed), center(start));
+        // 72% of 1920 is 1382; 76% of 1040 is 790, which allows 1580 at 2:1.
+        let (zoomed, at_max) = zoom_rect(start, 5000.0, 2.0, PAD, 96, WORK);
+        assert_eq!(size(zoomed), (1382 + 16, 691 + 16));
+        assert!(at_max);
+        let (zoomed, at_max) = zoom_rect(start, 1.0, 2.0, PAD, 96, WORK);
+        assert_eq!(size(zoomed), (192 + 16, 96 + 16));
+        assert!(!at_max);
+    }
+
+    // Catches zooming near a screen edge pushing the window off the work area.
+    #[test]
+    fn a_zoomed_window_stays_in_the_work_area() {
+        let corner = window(1700, 900, 200, 100);
+        let (zoomed, _) = zoom_rect(corner, 800.0, 2.0, PAD, 96, WORK);
+        assert!(zoomed.left >= WORK.left && zoomed.right <= WORK.right);
+        assert!(zoomed.top >= WORK.top && zoomed.bottom <= WORK.bottom);
+    }
+
+    #[test]
+    fn the_largest_image_takes_the_preview_share_of_the_work_area() {
+        assert_eq!(max_image_size(WORK), (1382, 790));
     }
 
     #[test]

@@ -539,6 +539,14 @@ pub fn float_close(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), E
     crate::floating::close(&app, window.label());
     Ok(())
 }
+/// Grows or shrinks the window so its image is `width` CSS pixels wide, keeping its proportions.
+#[tauri::command(async)]
+pub fn float_zoom(
+    window: tauri::WebviewWindow,
+    width: f64,
+) -> Result<crate::floating::Zoomed, Error> {
+    crate::floating::zoom(window.label(), width)
+}
 #[tauri::command(async)]
 pub fn float_drag(window: tauri::WebviewWindow) -> Result<(), Error> {
     crate::floating::drag(&window)

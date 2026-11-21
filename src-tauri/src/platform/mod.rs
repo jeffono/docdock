@@ -30,10 +30,10 @@ pub use self::guard::guard;
 pub use self::memory::set_memory_low;
 pub use self::recycle::{recyclable, recycle};
 pub use self::windows::{
-    Activation, Monitor, OverlayWindow, PanelWindow, Point, Rect, alt_held, cursor_pos,
-    drag_tolerance, escape_pressed, foreground_window, hide_window, monitors, place_windows,
-    prepare_floating, primary_button_down, restore_focus, set_click_through, show_topmost,
-    slide_windows, ui_language, wait_frame, window_rect,
+    Activation, Monitor, OverlayWindow, PanelWindow, Point, Rect, Sizing, SizingEdge, alt_held,
+    constrain_sizing, cursor_pos, drag_tolerance, escape_pressed, foreground_window, hide_window,
+    monitors, place_windows, prepare_floating, primary_button_down, restore_focus,
+    set_click_through, show_topmost, slide_windows, ui_language, wait_frame, window_rect,
 };
 
 /// Windows logical pixels are defined at 96 DPI.

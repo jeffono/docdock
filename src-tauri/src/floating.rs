@@ -28,7 +28,7 @@ use crate::error::Error;
 use crate::floats::{self, Entry, Kind, MAX_FLOATING};
 use crate::i18n::Locale;
 use crate::notes::FolderIdentity;
-use crate::platform::{self, Rect};
+use crate::platform::{self, Rect, scale_dpi};
 
 /// How often Alt and the cursor are read while a window lets clicks through.
 const POLL: Duration = Duration::from_millis(50);
@@ -66,6 +66,8 @@ struct Live {
     path: String,
     /// The window, once built and prepared; 0 before.
     raw: isize,
+    /// The image's width over its height, which the window keeps when resized or zoomed.
+    aspect: f64,
     /// The notes folder it opened on, and the registry's epoch then: it is saved only there, and
     /// only while that epoch lasts.
     folder: FolderIdentity,
@@ -154,6 +156,7 @@ impl Registry {
             id: id.to_owned(),
             path: path.to_owned(),
             raw: 0,
+            aspect: 1.0,
             folder: folder.clone(),
             epoch,
             closing: false,
@@ -502,7 +505,7 @@ fn destroy(app: &AppHandle, label: &str) {
 /// Builds the reserved window `label` hidden, hardened as every secondary app window, as a tool
 /// window that never activates. Gives up, destroying it, if the registry no longer holds it, as
 /// after a close or the notes folder going away.
-fn build(app: &AppHandle, label: &str) -> Result<(), Error> {
+fn build(app: &AppHandle, label: &str, aspect: f64) -> Result<(), Error> {
     let side = f64::from(floats::MIN_SIDE);
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("DocDock")
@@ -524,7 +527,26 @@ fn build(app: &AppHandle, label: &str) -> Result<(), Error> {
         }
     };
     platform::prepare_floating(raw);
-    if with_live(label, |live| live.raw = raw).is_err() {
+    // Resizing keeps the image's proportions, so the window never shows margins around it.
+    let sized = window.run_on_main_thread(move || {
+        let sizing: platform::Sizing = Box::new(move |rect, edge, dpi, work| {
+            let pad = scale_dpi(dpi, floats::SHADOW_PAD);
+            let min = scale_dpi(dpi, floats::MIN_SIDE);
+            floats::constrain_sizing(rect, edge, aspect, pad, min, work)
+        });
+        if let Err(error) = platform::constrain_sizing(raw, sizing) {
+            eprintln!("[floating] resizing keeps no proportions: {error}");
+        }
+    });
+    if let Err(error) = sized {
+        eprintln!("[floating] resizing keeps no proportions: {error}");
+    }
+    if with_live(label, |live| {
+        live.raw = raw;
+        live.aspect = aspect;
+    })
+    .is_err()
+    {
         let _ = window.destroy();
         return Err(Error::unexpected("floating window closed while opening"));
     }
@@ -584,9 +606,15 @@ pub fn open(
     let folder = crate::notes::floating_folder(app, &path)?;
     let id = new_id();
     let (label, open) = reserve(epoch, &id, &path, 1.0, &folder)?;
-    let opened = place(requests, thumb, natural).and_then(|(rect, dpi)| {
-        let rect = floats::cascade(rect, open, dpi);
-        let rect = floats::fit_to_monitors(rect, &platform::monitors());
+    let opened = place(requests, thumb, natural).and_then(|placed| {
+        let aspect = match natural {
+            (width, height) if width > 0 && height > 0 => f64::from(width) / f64::from(height),
+            _ => floats::aspect_of(placed.image),
+        };
+        let pad = scale_dpi(placed.dpi, floats::SHADOW_PAD);
+        let window = floats::outset(placed.image, pad);
+        let window = floats::cascade(window, open, placed.dpi, placed.side, placed.free);
+        let rect = fitted(window, aspect, &platform::monitors());
         let mut entry = Entry {
             id: id.clone(),
             kind: Kind::Image,
@@ -598,7 +626,7 @@ pub fn open(
             opacity: 1.0,
         };
         entry.set_rect(rect);
-        build(app, &label)?;
+        build(app, &label, aspect)?;
         save_and_show(
             &REGISTRY,
             &label,
@@ -614,12 +642,19 @@ pub fn open(
     opened
 }
 
-/// Where the panel thread places a window for the thumbnail, and its monitor's DPI.
+/// `window`, with its image of `aspect`, on the monitors there are now and reshaped to the image.
+fn fitted(window: Rect, aspect: f64, monitors: &[platform::Monitor]) -> Rect {
+    let rect = floats::fit_to_monitors(window, monitors);
+    let dpi = floats::monitor_of(rect, monitors).map_or(platform::BASE_DPI, |m| m.dpi);
+    floats::contain(rect, aspect, scale_dpi(dpi, floats::SHADOW_PAD))
+}
+
+/// Where the panel thread places a window for the thumbnail.
 fn place(
     requests: &Sender<Request>,
     thumb: [i32; 4],
     natural: (u32, u32),
-) -> Result<(Rect, u32), Error> {
+) -> Result<floats::Placed, Error> {
     let (reply, placed) = mpsc::channel();
     requests
         .send(Request::PlaceFloat {
@@ -640,7 +675,9 @@ fn open_saved(
     folder: &FolderIdentity,
 ) -> Result<(), Error> {
     let (label, _) = reserve(epoch, &entry.id, &entry.path, entry.opacity, folder)?;
-    let shown = build(app, &label).and_then(|()| {
+    let dpi = floats::monitor_of(rect, &platform::monitors()).map_or(platform::BASE_DPI, |m| m.dpi);
+    let aspect = floats::aspect_of(floats::inset(rect, scale_dpi(dpi, floats::SHADOW_PAD)));
+    let shown = build(app, &label, aspect).and_then(|()| {
         show_if_current(&REGISTRY, &label, epoch, |raw| show(raw, rect))
             .then_some(())
             .ok_or(Error::FolderChanged)
@@ -694,7 +731,10 @@ pub fn restore(app: &AppHandle) {
             }
             Err(_) => continue,
         }
-        let rect = floats::fit_to_monitors(entry.rect(), &monitors);
+        let saved = entry.rect();
+        let dpi = floats::monitor_of(saved, &monitors).map_or(platform::BASE_DPI, |m| m.dpi);
+        let aspect = floats::aspect_of(floats::inset(saved, scale_dpi(dpi, floats::SHADOW_PAD)));
+        let rect = fitted(saved, aspect, &monitors);
         match open_saved(app, entry, rect, epoch, &folder) {
             Ok(()) => {}
             Err(Error::FloatingLimit { .. } | Error::FolderChanged) => break,
@@ -860,6 +900,44 @@ fn apply_click_through(label: &str, through: bool) -> Result<(), Error> {
     })
 }
 
+/// The image's size after a zoom, in CSS pixels, and whether it reached its largest.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Zoomed {
+    width: f64,
+    height: f64,
+    at_max: bool,
+}
+
+/// Zooms the window `label` so its image is `width` CSS pixels wide, keeping its proportions,
+/// within `floats::zoom_rect`'s bounds on the monitor that shows it, around the same center.
+pub fn zoom(label: &str, width: f64) -> Result<Zoomed, Error> {
+    let zoomed = with_live(label, |live| {
+        let window = (live.raw != 0)
+            .then(|| platform::window_rect(live.raw))
+            .flatten()?;
+        let monitor = floats::monitor_of(window, &platform::monitors())?;
+        let dpi = monitor.dpi;
+        let (pad, min) = (
+            scale_dpi(dpi, floats::SHADOW_PAD),
+            scale_dpi(dpi, floats::MIN_SIDE),
+        );
+        let scale = f64::from(dpi) / f64::from(platform::BASE_DPI);
+        let (rect, at_max) =
+            floats::zoom_rect(window, width * scale, live.aspect, pad, min, monitor.work);
+        platform::show_topmost(live.raw, rect);
+        let image = floats::inset(rect, pad);
+        Some(Zoomed {
+            width: f64::from(image.right - image.left) / scale,
+            height: f64::from(image.bottom - image.top) / scale,
+            at_max,
+        })
+    })?;
+    let zoomed = zoomed.ok_or_else(|| Error::unexpected("floating window not shown"))?;
+    send(Message::Changed(label.to_owned()));
+    Ok(zoomed)
+}
+
 /// Moves the window with the pointer, as its title bar would.
 pub fn drag(window: &WebviewWindow) -> Result<(), Error> {
     with_live(window.label(), |_| ())?;
@@ -990,6 +1068,8 @@ mod tests {
     fn only_a_live_floating_window_reaches_its_commands() {
         for label in ["image-preview", "main", "web", "float-424242"] {
             assert!(with_live(label, |_| ()).is_err(), "{label}");
+            assert!(zoom(label, 400.0).is_err(), "{label}");
+            assert!(set_opacity(label, 0.5).is_err(), "{label}");
             assert!(!is_live(label), "{label}");
         }
         let epoch = registry().epoch;

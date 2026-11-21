@@ -71,11 +71,12 @@ pub enum Request {
     /// Hides the image preview window; whoever sends it already forgot the image.
     HidePreview,
     /// Where a floating window for an image in the panel opens: as `ShowPreview` would show it,
-    /// else in the middle of the panel's monitor. `reply` takes the rectangle and its monitor's DPI.
+    /// else in the middle of the panel's monitor. `reply` takes the image's box and the room
+    /// beside the panel.
     PlaceFloat {
         rect: [i32; 4],
         natural: (u32, u32),
-        reply: Sender<(Rect, u32)>,
+        reply: Sender<crate::floats::Placed>,
     },
 }
 
@@ -599,14 +600,31 @@ impl Dock {
     }
 
     /// A floating window opens where the preview would show its image, without the frame, or in
-    /// the middle of the panel's monitor when there is no room beside the panel.
-    fn place_float(&self, thumb: [i32; 4], natural: (u32, u32)) -> (Rect, u32) {
+    /// the middle of the panel's monitor when there is no room beside the panel. The room beside
+    /// the panel, past its tab, is where later windows cascade.
+    fn place_float(&self, thumb: [i32; 4], natural: (u32, u32)) -> crate::floats::Placed {
         let dpi = self.monitor.dpi;
-        let rect = match self.place_preview(thumb, natural) {
+        let image = match self.place_preview(thumb, natural) {
             Some(placement) => crate::preview::image_rect(&placement, dpi),
             None => crate::floats::centered(self.monitor.work, natural, dpi),
         };
-        (rect, dpi)
+        let (work, tab) = (self.monitor.work, self.away());
+        let free = match self.side {
+            Side::Right => Rect {
+                right: self.rect.left - tab,
+                ..work
+            },
+            Side::Left => Rect {
+                left: self.rect.right + tab,
+                ..work
+            },
+        };
+        crate::floats::Placed {
+            image,
+            dpi,
+            side: self.side,
+            free,
+        }
     }
 
     /// Hides the image preview, forgetting its image and telling both windows if one was shown or

@@ -1,9 +1,11 @@
 <script lang="ts">
 // A floating window: one note image detached from the panel, placed by Rust, which keeps it on top
-// without ever activating it. It has no capability: it hears what to show only through its IPC
-// channel and reaches only its own commands. Its controls show on hover, or while Alt held over a
-// click-through window reveals them; the image fades, never the controls. The theme follows the
-// native window theme Rust sets.
+// without ever activating it and keeps the window to the image's proportions. It has no
+// capability: it hears what to show only through its IPC channel and reaches only its own
+// commands. The image sits in a stage inset by a transparent gutter, where its hover shadow shows
+// and the resize strips sit. Its controls show on hover, or while Alt held over a click-through
+// window reveals them; the image fades, never the controls. The theme follows the native window
+// theme Rust sets.
 import { onMount } from "svelte";
 import { setLocale, t } from "../../i18n";
 import {
@@ -14,12 +16,16 @@ import {
   floatSetClickThrough,
   floatSetOpacity,
   floatState,
+  floatZoom,
   type ResizeDirection,
 } from "../../ipc";
 import IconButton from "../../ui/IconButton.svelte";
 import { noteAssetUrl } from "../notes/asset-url";
 import { MIN_OPACITY, OPACITY_STEP, stepOpacity } from "./opacity";
+import { clampPan, type Point, type Size, zoomAt, zoomStep } from "./zoom";
 
+let root: HTMLElement;
+let stage: HTMLElement;
 let image: HTMLImageElement;
 let locale = $state("en");
 let path = $state<string | null>(null);
@@ -27,6 +33,9 @@ let opacity = $state(1);
 let clickThrough = $state(false);
 let revealed = $state(false);
 let hovered = $state(false);
+/** Zoom inside the window, past the largest the window grows, and where the image is panned. */
+let zoom = $state(1);
+let pan = $state<Point>({ x: 0, y: 0 });
 const controls = $derived(revealed || (hovered && !clickThrough));
 const labels = $derived.by(() => {
   void locale;
@@ -58,6 +67,9 @@ $effect(() => {
   image.style.opacity = String(opacity);
 });
 $effect(() => {
+  image.style.transform = zoom === 1 ? "" : `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
+});
+$effect(() => {
   if (path === null) image.removeAttribute("src");
   else image.src = noteAssetUrl(path);
 });
@@ -78,18 +90,98 @@ async function setOpacity(value: number) {
   sending = false;
 }
 
-function wheel(event: WheelEvent) {
-  // Over the bar the wheel fades the image; elsewhere it needs Ctrl.
-  if (!controls || (!event.ctrlKey && !(event.target as Element).closest(".bar"))) return;
-  event.preventDefault();
-  if (event.deltaY !== 0) void setOpacity(stepOpacity(opacity, event.deltaY < 0));
+const stageSize = (): Size => ({ width: stage.clientWidth, height: stage.clientHeight });
+const naturalSize = (): Size => ({ width: image.naturalWidth, height: image.naturalHeight });
+
+/** The window is as large as it gets; any resize makes Rust say so again. */
+let atMax = false;
+let resizing = false;
+function zoomInside(next: number, at: Point) {
+  pan = zoomAt(pan, zoom, next, at, stageSize());
+  zoom = next;
+}
+async function zoomBy(zoomIn: boolean, at: Point) {
+  const step = zoomStep(stageSize(), naturalSize(), zoom, atMax, zoomIn);
+  if (step.kind === "inner") return zoomInside(step.zoom, at);
+  if (resizing) return;
+  resizing = true;
+  try {
+    const before = stageSize().width;
+    const zoomed = await floatZoom(step.width);
+    atMax = zoomed.atMax;
+    // Already as large as it gets: this notch zooms inside instead.
+    if (zoomIn && zoomed.atMax && Math.abs(zoomed.width - before) < 1) {
+      const next = zoomStep(stageSize(), naturalSize(), zoom, true, true);
+      if (next.kind === "inner") zoomInside(next.zoom, at);
+    }
+  } catch {
+    // A window closing meanwhile.
+  } finally {
+    resizing = false;
+  }
 }
 
-/** The image and the bar's background move the window; controls and edges do their own thing. */
-function drag(event: PointerEvent) {
+function fromCenter(event: MouseEvent): Point {
+  const box = stage.getBoundingClientRect();
+  return {
+    x: event.clientX - box.left - box.width / 2,
+    y: event.clientY - box.top - box.height / 2,
+  };
+}
+
+/** Ctrl+wheel zooms, Alt+wheel fades; so does the plain wheel over the bar. */
+function wheel(event: WheelEvent) {
+  if (event.deltaY === 0) return;
+  const up = event.deltaY < 0;
+  if (event.ctrlKey && !event.altKey) {
+    event.preventDefault();
+    void zoomBy(up, fromCenter(event));
+    return;
+  }
+  const overBar = controls && (event.target as Element).closest(".bar") !== null;
+  if ((event.altKey && !event.ctrlKey) || overBar) {
+    event.preventDefault();
+    void setOpacity(stepOpacity(opacity, up));
+  }
+}
+
+/** Ctrl+drag pans an image zoomed inside the window; any other drag moves the window. */
+let panning: { pointer: number; from: Point; start: Point } | null = null;
+function pointerdown(event: PointerEvent) {
   if (event.button !== 0 || (event.target as Element).closest("button, input, .edge")) return;
   event.preventDefault();
+  if (event.ctrlKey && zoom > 1) {
+    root.setPointerCapture(event.pointerId);
+    panning = {
+      pointer: event.pointerId,
+      from: { x: event.clientX, y: event.clientY },
+      start: pan,
+    };
+    return;
+  }
   void floatDrag().catch(() => {});
+}
+function pointermove(event: PointerEvent) {
+  hovered = true;
+  if (!panning || event.pointerId !== panning.pointer) return;
+  const moved = {
+    x: panning.start.x + event.clientX - panning.from.x,
+    y: panning.start.y + event.clientY - panning.from.y,
+  };
+  pan = clampPan(moved, zoom, stageSize());
+}
+function pointerup(event: PointerEvent) {
+  if (panning?.pointer === event.pointerId) panning = null;
+}
+
+/** Ctrl+double-click returns to the whole image, at its natural size where it fits. */
+function reset(event: MouseEvent) {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  zoom = 1;
+  pan = { x: 0, y: 0 };
+  const natural = naturalSize();
+  if (natural.width > 0) void floatZoom(natural.width).catch(() => {});
 }
 
 function resize(event: PointerEvent, direction: ResizeDirection) {
@@ -117,22 +209,38 @@ onMount(() => {
       apply(state);
     })
     .catch(() => {});
-  return () => image.removeAttribute("src");
+  // Not passive: Ctrl+wheel would otherwise zoom the page itself.
+  root.addEventListener("wheel", wheel, { passive: false });
+  const resized = () => {
+    atMax = false;
+    pan = clampPan(pan, zoom, stageSize());
+  };
+  window.addEventListener("resize", resized);
+  return () => {
+    root.removeEventListener("wheel", wheel);
+    window.removeEventListener("resize", resized);
+    image.removeAttribute("src");
+  };
 });
 </script>
 
 <div
   class="float"
   class:active={controls}
+  bind:this={root}
   role="group"
   aria-label={labels.window}
   onpointerenter={() => { hovered = true; }}
-  onpointermove={() => { hovered = true; }}
+  onpointermove={pointermove}
+  onpointerup={pointerup}
+  onpointercancel={pointerup}
   onpointerleave={() => { hovered = false; }}
-  onpointerdown={drag}
-  onwheel={wheel}
+  onpointerdown={pointerdown}
+  ondblclick={reset}
 >
-  <img bind:this={image} alt={name} draggable="false" />
+  <div class="stage" bind:this={stage}>
+    <img bind:this={image} alt={name} draggable="false" />
+  </div>
   <div class="bar" class:shown={controls}>
     <input
       type="range"
@@ -148,6 +256,7 @@ onMount(() => {
     />
     <IconButton
       icon="clickThrough"
+      quiet
       label={labels.clickThrough}
       pressed={clickThrough}
       tabindex={-1}
@@ -167,36 +276,45 @@ onMount(() => {
     background: transparent;
   }
 
+  /* `--pad` is the transparent gutter around the image, `SHADOW_PAD` in `floats.rs`. */
   .float {
+    --pad: var(--space-2);
+    --edge: calc(1.5 * var(--space-1));
     position: fixed;
     inset: 0;
-    border-radius: var(--radius-sm);
   }
 
-  /* Shows where a faded window ends while its controls are on. */
-  .float.active {
-    outline: 1px solid var(--color-line);
-    outline-offset: -1px;
+  .stage {
+    position: absolute;
+    inset: var(--pad);
+    overflow: hidden;
+    transition: filter var(--duration);
+  }
+
+  /* Traces the image's own edges, or a transparent image's outline, never a frame of its own. */
+  .float.active .stage {
+    filter: drop-shadow(0 0 1px var(--color-float-ring))
+      drop-shadow(0 1px var(--space-1) var(--color-float-shadow));
   }
 
   img {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: cover;
+    transform-origin: center;
     user-select: none;
   }
 
   .bar {
     position: absolute;
-    top: var(--space-1);
-    right: var(--space-1);
+    top: calc(var(--pad) + var(--space-2));
+    right: calc(var(--pad) + var(--space-2));
     display: flex;
     align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-1);
+    padding: 0 calc(var(--space-1) / 2) 0 var(--space-1);
     border: 1px solid var(--color-line);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-full);
     background: var(--color-surface);
     visibility: hidden;
     opacity: 0;
@@ -210,10 +328,29 @@ onMount(() => {
     opacity: 1;
   }
 
+  /* A thin monochrome track and a small round thumb: no accent, nothing to compete with the image. */
   input[type="range"] {
-    width: calc(3 * var(--size-control));
+    width: calc(2.5 * var(--size-control));
+    height: var(--size-control);
     margin: 0 var(--space-1);
-    accent-color: var(--color-accent);
+    appearance: none;
+    background: transparent;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: calc(var(--space-1) / 2);
+    border-radius: var(--radius-full);
+    background: var(--color-muted);
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    width: calc(2.5 * var(--space-1));
+    height: calc(2.5 * var(--space-1));
+    margin-top: calc(-1 * var(--space-1));
+    border: 0;
+    border-radius: var(--radius-full);
+    appearance: none;
+    background: var(--color-fg);
   }
 
   /* A narrow window keeps room for toggling and closing. */
@@ -223,28 +360,24 @@ onMount(() => {
     }
   }
 
-  /* Invisible strips along the borderless window's edges and corners, where it resizes. */
-  .float {
-    --edge: calc(1.5 * var(--space-1));
-  }
-
+  /* Invisible strips along the image's edges and corners, half in the gutter, where it resizes. */
   .edge {
     position: absolute;
   }
 
   .n,
   .s {
-    left: var(--edge);
-    right: var(--edge);
-    height: var(--edge);
+    left: var(--pad);
+    right: var(--pad);
+    height: calc(2 * var(--edge));
     cursor: ns-resize;
   }
 
   .e,
   .w {
-    top: var(--edge);
-    bottom: var(--edge);
-    width: var(--edge);
+    top: var(--pad);
+    bottom: var(--pad);
+    width: calc(2 * var(--edge));
     cursor: ew-resize;
   }
 
@@ -252,32 +385,32 @@ onMount(() => {
   .nw,
   .se,
   .sw {
-    width: var(--edge);
-    height: var(--edge);
+    width: calc(2 * var(--edge));
+    height: calc(2 * var(--edge));
   }
 
   .n,
   .ne,
   .nw {
-    top: 0;
+    top: calc(var(--pad) - var(--edge));
   }
 
   .s,
   .se,
   .sw {
-    bottom: 0;
+    bottom: calc(var(--pad) - var(--edge));
   }
 
   .e,
   .ne,
   .se {
-    right: 0;
+    right: calc(var(--pad) - var(--edge));
   }
 
   .w,
   .nw,
   .sw {
-    left: 0;
+    left: calc(var(--pad) - var(--edge));
   }
 
   .ne,
@@ -291,7 +424,8 @@ onMount(() => {
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .bar {
+    .bar,
+    .stage {
       transition: none;
     }
   }
