@@ -170,8 +170,9 @@ function wheel(event: WheelEvent) {
 let panning: { pointer: number; from: Point; start: Point } | null = null;
 function pointerdown(event: PointerEvent) {
   if (event.button !== 0 || (event.target as Element).closest("button, input, .edge")) return;
+  if (altGr(event)) return;
   event.preventDefault();
-  if (event.ctrlKey && !event.altKey) {
+  if (event.ctrlKey) {
     if (zoom <= 1) return;
     root.setPointerCapture(event.pointerId);
     panning = {

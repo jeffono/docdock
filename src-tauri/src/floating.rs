@@ -256,7 +256,10 @@ impl Registry {
     /// The window `label`, opening on `epoch`, may be saved: it is still there and no folder change
     /// came or is under way.
     fn admits(&self, label: &str, epoch: u64) -> Result<(), Error> {
-        let here = self.live.iter().any(|live| live.label == label);
+        let here = self
+            .live
+            .iter()
+            .any(|live| live.label == label && !live.closing);
         if self.current(epoch) && here {
             Ok(())
         } else {
@@ -264,16 +267,16 @@ impl Registry {
         }
     }
 
-    /// The built window `label`, if it may show now: no close or folder change came since the
-    /// opening started on `epoch`.
-    fn confirm(&self, label: &str, epoch: u64) -> Option<isize> {
+    /// The built window `label` and its image's proportions now, if it may show: no close, even
+    /// one under way, nor a folder change came since the opening started on `epoch`.
+    fn confirm(&self, label: &str, epoch: u64) -> Option<(isize, f64)> {
         if !self.current(epoch) {
             return None;
         }
         self.live
             .iter()
-            .find(|live| live.label == label && live.raw != 0)
-            .map(|live| live.raw)
+            .find(|live| live.label == label && live.raw != 0 && !live.closing)
+            .map(|live| (live.raw, live.aspect.get()))
     }
 }
 
@@ -286,6 +289,8 @@ static REGISTRY: Mutex<Registry> = Mutex::new(Registry::new());
 /// main thread. Held only to read or change the set, never around anything else.
 static LABELS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 static WORKER: OnceLock<Sender<Message>> = OnceLock::new();
+/// Serializes `report`.
+static REPORTING: Mutex<()> = Mutex::new(());
 /// One restore at a time, so two never open the same saved window.
 static RESTORING: Mutex<()> = Mutex::new(());
 
@@ -492,6 +497,9 @@ fn reveal() {
 /// window lets clicks through and "Close all floating windows" while any is open, and `main` marks
 /// the images floating windows show (`floating-paths`).
 fn report(app: &AppHandle) {
+    // One report at a time, each reading the registry inside: `main` and the tray never end on an
+    // older state than the last change. Never taken on the main thread nor under the registry.
+    let _reporting = REPORTING.lock().unwrap_or_else(|e| e.into_inner());
     let (through, open, paths) = {
         let registry = registry();
         let through = registry.live.iter().any(|live| live.click_through);
@@ -642,13 +650,13 @@ fn show_if_current(
     registry: &Mutex<Registry>,
     label: &str,
     epoch: u64,
-    show: impl FnOnce(isize),
+    show: impl FnOnce(isize, f64),
 ) -> bool {
     let mut registry = lock(registry);
-    let Some(raw) = registry.confirm(label, epoch) else {
+    let Some((raw, aspect)) = registry.confirm(label, epoch) else {
         return false;
     };
-    show(raw);
+    show(raw, aspect);
     if let Some(live) = registry.live.iter_mut().find(|live| live.label == label) {
         live.shown = true;
     }
@@ -665,7 +673,7 @@ fn save_and_show(
     label: &str,
     epoch: u64,
     save: impl FnOnce(&mut dyn FnMut() -> Result<(), Error>) -> Result<(), Error>,
-    show: impl FnOnce(isize),
+    show: impl FnOnce(isize, f64),
 ) -> Result<(), Error> {
     save(&mut || lock(registry).admits(label, epoch))?;
     if show_if_current(registry, label, epoch, show) {
@@ -715,7 +723,7 @@ pub fn open(
             &label,
             epoch,
             |admit| crate::notes::add_floating(app, &folder, entry, admit),
-            |raw| show(raw, rect),
+            |raw, _| show(raw, rect),
         )
     });
     if opened.is_err() {
@@ -761,8 +769,11 @@ fn open_saved(
     let (label, _) = reserve(epoch, &entry.id, &entry.path, entry.opacity, folder)?;
     let dpi = floats::monitor_of(rect, &platform::monitors()).map_or(platform::BASE_DPI, |m| m.dpi);
     let aspect = floats::aspect_of(floats::inset(rect, scale_dpi(dpi, floats::SHADOW_PAD)));
+    let pad = scale_dpi(dpi, floats::SHADOW_PAD);
+    // The image may have loaded and told its real proportions (`natural`) while hidden.
     let shown = build(app, &label, aspect).and_then(|()| {
-        show_if_current(&REGISTRY, &label, epoch, |raw| show(raw, rect))
+        let fit = |raw, aspect| show(raw, floats::contain(rect, aspect, pad));
+        show_if_current(&REGISTRY, &label, epoch, fit)
             .then_some(())
             .ok_or(Error::FolderChanged)
     });
@@ -1256,7 +1267,7 @@ mod tests {
     fn work_started_before_a_folder_change_never_opens() {
         let (registry, label, epoch) = opening();
         assert!(lock(&registry).revoke().len() == 1);
-        assert!(!show_if_current(&registry, &label, epoch, |_| panic!(
+        assert!(!show_if_current(&registry, &label, epoch, |_, _| panic!(
             "shown"
         )));
         let reserved = lock(&registry).reserve(epoch, &new_id(), "b.png", 1.0, &folder());
@@ -1292,9 +1303,11 @@ mod tests {
         let store = RefCell::new(floats::Store::default());
         let interrupt = || {
             if close {
-                // As `close`: the window leaves the registry, then its entry under `SAVING`.
-                lock(&registry).take(&label);
+                // As `close`: the window is marked closing, its entry goes under `SAVING`, then
+                // it leaves the registry.
+                lock(&registry).mark_closing_where(|live| live.label == label);
                 store.borrow_mut().remove(&[&id]);
+                lock(&registry).take(&label);
             } else {
                 lock(&registry).begin_switch();
             }
@@ -1325,10 +1338,35 @@ mod tests {
                 }
                 Ok(())
             },
-            |_| shown = true,
+            |_, _| shown = true,
         );
         assert_eq!(finished.is_ok(), shown);
         (store.borrow().entries().count(), shown)
+    }
+
+    // Catches an opening saving or showing a window the user is already closing.
+    #[test]
+    fn a_closing_window_is_neither_saved_nor_shown() {
+        let (registry, label, epoch) = opening();
+        lock(&registry).mark_closing_where(|live| live.label == label);
+        assert_eq!(
+            lock(&registry).admits(&label, epoch),
+            Err(Error::FolderChanged)
+        );
+        assert_eq!(lock(&registry).confirm(&label, epoch), None);
+    }
+
+    // Catches a restored window shown with the proportions it was saved with after its image had
+    // told its own.
+    #[test]
+    fn a_window_shows_with_the_proportions_its_image_told() {
+        let (registry, label, epoch) = opening();
+        lock(&registry).live[0].aspect.set(2.0);
+        let mut told = 0.0;
+        assert!(show_if_current(&registry, &label, epoch, |_, aspect| {
+            told = aspect
+        }));
+        assert_eq!(told, 2.0);
     }
 
     // Catches a window closed while it was opening coming back at the next start.
@@ -1365,7 +1403,7 @@ mod tests {
                 *saved.borrow_mut() = true;
                 Ok(())
             },
-            |raw| shown_saved = raw == 7 && *saved.borrow(),
+            |raw, _| shown_saved = raw == 7 && *saved.borrow(),
         );
         assert!(finished.is_ok());
         assert!(shown_saved);
@@ -1494,6 +1532,8 @@ mod tests {
     #[test]
     fn a_window_not_shown_yet_never_zooms() {
         let label = register_for_tests(&folder());
+        // Built, so only `shown` holds the zoom back.
+        with_live(&label, |live| live.raw = 7).unwrap();
         assert!(zoom(&label, 400.0).is_err());
         take(&label);
     }
