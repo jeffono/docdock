@@ -12,6 +12,7 @@ import EdgeTab from "./lib/features/tab/EdgeTab.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
   exitReady,
+  floatingEditCurrent,
   onExitCancelled,
   onExitRequested,
   onPanelEditNote,
@@ -151,13 +152,16 @@ onMount(() => {
     if (value) preferences = false;
   });
   const toggle = onToggleMode(() => void action(switchMode(!web)));
-  // A post-it asked to edit its note; the panel already took focus.
+  // A post-it asked to edit its note; the panel already took focus. One from a folder no longer
+  // chosen leaves the panel as it is.
   const editNote = onPanelEditNote((request) => {
-    const inNotes = !web && !preferences && !article;
     void action(
-      (inNotes ? Promise.resolve() : switchMode(false))
-        .then(() => tick())
-        .then(() => notes.editNote(request)),
+      floatingEditCurrent(request.epoch).then(async (current) => {
+        if (!current) return;
+        if (web || preferences || article) await switchMode(false);
+        await tick();
+        await notes.editNote(request);
+      }),
     );
   });
   const search = onPanelSearch(() => {

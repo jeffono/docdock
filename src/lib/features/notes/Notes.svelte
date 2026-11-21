@@ -425,11 +425,12 @@ export function leaveEditor(): Promise<boolean> {
 let opening: string | null = null;
 /** Where the next editor starts, from a double click on the reading view. */
 let editStartAt = $state<EditStart>();
-async function edit(path: string, start?: EditStart) {
+/** `since`: the `generation` the request was made on, if before; a newer one drops it. */
+async function edit(path: string, start?: EditStart, since = generation) {
   // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
   if (editing || choosing || path === deletingPath || path === movingPath || inDeletingFolder(path))
     return;
-  const current = generation;
+  const current = since;
   opening = path;
   try {
     error = "";
@@ -797,8 +798,11 @@ async function createNamed(
   return null;
 }
 
-/** Shows the note at `name` expanded in the editor, leaving the page and the reader view. */
-async function openInEditor(name: string) {
+/**
+ * Shows the note at `name` expanded in the editor, leaving the page and the reader view; `since`
+ * as for `edit`.
+ */
+async function openInEditor(name: string, since = generation) {
   // A web search typed in Notes shows no cards, so the editor would never mount.
   if (webQuery(query, false) !== null) query = "";
   expanded = name;
@@ -806,7 +810,7 @@ async function openInEditor(name: string) {
   // Leaving the reader view first, so hiding the page returns to Notes.
   article = null;
   await webSetVisible(false);
-  await edit(name);
+  await edit(name, undefined, since);
 }
 
 /** Creates the note for the typed text and opens it expanded for editing. */
@@ -1891,18 +1895,19 @@ function toggleNoteFloating(card: Card) {
  * A post-it asked to edit its note: the panel, already focused, shows it expanded in the editor,
  * leaving the page, the reader view and any other note being edited. A request that reaches the
  * panel after another folder was chosen, or while one is, names a note of the folder before: it is
- * dropped, checked again after leaving the editor, which may wait for the user.
+ * dropped. Checked after leaving the editor, which may wait for the user, against the generation
+ * taken before asking: a folder chosen after the answer bumps it, and `edit` drops the note.
  */
 export async function editNote({ path, epoch }: EditNoteRequest) {
-  const current = async () => !choosing && (await floatingEditCurrent(epoch));
-  if (!(await current())) return;
   if (editing && selected === path) {
     editor?.focus();
     return;
   }
-  if (!(await leaveEditor()) || !(await current())) return;
-  await openInEditor(path);
-  reveal(path);
+  if (!(await leaveEditor())) return;
+  const since = generation;
+  if (!(await floatingEditCurrent(epoch))) return;
+  await openInEditor(path, since);
+  if (since === generation) reveal(path);
 }
 
 let tools = $state<HTMLElement>();
