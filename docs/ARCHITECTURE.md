@@ -140,7 +140,9 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   disabled and is click-through for good, so it is not one of the panel's windows for focus, hover,
   slides or memory. The UI (`features/image-preview/trigger.ts`, pure) sends the thumbnail's CSS
   box and the image's natural size; `preview.rs` turns them into physical pixels from the panel
-  window's origin and DPI and places the image beside the panel, past the edge tab. It shows only
+  window's origin and DPI and places the framed image beside the panel, past the edge tab
+  (`preview::place`); the dock publishes where the frame's arrow points to the preview window and
+  shows the window in one step under the preview's lock (`apply_placement`). It shows only
   over the resting open panel in Notes without a dialog; hiding the panel, a placement change
   (monitor, side, tab, width), showing the page, a dialog, the shortcut, the folder going away or
   another folder chosen hide it, and Rust then tells both windows (no path on the preview's channel,

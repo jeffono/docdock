@@ -416,8 +416,11 @@ notes differ only in section and starting state.
   `<br>` counts as a line break in a grid. Raw HTML elsewhere shows as plain text.
 - **Image preview:** hovering a grid thumbnail for 300 ms, or focusing it and pressing Space, shows
   the image larger in a window beside the panel's inner edge, past the edge tab, vertically centered
-  on the thumbnail within the work area, at most its natural size and never upscaled. A crisp frame:
-  1 px `--color-line` border, `--radius-sm` corners, `--color-surface` behind the image, no shadow.
+  on the thumbnail and 24 logical px from the work area's other edges. It takes at most 72% of the
+  room's width and 76% of its height (never under 120 px), at most the image's natural size and
+  never upscaled. The frame is styled like the panel: `--color-bg` with a 1 px `--color-line`
+  outline, 8 px corners, `--space-2` around the image (whose corners are `--radius-sm`), no shadow,
+  and a callout arrow 8 px deep and 16 px tall on the panel's side, at the thumbnail's height.
   It never takes focus or clicks, so the panel stays open and hovered as before, and it is excluded
   from capture. Once shown, hovering or focusing another thumbnail switches at once; moving between
   thumbnails keeps it, leaving the grid hides it. Esc (its own layer), Space again, a click, scrolling,

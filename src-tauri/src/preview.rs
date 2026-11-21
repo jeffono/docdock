@@ -22,10 +22,22 @@ const CLOSED: &str = "image-preview-closed";
 
 /// Logical pixels between the preview and the edge tab, so the tab is never covered.
 const GAP: u32 = 8;
-/// Logical pixels kept free at the work area's edges.
-const MARGIN: u32 = 12;
+/// Logical pixels kept free at the work area's other edges.
+const MARGIN: u32 = 24;
 /// Below this many logical pixels of room beside the panel, the preview is not worth showing.
 const MIN_ROOM: u32 = 120;
+/// The most of the room beside the panel the preview takes, in percent of its width and height, so
+/// a large image still leaves the screen around it in sight. Never under `MIN_ROOM`.
+const MAX_WIDTH: u32 = 72;
+const MAX_HEIGHT: u32 = 76;
+/// The frame around the image, in logical pixels: padding on every side (`--space-2`), and the
+/// callout arrow on the panel's side, as deep as the padding and twice as tall. `ImagePreview.svelte`
+/// draws the same shape.
+const FRAME_PAD: u32 = 8;
+const ARROW_WIDTH: u32 = 8;
+const ARROW_HALF: f64 = 8.0;
+/// The frame's corner radius; the arrow stays clear of the corners by this and 2 more.
+const RADIUS: f64 = 8.0;
 
 /// Which image the preview shows, and whether a show is on its way.
 #[derive(Debug, Default)]
@@ -37,6 +49,9 @@ struct Preview {
     path: Option<String>,
     /// A show began and has not published yet.
     pending: bool,
+    /// Where the frame's arrow points, from the window placed for the current show.
+    side: Side,
+    arrow_y: f64,
 }
 
 /// What a close ended.
@@ -87,10 +102,22 @@ impl Preview {
         self.generation == generation && self.path.is_some()
     }
 
+    /// Takes where the window for the show started at `generation` was placed, if still current.
+    fn place(&mut self, generation: u64, side: Side, arrow_y: f64) -> bool {
+        if !self.is_current(generation) {
+            return false;
+        }
+        (self.side, self.arrow_y) = (side, arrow_y);
+        self.version += 1;
+        true
+    }
+
     fn update(&self) -> Update {
         Update {
             version: self.version,
             path: self.path.clone(),
+            side: self.side,
+            arrow_y: self.arrow_y,
         }
     }
 }
@@ -120,6 +147,8 @@ static SESSION: Mutex<Session> = Mutex::new(Session {
         version: 0,
         path: None,
         pending: false,
+        side: Side::Right,
+        arrow_y: 0.0,
     },
     channel: None,
 });
@@ -134,9 +163,14 @@ fn session() -> MutexGuard<'static, Session> {
 
 /// What the preview window shows: the highest `version` wins, whichever way it arrived.
 #[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Update {
     version: u64,
     path: Option<String>,
+    /// The panel's side, which the arrow faces.
+    side: Side,
+    /// The arrow's tip, in CSS pixels from the window's top.
+    arrow_y: f64,
 }
 
 #[derive(Serialize)]
@@ -163,11 +197,23 @@ pub fn to_physical(css: [i32; 4], origin: Point, dpi: u32) -> Rect {
     }
 }
 
-/// Where the preview goes, in physical pixels: beside the open `panel` on its inner side, past the
-/// edge tab (`tab_depth`) and within `work`, vertically centered on `thumb` as far as `work` allows.
-/// The image keeps its proportions and never grows past its natural size in CSS pixels, as the
-/// panel would show it at 100%. `None` when the image has no size or there is too little room.
-pub fn preview_rect(
+/// Where the preview window goes, and where its arrow points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    /// In physical pixels.
+    pub rect: Rect,
+    pub side: Side,
+    /// The arrow's tip, in CSS pixels from the window's top.
+    pub arrow_y: f64,
+}
+
+/// Where the preview goes: beside the open `panel` on its inner side, past the edge tab
+/// (`tab_depth`), within `work` and a share of the room there, vertically centered on `thumb` as
+/// far as that allows, with its arrow at the thumbnail's height. The image keeps its exact
+/// proportions inside the frame and never grows past its natural size in CSS pixels, as the panel
+/// would show it at 100%. Rectangles are in physical pixels. `None` when the image has no size or
+/// there is too little room.
+pub fn place(
     work: Rect,
     panel: Rect,
     side: Side,
@@ -175,7 +221,7 @@ pub fn preview_rect(
     natural: (u32, u32),
     dpi: u32,
     tab_depth: i32,
-) -> Option<Rect> {
+) -> Option<Placement> {
     let (width, height) = natural;
     if width == 0 || height == 0 {
         return None;
@@ -187,29 +233,47 @@ pub fn preview_rect(
         Side::Left => (panel.right + gap, work.right - margin),
     };
     let (top, bottom) = (work.top + margin, work.bottom - margin);
+    let (room_width, room_height) = (right - left, bottom - top);
     let room = scale_dpi(dpi, MIN_ROOM);
-    if right - left < room || bottom - top < room {
+    if room_width < room || room_height < room {
         return None;
     }
+    let share = |length: i32, percent: u32| (length * percent as i32 / 100).max(room);
+    let (pad, arrow) = (scale_dpi(dpi, FRAME_PAD), scale_dpi(dpi, ARROW_WIDTH));
+    let chrome = (2 * pad + arrow, 2 * pad);
+    let inner_width = share(room_width, MAX_WIDTH) - chrome.0;
+    let inner_height = share(room_height, MAX_HEIGHT) - chrome.1;
     let css = |pixels: u32| f64::from(pixels) * f64::from(dpi) / f64::from(BASE_DPI);
     let (full_width, full_height) = (css(width), css(height));
-    let scale = (f64::from(right - left) / full_width)
-        .min(f64::from(bottom - top) / full_height)
+    let scale = (f64::from(inner_width) / full_width)
+        .min(f64::from(inner_height) / full_height)
         .min(1.0);
     // `as` saturates, and each side stays within the room it was given.
-    let w = ((full_width * scale).round() as i32).clamp(1, right - left);
-    let h = ((full_height * scale).round() as i32).clamp(1, bottom - top);
+    let w = ((full_width * scale).round() as i32).clamp(1, inner_width) + chrome.0;
+    let h = ((full_height * scale).round() as i32).clamp(1, inner_height) + chrome.1;
     let x = match side {
         Side::Right => right - w,
         Side::Left => left,
     };
     let center = (i64::from(thumb.top) + i64::from(thumb.bottom)) / 2;
     let y = (center - i64::from(h / 2)).clamp(top.into(), (bottom - h).into()) as i32;
-    Some(Rect {
-        left: x,
-        top: y,
-        right: x + w,
-        bottom: y + h,
+    let logical = |pixels: f64| pixels * f64::from(BASE_DPI) / f64::from(dpi);
+    let window_height = logical(f64::from(h));
+    let reach = RADIUS + ARROW_HALF + 2.0;
+    let arrow_y = if window_height - reach < reach {
+        window_height / 2.0
+    } else {
+        logical((center - i64::from(y)) as f64).clamp(reach, window_height - reach)
+    };
+    Some(Placement {
+        rect: Rect {
+            left: x,
+            top: y,
+            right: x + w,
+            bottom: y + h,
+        },
+        side,
+        arrow_y,
     })
 }
 
@@ -242,15 +306,20 @@ pub fn is_current(generation: u64) -> bool {
     session().preview.is_current(generation)
 }
 
-/// Runs `show` only if the show started at `generation` is still current, without a close
-/// slipping in between. `show` must not take the session.
-pub fn if_current(generation: u64, show: impl FnOnce()) -> bool {
-    let session = session();
-    let current = session.preview.is_current(generation);
-    if current {
-        show();
+/// Publishes `placement` and runs `show` with its rectangle, only if the show started at
+/// `generation` is still current, without a close slipping in between; the window hears the
+/// arrow's place with its new size. `show` must not take the session.
+pub fn apply_placement(generation: u64, placement: Placement, show: impl FnOnce(Rect)) -> bool {
+    let mut session = session();
+    if !session
+        .preview
+        .place(generation, placement.side, placement.arrow_y)
+    {
+        return false;
     }
-    current
+    session.push();
+    show(placement.rect);
+    true
 }
 
 /// Shows `image`, a path relative to the notes folder, beside its thumbnail at `thumb` (the
@@ -365,66 +434,98 @@ mod tests {
         }
     }
 
-    fn place(side: Side, top: i32, natural: (u32, u32), dpi: u32) -> Option<Rect> {
-        preview_rect(WORK, panel(side), side, thumb(top), natural, dpi, TAB)
+    fn placed(side: Side, top: i32, natural: (u32, u32), dpi: u32) -> Option<Placement> {
+        place(WORK, panel(side), side, thumb(top), natural, dpi, TAB)
     }
 
-    // Catches the preview covering the edge tab or leaving the work area on the right side.
+    fn size(placement: Placement) -> (i32, i32) {
+        let rect = placement.rect;
+        (rect.right - rect.left, rect.bottom - rect.top)
+    }
+
+    // Catches the preview covering the edge tab, leaving the work area or its arrow missing the
+    // thumbnail on the right side.
     #[test]
-    fn right_side_sits_left_of_the_tab_centered_on_the_thumbnail() {
-        let rect = place(Side::Right, 400, (400, 300), 96).unwrap();
-        // 1460 - 20 (tab) - 8 (gap) = 1432; centered on 452.
+    fn right_side_sits_left_of_the_tab_pointing_at_the_thumbnail() {
+        let placement = placed(Side::Right, 400, (400, 300), 96).unwrap();
+        // 1460 - 20 (tab) - 8 (gap) = 1432; the image plus 8 of padding around and 8 of arrow,
+        // centered on 452.
         assert_eq!(
-            rect,
-            Rect {
-                left: 1032,
-                top: 302,
-                right: 1432,
-                bottom: 602
+            placement,
+            Placement {
+                rect: Rect {
+                    left: 1008,
+                    top: 294,
+                    right: 1432,
+                    bottom: 610
+                },
+                side: Side::Right,
+                arrow_y: 158.0,
             }
         );
     }
 
     #[test]
     fn left_side_mirrors_the_right() {
-        let rect = place(Side::Left, 400, (400, 300), 96).unwrap();
-        assert_eq!(
-            rect,
-            Rect {
-                left: 488,
-                top: 302,
-                right: 888,
-                bottom: 602
-            }
-        );
+        let placement = placed(Side::Left, 400, (400, 300), 96).unwrap();
+        assert_eq!((placement.rect.left, placement.rect.right), (488, 912));
+        assert_eq!((placement.side, placement.arrow_y), (Side::Left, 158.0));
     }
 
-    // Catches a preview beside a thumbnail near the top or bottom leaving the screen.
+    // Catches a preview beside a thumbnail near the top or bottom leaving the margins, or its arrow
+    // running into the frame's corners.
     #[test]
-    fn stays_within_the_work_area_vertically() {
-        let rect = place(Side::Right, -50, (400, 300), 96).unwrap();
-        assert_eq!((rect.top, rect.bottom), (12, 312));
-        let rect = place(Side::Right, 1000, (400, 300), 96).unwrap();
-        assert_eq!((rect.top, rect.bottom), (728, 1028));
+    fn stays_within_the_margins_with_the_arrow_clear_of_the_corners() {
+        let placement = placed(Side::Right, -50, (400, 300), 96).unwrap();
+        assert_eq!((placement.rect.top, placement.rect.bottom), (24, 340));
+        assert_eq!(placement.arrow_y, 18.0);
+        let placement = placed(Side::Right, 1000, (400, 300), 96).unwrap();
+        assert_eq!((placement.rect.top, placement.rect.bottom), (700, 1016));
+        assert_eq!(placement.arrow_y, 298.0);
+    }
+
+    // Catches the arrow measured in physical pixels on a scaled monitor.
+    #[test]
+    fn the_arrow_is_in_css_pixels() {
+        let placement = placed(Side::Right, 400, (400, 300), 192).unwrap();
+        let center = 452 - placement.rect.top;
+        assert_eq!(placement.arrow_y, f64::from(center) / 2.0);
+    }
+
+    #[test]
+    fn a_frame_too_short_for_the_arrow_centers_it() {
+        let placement = placed(Side::Right, 400, (400, 1), 96).unwrap();
+        assert_eq!(size(placement), (424, 17));
+        assert_eq!(placement.arrow_y, 8.5);
     }
 
     // Catches a small image blurred by upscaling, or one ignoring the monitor's scale.
     #[test]
-    fn small_images_show_at_their_natural_css_size() {
-        let rect = place(Side::Right, 400, (100, 50), 144).unwrap();
-        assert_eq!((rect.right - rect.left, rect.bottom - rect.top), (150, 75));
+    fn small_images_show_at_their_natural_css_size_plus_the_frame() {
+        let placement = placed(Side::Right, 400, (100, 50), 144).unwrap();
+        // 12 of padding on each side and 12 of arrow at 150%.
+        assert_eq!(size(placement), (150 + 24 + 12, 75 + 24));
     }
 
-    // Catches a large image overflowing the room beside the panel or losing its proportions.
+    // Catches a large image filling the room beside the panel or losing its proportions.
     #[test]
-    fn large_images_shrink_to_fit_keeping_proportions() {
-        let rect = place(Side::Right, 400, (4000, 2000), 96).unwrap();
-        // Room: 1432 - 12 wide, 1016 tall; the width limits.
-        assert_eq!((rect.left, rect.right), (12, 1432));
-        assert_eq!(rect.bottom - rect.top, 710);
-        let rect = place(Side::Right, 400, (1000, 4000), 96).unwrap();
-        assert_eq!((rect.top, rect.bottom), (12, 1028));
-        assert_eq!(rect.right - rect.left, 254);
+    fn large_images_take_at_most_a_share_of_the_room() {
+        // Room: 1432 - 24 = 1408 wide, 1016 - 24 = 992 tall; 72% and 76% of it.
+        let (w, h) = size(placed(Side::Right, 400, (4000, 2000), 96).unwrap());
+        assert_eq!((w, h), (1013, 495 + 16));
+        assert_eq!((w - 24, h - 16), (989, 495));
+        let (w, h) = size(placed(Side::Right, 400, (1000, 4000), 96).unwrap());
+        assert_eq!((w - 24, h - 16), (184, 737));
+        assert_eq!(h, 753);
+    }
+
+    #[test]
+    fn the_share_never_falls_below_the_minimum_room() {
+        let work = Rect { right: 600, ..WORK };
+        // 182 - 28 - 24 = 130 of room: 72% would be 93, under 120.
+        let panel = Rect { left: 182, ..work };
+        let placement = place(work, panel, Side::Right, thumb(0), (1000, 1000), 96, TAB).unwrap();
+        assert_eq!(size(placement), (120, 96 + 16));
     }
 
     #[test]
@@ -434,15 +535,33 @@ mod tests {
             left: 140,
             ..narrow
         };
-        // 140 - 28 - 12 = 100 pixels of room, under 120.
-        let rect = preview_rect(narrow, panel, Side::Right, thumb(0), (400, 300), 96, TAB);
-        assert_eq!(rect, None);
+        // 140 - 28 - 24 = 88 pixels of room, under 120.
+        let placement = place(narrow, panel, Side::Right, thumb(0), (400, 300), 96, TAB);
+        assert_eq!(placement, None);
     }
 
     #[test]
     fn an_image_without_size_shows_nothing() {
-        assert_eq!(place(Side::Right, 0, (0, 300), 96), None);
-        assert_eq!(place(Side::Left, 0, (300, 0), 96), None);
+        assert_eq!(placed(Side::Right, 0, (0, 300), 96), None);
+        assert_eq!(placed(Side::Left, 0, (300, 0), 96), None);
+    }
+
+    // Catches a switch to another thumbnail keeping the old arrow, or a stale show moving it.
+    #[test]
+    fn only_the_current_show_moves_the_arrow() {
+        let mut preview = Preview::default();
+        let first = preview.begin();
+        assert!(preview.publish(first, 0, 0, "a.png".into()));
+        assert!(preview.place(first, Side::Right, 40.0));
+        let version = preview.version;
+        let second = preview.begin();
+        assert!(!preview.place(first, Side::Left, 90.0));
+        assert_eq!(preview.version, version);
+        assert!(preview.publish(second, 0, 0, "b.png".into()));
+        assert!(preview.place(second, Side::Left, 90.0));
+        let update = preview.update();
+        assert_eq!((update.side, update.arrow_y), (Side::Left, 90.0));
+        assert!(update.version > version);
     }
 
     // Catches an opening paused between validation and publication bringing back an image after

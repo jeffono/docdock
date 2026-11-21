@@ -549,7 +549,7 @@ impl Dock {
             y: framed.top,
         };
         let thumb = crate::preview::to_physical(thumb, origin, self.monitor.dpi);
-        let rect = crate::preview::preview_rect(
+        let placement = crate::preview::place(
             self.monitor.work,
             self.rect,
             self.side,
@@ -560,9 +560,10 @@ impl Dock {
         );
         // A later show, or the hide or close that replaced this one, decides instead; a close
         // cannot slip in between the check and the show.
-        match window.zip(rect) {
-            Some((window, rect)) => {
-                if crate::preview::if_current(generation, || window.show(rect)) {
+        match window.zip(placement) {
+            Some((window, placement)) => {
+                let show = |rect| window.show(rect);
+                if crate::preview::apply_placement(generation, placement, show) {
                     self.preview_shown = true;
                 }
             }

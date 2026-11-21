@@ -417,7 +417,13 @@ export const onImagePreviewClosed = (handler: () => void): Promise<UnlistenFn> =
  * `version` is the latest, whichever way it arrives.
  */
 export const isImagePreviewWindow = () => getCurrentWebviewWindow().label === "image-preview";
-export type ImagePreviewUpdate = { version: number; path: string | null };
+/** `side` is the panel's, which the frame's arrow faces; `arrowY` its tip in CSS pixels. */
+export type ImagePreviewUpdate = {
+  version: number;
+  path: string | null;
+  side: "left" | "right";
+  arrowY: number;
+};
 export function imagePreviewState(onUpdate: (update: ImagePreviewUpdate) => void) {
   const channel = new Channel<ImagePreviewUpdate>();
   channel.onmessage = onUpdate;
