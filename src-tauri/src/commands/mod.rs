@@ -473,13 +473,14 @@ pub async fn image_preview_show(
 ) -> Result<(), Error> {
     crate::preview::show(&app, &requests, path, rect, natural)
 }
-#[tauri::command]
+/// Off the main thread, as everything that takes the preview's session.
+#[tauri::command(async)]
 pub fn image_preview_hide(requests: State<'_, Sender<Request>>) {
     crate::preview::hide(&requests);
 }
 /// The preview window's only command: what it shows when it loads, and the channel for what it
-/// shows next.
-#[tauri::command]
+/// shows next. Off the main thread, as everything that takes the preview's session.
+#[tauri::command(async)]
 pub fn image_preview_state(
     webview: tauri::Webview,
     locale: State<'_, Locale>,

@@ -31,9 +31,10 @@ as `main`'s `notes-changed` with note paths, and `allow-unlisten` removes other 
   event listening or sending, no `core:window:*`. Rust decides their geometry, visibility and focus.
 - **Updates over an IPC channel:** a secondary window hands Rust a `tauri::ipc::Channel` through its
   secondary command when it loads, and Rust sends it everything it must show through that channel,
-  replacing an older one after a reload. Messages carry a generation, so the window keeps the latest
-  whether it arrives as the command's answer or on the channel. `main` still uses events; Rust never
-  broadcasts with `app.emit` and always names the window with `emit_to`.
+  replacing an older one after a reload. Messages carry a version that changes only with what is
+  shown, so the window keeps the latest whether it arrives as the command's answer or on the
+  channel. `main` still uses events; Rust never broadcasts with `app.emit` and always names the
+  window with `emit_to`.
 
 **Consequences:**
 

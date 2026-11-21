@@ -28,11 +28,11 @@ const show = imageSwap(
   },
 );
 
-/** The answer and the channel may arrive in either order: only a newer generation counts. */
+/** The answer and the channel may arrive in either order: only a newer version counts. */
 let latest = -1;
 function apply(update: ImagePreviewUpdate) {
-  if (update.generation <= latest) return;
-  latest = update.generation;
+  if (update.version <= latest) return;
+  latest = update.version;
   void show(update.path === null ? null : noteAssetUrl(update.path));
 }
 

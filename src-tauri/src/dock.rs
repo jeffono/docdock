@@ -536,10 +536,6 @@ impl Dock {
     /// Shows the image preview beside the thumbnail at `thumb` only over the resting, open panel
     /// in Notes, without a dialog: anything else hides it.
     fn show_preview(&mut self, generation: u64, thumb: [i32; 4], natural: (u32, u32)) {
-        // A later show, or the hide or close that replaced it, decides instead.
-        if !crate::preview::is_current(generation) {
-            return;
-        }
         let resting = self.is_open() && self.slide.is_none() && !self.web_visible && !self.dialog;
         let window = self.preview.filter(|window| resting && window.exists());
         let tab = self.tuning.tab;
@@ -558,12 +554,16 @@ impl Dock {
             self.monitor.dpi,
             self.away(),
         );
+        // A later show, or the hide or close that replaced this one, decides instead; a close
+        // cannot slip in between the check and the show.
         match window.zip(rect) {
             Some((window, rect)) => {
-                window.show(rect);
-                self.preview_shown = true;
+                if crate::preview::if_current(generation, || window.show(rect)) {
+                    self.preview_shown = true;
+                }
             }
-            None => self.hide_preview(),
+            None if crate::preview::is_current(generation) => self.hide_preview(),
+            None => {}
         }
     }
 

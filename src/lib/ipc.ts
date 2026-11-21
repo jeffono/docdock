@@ -414,10 +414,10 @@ export const onImagePreviewClosed = (handler: () => void): Promise<UnlistenFn> =
 /**
  * In the preview window itself, which has no capability: it reaches only this command, which
  * answers what to show now and sends each later change through `onUpdate`. The highest
- * `generation` is the latest, whichever way it arrives.
+ * `version` is the latest, whichever way it arrives.
  */
 export const isImagePreviewWindow = () => getCurrentWebviewWindow().label === "image-preview";
-export type ImagePreviewUpdate = { generation: number; path: string | null };
+export type ImagePreviewUpdate = { version: number; path: string | null };
 export function imagePreviewState(onUpdate: (update: ImagePreviewUpdate) => void) {
   const channel = new Channel<ImagePreviewUpdate>();
   channel.onmessage = onUpdate;

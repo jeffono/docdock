@@ -27,39 +27,71 @@ const MARGIN: u32 = 12;
 /// Below this many logical pixels of room beside the panel, the preview is not worth showing.
 const MIN_ROOM: u32 = 120;
 
-/// Which image the preview shows or is about to, and in which turn.
+/// Which image the preview shows, and whether a show is on its way.
 #[derive(Debug, Default)]
 struct Preview {
     /// Changes on every show, hide and close, so work started for an earlier turn is dropped.
     generation: u64,
+    /// Changes only when `path` does: the preview window keeps the highest it hears of.
+    version: u64,
     path: Option<String>,
+    /// A show began and has not published yet.
+    pending: bool,
+}
+
+/// What a close ended.
+#[derive(Debug, PartialEq)]
+struct Closed {
+    /// An image was published: the preview window must forget it.
+    cleared: bool,
+    /// An image was published or on its way: `main` must forget it too.
+    active: bool,
 }
 
 impl Preview {
     /// Starts a show; its image is published only if `publish` gets this turn back.
     fn begin(&mut self) -> u64 {
         self.generation += 1;
+        self.pending = true;
         self.generation
     }
 
     /// Publishes `path` for the show started at `generation`, unless a later show, a hide or a close
     /// came since, or another notes folder was chosen since validation (`folder` then and now).
     fn publish(&mut self, generation: u64, folder: u64, folder_now: u64, path: String) -> bool {
-        if generation != self.generation || folder != folder_now {
+        if generation != self.generation {
+            return false;
+        }
+        self.pending = false;
+        if folder != folder_now {
             return false;
         }
         self.path = Some(path);
+        self.version += 1;
         true
     }
 
-    /// Ends the turn and forgets the image, returning whether there was one.
-    fn close(&mut self) -> bool {
+    /// Ends the turn and forgets the image.
+    fn close(&mut self) -> Closed {
         self.generation += 1;
-        self.path.take().is_some()
+        let cleared = self.path.take().is_some();
+        if cleared {
+            self.version += 1;
+        }
+        let active = cleared || self.pending;
+        self.pending = false;
+        Closed { cleared, active }
     }
 
     fn is_current(&self, generation: u64) -> bool {
         self.generation == generation && self.path.is_some()
+    }
+
+    fn update(&self) -> Update {
+        Update {
+            version: self.version,
+            path: self.path.clone(),
+        }
     }
 }
 
@@ -72,22 +104,22 @@ struct Session {
 impl Session {
     fn push(&self) {
         if let Some(channel) = &self.channel {
-            let update = Update {
-                generation: self.preview.generation,
-                path: self.preview.path.clone(),
-            };
             // Paths are far below the size Tauri delivers without a fetch command.
-            if let Err(error) = channel.send(update) {
+            if let Err(error) = channel.send(self.preview.update()) {
                 eprintln!("[preview] update not delivered: {error}");
             }
         }
     }
 }
 
+/// Never taken on the main thread: the dock thread holds it while it shows the window, which waits
+/// for the main thread. Commands that take it are asynchronous for that reason.
 static SESSION: Mutex<Session> = Mutex::new(Session {
     preview: Preview {
         generation: 0,
+        version: 0,
         path: None,
+        pending: false,
     },
     channel: None,
 });
@@ -100,10 +132,10 @@ fn session() -> MutexGuard<'static, Session> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// What the preview window shows: the latest `generation` wins, whichever way it arrived.
-#[derive(Serialize, Clone)]
+/// What the preview window shows: the highest `version` wins, whichever way it arrived.
+#[derive(Debug, Serialize, Clone)]
 pub struct Update {
-    generation: u64,
+    version: u64,
     path: Option<String>,
 }
 
@@ -185,12 +217,15 @@ pub fn preview_rect(
 /// window. Returns whether there was one.
 pub fn dismiss(app: &AppHandle) -> bool {
     let mut session = session();
-    if !session.preview.close() {
-        return false;
+    let closed = session.preview.close();
+    if closed.cleared {
+        session.push();
     }
-    session.push();
-    let _ = app.emit_to("main", CLOSED, ());
-    true
+    // Even for a show still on its way, so `main` drops the shows it queued after it.
+    if closed.active {
+        let _ = app.emit_to("main", CLOSED, ());
+    }
+    closed.active
 }
 
 /// Hides the preview from outside the dock thread, such as when the notes folder goes away or
@@ -205,6 +240,17 @@ pub fn close(app: &AppHandle) {
 /// Whether the show started at `generation` is still the one to show.
 pub fn is_current(generation: u64) -> bool {
     session().preview.is_current(generation)
+}
+
+/// Runs `show` only if the show started at `generation` is still current, without a close
+/// slipping in between. `show` must not take the session.
+pub fn if_current(generation: u64, show: impl FnOnce()) -> bool {
+    let session = session();
+    let current = session.preview.is_current(generation);
+    if current {
+        show();
+    }
+    current
 }
 
 /// Shows `image`, a path relative to the notes folder, beside its thumbnail at `thumb` (the
@@ -239,7 +285,7 @@ pub fn show(
 /// Hides the preview at the UI's request; the UI already knows, so `main` is not told.
 pub fn hide(requests: &Sender<Request>) {
     let mut session = session();
-    if session.preview.close() {
+    if session.preview.close().cleared {
         session.push();
     }
     let _ = requests.send(Request::HidePreview);
@@ -251,10 +297,7 @@ pub fn state(channel: Channel<Update>, locale: Locale) -> State {
     let mut session = session();
     session.channel = Some(channel);
     State {
-        update: Update {
-            generation: session.preview.generation,
-            path: session.preview.path.clone(),
-        },
+        update: session.preview.update(),
         locale,
     }
 }
@@ -409,7 +452,7 @@ mod tests {
         let mut preview = Preview::default();
         let generation = preview.begin();
         // The folder became unavailable meanwhile: the monitor closed the preview.
-        preview.close();
+        assert!(preview.close().active);
         assert!(!preview.publish(generation, 0, 0, "a.png".into()));
         assert_eq!(preview.path, None);
         assert!(!preview.is_current(generation));
@@ -429,8 +472,45 @@ mod tests {
         assert!(preview.publish(second, 0, 0, "b.png".into()));
         assert!(preview.is_current(second));
         assert!(!preview.is_current(first));
-        assert!(preview.close());
+        assert!(preview.close().cleared);
         assert!(!preview.is_current(second));
+    }
+
+    // Catches the window's state answer, read while a show was on its way, outranking that show's
+    // image so the first image stays blank.
+    #[test]
+    fn a_state_read_before_publication_ranks_below_it() {
+        let mut preview = Preview::default();
+        let generation = preview.begin();
+        let before = preview.update();
+        assert!(preview.publish(generation, 0, 0, "a.png".into()));
+        let published = preview.update();
+        assert!(before.version < published.version);
+        assert_eq!(before.path, None);
+        // Read after publication, the answer is the published image itself.
+        let after = preview.update();
+        assert_eq!(after.path.as_deref(), Some("a.png"));
+        assert_eq!(after.version, published.version);
+    }
+
+    // Catches `main` never hearing that a show still on its way was dismissed, which would let a
+    // show it queued after it run.
+    #[test]
+    fn closing_a_show_on_its_way_tells_main_but_not_the_window() {
+        let mut preview = Preview::default();
+        let generation = preview.begin();
+        let version = preview.version;
+        assert_eq!(
+            preview.close(),
+            Closed {
+                cleared: false,
+                active: true
+            }
+        );
+        assert_eq!(preview.version, version);
+        assert!(!preview.publish(generation, 0, 0, "a.png".into()));
+        // Nothing left to close.
+        assert!(!preview.close().active);
     }
 
     // Catches the thumbnail's box landing elsewhere on a scaled monitor or overflowing.

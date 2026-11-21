@@ -144,10 +144,13 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   over the resting open panel in Notes without a dialog; hiding the panel, a placement change
   (monitor, side, tab, width), showing the page, a dialog, the shortcut, the folder going away or
   another folder chosen hide it, and Rust then tells both windows (no path on the preview's channel,
-  `image-preview-closed` to `main`). Every show, hide and close starts a new generation: a show
-  publishes its image, and the dock thread shows it, only while its generation is current and no
-  other folder was chosen since it validated the path, so a slow show never outlives a hide or a
-  locked vault. The window decodes the next image before swapping and drops any image, decoding or
+  `image-preview-closed` to `main`, also for a show still on its way, so `main` drops the shows it
+  queued after it). Every show, hide and close starts a new generation: a show publishes its image
+  only while its generation is current and no other folder was chosen since it validated the path,
+  and the dock thread checks the generation and shows the window under the same lock, so a slow
+  show never outlives a hide or a locked vault. That lock is never taken on the main thread, which
+  showing the window waits for. What the preview window hears carries a separate version, which
+  changes only with the image shown. The window decodes the next image before swapping and drops any image, decoding or
   shown, when it hides.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
