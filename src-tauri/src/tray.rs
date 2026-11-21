@@ -16,6 +16,7 @@ use crate::platform::{autostart, taskbar};
 
 struct SideItems([(Side, CheckMenuItem<Wry>); 2]);
 struct AutostartItem(CheckMenuItem<Wry>);
+struct UnlockItem(MenuItem<Wry>);
 /// Asks for the glyph to be read again.
 struct GlyphCheck(Sender<()>);
 
@@ -37,11 +38,18 @@ pub fn setup(
     side: Side,
     requests: Sender<Request>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let [right, left, start_with_windows, quit] = match locale {
-        Locale::En => ["Side: right", "Side: left", "Start with Windows", "Quit"],
+    let [right, left, unlock, start_with_windows, quit] = match locale {
+        Locale::En => [
+            "Side: right",
+            "Side: left",
+            "Unlock floating windows",
+            "Start with Windows",
+            "Quit",
+        ],
         Locale::PtBr => [
             "Lado: direito",
             "Lado: esquerdo",
+            "Destravar janelas flutuantes",
             "Iniciar com o Windows",
             "Sair",
         ],
@@ -72,6 +80,9 @@ pub fn setup(
         side_item("side-left", left, Side::Left)?,
     ];
     app.manage(SideItems(sides.clone()));
+    // Available while a floating window lets clicks through (`set_unlock_enabled`).
+    let unlock = MenuItem::with_id(app, "unlock-floating", unlock, false, None::<&str>)?;
+    app.manage(UnlockItem(unlock.clone()));
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
     let update = crate::updates::menu_item(app, locale)?;
@@ -80,6 +91,7 @@ pub fn setup(
         &[
             &sides[0].1,
             &sides[1].1,
+            &unlock,
             &separator,
             &autostart,
             &update,
@@ -96,6 +108,7 @@ pub fn setup(
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "quit" => app.exit(0),
+            "unlock-floating" => crate::floating::unlock_all(),
             "update" => crate::updates::request_exit(app, true),
             "side-right" | "side-left" => {
                 let side = if event.id().as_ref() == "side-right" {
@@ -218,6 +231,15 @@ fn follow_taskbar(tray: &TrayIcon, mut shown: Glyph, changes: &Receiver<()>) {
             Ok(()) => shown = glyph,
             Err(error) => eprintln!("[tray] failed to change icon: {error}"),
         }
+    }
+}
+
+/// Enables "Unlock floating windows" while any floating window lets clicks through.
+pub fn set_unlock_enabled(app: &AppHandle, enabled: bool) {
+    if let Some(item) = app.try_state::<UnlockItem>()
+        && let Err(error) = item.0.set_enabled(enabled)
+    {
+        eprintln!("[tray] failed to update the unlock item: {error}");
     }
 }
 

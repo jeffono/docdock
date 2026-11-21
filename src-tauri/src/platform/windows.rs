@@ -10,13 +10,13 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    EnableWindow, GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON,
+    EnableWindow, GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_MENU, VK_RBUTTON,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
-    GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    IsIconic, IsWindow, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
+    GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+    HWND_TOPMOST, IsIconic, IsWindow, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
     SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
@@ -83,6 +83,13 @@ pub fn primary_button_down() -> bool {
     let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
     let button = if swapped { VK_RBUTTON } else { VK_LBUTTON };
     unsafe { GetAsyncKeyState(i32::from(button.0)) < 0 }
+}
+
+/// Alt is held, but not as AltGr, which layouts such as ABNT2 send as Ctrl+Alt.
+pub fn alt_held() -> bool {
+    unsafe {
+        GetAsyncKeyState(i32::from(VK_MENU.0)) < 0 && GetAsyncKeyState(i32::from(VK_CONTROL.0)) >= 0
+    }
 }
 
 /// How far, in physical pixels each way, the pointer may move before a press becomes a drag.
@@ -289,22 +296,9 @@ impl PanelWindow {
         }
     }
 
-    /// Lets every click through to the windows below, as Tauri's `set_ignore_cursor_events` does:
-    /// hit-testing skips only a layered window, so it becomes one meanwhile.
+    /// Lets every click through to the windows below, or takes them again.
     pub fn set_click_through(&self, through: bool) {
-        unsafe {
-            let hwnd = self.hwnd();
-            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            let flags = WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
-            let style = if through {
-                style | flags
-            } else {
-                style & !flags
-            };
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
-            let flags = RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME;
-            let _ = RedrawWindow(Some(hwnd), None, None, flags);
-        }
+        set_click_through(self.raw, through);
     }
 
     /// A disabled window cannot be activated. Without this, the off-screen panel inherits focus when
@@ -351,23 +345,9 @@ impl OverlayWindow {
         HWND(self.0 as *mut _)
     }
 
-    /// Shows the window at `rect`, above other windows, without activating it: Tauri's `show`
-    /// would.
+    /// Shows the window at `rect`, above other windows, without activating it.
     pub fn show(&self, rect: Rect) {
-        let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
-        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-        let result = unsafe {
-            SetWindowPos(
-                self.hwnd(),
-                Some(HWND_TOPMOST),
-                rect.left,
-                rect.top,
-                width,
-                height,
-                flags,
-            )
-        };
-        log_failure("SetWindowPos", result);
+        show_topmost(self.0, rect);
     }
 
     pub fn hide(&self) {
@@ -377,6 +357,66 @@ impl OverlayWindow {
     pub fn exists(&self) -> bool {
         unsafe { IsWindow(Some(self.hwnd())) }.as_bool()
     }
+}
+
+/// Lets every click through to the windows below, as Tauri's `set_ignore_cursor_events` does:
+/// hit-testing skips only a layered window, so it becomes one meanwhile. Or takes clicks again.
+pub fn set_click_through(raw: isize, through: bool) {
+    unsafe {
+        let hwnd = HWND(raw as *mut _);
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let flags = WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
+        let style = if through {
+            style | flags
+        } else {
+            style & !flags
+        };
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+        let flags = RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME;
+        let _ = RedrawWindow(Some(hwnd), None, None, flags);
+    }
+}
+
+/// Makes the still-hidden window a floating one: a tool window, off the taskbar and Alt+Tab, that
+/// never activates, so clicking or dragging it keeps the user's app, or a summoned panel, in the
+/// foreground. Unlike [`OverlayWindow`], it stays enabled and takes clicks.
+pub fn prepare_floating(raw: isize) {
+    unsafe {
+        let hwnd = HWND(raw as *mut _);
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let style = (style | WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) & !WS_EX_APPWINDOW.0;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+    }
+}
+
+/// Shows the window at `rect`, above other windows, without activating it: Tauri's `show` and
+/// `set_focus` would.
+pub fn show_topmost(raw: isize, rect: Rect) {
+    let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    let result = unsafe {
+        SetWindowPos(
+            HWND(raw as *mut _),
+            Some(HWND_TOPMOST),
+            rect.left,
+            rect.top,
+            width,
+            height,
+            flags,
+        )
+    };
+    log_failure("SetWindowPos", result);
+}
+
+pub fn hide_window(raw: isize) {
+    let _ = unsafe { ShowWindow(HWND(raw as *mut _), SW_HIDE) };
+}
+
+/// The window's rectangle on screen; `None` once it is gone.
+pub fn window_rect(raw: isize) -> Option<Rect> {
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(HWND(raw as *mut _), &mut rect) }.ok()?;
+    Some(rect.into())
 }
 
 /// The outline's rectangles cut to the visible columns of `visible`, as one region.

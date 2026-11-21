@@ -79,8 +79,12 @@ pub fn monitor(app: AppHandle) {
                 {
                     stop();
                     crate::notes::forget_unavailable();
-                    // The preview shows a note image, which must not outlive the folder.
+                    // The preview and floating windows show note images, which must not outlive
+                    // the folder.
                     crate::preview::close(&app);
+                    crate::floating::folder_left(&app);
+                } else {
+                    crate::floating::folder_returned(&app);
                 }
                 notify(&app);
             }

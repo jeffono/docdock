@@ -43,9 +43,17 @@ const UI: &str = "http://tauri.localhost/";
 /// Origins Tauri treats as local: the UI, `localhost:1420` (the UI in `tauri dev`) and the
 /// registered `note-asset` scheme. A page window that loaded one must still reach nothing.
 const LOCAL: [&str; 3] = [UI, "http://localhost:1420/", "http://note-asset.localhost/"];
-/// Windows that are neither `main` nor secondary: the page, the development tweak window and a
-/// floating-window label nothing registered.
-const OTHERS: [&str; 3] = ["web", "tweak", "float-9"];
+/// Windows that are neither `main` nor secondary: the page, the development tweak window and
+/// floating-window labels nothing registered.
+const OTHERS: [&str; 4] = ["web", "tweak", "float-9", "float-03"];
+/// A floating window Rust registered, as opening one does before its window exists.
+const FLOAT: &str = "float-3";
+
+/// The secondary windows: the image preview and a registered floating window.
+fn secondary(app: &App<MockRuntime>) -> [Window; 2] {
+    docdock_lib::admit_floating_label(FLOAT);
+    [window(app, "image-preview"), window(app, FLOAT)]
+}
 
 type Window = WebviewWindow<MockRuntime>;
 
@@ -167,14 +175,29 @@ fn remote_origins_reach_no_command() {
 }
 
 #[test]
-fn image_preview_reaches_only_secondary_commands() {
+fn secondary_windows_reach_only_secondary_commands() {
     let app = app();
-    let (main, preview) = (window(&app, "main"), window(&app, "image-preview"));
-    assert!(invoke(&preview, "secondary_probe", UI).is_ok());
-    let error = refusal(invoke(&preview, "probe", UI));
-    assert!(error.contains("not found"), "{error}");
+    let main = window(&app, "main");
+    for other in secondary(&app) {
+        let label = other.label();
+        assert!(invoke(&other, "secondary_probe", UI).is_ok(), "{label}");
+        let error = refusal(invoke(&other, "probe", UI));
+        assert!(error.contains("not found"), "{label}: {error}");
+    }
     let error = refusal(invoke(&main, "secondary_probe", UI));
     assert!(error.contains("not found"), "{error}");
+}
+
+/// The rule follows the registry: only the exact labels Rust registered count, and a closed
+/// floating window, whose label leaves it, would reach nothing.
+#[test]
+fn only_registered_floating_labels_are_secondary() {
+    docdock_lib::admit_floating_label(FLOAT);
+    assert!(docdock_lib::is_secondary_window(FLOAT));
+    assert!(docdock_lib::is_secondary_window("image-preview"));
+    for label in OTHERS.into_iter().chain(["main", "float-", "float-3 "]) {
+        assert!(!docdock_lib::is_secondary_window(label), "{label}");
+    }
 }
 
 /// The barrier, not a missing command, refuses every other window, including a `float-*` label no
@@ -200,10 +223,11 @@ fn secondary_and_other_windows_reach_no_core_command() {
     for (cmd, args) in &CORE[..2] {
         assert!(call(&main, cmd, args, UI).is_ok(), "{cmd} from main");
     }
-    for label in ["image-preview"].into_iter().chain(OTHERS) {
-        let other = window(&app, label);
+    let others = OTHERS.map(|label| window(&app, label));
+    for other in secondary(&app).iter().chain(&others) {
+        let label = other.label();
         for (cmd, args) in CORE {
-            let error = refusal(call(&other, cmd, args, UI));
+            let error = refusal(call(other, cmd, args, UI));
             assert!(error.contains("not allowed"), "{cmd} from {label}: {error}");
         }
     }

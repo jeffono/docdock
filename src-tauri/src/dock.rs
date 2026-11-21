@@ -1,7 +1,7 @@
 //! Connects the state machine to the window: one thread polls the cursor, receives UI requests,
 //! and animates sliding. A single thread avoids races between opening, closing, and animation.
 
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,7 @@ pub enum Side {
 }
 
 /// UI requests to the panel thread.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Request {
     Activate,
     SetPinned(bool),
@@ -70,6 +70,13 @@ pub enum Request {
     },
     /// Hides the image preview window; whoever sends it already forgot the image.
     HidePreview,
+    /// Where a floating window for an image in the panel opens: as `ShowPreview` would show it,
+    /// else in the middle of the panel's monitor. `reply` takes the rectangle and its monitor's DPI.
+    PlaceFloat {
+        rect: [i32; 4],
+        natural: (u32, u32),
+        reply: Sender<(Rect, u32)>,
+    },
 }
 
 /// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
@@ -531,6 +538,14 @@ impl Dock {
                 self.hide_preview_window();
                 Action::None
             }
+            Request::PlaceFloat {
+                rect,
+                natural,
+                reply,
+            } => {
+                let _ = reply.send(self.place_float(rect, natural));
+                Action::None
+            }
         };
         self.apply(action);
         self.report_shown();
@@ -542,22 +557,7 @@ impl Dock {
     fn show_preview(&mut self, generation: u64, thumb: [i32; 4], natural: (u32, u32)) {
         let resting = self.is_open() && self.slide.is_none() && !self.web_visible && !self.dialog;
         let window = self.preview.filter(|window| resting && window.exists());
-        let tab = self.tuning.tab;
-        let framed = handle::framed_rect(&self.monitor, self.rect, self.side, tab);
-        let origin = Point {
-            x: self.window_x() + framed.left - self.rect.left,
-            y: framed.top,
-        };
-        let thumb = crate::preview::to_physical(thumb, origin, self.monitor.dpi);
-        let placement = crate::preview::place(
-            self.monitor.work,
-            self.rect,
-            self.side,
-            thumb,
-            natural,
-            self.monitor.dpi,
-            self.away(),
-        );
+        let placement = self.place_preview(thumb, natural);
         // A later show, or the hide or close that replaced this one, decides instead; a close
         // cannot slip in between the check and the show.
         match window.zip(placement) {
@@ -570,6 +570,43 @@ impl Dock {
             None if crate::preview::is_current(generation) => self.hide_preview(),
             None => {}
         }
+    }
+
+    /// The thumbnail at `thumb`, a CSS box in the panel's viewport, in physical pixels on screen.
+    fn thumb_rect(&self, thumb: [i32; 4]) -> Rect {
+        let framed = handle::framed_rect(&self.monitor, self.rect, self.side, self.tuning.tab);
+        let origin = Point {
+            x: self.window_x() + framed.left - self.rect.left,
+            y: framed.top,
+        };
+        crate::preview::to_physical(thumb, origin, self.monitor.dpi)
+    }
+
+    fn place_preview(
+        &self,
+        thumb: [i32; 4],
+        natural: (u32, u32),
+    ) -> Option<crate::preview::Placement> {
+        crate::preview::place(
+            self.monitor.work,
+            self.rect,
+            self.side,
+            self.thumb_rect(thumb),
+            natural,
+            self.monitor.dpi,
+            self.away(),
+        )
+    }
+
+    /// A floating window opens where the preview would show its image, without the frame, or in
+    /// the middle of the panel's monitor when there is no room beside the panel.
+    fn place_float(&self, thumb: [i32; 4], natural: (u32, u32)) -> (Rect, u32) {
+        let dpi = self.monitor.dpi;
+        let rect = match self.place_preview(thumb, natural) {
+            Some(placement) => crate::preview::image_rect(&placement, dpi),
+            None => crate::floats::centered(self.monitor.work, natural, dpi),
+        };
+        (rect, dpi)
     }
 
     /// Hides the image preview, forgetting its image and telling both windows if one was shown or

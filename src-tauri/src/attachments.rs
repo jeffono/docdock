@@ -54,6 +54,17 @@ pub fn referenced<'a, 'n>(
     used
 }
 
+/// Which of `candidates` are among `paths`, ignoring case as Windows does: images a floating window
+/// shows, which count as in use.
+pub fn listed<'a>(candidates: &'a [String], paths: &[String]) -> HashSet<&'a str> {
+    let paths: HashSet<String> = paths.iter().map(|path| path.to_lowercase()).collect();
+    candidates
+        .iter()
+        .filter(|candidate| paths.contains(&candidate.to_lowercase()))
+        .map(String::as_str)
+        .collect()
+}
+
 fn destinations(note: &str, source: &str) -> HashSet<String> {
     let mut paths = HashSet::new();
     let mut collect = |url: &str| {

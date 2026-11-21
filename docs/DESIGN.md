@@ -426,6 +426,29 @@ notes differ only in section and starting state.
   thumbnails keeps it, leaving the grid hides it. Esc (its own layer), Space again, a click, scrolling,
   focus leaving the grid, editing, Browser or Preferences, any menu or dialog, the shortcut and hiding
   the panel also hide it. Not shown with too little room beside the panel (120 logical px).
+- **Floating images:** hovering a local image, single or a grid thumbnail, or focusing a thumbnail,
+  shows a `pictureInPicture` `IconButton` on a `--color-surface` backing inside its top right
+  corner, `--space-1` from the edges; it never moves the note. It, or "Open as floating window" in
+  the image's menu (right click, Shift+F10 or Menu, with "Image actions" as the menu's name),
+  detaches the image into its own window where the preview would show it, a little lower and to
+  the right of each window already open (24 logical px per window), at most 8 at once ("Up to 8
+  floating windows can be open; close one first." in the danger color otherwise). A floating
+  window is borderless, without shadow, topmost and excluded from capture; clicking or dragging it
+  never takes focus from the app in use, and the panel stays as it was. The image fills the window
+  with `object-fit: contain`. While hovered, a thin `--color-line` outline shows the window's edge
+  and a bar of controls appears inside the top right corner (`--color-surface`, 1 px
+  `--color-line`, `--radius-sm`, `--space-1` padding and gaps): an opacity slider from 15% to 100%
+  in 5% steps (also the wheel over the bar, or Ctrl+wheel anywhere), "Let clicks through" as a
+  pressed `IconButton` toggle and Close. Only the image fades: the bar stays opaque. Dragging the
+  image or the bar's background moves the window; invisible strips 6 px wide along the edges and
+  corners resize it, down to 96 logical px each way. Letting clicks through hides the controls and
+  passes every click to the windows below; holding Alt (not AltGr) with the pointer over the window
+  reveals the controls and takes clicks again, also for a drag started meanwhile, until released.
+  "Unlock floating windows" in the tray, available while any window lets clicks through, makes all
+  of them take clicks again. Windows reopen where they were, at their size and opacity, always
+  taking clicks, at the next start or when the notes folder returns; one whose spot is now off
+  every monitor moves onto the nearest. A locked vault, or another folder chosen, closes them at
+  once, without forgetting them; a window whose image was deleted is forgotten.
 - Code: inline code and blocks use the recessed `--color-bg` with `--radius-sm`; inline code has
   `--space-1` at each side; blocks have `--space-2` vertical and `--space-3` horizontal padding and a
   `--color-line` border. The editor frames code lines, fences included while visible, as one block.
@@ -517,8 +540,8 @@ tab label.
 - **Unused images**, under its own heading below the trash: rows show lazy thumbnails, filenames and
   their folders, with checkboxes to select individual images or all of them. Send to bin moves the
   selection through the same bin and fallback as Trash. Empty: "No unused images."; folder away: the
-  images appear when it is back. For the candidate and reference rules, see [Unused images in
-  Architecture](ARCHITECTURE.md#unused-images).
+  images appear when it is back. An image a floating window shows, open or to reopen, is in use. For
+  the candidate and reference rules, see [Unused images in Architecture](ARCHITECTURE.md#unused-images).
 - **About:** the installed version, live update status and last successful check. Check now starts a
   check; development builds say updates are disabled. A verified download shows Restart to update and
   enables the tray action and tooltip. Nothing moves the panel or focus.

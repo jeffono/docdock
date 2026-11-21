@@ -696,6 +696,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
         crate::watch::stop();
         // The picker hid the preview already; this also ends a show validated in the old folder.
         crate::preview::close(app);
+        crate::floating::folder_chosen(app);
         purge_trash(app);
     }
     folder(app)
@@ -704,6 +705,7 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
 /// would, without leaving an editor whose text waits for it.
 pub fn trust(app: &AppHandle) -> Result<Option<Folder>, Error> {
     trust_in(&config(app)?)?;
+    crate::floating::folder_chosen(app);
     folder(app)
 }
 fn trust_in(config: &Path) -> Result<(), Error> {
@@ -2154,6 +2156,71 @@ fn update_collapsed(root: &Path, change: impl FnOnce(&mut BTreeSet<String>)) -> 
     )?;
     Ok(())
 }
+/// The floating windows open on the notes folder (`floats.rs`), derived from it like the rest of
+/// `DERIVED`: their image paths stay inside the folder, a vault included.
+const FLOATING_FILE: &str = "floating.json";
+/// Serializes reads and writes of `FLOATING_FILE`, so concurrent changes never undo each other.
+static FLOATING: Mutex<()> = Mutex::new(());
+/// The store in `root`, empty when there is none or it is corrupt; `None` when another version of
+/// DocDock wrote it, so nothing opens from it or overwrites it.
+fn load_floating(root: &Path) -> Result<Option<crate::floats::Store>, Error> {
+    use crate::floats::{Store, Unreadable};
+    match fs::read(root.join(DERIVED).join(FLOATING_FILE)) {
+        Ok(bytes) => match crate::floats::parse(&bytes) {
+            Ok(store) => Ok(Some(store)),
+            Err(Unreadable::Corrupt) => {
+                eprintln!("[floating] the saved windows do not read; starting over");
+                Ok(Some(Store::default()))
+            }
+            Err(Unreadable::Version(version)) => {
+                eprintln!("[floating] saved windows of version {version} are left as they are");
+                Ok(None)
+            }
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Some(Store::default())),
+        Err(error) => Err(error.into()),
+    }
+}
+/// The floating windows saved in the configured notes folder, if it is available and the one
+/// chosen; see `load_floating`.
+pub fn read_floating(app: &AppHandle) -> Result<Option<crate::floats::Store>, Error> {
+    read_floating_at(&config(app)?)
+}
+fn read_floating_at(config: &Path) -> Result<Option<crate::floats::Store>, Error> {
+    let root = root_in(config)?;
+    let _guard = FLOATING.lock().unwrap_or_else(|e| e.into_inner());
+    load_floating(&root)
+}
+/// Changes the floating windows saved in the configured notes folder, if it is available and the
+/// one chosen; never creates the folder, and never overwrites another version's file
+/// (`FloatingVersion`).
+pub fn update_floating(
+    app: &AppHandle,
+    change: impl FnOnce(&mut crate::floats::Store),
+) -> Result<(), Error> {
+    update_floating_at(&config(app)?, change)
+}
+fn update_floating_at(
+    config: &Path,
+    change: impl FnOnce(&mut crate::floats::Store),
+) -> Result<(), Error> {
+    let root = root_in(config)?;
+    let _guard = FLOATING.lock().unwrap_or_else(|e| e.into_inner());
+    let mut store = load_floating(&root)?.ok_or(Error::FloatingVersion)?;
+    change(&mut store);
+    let (dir, _held) = held_derived_dir(&root)?;
+    write_atomic(&dir.join(FLOATING_FILE), &store.to_bytes())?;
+    Ok(())
+}
+/// The paths floating windows saved in `root` show, which count as in use. A file that does not
+/// read names none; one that cannot be read stops the caller, as an unreadable note does.
+fn floating_paths(root: &Path) -> Result<Vec<String>, Error> {
+    match fs::read(root.join(DERIVED).join(FLOATING_FILE)) {
+        Ok(bytes) => Ok(crate::floats::paths(&bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.into()),
+    }
+}
 /// Called under SETTINGS, before changing the configured folder. Unavailable folders leave legacy
 /// bytes untouched and unread. Destination files win after a crash between write and cleanup.
 fn try_migrate_derived(root: &Path, settings: &Path) {
@@ -2511,12 +2578,14 @@ fn unused_images_in(
         Err(error) => return Err(trash_error(&dir, error)),
     }
 
-    let used = attachments::referenced(
+    let mut used = attachments::referenced(
         &candidates,
         notes
             .iter()
             .map(|(path, text)| (path.as_str(), text.as_str())),
     );
+    // A floating window shows it, open or saved to reopen.
+    used.extend(attachments::listed(&candidates, &floating_paths(&root)?));
     let mut unused: Vec<_> = candidates
         .iter()
         .filter(|p| !used.contains(p.as_str()))
@@ -2876,6 +2945,27 @@ fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Respo
 }
 pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec<u8>> {
     image_response(webview, root(app).ok().map(|root| root.path), uri_path)
+}
+/// Whether `path`, relative to the recognized notes folder, is still an image `note-asset` would
+/// serve: `false` when it is gone or never could be, an error when the folder or the disk cannot
+/// tell, such as a locked vault.
+pub fn image_present(app: &AppHandle, path: &str) -> Result<bool, Error> {
+    image_present_in(&root(app)?, path)
+}
+fn image_present_in(root: &Path, path: &str) -> Result<bool, Error> {
+    let Ok(relative) = checked(path, is_image) else {
+        return Ok(false);
+    };
+    match fs::symlink_metadata(root.join(relative)) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
+    }
+    match resolve(root, path, is_image) {
+        Ok(_) => Ok(true),
+        Err(Error::InvalidPath | Error::OutsideFolder) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 /// `path`, relative to the recognized notes folder, is an image `note-asset` would serve. Returns
 /// the folder choices counted before the check, so the caller can tell if another folder was chosen
@@ -4507,6 +4597,117 @@ mod tests {
         let id = trash_note(root, "a.md");
         hide(root, refused_bin);
         id
+    }
+    /// `root` with a floating window saved for `path`.
+    fn floating_on(root: &Path, path: &str) {
+        let file = serde_json::json!({ "version": 1, "entries": [{ "path": path }] });
+        let dir = root.join(DERIVED);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(FLOATING_FILE), serde_json::to_vec(&file).unwrap()).unwrap();
+    }
+    // Catches Unused images offering to send away the image a floating window shows.
+    #[test]
+    fn an_image_a_floating_window_shows_is_in_use() {
+        let t = Temp::new();
+        let root = folder_with(&t, &[("attachments/map.png", b"map")]);
+        assert_eq!(
+            unused_images_in(&root, None, None).unwrap(),
+            ["attachments/map.png"]
+        );
+        floating_on(&root, "Attachments/MAP.png");
+        assert!(unused_images_in(&root, None, None).unwrap().is_empty());
+    }
+    // Catches deleting a note sending the image a floating window shows after it.
+    #[test]
+    fn a_deleted_note_leaves_an_image_a_floating_window_shows() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let root = note_with_image(&t);
+        floating_on(&root, "attachments/map.png");
+        assert_eq!(delete_to(&root, &t.0.join("bin"), "a.md").images, 0);
+        hide(&root, nothing_moves);
+        assert_eq!(fs::read(root.join("attachments/map.png")).unwrap(), b"map");
+    }
+    fn floating_entry(path: &str) -> crate::floats::Entry {
+        crate::floats::Entry {
+            id: new_folder_id(),
+            kind: crate::floats::Kind::Image,
+            path: path.into(),
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 100,
+            opacity: 1.0,
+        }
+    }
+    #[test]
+    fn floating_windows_are_saved_in_the_notes_folder() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        let settings = chosen(&t, &root, serde_json::json!({}));
+        let entry = floating_entry("attachments/a.png");
+        update_floating_at(&settings, |store| store.add(entry.clone())).unwrap();
+        let store = read_floating_at(&settings).unwrap().unwrap();
+        assert_eq!(store.entries().collect::<Vec<_>>(), [&entry]);
+        assert!(exists(&root.join(DERIVED).join(FLOATING_FILE)));
+    }
+    // Catches a locked vault's mount point, or a missing folder, receiving image paths in
+    // plaintext, or being created.
+    #[test]
+    fn floating_windows_are_never_saved_outside_the_chosen_folder() {
+        let t = Temp::new();
+        let root = t.0.join("vault").join("notes");
+        let settings = t.0.join("settings.json");
+        choose_in(&settings, root.clone()).unwrap();
+        let add = |store: &mut crate::floats::Store| store.add(floating_entry("a.png"));
+        assert_eq!(
+            update_floating_at(&settings, add),
+            Err(Error::FolderUnavailable)
+        );
+        assert_eq!(
+            read_floating_at(&settings).err(),
+            Some(Error::FolderUnavailable)
+        );
+        assert_eq!(tree(&t.0), ["settings.json"]);
+
+        let other = t.0.join("other");
+        fs::create_dir(&other).unwrap();
+        let settings = chosen(&t, &other, serde_json::json!({}));
+        fs::write(other.join(DERIVED).join(MARKER), new_folder_id()).unwrap();
+        assert_eq!(
+            update_floating_at(&settings, add),
+            Err(Error::FolderUnrecognized)
+        );
+        assert!(!exists(&other.join(DERIVED).join(FLOATING_FILE)));
+    }
+    // Catches this build overwriting the floating windows a newer one saved.
+    #[test]
+    fn floating_windows_of_another_version_stay_as_they_are() {
+        let t = Temp::new();
+        let root = t.0.join("notes");
+        fs::create_dir(&root).unwrap();
+        let settings = chosen(&t, &root, serde_json::json!({}));
+        let file = root.join(DERIVED).join(FLOATING_FILE);
+        fs::write(&file, br#"{"version":2,"entries":[]}"#).unwrap();
+        assert_eq!(read_floating_at(&settings), Ok(None));
+        let add = |store: &mut crate::floats::Store| store.add(floating_entry("a.png"));
+        assert_eq!(
+            update_floating_at(&settings, add),
+            Err(Error::FloatingVersion)
+        );
+        assert_eq!(fs::read(&file).unwrap(), br#"{"version":2,"entries":[]}"#);
+    }
+    // Catches a floating window kept for an image that is gone, or dropped for one still there.
+    #[test]
+    fn only_a_missing_image_is_gone() {
+        let t = Temp::new();
+        let root = folder_with(&t, &[("attachments/a.png", b"a"), ("a.md", b"a")]);
+        assert_eq!(image_present_in(&root, "attachments/a.png"), Ok(true));
+        assert_eq!(image_present_in(&root, "attachments/b.png"), Ok(false));
+        assert_eq!(image_present_in(&root, "gone/b.png"), Ok(false));
+        assert_eq!(image_present_in(&root, "a.md"), Ok(false));
+        assert_eq!(image_present_in(&root, "../a.png"), Ok(false));
     }
     #[test]
     fn the_images_only_a_deleted_note_used_go_when_the_panel_hides() {

@@ -133,6 +133,12 @@ pub enum Error {
     ShortcutAltGr,
     /// A key a shortcut cannot use, such as one whose name depends on the keyboard layout.
     ShortcutKeyUnsupported,
+    /// `max` floating windows are open already.
+    FloatingLimit {
+        max: usize,
+    },
+    /// `.docdock/floating.json` was written by another version of DocDock; it stays as it is.
+    FloatingVersion,
     /// Registration failed, usually because another app holds `shortcut`; the previous one stays.
     ShortcutTaken {
         shortcut: String,

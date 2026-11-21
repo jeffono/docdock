@@ -64,6 +64,8 @@ import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
+import Detach from "../floating/Detach.svelte";
+import { openFloating } from "../floating/detach";
 import { imagePreview } from "../image-preview/preview";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import Permission from "../web/Permission.svelte";
@@ -684,6 +686,7 @@ function forget() {
   cardMenu?.close();
   folderMenu?.close();
   closeLinkMenu();
+  closeImageMenu();
   menuCard = null;
   menuFolder = "";
   selection = "";
@@ -1811,6 +1814,37 @@ async function openLinkMenu(
   if (menuLink?.url === url && from.isConnected) linkMenu.show({ at, from });
 }
 
+let imageMenu: Menu;
+/** The note image the image menu acts on. */
+let menuImage = $state<HTMLElement | null>(null);
+function closeImageMenu() {
+  if (!menuImage) return;
+  menuImage = null;
+  imageMenu?.close();
+}
+async function openImageMenu(event: MouseEvent | KeyboardEvent, image: HTMLElement) {
+  event.preventDefault();
+  event.stopPropagation();
+  // Opening the menu dismisses the side preview, which listens for it.
+  const rect = image.getBoundingClientRect();
+  const at =
+    event instanceof MouseEvent
+      ? { x: event.clientX, y: event.clientY }
+      : { x: rect.left, y: rect.bottom };
+  menuImage = image;
+  await tick();
+  // Focus returns to a focused thumbnail, else to the list.
+  const from = image === document.activeElement ? image : list;
+  if (menuImage === image && image.isConnected) imageMenu.show({ at, from });
+}
+function floatImage(image: HTMLElement) {
+  if (!image.isConnected) return;
+  error = "";
+  void openFloating(image).catch((e) => {
+    error = errorText(e);
+  });
+}
+
 let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
 // Selection changes reveal their destination; remounting a card after editing must not scroll it.
@@ -2238,6 +2272,7 @@ onMount(() => {
     noteSearchTyped = false;
     shortcutSheet.close();
     closeLinkMenu();
+    closeImageMenu();
     // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
     if (!removed?.trash) removed = null;
     noticeAway = true;
@@ -2309,6 +2344,14 @@ onMount(() => {
     <button role="menuitem" tabindex="-1" onclick={() => void clipboardWrite(target.href).catch(linkError)}>{t("link.copy")}</button>
   {/if}
 </Menu>
+
+<Menu bind:this={imageMenu} label={t("image.menu")} ontoggle={(open) => { if (!open) menuImage = null; }}>
+  {#if menuImage}
+    {@const image = menuImage}
+    <button role="menuitem" tabindex="-1" onclick={() => floatImage(image)}>{t("image.float")}</button>
+  {/if}
+</Menu>
+<Detach root={list} off={browser || inactive} onerror={(e) => { error = errorText(e); }} />
 
 <Menu bind:this={cardMenu} label={t("menu.label")} ontoggle={(open) => { if (!open) menuCard = null; }}>
   {#if menuCard}
@@ -2527,6 +2570,7 @@ onMount(() => {
             onedit={(start) => (edited ? leaveEditor() : edit(card.hit.path, start))}
             onlink={(event) => linkClick(event, true)}
             onlinkmenu={openLinkMenu}
+            onimagemenu={openImageMenu}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
             status={edited ? saveText : ""}

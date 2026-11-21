@@ -430,6 +430,56 @@ export function imagePreviewState(onUpdate: (update: ImagePreviewUpdate) => void
   return invoke<ImagePreviewUpdate & { locale: Locale }>("image_preview_state", { channel });
 }
 
+/**
+ * Detaches the image at `path` into a floating window, opened where the side preview would show
+ * it for its thumbnail at `rect` (`[x, y, width, height]` CSS pixels in this viewport); `natural`
+ * is the image's size in pixels, `[0, 0]` if unknown.
+ */
+export const floatingOpen = (
+  path: string,
+  rect: [number, number, number, number],
+  natural: [number, number],
+) => invoke<void>("floating_open", { path, rect, natural });
+
+/**
+ * In a floating window itself, which has no capability: it reaches only the `float_*` commands,
+ * each acting on itself. Rust sends each change of what it shows through `onUpdate`; the highest
+ * `version` is the latest, whichever way it arrives.
+ */
+export const isFloatWindow = () => /^float-[1-9]\d*$/.test(getCurrentWebviewWindow().label);
+export type FloatUpdate = {
+  version: number;
+  path: string | null;
+  /** From 0.15 to 1. */
+  opacity: number;
+  clickThrough: boolean;
+  /** Alt is held over the click-through window: it takes clicks and shows its controls. */
+  revealed: boolean;
+};
+export function floatState(onUpdate: (update: FloatUpdate) => void) {
+  const channel = new Channel<FloatUpdate>();
+  channel.onmessage = onUpdate;
+  return invoke<FloatUpdate & { locale: Locale }>("float_state", { channel });
+}
+export const floatSetOpacity = (opacity: number) => invoke<void>("float_set_opacity", { opacity });
+export const floatSetClickThrough = (clickThrough: boolean) =>
+  invoke<void>("float_set_click_through", { clickThrough });
+export const floatClose = () => invoke<void>("float_close");
+/** Moves the window with the pointer; call while the primary button is down. */
+export const floatDrag = () => invoke<void>("float_drag");
+export type ResizeDirection =
+  | "North"
+  | "South"
+  | "East"
+  | "West"
+  | "NorthEast"
+  | "NorthWest"
+  | "SouthEast"
+  | "SouthWest";
+/** Resizes the window from an edge or corner with the pointer, as a frame would. */
+export const floatResize = (direction: ResizeDirection) =>
+  invoke<void>("float_resize", { direction });
+
 export const notesLeftovers = () => invoke<Leftover[]>("notes_leftovers");
 /** Resolves to the path of the restored note. */
 export const notesRestore = (path: string) => invoke<string>("notes_restore", { path });

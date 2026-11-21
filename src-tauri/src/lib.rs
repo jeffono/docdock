@@ -7,6 +7,8 @@ mod commands;
 mod dev;
 mod dock;
 mod error;
+mod floating;
+mod floats;
 mod handle;
 mod i18n;
 mod main_window;
@@ -57,6 +59,13 @@ pub fn by_window<R: tauri::Runtime>(
 /// The production rule for secondary app windows, for `by_window` and its tests.
 pub fn is_secondary_window(label: &str) -> bool {
     main_window::is_secondary(label)
+}
+
+/// Registers `label` as a live floating window, as opening one does before its window exists; for
+/// the barrier's tests.
+#[doc(hidden)]
+pub fn admit_floating_label(label: &str) {
+    floating::admit(label);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -163,9 +172,17 @@ pub fn run() {
         commands::spelling_add,
         commands::image_preview_show,
         commands::image_preview_hide,
+        commands::floating_open,
     ];
-    let secondary: fn(tauri::ipc::Invoke) -> bool =
-        tauri::generate_handler![commands::image_preview_state];
+    let secondary: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
+        commands::image_preview_state,
+        commands::float_state,
+        commands::float_set_opacity,
+        commands::float_set_click_through,
+        commands::float_close,
+        commands::float_drag,
+        commands::float_resize,
+    ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -202,6 +219,8 @@ pub fn run() {
                 side,
                 notes::width(app.handle()),
             );
+            floating::start(app.handle());
+            floating::folder_returned(app.handle());
             Ok(())
         })
         // Alt+F4 on the panel would destroy the only UI that can flush saves.
@@ -212,16 +231,18 @@ pub fn run() {
                 api.prevent_close();
                 updates::request_exit(window.app_handle(), false);
             }
+            floating::window_event(window.label(), event);
         })
         .invoke_handler(by_window(commands, secondary, is_secondary_window))
         .build(tauri::generate_context!())
         .expect("failed to start application")
-        .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event
-                && !updates::exit_allowed(app)
-            {
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } if !updates::exit_allowed(app) => {
                 api.prevent_exit();
                 updates::request_exit(app, false);
             }
+            // Moves of floating windows still waiting to be saved.
+            tauri::RunEvent::Exit => floating::flush(),
+            _ => {}
         });
 }

@@ -22,10 +22,11 @@ pub fn stays_in_ui(url: &Url, ui: &Url) -> bool {
     url.origin() == ui.origin()
 }
 
-/// Secondary app windows: they reach only their own command list (`by_window` in `lib.rs`) and,
-/// with `main`, read note images.
+/// Secondary app windows, the image preview and the floating windows Rust registered and has not
+/// closed: they reach only their own command list (`by_window` in `lib.rs`) and, with `main`, read
+/// note images.
 pub fn is_secondary(label: &str) -> bool {
-    label == crate::preview::LABEL
+    label == crate::preview::LABEL || crate::floating::is_live(label)
 }
 
 /// Windows that may read note images through `note-asset`; any other gets 403.
@@ -122,12 +123,13 @@ mod tests {
         assert!(!stays("http://tauri.localhost/", DEV));
     }
 
-    // Catches the page or tweak window gaining note images or secondary commands.
+    // Catches the page or tweak window, or a floating-window label Rust never registered, gaining
+    // note images or secondary commands. `float-0` is never given: labels start at 1.
     #[test]
     fn only_app_windows_read_images() {
         assert!(reads_images("main"));
         assert!(reads_images("image-preview"));
-        for label in ["web", "tweak", "float-1", "image-preview-2", ""] {
+        for label in ["web", "tweak", "float-0", "image-preview-2", ""] {
             assert!(!reads_images(label), "{label}");
             assert!(!is_secondary(label), "{label}");
         }
