@@ -1,6 +1,6 @@
-//! Floating windows: note images detached from the panel into borderless, topmost windows that
-//! never activate, with their own opacity and a click-through mode, reopened where they were from
-//! `.docdock/floating.json`. The rules are pure in `floats.rs`; this runs their effects. Each window
+//! Floating windows: note images and notes (post-its) detached from the panel into borderless,
+//! topmost windows that never activate, with their own opacity and a click-through mode, reopened
+//! where they were from `.docdock/floating.json`. The rules are pure in `floats.rs`; this runs their effects. Each window
 //! is a secondary app window ([0014](../../docs/decisions/0014-app-windows.md)) labeled `float-<n>`
 //! for this run: it has no capability, reaches only the `float_*` commands, and only for itself,
 //! and hears what to show only through the IPC channel it hands over with `float_state`.
@@ -45,8 +45,12 @@ const PLACE_WAIT: Duration = Duration::from_secs(1);
 #[serde(rename_all = "camelCase")]
 pub struct Update {
     version: u64,
+    kind: Kind,
     path: Option<String>,
+    /// Changes whenever a post-it's note may have changed on disk: the window reads it again.
+    revision: u64,
     opacity: f64,
+    text_scale: f64,
     click_through: bool,
     /// Alt is held over the click-through window: it takes clicks and shows its controls.
     revealed: bool,
@@ -64,7 +68,10 @@ struct Live {
     label: String,
     /// Its entry in `floating.json`.
     id: String,
+    kind: Kind,
     path: String,
+    /// See `Update::revision`.
+    revision: u64,
     /// The window, once built and prepared; 0 before.
     raw: isize,
     /// The image's width over its height, which the window keeps when resized or zoomed; shared
@@ -80,6 +87,8 @@ struct Live {
     /// overtakes it.
     closing: bool,
     opacity: f64,
+    /// A post-it's text size against the panel's.
+    text_scale: f64,
     click_through: bool,
     revealed: bool,
     /// Changes with what the window shows.
@@ -92,8 +101,11 @@ impl Live {
     fn update(&self) -> Update {
         Update {
             version: self.version,
+            kind: self.kind,
             path: Some(self.path.clone()),
+            revision: self.revision,
             opacity: self.opacity,
+            text_scale: self.text_scale,
             click_through: self.click_through,
             revealed: self.revealed,
         }
@@ -162,14 +174,12 @@ impl Registry {
         epoch == self.epoch && self.switching == 0
     }
 
-    /// Takes a label and a place for a window still to be built, for work started on `epoch`;
-    /// answers its label and how many windows were open already.
+    /// Takes a label and a place for a window still to be built for `entry`, for work started on
+    /// `epoch`; answers its label and how many windows were open already.
     fn reserve(
         &mut self,
         epoch: u64,
-        id: &str,
-        path: &str,
-        opacity: f64,
+        entry: &Entry,
         folder: &FolderIdentity,
     ) -> Result<(String, usize), Error> {
         if !self.current(epoch) {
@@ -183,15 +193,18 @@ impl Registry {
         let label = floats::label(self.next);
         self.live.push(Live {
             label: label.clone(),
-            id: id.to_owned(),
-            path: path.to_owned(),
+            id: entry.id.clone(),
+            kind: entry.kind,
+            path: entry.path.clone(),
+            revision: 0,
             raw: 0,
             aspect: Aspect::new(1.0),
             shown: false,
             folder: folder.clone(),
             epoch,
             closing: false,
-            opacity: floats::clamp_opacity(opacity),
+            opacity: floats::clamp_opacity(entry.opacity),
+            text_scale: floats::clamp_text_scale(entry.text_scale.unwrap_or(1.0)),
             click_through: false,
             revealed: false,
             version: 1,
@@ -227,7 +240,7 @@ impl Registry {
             .collect()
     }
 
-    /// The images the open windows show, as saved.
+    /// The images and notes the open windows show, as saved.
     fn paths(&self) -> Vec<String> {
         let mut paths: Vec<_> = self
             .live
@@ -348,6 +361,9 @@ enum Message {
     CloseAll,
     /// Save what is waiting now, then answer.
     Flush(Sender<()>),
+    /// Something in the notes folder changed: post-its of the folder the watcher saw at the path
+    /// follow the renames it saw there, then every post-it reads its note again.
+    NotesChanged(Option<std::path::PathBuf>, Vec<(String, String)>),
 }
 
 fn send(message: Message) {
@@ -360,6 +376,7 @@ fn send(message: Message) {
 struct Dirty {
     rect: Rect,
     opacity: f64,
+    text_scale: Option<f64>,
     folder: FolderIdentity,
     epoch: u64,
 }
@@ -410,6 +427,7 @@ impl Worker {
                     let dirty = Dirty {
                         rect,
                         opacity: live.opacity,
+                        text_scale: (live.kind == Kind::Note).then_some(live.text_scale),
                         folder: live.folder.clone(),
                         epoch: live.epoch,
                     };
@@ -431,6 +449,9 @@ impl Worker {
             Message::Flush(done) => {
                 self.save();
                 let _ = done.send(());
+            }
+            Message::NotesChanged(root, renames) => {
+                notes_changed(&self.app, root.as_deref(), &renames);
             }
         }
     }
@@ -458,7 +479,7 @@ impl Worker {
                     return Err(Error::FolderChanged);
                 }
                 for (id, dirty) in current {
-                    store.update(id, dirty.rect, dirty.opacity);
+                    store.update(id, dirty.rect, dirty.opacity, dirty.text_scale);
                 }
                 Ok(())
             });
@@ -514,7 +535,7 @@ fn report(app: &AppHandle) {
 /// Tells `main` which images floating windows show.
 const PATHS: &str = "floating-paths";
 
-/// The images the open floating windows show, relative to the notes folder.
+/// The images and notes the open floating windows show, relative to the notes folder.
 pub fn paths() -> Vec<String> {
     registry().paths()
 }
@@ -557,15 +578,9 @@ fn new_id() -> String {
 }
 
 /// `Registry::reserve` on the app's registry, registering the label as live.
-fn reserve(
-    epoch: u64,
-    id: &str,
-    path: &str,
-    opacity: f64,
-    folder: &FolderIdentity,
-) -> Result<(String, usize), Error> {
+fn reserve(epoch: u64, entry: &Entry, folder: &FolderIdentity) -> Result<(String, usize), Error> {
     let mut registry = registry();
-    let reserved = registry.reserve(epoch, id, path, opacity, folder)?;
+    let reserved = registry.reserve(epoch, entry, folder)?;
     admit(&reserved.0);
     Ok(reserved)
 }
@@ -587,7 +602,7 @@ fn destroy(app: &AppHandle, label: &str) {
 /// Builds the reserved window `label` hidden, hardened as every secondary app window, as a tool
 /// window that never activates. Gives up, destroying it, if the registry no longer holds it, as
 /// after a close or the notes folder going away.
-fn build(app: &AppHandle, label: &str, aspect: f64) -> Result<(), Error> {
+fn build(app: &AppHandle, label: &str, kind: Kind, aspect: f64) -> Result<(), Error> {
     let side = f64::from(floats::MIN_SIDE);
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("DocDock")
@@ -609,14 +624,18 @@ fn build(app: &AppHandle, label: &str, aspect: f64) -> Result<(), Error> {
         }
     };
     platform::prepare_floating(raw);
-    // Resizing keeps the image's proportions, so the window never shows margins around it.
+    // Resizing keeps an image's proportions, so the window never shows margins around it; a
+    // post-it takes any.
     let aspect = Aspect::new(aspect);
     let hooked = aspect.clone();
     let sized = window.run_on_main_thread(move || {
         let sizing: platform::Sizing = Box::new(move |rect, edge, dpi, work| {
             let pad = scale_dpi(dpi, floats::SHADOW_PAD);
             let min = scale_dpi(dpi, floats::MIN_SIDE);
-            floats::constrain_sizing(rect, edge, hooked.get(), pad, min, work)
+            match kind {
+                Kind::Image => floats::constrain_sizing(rect, edge, hooked.get(), pad, min, work),
+                Kind::Note => floats::constrain_free(rect, edge, pad, min, work),
+            }
         });
         if let Err(error) = platform::constrain_sizing(raw, sizing) {
             eprintln!("[floating] resizing keeps no proportions: {error}");
@@ -693,11 +712,46 @@ pub fn open(
     thumb: [i32; 4],
     natural: (u32, u32),
 ) -> Result<(), Error> {
+    open_kind(app, requests, Kind::Image, path, thumb, natural)
+}
+
+/// Opens the note `path`, relative to the notes folder, as a post-it beside its card at `card` (a
+/// CSS box in `main`), at `floats::NOTE_SIZE`, slightly apart from the windows already open. Its
+/// entry is saved before it shows.
+pub fn open_note(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    path: String,
+    card: [i32; 4],
+) -> Result<(), Error> {
+    open_kind(app, requests, Kind::Note, path, card, floats::NOTE_SIZE)
+}
+
+/// Opens a window of `kind` for `path` beside `from`, a CSS box in `main`, where the side preview
+/// would show something of `natural` pixels.
+fn open_kind(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    kind: Kind,
+    path: String,
+    from: [i32; 4],
+    natural: (u32, u32),
+) -> Result<(), Error> {
     let epoch = registry().epoch;
-    let folder = crate::notes::floating_folder(app, &path)?;
-    let id = new_id();
-    let (label, open) = reserve(epoch, &id, &path, 1.0, &folder)?;
-    let opened = place(requests, thumb, natural).and_then(|placed| {
+    let folder = crate::notes::floating_folder(app, kind, &path)?;
+    let mut entry = Entry {
+        id: new_id(),
+        kind,
+        path,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        opacity: 1.0,
+        text_scale: None,
+    };
+    let (label, open) = reserve(epoch, &entry, &folder)?;
+    let opened = place(requests, from, natural).and_then(|placed| {
         let aspect = match natural {
             (width, height) if width > 0 && height > 0 => f64::from(width) / f64::from(height),
             _ => floats::aspect_of(placed.image),
@@ -705,19 +759,9 @@ pub fn open(
         let pad = scale_dpi(placed.dpi, floats::SHADOW_PAD);
         let window = floats::outset(placed.image, pad);
         let window = floats::cascade(window, open, placed.dpi, placed.side, placed.free);
-        let rect = fitted(window, aspect, &platform::monitors());
-        let mut entry = Entry {
-            id: id.clone(),
-            kind: Kind::Image,
-            path,
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-            opacity: 1.0,
-        };
+        let rect = fitted(window, kind, aspect, &platform::monitors());
         entry.set_rect(rect);
-        build(app, &label, aspect)?;
+        build(app, &label, kind, aspect)?;
         save_and_show(
             &REGISTRY,
             &label,
@@ -734,9 +778,12 @@ pub fn open(
     opened
 }
 
-/// `window`, with its image of `aspect`, on the monitors there are now and reshaped to the image.
-fn fitted(window: Rect, aspect: f64, monitors: &[platform::Monitor]) -> Rect {
+/// `window` on the monitors there are now and, for an image of `aspect`, reshaped to it.
+fn fitted(window: Rect, kind: Kind, aspect: f64, monitors: &[platform::Monitor]) -> Rect {
     let rect = floats::fit_to_monitors(window, monitors);
+    if kind == Kind::Note {
+        return rect;
+    }
     let dpi = floats::monitor_of(rect, monitors).map_or(platform::BASE_DPI, |m| m.dpi);
     floats::contain(rect, aspect, scale_dpi(dpi, floats::SHADOW_PAD))
 }
@@ -766,13 +813,17 @@ fn open_saved(
     epoch: u64,
     folder: &FolderIdentity,
 ) -> Result<(), Error> {
-    let (label, _) = reserve(epoch, &entry.id, &entry.path, entry.opacity, folder)?;
+    let (label, _) = reserve(epoch, entry, folder)?;
     let dpi = floats::monitor_of(rect, &platform::monitors()).map_or(platform::BASE_DPI, |m| m.dpi);
     let aspect = floats::aspect_of(floats::inset(rect, scale_dpi(dpi, floats::SHADOW_PAD)));
     let pad = scale_dpi(dpi, floats::SHADOW_PAD);
+    let kind = entry.kind;
     // The image may have loaded and told its real proportions (`natural`) while hidden.
-    let shown = build(app, &label, aspect).and_then(|()| {
-        let fit = |raw, aspect| show(raw, floats::contain(rect, aspect, pad));
+    let shown = build(app, &label, kind, aspect).and_then(|()| {
+        let fit = |raw, aspect| match kind {
+            Kind::Image => show(raw, floats::contain(rect, aspect, pad)),
+            Kind::Note => show(raw, rect),
+        };
         show_if_current(&REGISTRY, &label, epoch, fit)
             .then_some(())
             .ok_or(Error::FolderChanged)
@@ -785,7 +836,7 @@ fn open_saved(
 }
 
 /// Reopens the windows saved in the notes folder, unlocked, where they were as far as the
-/// monitors there are now allow. Entries whose image is gone are dropped; those whose image cannot
+/// monitors there are now allow. Entries whose image or note is gone are dropped; those that cannot
 /// be checked now stay for the next time. Stops once the folder leaves or another is chosen. Runs
 /// off the main thread.
 pub fn restore(app: &AppHandle) {
@@ -818,7 +869,7 @@ pub fn restore(app: &AppHandle) {
         if open {
             continue;
         }
-        match crate::notes::image_present(app, &folder, &entry.path) {
+        match crate::notes::floating_present(app, &folder, entry.kind, &entry.path) {
             Ok(true) => {}
             Ok(false) => {
                 gone.push(entry.id.as_str());
@@ -829,7 +880,7 @@ pub fn restore(app: &AppHandle) {
         let saved = entry.rect();
         let dpi = floats::monitor_of(saved, &monitors).map_or(platform::BASE_DPI, |m| m.dpi);
         let aspect = floats::aspect_of(floats::inset(saved, scale_dpi(dpi, floats::SHADOW_PAD)));
-        let rect = fitted(saved, aspect, &monitors);
+        let rect = fitted(saved, entry.kind, aspect, &monitors);
         match open_saved(app, entry, rect, epoch, &folder) {
             Ok(()) => {}
             Err(Error::FloatingLimit { .. } | Error::FolderChanged) => break,
@@ -846,7 +897,7 @@ pub fn restore(app: &AppHandle) {
             Ok(())
         })
     {
-        eprintln!("[floating] gone images not dropped: {error:?}");
+        eprintln!("[floating] gone images and notes not dropped: {error:?}");
     }
 }
 
@@ -944,9 +995,10 @@ pub fn close(app: &AppHandle, label: &str) {
     forget_closed(app, closing);
 }
 
-/// The user closes every window showing `path`, however it is spelled, as `close` does.
+/// The user closes every window showing `path`, an image or a note however it is spelled, as
+/// `close` does.
 pub fn close_path(app: &AppHandle, path: &str) {
-    let closing = registry().mark_closing_where(same_image(path));
+    let closing = registry().mark_closing_where(same_path(path));
     forget_closed(app, closing);
 }
 
@@ -957,9 +1009,15 @@ pub fn close_all(app: &AppHandle) {
 }
 
 /// Picks the windows showing `path`, compared as saved image paths are (`attachments::normalize`).
-fn same_image(path: &str) -> impl Fn(&Live) -> bool {
-    let wanted = crate::attachments::normalize(path);
-    move |live| wanted.is_some() && crate::attachments::normalize(&live.path) == wanted
+fn same_path(path: &str) -> impl Fn(&Live) -> bool {
+    move |live| same(&live.path, path)
+}
+
+/// Two paths relative to the notes folder name the same file, as `attachments::normalize` compares
+/// them: either separator, `.` and `..`, and case.
+fn same(a: &str, b: &str) -> bool {
+    let a = crate::attachments::normalize(a);
+    a.is_some() && a == crate::attachments::normalize(b)
 }
 
 /// Forgets the entries of the windows the user closed, each in its own folder while it is still
@@ -1011,6 +1069,106 @@ pub fn state(label: &str, channel: Channel<Update>, locale: Locale) -> Result<St
     })
 }
 
+/// The note the post-it `label` shows, read now from the folder it opened on; `None` once the note
+/// is gone.
+pub fn note(app: &AppHandle, label: &str) -> Result<Option<String>, Error> {
+    let (kind, path, folder) = with_live(label, |live| {
+        (live.kind, live.path.clone(), live.folder.clone())
+    })?;
+    if kind != Kind::Note {
+        return Err(Error::unexpected("command restricted to post-its"));
+    }
+    let text = crate::notes::floating_note(app, &folder, &path)?;
+    // A rename or folder change while reading: what was read belongs to no window any more.
+    let still = with_live(label, |live| live.path == path && live.folder == folder)?;
+    if !still {
+        return Err(Error::FolderChanged);
+    }
+    Ok(text)
+}
+
+/// Sizes the post-it's text against the panel's.
+pub fn set_text_scale(label: &str, scale: f64) -> Result<(), Error> {
+    with_live(label, |live| {
+        if live.kind != Kind::Note {
+            return Err(Error::unexpected("command restricted to post-its"));
+        }
+        live.text_scale = floats::clamp_text_scale(scale);
+        live.changed();
+        Ok(())
+    })??;
+    send(Message::Changed(label.to_owned()));
+    Ok(())
+}
+
+/// Opens the post-it's note in the panel for editing.
+pub fn edit(label: &str, requests: &Sender<Request>) -> Result<(), Error> {
+    let (kind, path) = with_live(label, |live| (live.kind, live.path.clone()))?;
+    if kind != Kind::Note {
+        return Err(Error::unexpected("command restricted to post-its"));
+    }
+    requests
+        .send(Request::EditNote(path))
+        .map_err(Error::unexpected)
+}
+
+/// Something in the notes folder changed, `renames` among it as the watcher saw them in `root`
+/// (`None` for the app's own notices): tells the worker, since this may run on the main thread.
+pub fn notes_changed_requested(root: Option<std::path::PathBuf>, renames: Vec<(String, String)>) {
+    send(Message::NotesChanged(root, renames));
+}
+
+/// The path a note at `path` ends at after `renames`, in the order they happened: a chain such as
+/// `a` to `b` then `b` to `c` ends at `c`.
+fn renamed(path: &str, renames: &[(String, String)]) -> Option<String> {
+    let mut current: Option<String> = None;
+    for (from, to) in renames {
+        if same(current.as_deref().unwrap_or(path), from) {
+            current = Some(to.clone());
+        }
+    }
+    current
+}
+
+/// Post-its of a renamed note in `root` follow it, each saved by its id in the folder it opened
+/// on, and every post-it reads its note again.
+fn notes_changed(app: &AppHandle, root: Option<&std::path::Path>, renames: &[(String, String)]) {
+    let mut moved: Vec<(FolderIdentity, Vec<(String, String)>)> = Vec::new();
+    {
+        let mut registry = registry();
+        for live in registry
+            .live
+            .iter_mut()
+            .filter(|live| live.kind == Kind::Note)
+        {
+            // Renames another folder's watcher saw, as one still flushing after a folder change,
+            // name other notes.
+            let here = root.is_some_and(|root| live.folder.is_at(root));
+            if let Some(to) = here.then(|| renamed(&live.path, renames)).flatten() {
+                live.path = to.clone();
+                match moved.iter_mut().find(|(folder, _)| *folder == live.folder) {
+                    Some((_, ids)) => ids.push((live.id.clone(), to)),
+                    None => moved.push((live.folder.clone(), vec![(live.id.clone(), to)])),
+                }
+            }
+            live.revision += 1;
+            live.changed();
+        }
+    }
+    for (folder, paths) in moved {
+        let saved = crate::notes::update_floating(app, &folder, |store| {
+            for (id, path) in &paths {
+                store.set_note_path(id, path);
+            }
+            Ok(())
+        });
+        if let Err(error) = saved {
+            eprintln!("[floating] renamed note not followed: {error:?}");
+        }
+    }
+    report(app);
+}
+
 pub fn set_opacity(label: &str, opacity: f64) -> Result<(), Error> {
     with_live(label, |live| {
         live.opacity = floats::clamp_opacity(opacity);
@@ -1049,8 +1207,14 @@ pub struct Zoomed {
     at_max: bool,
 }
 
-/// Zooms the window `label` so its image is `width` CSS pixels wide, keeping its proportions,
-/// within `floats::zoom_rect`'s bounds on the monitor that shows it, around the same center.
+/// Refuses a command of floating images to a post-it.
+fn image_only(label: &str) -> Result<(), Error> {
+    match with_live(label, |live| live.kind)? {
+        Kind::Image => Ok(()),
+        Kind::Note => Err(Error::unexpected("command restricted to floating images")),
+    }
+}
+
 /// The shown window `label` and its image's proportions. Copied out, so Win32 calls never run
 /// under the registry's lock.
 fn shown(label: &str) -> Result<(isize, Aspect), Error> {
@@ -1076,6 +1240,7 @@ fn measured(raw: isize) -> Result<(Rect, platform::Monitor, i32, i32), Error> {
 /// within `floats::zoom_rect`'s bounds on the monitor that shows it, around the same center. Only
 /// a window already shown, and never showing or activating it.
 pub fn zoom(label: &str, width: f64) -> Result<Zoomed, Error> {
+    image_only(label)?;
     let (raw, aspect) = shown(label)?;
     let (window, monitor, pad, min) = measured(raw)?;
     let scale = f64::from(monitor.dpi) / f64::from(platform::BASE_DPI);
@@ -1095,6 +1260,7 @@ pub fn zoom(label: &str, width: f64) -> Result<Zoomed, Error> {
 /// keeps differ, as for an entry saved before them or edited by hand, it takes the image's, and the
 /// window shrinks to fit the image without moving its corner, showing nothing new.
 pub fn natural(label: &str, width: u32, height: u32) -> Result<(), Error> {
+    image_only(label)?;
     if width == 0 || height == 0 {
         return Ok(());
     }
@@ -1208,7 +1374,18 @@ pub fn show_all() {
 #[cfg(test)]
 pub(crate) fn register_for_tests(folder: &FolderIdentity) -> String {
     let epoch = registry().epoch;
-    reserve(epoch, &new_id(), "a.png", 1.0, folder).unwrap().0
+    let entry = Entry {
+        id: new_id(),
+        kind: Kind::Image,
+        path: "a.png".into(),
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        opacity: 1.0,
+        text_scale: None,
+    };
+    reserve(epoch, &entry, folder).unwrap().0
 }
 
 #[cfg(test)]
@@ -1229,9 +1406,7 @@ mod tests {
     fn opening() -> (Mutex<Registry>, String, u64) {
         let mut registry = Registry::new();
         let epoch = registry.epoch;
-        let (label, _) = registry
-            .reserve(epoch, &new_id(), "a.png", 1.0, &folder())
-            .unwrap();
+        let (label, _) = registry.reserve(epoch, &image("a.png"), &folder()).unwrap();
         registry.live[0].raw = 7;
         (Mutex::new(registry), label, epoch)
     }
@@ -1248,7 +1423,7 @@ mod tests {
             assert!(!is_live(label), "{label}");
         }
         let epoch = registry().epoch;
-        let (label, _) = reserve(epoch, &new_id(), "a.png", 1.0, &folder()).unwrap();
+        let (label, _) = reserve(epoch, &image("a.png"), &folder()).unwrap();
         assert!(is_live(&label));
         assert!(crate::is_secondary_window(&label));
         assert!(crate::main_window::reads_images(&label));
@@ -1270,12 +1445,12 @@ mod tests {
         assert!(!show_if_current(&registry, &label, epoch, |_, _| panic!(
             "shown"
         )));
-        let reserved = lock(&registry).reserve(epoch, &new_id(), "b.png", 1.0, &folder());
+        let reserved = lock(&registry).reserve(epoch, &image("b.png"), &folder());
         assert_eq!(reserved.err(), Some(Error::FolderChanged));
         let epoch = lock(&registry).epoch;
         assert!(
             lock(&registry)
-                .reserve(epoch, &new_id(), "b.png", 1.0, &folder())
+                .reserve(epoch, &image("b.png"), &folder())
                 .is_ok()
         );
     }
@@ -1284,13 +1459,9 @@ mod tests {
     fn at_most_eight_windows_open() {
         let mut registry = Registry::new();
         for _ in 0..MAX_FLOATING {
-            assert!(
-                registry
-                    .reserve(0, &new_id(), "a.png", 1.0, &folder())
-                    .is_ok()
-            );
+            assert!(registry.reserve(0, &image("a.png"), &folder()).is_ok());
         }
-        let refused = registry.reserve(0, &new_id(), "a.png", 1.0, &folder());
+        let refused = registry.reserve(0, &image("a.png"), &folder());
         assert_eq!(refused.err(), Some(Error::FloatingLimit { max: 8 }));
     }
 
@@ -1331,6 +1502,7 @@ mod tests {
                     width: 10,
                     height: 10,
                     opacity: 1.0,
+                    text_scale: None,
                 });
                 // Still under `SAVING`: a close's own removal waits for it, so it lands after this.
                 if after_save {
@@ -1418,17 +1590,13 @@ mod tests {
         registry.begin_switch();
         let during = registry.epoch;
         assert!(!registry.current(during));
-        let reserved = registry.reserve(during, &new_id(), "a.png", 1.0, &folder());
+        let reserved = registry.reserve(during, &image("a.png"), &folder());
         assert_eq!(reserved.err(), Some(Error::FolderChanged));
         assert!(registry.end_switch());
         assert!(!registry.current(epoch));
         assert!(!registry.current(during));
         let after = registry.epoch;
-        assert!(
-            registry
-                .reserve(after, &new_id(), "a.png", 1.0, &folder())
-                .is_ok()
-        );
+        assert!(registry.reserve(after, &image("a.png"), &folder()).is_ok());
     }
 
     // Regression: a folder choice that revoked a window the user was closing kept its entry, so
@@ -1439,7 +1607,16 @@ mod tests {
         let mut store = floats::Store::default();
         for path in ["a.png", "b.png"] {
             let id = new_id();
-            registry.reserve(0, &id, path, 1.0, &folder()).unwrap();
+            registry
+                .reserve(
+                    0,
+                    &Entry {
+                        id: id.clone(),
+                        ..image(path)
+                    },
+                    &folder(),
+                )
+                .unwrap();
             store.add(Entry {
                 id,
                 kind: Kind::Image,
@@ -1449,6 +1626,7 @@ mod tests {
                 width: 10,
                 height: 10,
                 opacity: 1.0,
+                text_scale: None,
             });
         }
         let label = registry.live[0].label.clone();
@@ -1476,6 +1654,7 @@ mod tests {
             width: 10,
             height: 10,
             opacity: 1.0,
+            text_scale: None,
         }
     }
 
@@ -1489,17 +1668,15 @@ mod tests {
             "attachments//map.png",
             "attachments/b.png",
         ] {
-            registry
-                .reserve(0, &new_id(), path, 1.0, &folder())
-                .unwrap();
+            registry.reserve(0, &image(path), &folder()).unwrap();
         }
-        let closing = registry.mark_closing_where(same_image("./attachments/MAP.png"));
+        let closing = registry.mark_closing_where(same_path("./attachments/MAP.png"));
         let labels: Vec<_> = closing.iter().map(|closed| closed.label.as_str()).collect();
         assert_eq!(labels, ["float-1", "float-2"]);
         assert_eq!(registry.paths(), ["attachments/b.png"]);
         assert!(
             registry
-                .mark_closing_where(same_image("../map.png"))
+                .mark_closing_where(same_path("../map.png"))
                 .is_empty()
         );
     }
@@ -1514,9 +1691,7 @@ mod tests {
         let file = serde_json::json!({ "version": 1, "entries": [note, first, second] });
         let mut store = floats::parse(&serde_json::to_vec(&file).unwrap()).unwrap();
         for entry in [&first, &second] {
-            registry
-                .reserve(0, &entry.id, &entry.path, 1.0, &folder())
-                .unwrap();
+            registry.reserve(0, entry, &folder()).unwrap();
         }
         let closing = registry.mark_closing_where(|_| true);
         assert_eq!(closing.len(), 2);
@@ -1536,6 +1711,43 @@ mod tests {
         with_live(&label, |live| live.raw = 7).unwrap();
         assert!(zoom(&label, 400.0).is_err());
         take(&label);
+    }
+
+    // Catches a floating image sizing text it does not have, or a post-it being zoomed or reshaped
+    // to an image's proportions.
+    #[test]
+    fn each_kind_reaches_only_its_own_commands() {
+        let picture = register_for_tests(&folder());
+        let epoch = registry().epoch;
+        let note = Entry {
+            kind: Kind::Note,
+            path: "a.md".into(),
+            ..image("a.md")
+        };
+        let (post_it, _) = reserve(epoch, &note, &folder()).unwrap();
+        assert!(set_text_scale(&picture, 1.5).is_err());
+        assert!(set_text_scale(&post_it, 1.5).is_ok());
+        assert!(zoom(&post_it, 400.0).is_err());
+        assert!(natural(&post_it, 400, 300).is_err());
+        take(&picture);
+        take(&post_it);
+    }
+
+    // Regression: renames saved pair by pair, in window order, sent two post-its to one note.
+    #[test]
+    fn a_post_it_follows_its_renames_in_the_order_they_happened() {
+        let renames = [
+            ("b.md".to_owned(), "c.md".to_owned()),
+            ("A.md".to_owned(), "b.md".to_owned()),
+        ];
+        assert_eq!(renamed("a.md", &renames), Some("b.md".into()));
+        assert_eq!(renamed("b.md", &renames), Some("c.md".into()));
+        assert_eq!(renamed("x.md", &renames), None);
+        let chain = [
+            ("a.md".to_owned(), "b.md".to_owned()),
+            ("b.md".to_owned(), "c.md".to_owned()),
+        ];
+        assert_eq!(renamed("a.md", &chain), Some("c.md".into()));
     }
 
     // Catches one floating window's command changing another's opacity or click-through.

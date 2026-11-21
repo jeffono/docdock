@@ -156,8 +156,8 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   showing the window waits for. What the preview window hears carries a separate version, which
   changes only with the image shown. The window decodes the next image before swapping and drops any image, decoding or
   shown, when it hides.
-- **Floating windows** ([0014](decisions/0014-app-windows.md)): up to 8 `float-<n>` windows, the
-  base for M17's post-its. `floating_open` validates the image, reserves a label in the registry,
+- **Floating windows** ([0014](decisions/0014-app-windows.md)): up to 8 `float-<n>` windows, of
+  two kinds: images and post-its (notes shown read-only). `floating_open` validates the image, reserves a label in the registry,
   asks the dock thread where the preview would show the image (`Request::PlaceFloat`, through
   `preview::place` and `preview::image_rect`) and builds a hidden secondary window, a tool window
   that never activates but stays enabled (`platform::prepare_floating`). Under `SAVING` it checks
@@ -187,6 +187,15 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   windows (`floating_close_path`); paths compare as `attachments::normalize` does. Closing by
   path, from the tray ("Close all floating windows") or one window at a time all go through the
   same user close.
+  A post-it (`floating_open_note`, `PostIt.svelte`) opens the same way beside the note's card at
+  `floats::NOTE_SIZE`, resizes freely (`floats::constrain_free`) and never zooms; Ctrl+wheel sizes
+  its text, saved as the entry's `textScale`. It reads its note through `float_note`, only from the
+  folder it opened on (`notes::floating_note`), and again whenever Rust raises its `revision`:
+  `watch.rs` hands every change it reports to the worker (`floating::notes_changed_requested`),
+  which first moves the post-its of the folder it watched, live and saved by id, along the renames
+  it saw there, in their order; a read that a rename or folder change overtook is dropped. `float_edit` asks the dock
+  thread for `Request::EditNote`, which summons the panel as the shortcut does and emits
+  `panel-edit-note` to `main`. Commands of one kind refuse windows of the other.
   Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
   polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
   started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades
@@ -210,12 +219,13 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   opened on. Every read and write of `.docdock/floating.json` checks, under `SAVING`, as the
   attachment cleanup holds it, that the folder is still the identity it started on, and fails with
   `FolderChanged` against any other, including one chosen at the same path. Lock order: `SAVING`,
-  then the floating registry. The file (`floats.rs`, version 1) keeps each window's id, kind, image path, physical
-  rectangle and opacity, and entries of unknown kinds as they are; a file of another version is
+  then the floating registry. The file (`floats.rs`, version 1) keeps each window's id, kind
+  (`image` or `note`), path, physical rectangle, opacity and a post-it's text size, and entries of
+  unknown kinds as they are; a file of another version is
   neither opened nor overwritten, and a corrupt one reads as empty. Startup and the folder's return
   reopen windows unlocked, sized to and then kept on the monitors there are now
-  (`floats::fit_to_monitors`), dropping entries whose image is gone and keeping those that cannot
-  be checked. Closing a window forgets its entry; a window destroyed otherwise keeps it.
+  (`floats::fit_to_monitors`), dropping entries whose image or note is gone and keeping those that
+  cannot be checked. Closing a window forgets its entry; a window destroyed otherwise keeps it.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
   `tweak-state`, and `dock.rs` reads the live tuning, or the constants in release builds, once per

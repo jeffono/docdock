@@ -21,8 +21,16 @@ if (isImagePreviewWindow()) {
 } else if (isFloatWindow()) {
   // Reaches only its own commands, which also answer its language; the native window theme Rust
   // sets drives `light-dark()`.
-  const { default: FloatWindow } = await import("./lib/features/floating/FloatWindow.svelte");
-  mount(FloatWindow, { target: document.body });
+  const { floatSession } = await import("./lib/features/floating/session");
+  // A window closing while it loads answers nothing: there is nothing to show.
+  const session = await floatSession().catch(() => null);
+  if (session?.state.kind === "note") {
+    const { default: PostIt } = await import("./lib/features/floating/PostIt.svelte");
+    mount(PostIt, { target: document.body, props: { session } });
+  } else if (session) {
+    const { default: FloatWindow } = await import("./lib/features/floating/FloatWindow.svelte");
+    mount(FloatWindow, { target: document.body, props: { session } });
+  }
 } else if (import.meta.env.DEV && isTweakWindow()) {
   // Development builds only: the tweak window loads the same page and reaches no app command.
   const { default: TweakWindow } = await import("./lib/features/tweak-panel/TweakWindow.svelte");

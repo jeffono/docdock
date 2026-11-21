@@ -47,9 +47,12 @@ pub fn ensure(app: &AppHandle, root: &Path) {
 
 /// Tells the UI that the app itself changed the folder, as the watcher would.
 pub fn notify(app: &AppHandle) {
-    emit(app, Changes::default());
+    emit(app, Changes::default(), None);
 }
-fn emit(app: &AppHandle, changes: Changes) {
+/// `root` is the folder the watcher saw `changes` in; the app's own notices carry no renames.
+fn emit(app: &AppHandle, changes: Changes, root: Option<&Path>) {
+    // Post-its show notes too: they follow renames in their own folder and read their notes again.
+    crate::floating::notes_changed_requested(root.map(Path::to_owned), changes.renames.clone());
     if let Err(error) = app.emit_to("main", EVENT, changes) {
         eprintln!("[watch] failed to notify the UI: {error}");
     }
@@ -116,7 +119,7 @@ fn start(app: AppHandle, root: &Path) -> notify::Result<RecommendedWatcher> {
                 }
             }
             if changed {
-                emit(&app, payload);
+                emit(&app, payload, Some(&root));
             }
         }
     });

@@ -8,28 +8,19 @@
 // theme Rust sets.
 import { onMount } from "svelte";
 import { setLocale, t } from "../../i18n";
-import {
-  type FloatUpdate,
-  floatClose,
-  floatDrag,
-  floatNatural,
-  floatResize,
-  floatSetClickThrough,
-  floatSetOpacity,
-  floatState,
-  floatZoom,
-  type ResizeDirection,
-} from "../../ipc";
-import Icon from "../../ui/Icon.svelte";
-import IconButton from "../../ui/IconButton.svelte";
+import { type FloatUpdate, floatDrag, floatNatural, floatSetOpacity, floatZoom } from "../../ipc";
 import { noteAssetUrl } from "../notes/asset-url";
-import { MIN_OPACITY, OPACITY_STEP, stepOpacity } from "./opacity";
+import FloatBar from "./FloatBar.svelte";
+import FloatEdges from "./FloatEdges.svelte";
+import { latestSender, stepOpacity } from "./opacity";
+import type { FloatSession } from "./session";
 import { clampPan, type Point, type Size, zoomAt, zoomStep } from "./zoom";
+
+let { session }: { session: FloatSession } = $props();
 
 let root: HTMLElement;
 let stage: HTMLElement;
 let image: HTMLImageElement;
-let range: HTMLInputElement;
 let locale = $state("en");
 /** The image's natural width and the stage's width, in CSS pixels, for the zoom shown. */
 let naturalWidth = $state(0);
@@ -43,14 +34,9 @@ let hovered = $state(false);
 let zoom = $state(1);
 let pan = $state<Point>({ x: 0, y: 0 });
 const controls = $derived(revealed || (hovered && !clickThrough));
-const labels = $derived.by(() => {
+const label = $derived.by(() => {
   void locale;
-  return {
-    window: t("float.label"),
-    opacity: t("float.opacity"),
-    clickThrough: t("float.clickThrough"),
-    close: t("float.close"),
-  };
+  return t("float.label");
 });
 const name = $derived(path?.slice(path.lastIndexOf("/") + 1) ?? "");
 
@@ -61,7 +47,7 @@ function apply(update: FloatUpdate) {
   latest = update.version;
   path = update.path;
   // While the user is still changing it, the slider keeps the latest value they chose.
-  if (pending === null && !sending) opacity = update.opacity;
+  if (!opacitySending.busy()) opacity = update.opacity;
   // A window that starts or stops letting clicks through waits for the pointer to come back.
   if (update.clickThrough !== clickThrough) hovered = false;
   clickThrough = update.clickThrough;
@@ -80,20 +66,10 @@ $effect(() => {
   else image.src = noteAssetUrl(path);
 });
 
-/** One change in flight, the latest queued: answers may otherwise land out of order. */
-let pending: number | null = null;
-let sending = false;
-async function setOpacity(value: number) {
+const opacitySending = latestSender(floatSetOpacity);
+function setOpacity(value: number) {
   opacity = value;
-  pending = value;
-  if (sending) return;
-  sending = true;
-  while (pending !== null) {
-    const next = pending;
-    pending = null;
-    await floatSetOpacity(next).catch(() => {});
-  }
-  sending = false;
+  void opacitySending.send(value);
 }
 
 const stageSize = (): Size => ({ width: stage.clientWidth, height: stage.clientHeight });
@@ -101,11 +77,6 @@ const stageSize = (): Size => ({ width: stage.clientWidth, height: stage.clientH
 const percent = $derived(
   naturalWidth > 0 && stageWidth > 0 ? Math.round((stageWidth / naturalWidth) * zoom * 100) : 0,
 );
-// The slider's filled part, through the CSSOM: the CSP forbids style attributes.
-$effect(() => {
-  const filled = ((opacity - MIN_OPACITY) / (1 - MIN_OPACITY)) * 100;
-  range.style.setProperty("--fill", `${filled}%`);
-});
 const naturalSize = (): Size => ({ width: image.naturalWidth, height: image.naturalHeight });
 
 /** The window is as large as it gets; any resize makes Rust say so again. */
@@ -159,7 +130,7 @@ function wheel(event: WheelEvent) {
   const overBar = controls && (event.target as Element).closest(".bar") !== null;
   if ((event.altKey && !event.ctrlKey) || overBar) {
     event.preventDefault();
-    void setOpacity(stepOpacity(opacity, up));
+    setOpacity(stepOpacity(opacity, up));
   }
 }
 
@@ -214,31 +185,11 @@ async function reset(event: MouseEvent) {
   }
 }
 
-function resize(event: PointerEvent, direction: ResizeDirection) {
-  if (event.button !== 0) return;
-  event.preventDefault();
-  void floatResize(direction).catch(() => {});
-}
-
-const edges: [string, ResizeDirection][] = [
-  ["n", "North"],
-  ["s", "South"],
-  ["e", "East"],
-  ["w", "West"],
-  ["ne", "NorthEast"],
-  ["nw", "NorthWest"],
-  ["se", "SouthEast"],
-  ["sw", "SouthWest"],
-];
-
 onMount(() => {
-  floatState(apply)
-    .then((state) => {
-      locale = state.locale;
-      setLocale(state.locale);
-      apply(state);
-    })
-    .catch(() => {});
+  locale = session.state.locale;
+  setLocale(session.state.locale);
+  apply(session.state);
+  session.listen(apply);
   // Not passive: Ctrl+wheel would otherwise zoom the page itself.
   root.addEventListener("wheel", wheel, { passive: false });
   const resized = () => {
@@ -255,12 +206,14 @@ onMount(() => {
 });
 </script>
 
+{#snippet zoomLabel()}<span class="zoom">{percent}%</span>{/snippet}
+
 <div
   class="float"
   class:active={controls}
   bind:this={root}
   role="group"
-  aria-label={labels.window}
+  aria-label={label}
   onpointerenter={() => { hovered = true; }}
   onpointermove={pointermove}
   onpointerup={pointerup}
@@ -281,39 +234,15 @@ onMount(() => {
       }}
     />
   </div>
-  <div class="bar" class:shown={controls}>
-    {#if percent > 0}<span class="zoom">{percent}%</span>{/if}
-    <span class="opacity" class:apart={percent > 0}>
-      <Icon name="blend" />
-    <input
-      bind:this={range}
-      type="range"
-      min={MIN_OPACITY * 100}
-      max="100"
-      step={OPACITY_STEP * 100}
-      value={Math.round(opacity * 100)}
-      aria-label={labels.opacity}
-      title={`${labels.opacity}: ${Math.round(opacity * 100)}%`}
-      aria-valuetext={`${Math.round(opacity * 100)}%`}
-      tabindex="-1"
-      oninput={(event) => void setOpacity(Number(event.currentTarget.value) / 100)}
-    />
-    </span>
-    <IconButton
-      icon="clickThrough"
-      quiet
-      label={labels.clickThrough}
-      pressed={clickThrough}
-      tabindex={-1}
-      onclick={() => void floatSetClickThrough(!clickThrough).catch(() => {})}
-    />
-    <IconButton icon="x" quiet label={labels.close} tabindex={-1} onclick={() => void floatClose().catch(() => {})} />
-  </div>
-  {#if !clickThrough || revealed}
-    {#each edges as [edge, direction] (edge)}
-      <div class="edge {edge}" aria-hidden="true" onpointerdown={(event) => resize(event, direction)}></div>
-    {/each}
-  {/if}
+  <FloatBar
+    shown={controls}
+    {opacity}
+    {clickThrough}
+    {locale}
+    onopacity={setOpacity}
+    before={percent > 0 ? zoomLabel : undefined}
+  />
+  {#if !clickThrough || revealed}<FloatEdges />{/if}
 </div>
 
 <style>
@@ -324,7 +253,6 @@ onMount(() => {
   /* `--pad` is the transparent gutter around the image, `SHADOW_PAD` in `floats.rs`. */
   .float {
     --pad: var(--space-2);
-    --edge: calc(1.5 * var(--space-1));
     position: fixed;
     inset: 0;
   }
@@ -352,28 +280,6 @@ onMount(() => {
     user-select: none;
   }
 
-  .bar {
-    position: absolute;
-    top: calc(var(--pad) + var(--space-2));
-    right: calc(var(--pad) + var(--space-2));
-    display: flex;
-    align-items: center;
-    padding: 0 calc(var(--space-1) / 2) 0 var(--space-1);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-full);
-    background: var(--color-surface);
-    visibility: hidden;
-    opacity: 0;
-    transition:
-      opacity var(--duration),
-      visibility var(--duration);
-  }
-
-  .bar.shown {
-    visibility: visible;
-    opacity: 1;
-  }
-
   /* How large the image shows against its natural size, inside zoom included. */
   .zoom {
     margin: 0 var(--space-1);
@@ -383,128 +289,14 @@ onMount(() => {
     user-select: none;
   }
 
-  /* The opacity's own group, an icon and its slider, set apart from the zoom by a line so the
-     slider never reads as the zoom's. */
-  .opacity {
-    display: flex;
-    align-items: center;
-    color: var(--color-muted);
-  }
-
-  .opacity.apart {
-    margin-left: var(--space-1);
-    padding-left: var(--space-2);
-    border-left: 1px solid var(--color-line);
-  }
-
-  .opacity :global(svg) {
-    width: calc(0.875 * var(--size-icon));
-    height: calc(0.875 * var(--size-icon));
-  }
-
-  /* A short, thin monochrome track, solid up to the thumb, and a small round thumb: no accent,
-     nothing to compete with the image. `--fill` comes from the script. */
-  input[type="range"] {
-    width: calc(1.5 * var(--size-control));
-    height: var(--size-control);
-    margin: 0 var(--space-1);
-    appearance: none;
-    background: transparent;
-  }
-
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: calc(var(--space-1) / 2);
-    border-radius: var(--radius-full);
-    background: linear-gradient(
-      to right,
-      var(--color-fg) var(--fill, 100%),
-      var(--color-line) var(--fill, 100%)
-    );
-  }
-
-  input[type="range"]::-webkit-slider-thumb {
-    width: calc(2 * var(--space-1));
-    height: calc(2 * var(--space-1));
-    margin-top: calc(-0.75 * var(--space-1));
-    border: 0;
-    border-radius: var(--radius-full);
-    appearance: none;
-    background: var(--color-fg);
-  }
-
   /* A narrow window keeps room for toggling and closing. */
   @media (max-width: 12rem) {
-    .opacity,
     .zoom {
       display: none;
     }
   }
 
-  /* Invisible strips along the image's edges and corners, half in the gutter, where it resizes. */
-  .edge {
-    position: absolute;
-  }
-
-  .n,
-  .s {
-    left: var(--pad);
-    right: var(--pad);
-    height: calc(2 * var(--edge));
-    cursor: ns-resize;
-  }
-
-  .e,
-  .w {
-    top: var(--pad);
-    bottom: var(--pad);
-    width: calc(2 * var(--edge));
-    cursor: ew-resize;
-  }
-
-  .ne,
-  .nw,
-  .se,
-  .sw {
-    width: calc(2 * var(--edge));
-    height: calc(2 * var(--edge));
-  }
-
-  .n,
-  .ne,
-  .nw {
-    top: calc(var(--pad) - var(--edge));
-  }
-
-  .s,
-  .se,
-  .sw {
-    bottom: calc(var(--pad) - var(--edge));
-  }
-
-  .e,
-  .ne,
-  .se {
-    right: calc(var(--pad) - var(--edge));
-  }
-
-  .w,
-  .nw,
-  .sw {
-    left: calc(var(--pad) - var(--edge));
-  }
-
-  .ne,
-  .sw {
-    cursor: nesw-resize;
-  }
-
-  .nw,
-  .se {
-    cursor: nwse-resize;
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .bar,
     .stage {
       transition: none;
     }

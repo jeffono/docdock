@@ -1,6 +1,7 @@
 //! Pure rules of floating windows: what `.docdock/floating.json` holds, where a window may sit on
 //! the monitors there are now, and when a click-through window shows its controls. `floating.rs`
-//! runs the effects. Floating images (M16) are the first kind; post-its (M17) add `note`.
+//! runs the effects. Floating images (M16) are the first kind; post-its (M17), notes shown read-only,
+//! the second.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -29,6 +30,11 @@ pub const SHADOW_PAD: u32 = 8;
 const MAX_WIDTH: u32 = 72;
 const MAX_HEIGHT: u32 = 76;
 const LABEL_PREFIX: &str = "float-";
+/// The size a post-it opens at, in logical pixels, without its gutter.
+pub const NOTE_SIZE: (u32, u32) = (300, 320);
+/// How small or large a post-it's text gets against the panel's, in whole percents.
+pub const MIN_TEXT_SCALE: f64 = 0.5;
+pub const MAX_TEXT_SCALE: f64 = 3.0;
 
 /// The window label for the `n`th floating window of this run, unrelated to saved ids.
 pub fn label(n: u64) -> String {
@@ -52,6 +58,15 @@ pub fn clamp_opacity(value: f64) -> f64 {
     (value.clamp(MIN_OPACITY, 1.0) * 100.0).round() / 100.0
 }
 
+/// A post-it's text size within `MIN_TEXT_SCALE..=MAX_TEXT_SCALE`, at whole percents; anything that
+/// is not a number is the panel's own size.
+pub fn clamp_text_scale(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 1.0;
+    }
+    (value.clamp(MIN_TEXT_SCALE, MAX_TEXT_SCALE) * 100.0).round() / 100.0
+}
+
 /// A click-through window lets clicks reach it while Alt is held over it, and keeps them through a
 /// drag already started with Alt, until the button is released.
 pub fn reveal_step(revealed: bool, alt_held: bool, cursor_over: bool, button_down: bool) -> bool {
@@ -62,6 +77,8 @@ pub fn reveal_step(revealed: bool, alt_held: bool, cursor_over: bool, button_dow
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Image,
+    /// A note shown read-only: a post-it.
+    Note,
 }
 
 /// One saved floating window. Coordinates are physical pixels on the virtual screen.
@@ -78,6 +95,9 @@ pub struct Entry {
     pub width: i32,
     pub height: i32,
     pub opacity: f64,
+    /// A post-it's text size against the panel's; absent for images and at the panel's own size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_scale: Option<f64>,
 }
 
 impl Entry {
@@ -154,6 +174,7 @@ pub fn parse(bytes: &[u8]) -> Result<Store, Unreadable> {
             |entry| match serde_json::from_value::<Entry>(entry.clone()) {
                 Ok(mut known) if known.valid() => {
                     known.opacity = clamp_opacity(known.opacity);
+                    known.text_scale = known.text_scale.map(clamp_text_scale);
                     Slot::Known(known)
                 }
                 _ => Slot::Other(entry.clone()),
@@ -214,11 +235,25 @@ impl Store {
         self.slots.push(Slot::Known(entry));
     }
 
-    /// Moves or fades the window `id`, if it is still saved: a window closed meanwhile stays gone.
-    pub fn update(&mut self, id: &str, rect: Rect, opacity: f64) {
+    /// Moves or fades the window `id`, or sizes its text, if it is still saved: a window closed
+    /// meanwhile stays gone.
+    pub fn update(&mut self, id: &str, rect: Rect, opacity: f64, text_scale: Option<f64>) {
         if let Some(entry) = self.entry_mut(id) {
             entry.set_rect(rect);
             entry.opacity = clamp_opacity(opacity);
+            entry.text_scale = text_scale
+                .map(clamp_text_scale)
+                .filter(|&scale| scale != 1.0);
+        }
+    }
+
+    /// The post-it `id` now shows the note at `path`, as after its note was renamed; images and
+    /// windows closed meanwhile stay as they are.
+    pub fn set_note_path(&mut self, id: &str, path: &str) {
+        if let Some(entry) = self.entry_mut(id)
+            && entry.kind == Kind::Note
+        {
+            entry.path = path.to_owned();
         }
     }
 
@@ -477,6 +512,28 @@ pub fn constrain_sizing(
     }
 }
 
+/// What a resize from `edge` may make of a post-it's window `rect`: any proportions, the edge or
+/// corner opposite the one dragged staying, each side of the post-it (`pad` inside the window) at
+/// least `min`, and the window within `work`, which wins over `min`.
+pub fn constrain_free(rect: Rect, edge: SizingEdge, pad: i32, min: i32, work: Rect) -> Rect {
+    use SizingEdge::*;
+    let leftward = matches!(edge, Left | TopLeft | BottomLeft);
+    let upward = matches!(edge, Top | TopLeft | TopRight);
+    let mut rect = rect;
+    let least = min + 2 * pad;
+    if leftward {
+        rect.left = rect.left.min(rect.right - least).max(work.left);
+    } else {
+        rect.right = rect.right.max(rect.left + least).min(work.right);
+    }
+    if upward {
+        rect.top = rect.top.min(rect.bottom - least).max(work.top);
+    } else {
+        rect.bottom = rect.bottom.max(rect.top + least).min(work.bottom);
+    }
+    rect
+}
+
 /// The largest an image may grow to by zooming on a monitor with this work area.
 pub fn max_image_size(work: Rect) -> (i32, i32) {
     let percent = |length: i32, share: u32| length * share as i32 / 100;
@@ -578,6 +635,7 @@ mod tests {
             width: 300,
             height: 200,
             opacity: 0.6,
+            text_scale: None,
         }
     }
 
@@ -611,10 +669,11 @@ mod tests {
         assert_eq!(parse(&store.to_bytes()), Ok(store));
     }
 
-    // Catches this build erasing what a later one saved, such as M17's post-its.
+    // Catches this build erasing what a later one saved, such as a kind it does not know.
     #[test]
     fn entries_of_an_unknown_kind_or_shape_are_kept_in_place() {
-        let note = serde_json::json!({ "id": ID, "kind": "note", "path": "a.md", "pinned": true });
+        let note =
+            serde_json::json!({ "id": ID, "kind": "sticker", "path": "a.md", "pinned": true });
         let broken = serde_json::json!({ "id": "short", "kind": "image", "path": "x.png" });
         let file = serde_json::json!({
             "version": 1,
@@ -688,12 +747,47 @@ mod tests {
     fn updates_reach_only_saved_windows() {
         let mut store = Store::default();
         store.add(entry(ID, "a.png"));
-        store.update(ID, rect(-50, 5, 400, 300), 0.3);
-        store.update(&"b".repeat(32), rect(0, 0, 1, 1), 1.0);
+        store.update(ID, rect(-50, 5, 400, 300), 0.3, None);
+        store.update(&"b".repeat(32), rect(0, 0, 1, 1), 1.0, None);
         let saved: Vec<_> = store.entries().cloned().collect();
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].rect(), rect(-50, 5, 400, 300));
         assert_eq!(saved[0].opacity, 0.3);
+    }
+
+    // Catches a post-it's text size lost on restart, or one saved for every image.
+    #[test]
+    fn a_text_size_is_saved_only_when_it_differs() {
+        let mut store = Store::default();
+        store.add(Entry {
+            kind: Kind::Note,
+            ..entry(ID, "a.md")
+        });
+        store.update(ID, rect(0, 0, 300, 300), 1.0, Some(1.25));
+        let saved = parse(&store.to_bytes()).unwrap();
+        assert_eq!(saved.entries().next().unwrap().text_scale, Some(1.25));
+        store.update(ID, rect(0, 0, 300, 300), 1.0, Some(1.0));
+        let bytes = store.to_bytes();
+        assert!(!String::from_utf8(bytes).unwrap().contains("textScale"));
+        assert_eq!(clamp_text_scale(9.0), MAX_TEXT_SCALE);
+        assert_eq!(clamp_text_scale(f64::NAN), 1.0);
+    }
+
+    // Catches a renamed note's new path landing on an image's window, or on another post-it.
+    #[test]
+    fn only_the_named_post_it_takes_a_new_path() {
+        let mut store = Store::default();
+        let note = |id: &str, path: &str| Entry {
+            kind: Kind::Note,
+            ..entry(id, path)
+        };
+        store.add(note(ID, "Inbox/Todo.md"));
+        store.add(note(&"b".repeat(32), "other.md"));
+        store.add(entry(&"c".repeat(32), "a.png"));
+        store.set_note_path(ID, "Done/Todo.md");
+        store.set_note_path(&"c".repeat(32), "x.md");
+        let paths: Vec<_> = store.entries().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(paths, ["Done/Todo.md", "other.md", "a.png"]);
     }
 
     #[test]
@@ -943,6 +1037,47 @@ mod tests {
         assert_eq!((corner.left, corner.bottom), (start.left, start.bottom));
         let corner = constrain_sizing(start, BottomLeft, 2.0, PAD, 96, WORK);
         assert_eq!((corner.right, corner.top), (start.right, start.top));
+    }
+
+    // Catches a post-it resized to nothing, past the screen, or moving its opposite edge.
+    #[test]
+    fn a_post_it_resizes_freely_within_its_minimum_and_the_work_area() {
+        let work = rect(0, 0, 1000, 800);
+        let start = window(100, 100, 300, 300);
+        let wide = Rect {
+            right: 900,
+            bottom: 150,
+            ..start
+        };
+        assert_eq!(
+            constrain_free(wide, SizingEdge::BottomRight, 8, 96, work),
+            Rect {
+                right: 900,
+                bottom: 100 + 96 + 16,
+                ..start
+            }
+        );
+        let past = Rect {
+            left: -200,
+            top: -50,
+            ..start
+        };
+        assert_eq!(
+            constrain_free(past, SizingEdge::TopLeft, 8, 96, work),
+            Rect {
+                left: 0,
+                top: 0,
+                ..start
+            }
+        );
+        let tiny = Rect {
+            left: start.right - 10,
+            ..start
+        };
+        assert_eq!(
+            constrain_free(tiny, SizingEdge::Left, 8, 96, work).left,
+            start.right - 96 - 16
+        );
     }
 
     #[test]
