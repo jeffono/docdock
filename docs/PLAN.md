@@ -6,6 +6,8 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
+- M17 on branch `floating-notes`.
+
 ## Next
 
 M17 — Post-its as floating desktop windows (advanced, M):
@@ -13,6 +15,13 @@ M17 — Post-its as floating desktop windows (advanced, M):
 - Built on M16's floating-window base (`.docdock/floating.json` with `kind: "note"`, zero
   capabilities, per-window IPC channel, opacity, click-through with Alt-reveal and tray actions,
   capture exclusion and vault lifecycle).
+- A post-it is a read-only view of an existing note, opened from the card's menu ("Open as floating
+  window", a toggle like the image badge) beside the panel at a default size; free resizing, the text
+  scrolls, Ctrl+wheel sizes the text. Neutral identity surface, no new colors.
+- The window reads its note through its own command, only from the folder it opened on, and rereads
+  it on every change the watcher reports; renames seen by the watcher follow the note; a note gone
+  shows a notice, and restoring drops entries whose note is gone.
+- Double-click, or a pencil in its controls, opens the note in the panel for editing.
 - Notes marked private (M18) do not float.
 
 ## Later

@@ -391,6 +391,10 @@ export type NotesChanges = { renames: [string, string][] };
 export const onNotesChanged = (handler: (changes: NotesChanges) => void): Promise<UnlistenFn> =>
   listen<NotesChanges>("notes-changed", (event) => handler(event.payload));
 
+/** A post-it asked to edit its note: the panel took focus and opens it in the editor. */
+export const onPanelEditNote = (handler: (path: string) => void): Promise<UnlistenFn> =>
+  listen<string>("panel-edit-note", (event) => handler(event.payload));
+
 /** The panel finished sliding out of sight, ending the panel session it carries. */
 export const onPanelHidden = (handler: (session: number) => void): Promise<UnlistenFn> =>
   listen<number>("panel-hidden", (event) => handler(event.payload));
@@ -441,11 +445,15 @@ export const floatingOpen = (
   natural: [number, number],
 ) => invoke<void>("floating_open", { path, rect, natural });
 
-/** The images open floating windows show, relative to the notes folder. */
+/** Opens the note at `path` as a post-it beside its card at `rect`, as `floatingOpen` places it. */
+export const floatingOpenNote = (path: string, rect: [number, number, number, number]) =>
+  invoke<void>("floating_open_note", { path, rect });
+
+/** The images and notes open floating windows show, relative to the notes folder. */
 export const floatingList = () => invoke<string[]>("floating_list");
-/** Closes the floating windows showing `path`. */
+/** Closes the floating windows showing `path`, an image or a note. */
 export const floatingClosePath = (path: string) => invoke<void>("floating_close_path", { path });
-/** Rust tells `main` whenever the images open floating windows show change. */
+/** Rust tells `main` whenever the images and notes open floating windows show change. */
 export const onFloatingPaths = (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
   listen<string[]>("floating-paths", (event) => handler(event.payload));
 
@@ -457,9 +465,15 @@ export const onFloatingPaths = (handler: (paths: string[]) => void): Promise<Unl
 export const isFloatWindow = () => /^float-[1-9]\d*$/.test(getCurrentWebviewWindow().label);
 export type FloatUpdate = {
   version: number;
+  /** A floating image, or a post-it showing a note. */
+  kind: "image" | "note";
   path: string | null;
+  /** Changes whenever a post-it's note may have changed: read it again with `floatNote`. */
+  revision: number;
   /** From 0.15 to 1. */
   opacity: number;
+  /** A post-it's text size against the panel's, from 0.5 to 3. */
+  textScale: number;
   clickThrough: boolean;
   /** Alt is held over the click-through window: it takes clicks and shows its controls. */
   revealed: boolean;
@@ -483,6 +497,11 @@ export const floatZoom = (width: number) => invoke<FloatZoomed>("float_zoom", { 
 /** The image's natural size, so the window keeps the image's own proportions. */
 export const floatNatural = (width: number, height: number) =>
   invoke<void>("float_natural", { width, height });
+/** The note a post-it shows, read now; `null` once it is gone. */
+export const floatNote = () => invoke<string | null>("float_note");
+export const floatSetTextScale = (scale: number) => invoke<void>("float_set_text_scale", { scale });
+/** Opens a post-it's note in the panel for editing. */
+export const floatEdit = () => invoke<void>("float_edit");
 /** Moves the window with the pointer; call while the primary button is down. */
 export const floatDrag = () => invoke<void>("float_drag");
 export type ResizeDirection =

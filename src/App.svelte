@@ -14,6 +14,7 @@ import {
   exitReady,
   onExitCancelled,
   onExitRequested,
+  onPanelEditNote,
   onPanelFocus,
   onPanelPinned,
   onPanelSearch,
@@ -150,6 +151,15 @@ onMount(() => {
     if (value) preferences = false;
   });
   const toggle = onToggleMode(() => void action(switchMode(!web)));
+  // A post-it asked to edit its note; the panel already took focus.
+  const editNote = onPanelEditNote((path) => {
+    const inNotes = !web && !preferences && !article;
+    void action(
+      (inNotes ? Promise.resolve() : switchMode(false))
+        .then(() => tick())
+        .then(() => notes.editNote(path)),
+    );
+  });
   const search = onPanelSearch(() => {
     if (preferences)
       void action(
@@ -228,6 +238,7 @@ onMount(() => {
       visible,
       toggle,
       search,
+      editNote,
       exit,
       cancelled,
       activationChanged,

@@ -3,7 +3,7 @@ import type { Snippet } from "svelte";
 import { date, dateTime, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
-import { badgeImage, decorate, imageTarget, markFloating } from "../floating/detach";
+import { badgeImage, decorate, imageTarget, markFloating, normalizePath } from "../floating/detach";
 import { countNote } from "./count";
 import { folderOf } from "./grouping";
 import Highlight from "./Highlight.svelte";
@@ -33,6 +33,7 @@ let {
   onlinkmenu,
   onimagemenu,
   onimagefloat,
+  onunfloat,
   floating,
   onpage,
   editing = false,
@@ -65,7 +66,9 @@ let {
   onimagemenu: (event: MouseEvent | KeyboardEvent, image: HTMLElement) => void;
   /** Detaches a note image into a floating window; `toggle` closes it instead if one shows it. */
   onimagefloat: (image: HTMLElement, toggle: boolean) => void;
-  /** The images floating windows show, as `normalizePath` gives them. */
+  /** Closes the floating window that shows this note. */
+  onunfloat: () => void;
+  /** The images and notes floating windows show, as `normalizePath` gives them. */
   floating: ReadonlySet<string>;
   onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
@@ -123,7 +126,7 @@ function bodyAuxClick(event: MouseEvent) {
 }
 const floatLabels = $derived.by(() => {
   void floating;
-  return { float: t("image.float"), unfloat: t("image.unfloat") };
+  return { float: t("float.open"), unfloat: t("float.unfloat") };
 });
 $effect(() => {
   if (body) markFloating(body, floating, floatLabels);
@@ -168,6 +171,7 @@ function fieldKey(event: KeyboardEvent) {
   }
 }
 const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
+const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)));
 </script>
 
 <div
@@ -183,6 +187,7 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   class:page={!!card.hit.url}
   class:expanded={card.level === "expanded"}
   class:editing
+  class:floats
   data-path={card.hit.path}
 >
   <header>
@@ -221,6 +226,9 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         <div class="pencil" class:active={editing}>
           <IconButton tabindex={-1} quiet accent={editing} icon="pencil" label={t("editor.toggle")} pressed={editing} onclick={() => onedit()} />
         </div>
+      {/if}
+      {#if floats}
+        <IconButton tabindex={-1} quiet icon="pictureInPicture" label={t("float.unfloat")} pressed onclick={onunfloat} />
       {/if}
       <IconButton tabindex={-1} quiet icon="bookmark" label={t(card.pinned ? "card.unpin" : "card.pin")} pressed={card.pinned} onclick={onpin} />
     </div>
@@ -423,10 +431,12 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
   .card {
     --page-actions: 0;
     --edit-actions: 0;
-    --header-actions: calc((var(--size-control) + var(--space-1)) * (1 + var(--page-actions) + var(--edit-actions)));
+    --float-actions: 0;
+    --header-actions: calc((var(--size-control) + var(--space-1)) * (1 + var(--page-actions) + var(--edit-actions) + var(--float-actions)));
   }
   .card.page { --page-actions: 1; }
   .card.expanded { --edit-actions: 1; }
+  .card.floats { --float-actions: 1; }
 
   .title { margin-right: var(--header-actions); }
   .meta { transition: transform var(--duration) ease; }

@@ -7,6 +7,7 @@ import {
   clipboardWrite,
   floatingClosePath,
   floatingList,
+  floatingOpenNote,
   type Leftover,
   type Listing,
   type Note,
@@ -794,8 +795,8 @@ async function createNamed(
   return null;
 }
 
-/** Shows the note just created at `name` expanded in the editor, leaving the page and the reader view. */
-async function openCreated(name: string) {
+/** Shows the note at `name` expanded in the editor, leaving the page and the reader view. */
+async function openInEditor(name: string) {
   // A web search typed in Notes shows no cards, so the editor would never mount.
   if (webQuery(query, false) !== null) query = "";
   expanded = name;
@@ -817,7 +818,7 @@ async function create(text: string, content = "") {
     const name = await createNamed(text, (name) => notesSave(name, content, ""));
     if (!name) return;
     await relist();
-    await openCreated(name);
+    await openInEditor(name);
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -904,7 +905,7 @@ async function capturePage({ full, page }: CaptureChoice) {
       (await webCaptureShown(page, shot.shown).catch(() => false)) &&
       browsing()
     ) {
-      await openCreated(name);
+      await openInEditor(name);
       opened = editing && selected === name;
     }
     const notices = [
@@ -1864,6 +1865,40 @@ function toggleFloating(image: HTMLElement, toggle: boolean) {
   } else floatImage(image);
 }
 
+const noteFloats = (card: Card) => floatingPaths.has(normalizePath(card.hit.path));
+function closeFloating(path: string) {
+  void floatingClosePath(path).catch((e) => {
+    error = errorText(e);
+  });
+}
+/** Opens the note as a post-it beside its card, or closes the one that shows it. */
+function toggleNoteFloating(card: Card) {
+  const path = card.hit.path;
+  if (noteFloats(card)) return closeFloating(path);
+  const header = list?.querySelector(`.card[data-path="${CSS.escape(path)}"] header`);
+  const box = header?.getBoundingClientRect();
+  const rect: [number, number, number, number] = box
+    ? [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)]
+    : [0, 0, 0, 0];
+  error = "";
+  void floatingOpenNote(path, rect).catch((e) => {
+    error = errorText(e);
+  });
+}
+/**
+ * A post-it asked to edit its note: the panel, already focused, shows it expanded in the editor,
+ * leaving the page, the reader view and any other note being edited.
+ */
+export async function editNote(path: string) {
+  if (editing && selected === path) {
+    editor?.focus();
+    return;
+  }
+  if (!(await leaveEditor())) return;
+  await openInEditor(path);
+  reveal(path);
+}
+
 let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
 // Selection changes reveal their destination; remounting a card after editing must not scroll it.
@@ -2372,7 +2407,7 @@ onMount(() => {
 <Menu bind:this={imageMenu} label={t("image.menu")} ontoggle={(open) => { if (!open) menuImage = null; }}>
   {#if menuImage}
     {@const image = menuImage}
-    <button role="menuitem" tabindex="-1" onclick={() => toggleFloating(image, true)}>{t(isFloating(image) ? "image.unfloat" : "image.float")}</button>
+    <button role="menuitem" tabindex="-1" onclick={() => toggleFloating(image, true)}>{t(isFloating(image) ? "float.unfloat" : "float.open")}</button>
   {/if}
 </Menu>
 
@@ -2382,6 +2417,7 @@ onMount(() => {
     <button role="menuitem" tabindex="-1" onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>
     <button role="menuitem" tabindex="-1" onclick={() => pinOrUnpin(card)}>{t(card.pinned ? "menu.unpin" : "menu.pin")}<kbd>Ctrl+D</kbd></button>
     <button role="menuitem" tabindex="-1" onclick={() => moveNote(card)}>{t("menu.move")}<kbd>Ctrl+M</kbd></button>
+    <button role="menuitem" tabindex="-1" onclick={() => toggleNoteFloating(card)}>{t(noteFloats(card) ? "float.unfloat" : "float.open")}</button>
     <hr />
     <button role="menuitem" tabindex="-1" onclick={() => deleteNote(card)}>{t("menu.delete")}<kbd>Ctrl+Delete</kbd></button>
   {/if}
@@ -2595,6 +2631,7 @@ onMount(() => {
             onlinkmenu={openLinkMenu}
             onimagemenu={openImageMenu}
             onimagefloat={toggleFloating}
+            onunfloat={() => closeFloating(card.hit.path)}
             floating={floatingPaths}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}

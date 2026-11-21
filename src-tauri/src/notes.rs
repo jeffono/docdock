@@ -2200,6 +2200,12 @@ pub struct FolderIdentity {
     path: PathBuf,
     id: String,
 }
+impl FolderIdentity {
+    /// The folder was chosen at `path`, as the watcher names it.
+    pub fn is_at(&self, path: &Path) -> bool {
+        self.path == path
+    }
+}
 fn identity_of(root: &Root) -> Result<FolderIdentity, Error> {
     Ok(FolderIdentity {
         path: root.path.clone(),
@@ -2214,11 +2220,37 @@ fn root_matching(config: &Path, identity: &FolderIdentity) -> Result<Root, Error
     }
     Ok(root)
 }
-/// The notes folder, if `image`, relative to it, is an image `note-asset` would serve.
-pub fn floating_folder(app: &AppHandle, image: &str) -> Result<FolderIdentity, Error> {
+/// What a floating window of `kind` may show: an image `note-asset` would serve, or a note.
+fn floating_kind(kind: crate::floats::Kind) -> fn(&Path) -> bool {
+    match kind {
+        crate::floats::Kind::Image => is_image,
+        crate::floats::Kind::Note => markdown,
+    }
+}
+/// The notes folder, if `path`, relative to it, is what a floating window of `kind` may show.
+pub fn floating_folder(
+    app: &AppHandle,
+    kind: crate::floats::Kind,
+    path: &str,
+) -> Result<FolderIdentity, Error> {
     let root = root(app)?;
-    resolve(&root, image, is_image)?;
+    resolve(&root, path, floating_kind(kind))?;
     identity_of(&root)
+}
+/// The note a post-it shows, from the notes folder `identity` only while it is still the configured
+/// one; `None` once the note is gone, as after a rename the post-it did not follow.
+pub fn floating_note(
+    app: &AppHandle,
+    identity: &FolderIdentity,
+    path: &str,
+) -> Result<Option<String>, Error> {
+    floating_note_in(&root_matching(&config(app)?, identity)?, path)
+}
+fn floating_note_in(root: &Path, path: &str) -> Result<Option<String>, Error> {
+    if !present_in(root, path, markdown)? {
+        return Ok(None);
+    }
+    read_note(&resolve(root, path, markdown)?).map(Some)
 }
 /// The floating windows saved in the configured notes folder, with its identity, if it is
 /// available and the one chosen; see `load_floating`. Under `SAVING`, as every write.
@@ -2256,8 +2288,8 @@ fn update_floating_at(
     let root = root_matching(config, identity)?;
     write_floating(&root, change)
 }
-/// Saves a floating window for `entry`'s image in the notes folder `identity`, only while the
-/// image is still there and `admit` agrees: all under `SAVING`, so neither sending unused images
+/// Saves a floating window for `entry`'s image or note in the notes folder `identity`, only while
+/// it is still there and `admit` agrees: all under `SAVING`, so neither sending unused images
 /// away nor a folder change slips in between.
 pub fn add_floating(
     app: &AppHandle,
@@ -2275,7 +2307,7 @@ fn add_floating_at(
 ) -> Result<(), Error> {
     let _saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
     let root = root_matching(config, identity)?;
-    resolve(&root, &entry.path, is_image)?;
+    resolve(&root, &entry.path, floating_kind(entry.kind))?;
     admit()?;
     write_floating(&root, |store| {
         store.add(entry);
@@ -3058,18 +3090,23 @@ fn image_response_for(
     }
     image_response(webview, root.map(|(path, _)| path), uri_path)
 }
-/// Whether `path`, relative to the notes folder `identity`, is still an image `note-asset` would
-/// serve: `false` when it is gone or never could be, an error when the folder or the disk cannot
-/// tell, such as a locked vault, or the folder is no longer `identity`.
-pub fn image_present(
+/// Whether `path`, relative to the notes folder `identity`, is still what a floating window of
+/// `kind` may show: `false` when it is gone or never could be, an error when the folder or the disk
+/// cannot tell, such as a locked vault, or the folder is no longer `identity`.
+pub fn floating_present(
     app: &AppHandle,
     identity: &FolderIdentity,
+    kind: crate::floats::Kind,
     path: &str,
 ) -> Result<bool, Error> {
-    image_present_in(&root_matching(&config(app)?, identity)?, path)
+    present_in(
+        &root_matching(&config(app)?, identity)?,
+        path,
+        floating_kind(kind),
+    )
 }
-fn image_present_in(root: &Path, path: &str) -> Result<bool, Error> {
-    let Ok(relative) = checked(path, is_image) else {
+fn present_in(root: &Path, path: &str, allowed: fn(&Path) -> bool) -> Result<bool, Error> {
+    let Ok(relative) = checked(path, allowed) else {
         return Ok(false);
     };
     match fs::symlink_metadata(root.join(relative)) {
@@ -3077,7 +3114,7 @@ fn image_present_in(root: &Path, path: &str) -> Result<bool, Error> {
         Err(error) => return Err(error.into()),
         Ok(_) => {}
     }
-    match resolve(root, path, is_image) {
+    match resolve(root, path, allowed) {
         Ok(_) => Ok(true),
         Err(Error::InvalidPath | Error::OutsideFolder) => Ok(false),
         Err(error) => Err(error),
@@ -4756,6 +4793,7 @@ mod tests {
             width: 200,
             height: 100,
             opacity: 1.0,
+            text_scale: None,
         }
     }
     /// A chosen notes folder holding `attachments/a.png`, its settings and its identity.
@@ -4908,11 +4946,30 @@ mod tests {
     fn only_a_missing_image_is_gone() {
         let t = Temp::new();
         let root = folder_with(&t, &[("attachments/a.png", b"a"), ("a.md", b"a")]);
-        assert_eq!(image_present_in(&root, "attachments/a.png"), Ok(true));
-        assert_eq!(image_present_in(&root, "attachments/b.png"), Ok(false));
-        assert_eq!(image_present_in(&root, "gone/b.png"), Ok(false));
-        assert_eq!(image_present_in(&root, "a.md"), Ok(false));
-        assert_eq!(image_present_in(&root, "../a.png"), Ok(false));
+        let present = |path| present_in(&root, path, is_image);
+        assert_eq!(present("attachments/a.png"), Ok(true));
+        assert_eq!(present("attachments/b.png"), Ok(false));
+        assert_eq!(present("gone/b.png"), Ok(false));
+        assert_eq!(present("a.md"), Ok(false));
+        assert_eq!(present("../a.png"), Ok(false));
+    }
+    // Catches a post-it reading an image, a file outside the folder or DocDock's own state as a
+    // note, or failing instead of telling its note is gone.
+    #[test]
+    fn a_post_it_reads_only_its_note() {
+        let t = Temp::new();
+        let root = folder_with(&t, &[("attachments/a.png", b"a"), ("Inbox/a.md", b"# A")]);
+        assert_eq!(
+            floating_note_in(&root, "Inbox/a.md"),
+            Ok(Some("# A".into()))
+        );
+        assert_eq!(floating_note_in(&root, "Inbox/b.md"), Ok(None));
+        assert_eq!(floating_note_in(&root, "attachments/a.png"), Ok(None));
+        assert_eq!(floating_note_in(&root, "../a.md"), Ok(None));
+        fs::create_dir_all(root.join(DERIVED)).unwrap();
+        fs::write(root.join(DERIVED).join("x.md"), b"x").unwrap();
+        let derived = format!("{DERIVED}/x.md");
+        assert!(!matches!(floating_note_in(&root, &derived), Ok(Some(_))));
     }
     #[test]
     fn the_images_only_a_deleted_note_used_go_when_the_panel_hides() {

@@ -472,6 +472,24 @@ notes differ only in section and starting state.
   when the notes folder returns; one whose spot is now off every monitor moves onto the nearest. A
   locked vault, or another folder chosen, closes them at once, without forgetting them; a window
   whose image was deleted is forgotten.
+- **Floating notes (post-its):** a note card's menu has "Open as floating window", which opens the
+  note read-only in a floating window beside its card, 300 by 320 logical px, cascading and limited
+  to 8 together with floating images; while one shows the note, the item reads "Close floating
+  window" and the card's header actions add a filled `pictureInPicture` that closes it. The window
+  behaves as a floating image's (topmost, never taking focus, excluded from capture, transparent
+  `--space-2` gutter, hover hairline and shadow, opacity, click-through with Alt, tray items,
+  reopening and the vault), on a sheet of `--color-surface` with a 1 px `--color-line` border and
+  `--radius-sm`, the note rendered as in the panel, title included, inside `--space-2` by
+  `--space-3` padding, scrolling with the wheel. Its pill has the opacity slider, a pencil ("Edit
+  in the panel (double-click)"), "Let clicks through" and Close; the whole sheet fades, never the
+  pill. Dragging the sheet more than 4 px moves the window; its edges and corners resize it to any
+  proportions, each side of the sheet at least 96 logical px. A double click, or the pencil, brings
+  the panel with focus to Notes and opens the note expanded in the editor. Ctrl+wheel sizes the
+  text in 10% steps from 50% to 300%, kept with the window, and Ctrl+double-click returns it to
+  100%. Links read as links but open nothing, and nothing in it takes focus. It follows edits and
+  renames as they happen; a note moved or deleted outside its sight leaves only "This note was
+  moved or deleted." in the middle of the sheet until it returns, and is forgotten at the next
+  start.
 - Code: inline code and blocks use the recessed `--color-bg` with `--radius-sm`; inline code has
   `--space-1` at each side; blocks have `--space-2` vertical and `--space-3` horizontal padding and a
   `--color-line` border. The editor frames code lines, fences included while visible, as one block.

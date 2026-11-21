@@ -506,7 +506,18 @@ pub async fn floating_open(
     crate::floating::open(&app, &requests, path, rect, natural)
 }
 
-/// The images the open floating windows show, so the notes mark them.
+/// Opens a note as a post-it beside its card at `rect`. Asynchronous as `floating_open`.
+#[tauri::command]
+pub async fn floating_open_note(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    path: String,
+    rect: [i32; 4],
+) -> Result<(), Error> {
+    crate::floating::open_note(&app, &requests, path, rect)
+}
+
+/// The images and notes the open floating windows show, so the notes mark them.
 #[tauri::command(async)]
 pub fn floating_list() -> Vec<String> {
     crate::floating::paths()
@@ -562,6 +573,23 @@ pub fn float_zoom(
 #[tauri::command(async)]
 pub fn float_natural(window: tauri::WebviewWindow, width: u32, height: u32) -> Result<(), Error> {
     crate::floating::natural(window.label(), width, height)
+}
+/// The note the post-it shows, read now; `null` once it is gone.
+#[tauri::command(async)]
+pub fn float_note(app: AppHandle, window: tauri::WebviewWindow) -> Result<Option<String>, Error> {
+    crate::floating::note(&app, window.label())
+}
+#[tauri::command(async)]
+pub fn float_set_text_scale(window: tauri::WebviewWindow, scale: f64) -> Result<(), Error> {
+    crate::floating::set_text_scale(window.label(), scale)
+}
+/// Opens the post-it's note in the panel for editing.
+#[tauri::command(async)]
+pub fn float_edit(
+    window: tauri::WebviewWindow,
+    requests: State<'_, Sender<Request>>,
+) -> Result<(), Error> {
+    crate::floating::edit(window.label(), &requests)
 }
 #[tauri::command(async)]
 pub fn float_drag(window: tauri::WebviewWindow) -> Result<(), Error> {

@@ -78,6 +78,9 @@ pub enum Request {
         natural: (u32, u32),
         reply: Sender<crate::floats::Placed>,
     },
+    /// A post-it asks to edit its note: the panel takes focus, as with the shortcut, and opens the
+    /// note in its editor.
+    EditNote(String),
 }
 
 /// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
@@ -488,6 +491,16 @@ impl Dock {
                     let _ = self
                         .app
                         .emit_to("main", "panel-search", SearchRequest { toggle });
+                }
+                Action::None
+            }
+            Request::EditNote(path) => {
+                self.hide_preview();
+                let dialog = self.dialog;
+                let action = self.panel.step(Input::Shortcut { dialog }, now);
+                self.apply(action);
+                if action == Action::Summon {
+                    let _ = self.app.emit_to("main", "panel-edit-note", path);
                 }
                 Action::None
             }
