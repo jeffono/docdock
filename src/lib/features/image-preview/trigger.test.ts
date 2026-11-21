@@ -69,11 +69,14 @@ describe("image preview trigger", () => {
     expect(run([{ kind: "focus", thumb: "b" }])).toEqual([idle(), ["none"]]);
   });
 
-  // Catches Rust being asked to hide again after it already did, or a stale hover delay showing
-  // the preview after a dismissal.
-  it("dismissal hides and cancels the delay; Rust's own hide only resets", () => {
+  // Catches a stale hover delay showing the preview after a dismissal.
+  it("a dismissal hides and cancels the delay", () => {
     expect(run([{ kind: "dismiss" }], shown("a"))).toEqual([idle(), ["hide"]]);
     expect(run([{ kind: "dismiss" }], { shown: null, waiting: "a" })).toEqual([idle(), ["none"]]);
+  });
+
+  // Catches Rust being asked to hide again after it already did.
+  it("Rust's own hide only resets", () => {
     expect(run([{ kind: "closed" }], shown("a"))).toEqual([idle(), ["none"]]);
   });
 });

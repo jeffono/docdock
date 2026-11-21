@@ -492,6 +492,86 @@ pub fn image_preview_state(
     Ok(crate::preview::state(channel, *locale))
 }
 
+/// Detaches an image of the notes folder into a floating window. Asynchronous because creating its
+/// window in a synchronous command hangs on Windows, and the floating registry is never taken on
+/// the main thread.
+#[tauri::command]
+pub async fn floating_open(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    path: String,
+    rect: [i32; 4],
+    natural: (u32, u32),
+) -> Result<(), Error> {
+    crate::floating::open(&app, &requests, path, rect, natural)
+}
+
+/// The images the open floating windows show, so the notes mark them.
+#[tauri::command(async)]
+pub fn floating_list() -> Vec<String> {
+    crate::floating::paths()
+}
+/// Closes the floating windows showing `path`, as their own close button would.
+#[tauri::command(async)]
+pub fn floating_close_path(app: AppHandle, path: String) {
+    crate::floating::close_path(&app, &path);
+}
+
+// A floating window's commands: each acts only on its caller, named by its own window, never by
+// an argument, and only while Rust has it registered. Off the main thread, as everything that
+// takes the floating registry.
+
+/// What the window shows when it loads, and the channel for what it shows next.
+#[tauri::command(async)]
+pub fn float_state(
+    window: tauri::WebviewWindow,
+    locale: State<'_, Locale>,
+    channel: tauri::ipc::Channel<crate::floating::Update>,
+) -> Result<crate::floating::State, Error> {
+    crate::floating::state(window.label(), channel, *locale)
+}
+#[tauri::command(async)]
+pub fn float_set_opacity(window: tauri::WebviewWindow, opacity: f64) -> Result<(), Error> {
+    crate::floating::set_opacity(window.label(), opacity)
+}
+#[tauri::command(async)]
+pub fn float_set_click_through(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    click_through: bool,
+) -> Result<(), Error> {
+    crate::floating::set_click_through(&app, window.label(), click_through)
+}
+#[tauri::command(async)]
+pub fn float_close(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), Error> {
+    if !crate::floating::is_live(window.label()) {
+        return Err(Error::unexpected("command restricted to floating windows"));
+    }
+    crate::floating::close(&app, window.label());
+    Ok(())
+}
+/// Grows or shrinks the window so its image is `width` CSS pixels wide, keeping its proportions.
+#[tauri::command(async)]
+pub fn float_zoom(
+    window: tauri::WebviewWindow,
+    width: f64,
+) -> Result<crate::floating::Zoomed, Error> {
+    crate::floating::zoom(window.label(), width)
+}
+/// The image the window shows is `width` by `height` pixels, so the window keeps its proportions.
+#[tauri::command(async)]
+pub fn float_natural(window: tauri::WebviewWindow, width: u32, height: u32) -> Result<(), Error> {
+    crate::floating::natural(window.label(), width, height)
+}
+#[tauri::command(async)]
+pub fn float_drag(window: tauri::WebviewWindow) -> Result<(), Error> {
+    crate::floating::drag(&window)
+}
+#[tauri::command(async)]
+pub fn float_resize(window: tauri::WebviewWindow, direction: String) -> Result<(), Error> {
+    crate::floating::resize(&window, direction)
+}
+
 /// Outside the command barrier in `lib.rs`: the protocol exists in every window and Tauri identifies
 /// the requester. Runs on another thread so file reads do not block the WebView.
 pub fn note_image(

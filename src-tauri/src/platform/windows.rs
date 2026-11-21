@@ -1,24 +1,27 @@
 //! Thin Win32 layer. All coordinates are physical pixels: the process uses per-monitor DPI
 //! awareness (PMv2), enabled by tao when starting the event loop.
 
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR,
-    HRGN, MONITORINFO, RDW_ALLCHILDREN, RDW_FRAME, RDW_INVALIDATE, RGN_ERROR, RGN_OR, RedrawWindow,
-    SetWindowRgn,
+    HRGN, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect, RDW_ALLCHILDREN, RDW_FRAME,
+    RDW_INVALIDATE, RGN_ERROR, RGN_OR, RedrawWindow, SetWindowRgn,
 };
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    EnableWindow, GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON, VK_RBUTTON,
+    EnableWindow, GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LBUTTON, VK_MENU, VK_RBUTTON,
 };
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
-    GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, HWND_TOPMOST,
-    IsIconic, IsWindow, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+    HWND_TOPMOST, IsIconic, IsWindow, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_NCDESTROY, WM_SIZING, WMSZ_BOTTOM,
+    WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT,
+    WMSZ_TOPRIGHT, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TRANSPARENT,
 };
 use windows::core::BOOL;
 
@@ -83,6 +86,13 @@ pub fn primary_button_down() -> bool {
     let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
     let button = if swapped { VK_RBUTTON } else { VK_LBUTTON };
     unsafe { GetAsyncKeyState(i32::from(button.0)) < 0 }
+}
+
+/// Alt is held, but not as AltGr, which layouts such as ABNT2 send as Ctrl+Alt.
+pub fn alt_held() -> bool {
+    unsafe {
+        GetAsyncKeyState(i32::from(VK_MENU.0)) < 0 && GetAsyncKeyState(i32::from(VK_CONTROL.0)) >= 0
+    }
 }
 
 /// How far, in physical pixels each way, the pointer may move before a press becomes a drag.
@@ -289,22 +299,9 @@ impl PanelWindow {
         }
     }
 
-    /// Lets every click through to the windows below, as Tauri's `set_ignore_cursor_events` does:
-    /// hit-testing skips only a layered window, so it becomes one meanwhile.
+    /// Lets every click through to the windows below, or takes them again.
     pub fn set_click_through(&self, through: bool) {
-        unsafe {
-            let hwnd = self.hwnd();
-            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-            let flags = WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
-            let style = if through {
-                style | flags
-            } else {
-                style & !flags
-            };
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
-            let flags = RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME;
-            let _ = RedrawWindow(Some(hwnd), None, None, flags);
-        }
+        set_click_through(self.raw, through);
     }
 
     /// A disabled window cannot be activated. Without this, the off-screen panel inherits focus when
@@ -351,23 +348,9 @@ impl OverlayWindow {
         HWND(self.0 as *mut _)
     }
 
-    /// Shows the window at `rect`, above other windows, without activating it: Tauri's `show`
-    /// would.
+    /// Shows the window at `rect`, above other windows, without activating it.
     pub fn show(&self, rect: Rect) {
-        let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
-        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-        let result = unsafe {
-            SetWindowPos(
-                self.hwnd(),
-                Some(HWND_TOPMOST),
-                rect.left,
-                rect.top,
-                width,
-                height,
-                flags,
-            )
-        };
-        log_failure("SetWindowPos", result);
+        show_topmost(self.0, rect);
     }
 
     pub fn hide(&self) {
@@ -377,6 +360,176 @@ impl OverlayWindow {
     pub fn exists(&self) -> bool {
         unsafe { IsWindow(Some(self.hwnd())) }.as_bool()
     }
+}
+
+/// Lets every click through to the windows below, as Tauri's `set_ignore_cursor_events` does:
+/// hit-testing skips only a layered window, so it becomes one meanwhile. Or takes clicks again.
+pub fn set_click_through(raw: isize, through: bool) {
+    unsafe {
+        let hwnd = HWND(raw as *mut _);
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let flags = WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
+        let style = if through {
+            style | flags
+        } else {
+            style & !flags
+        };
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+        let flags = RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_FRAME;
+        let _ = RedrawWindow(Some(hwnd), None, None, flags);
+    }
+}
+
+/// Makes the still-hidden window a floating one: a tool window, off the taskbar and Alt+Tab, that
+/// never activates, so clicking or dragging it keeps the user's app, or a summoned panel, in the
+/// foreground. Unlike [`OverlayWindow`], it stays enabled and takes clicks.
+pub fn prepare_floating(raw: isize) {
+    unsafe {
+        let hwnd = HWND(raw as *mut _);
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let style = (style | WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) & !WS_EX_APPWINDOW.0;
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+    }
+}
+
+/// Shows the window at `rect`, above other windows, without activating it: Tauri's `show` and
+/// `set_focus` would.
+pub fn show_topmost(raw: isize, rect: Rect) {
+    let flags = SWP_NOACTIVATE | SWP_SHOWWINDOW;
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    let result = unsafe {
+        SetWindowPos(
+            HWND(raw as *mut _),
+            Some(HWND_TOPMOST),
+            rect.left,
+            rect.top,
+            width,
+            height,
+            flags,
+        )
+    };
+    log_failure("SetWindowPos", result);
+}
+
+/// Moves and resizes the window to `rect` without showing, activating or raising it.
+pub fn move_window(raw: isize, rect: Rect) {
+    let flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER;
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    let result = unsafe {
+        SetWindowPos(
+            HWND(raw as *mut _),
+            None,
+            rect.left,
+            rect.top,
+            width,
+            height,
+            flags,
+        )
+    };
+    log_failure("SetWindowPos", result);
+}
+
+pub fn hide_window(raw: isize) {
+    let _ = unsafe { ShowWindow(HWND(raw as *mut _), SW_HIDE) };
+}
+
+/// The window's rectangle on screen; `None` once it is gone.
+pub fn window_rect(raw: isize) -> Option<Rect> {
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(HWND(raw as *mut _), &mut rect) }.ok()?;
+    Some(rect.into())
+}
+
+/// The edge or corner a user drags to resize a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizingEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl SizingEdge {
+    fn from_wmsz(edge: u32) -> Option<Self> {
+        Some(match edge {
+            WMSZ_LEFT => Self::Left,
+            WMSZ_RIGHT => Self::Right,
+            WMSZ_TOP => Self::Top,
+            WMSZ_BOTTOM => Self::Bottom,
+            WMSZ_TOPLEFT => Self::TopLeft,
+            WMSZ_TOPRIGHT => Self::TopRight,
+            WMSZ_BOTTOMLEFT => Self::BottomLeft,
+            WMSZ_BOTTOMRIGHT => Self::BottomRight,
+            _ => return None,
+        })
+    }
+}
+
+/// Decides the window rectangle a resize may take: from the one proposed, the edge dragged, the
+/// window's DPI and the work area of the monitor nearest the proposal.
+pub type Sizing = Box<dyn Fn(Rect, SizingEdge, u32, Rect) -> Rect + Send>;
+
+/// Lets `sizing` decide every rectangle while the user resizes `raw` (`WM_SIZING`). Must run on
+/// the window's thread; the hook goes with the window.
+pub fn constrain_sizing(raw: isize, sizing: Sizing) -> Result<(), String> {
+    let data = Box::into_raw(Box::new(sizing));
+    // SAFETY: the subclass owns this Box after success, until WM_NCDESTROY; on failure no
+    // subclass owns it and it is reclaimed below.
+    let added =
+        unsafe { SetWindowSubclass(HWND(raw as _), Some(sizing_subclass), 0, data as usize) };
+    if added.as_bool() {
+        Ok(())
+    } else {
+        // SAFETY: installation failed, so ownership never passed to the subclass.
+        drop(unsafe { Box::from_raw(data) });
+        Err("failed to subclass the window".into())
+    }
+}
+
+unsafe extern "system" fn sizing_subclass(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    id: usize,
+    data: usize,
+) -> LRESULT {
+    // SAFETY: `constrain_sizing` supplies a live Box<Sizing> as reference data, alive until
+    // WM_NCDESTROY removes this subclass and reconstructs the Box exactly once.
+    let sizing = data as *mut Sizing;
+    match message {
+        WM_SIZING => {
+            let proposed = lparam.0 as *mut RECT;
+            if let Some(edge) = SizingEdge::from_wmsz(wparam.0 as u32)
+                && !proposed.is_null()
+            {
+                unsafe {
+                    let rect = Rect::from(*proposed);
+                    let dpi = GetDpiForWindow(window).max(1);
+                    let monitor = MonitorFromRect(&*proposed, MONITOR_DEFAULTTONEAREST);
+                    let work = monitor_info(monitor).map_or(rect, |monitor| monitor.work);
+                    let decided = (*sizing)(rect, edge, dpi, work);
+                    *proposed = RECT {
+                        left: decided.left,
+                        top: decided.top,
+                        right: decided.right,
+                        bottom: decided.bottom,
+                    };
+                }
+                return LRESULT(1);
+            }
+        }
+        WM_NCDESTROY => unsafe {
+            let _ = RemoveWindowSubclass(window, Some(sizing_subclass), id);
+            drop(Box::from_raw(sizing));
+        },
+        _ => {}
+    }
+    unsafe { DefSubclassProc(window, message, wparam, lparam) }
 }
 
 /// The outline's rectangles cut to the visible columns of `visible`, as one region.

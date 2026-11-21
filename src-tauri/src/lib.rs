@@ -7,6 +7,8 @@ mod commands;
 mod dev;
 mod dock;
 mod error;
+mod floating;
+mod floats;
 mod handle;
 mod i18n;
 mod main_window;
@@ -163,9 +165,21 @@ pub fn run() {
         commands::spelling_add,
         commands::image_preview_show,
         commands::image_preview_hide,
+        commands::floating_open,
+        commands::floating_list,
+        commands::floating_close_path,
     ];
-    let secondary: fn(tauri::ipc::Invoke) -> bool =
-        tauri::generate_handler![commands::image_preview_state];
+    let secondary: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
+        commands::image_preview_state,
+        commands::float_state,
+        commands::float_set_opacity,
+        commands::float_set_click_through,
+        commands::float_close,
+        commands::float_zoom,
+        commands::float_natural,
+        commands::float_drag,
+        commands::float_resize,
+    ];
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_, _, _| {}))
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -202,6 +216,8 @@ pub fn run() {
                 side,
                 notes::width(app.handle()),
             );
+            floating::start(app.handle());
+            floating::folder_returned(app.handle());
             Ok(())
         })
         // Alt+F4 on the panel would destroy the only UI that can flush saves.
@@ -212,6 +228,7 @@ pub fn run() {
                 api.prevent_close();
                 updates::request_exit(window.app_handle(), false);
             }
+            floating::window_event(window.label(), event);
         })
         .invoke_handler(by_window(commands, secondary, is_secondary_window))
         .build(tauri::generate_context!())

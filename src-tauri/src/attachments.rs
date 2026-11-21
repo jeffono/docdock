@@ -54,6 +54,34 @@ pub fn referenced<'a, 'n>(
     used
 }
 
+/// Which of `candidates` are among `paths`, all relative to the notes folder: images a floating
+/// window shows, which count as in use. Both sides compare as a link's destination does once
+/// resolved: either separator, empty and `.` parts dropped, `..` applied, case ignored. Paths here
+/// are file paths, never percent-encoded.
+pub fn listed<'a>(candidates: &'a [String], paths: &[String]) -> HashSet<&'a str> {
+    let paths: HashSet<String> = paths.iter().filter_map(|path| normalize(path)).collect();
+    candidates
+        .iter()
+        .filter(|candidate| normalize(candidate).is_some_and(|path| paths.contains(&path)))
+        .map(String::as_str)
+        .collect()
+}
+
+/// `path`, relative to the notes folder, in the form `resolve` gives; `None` if it leaves it.
+pub fn normalize(path: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    for part in path.split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ => parts.push(part),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/").to_lowercase())
+}
+
 fn destinations(note: &str, source: &str) -> HashSet<String> {
     let mut paths = HashSet::new();
     let mut collect = |url: &str| {
@@ -108,6 +136,24 @@ fn resolve(note: &str, url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Catches an image a floating window shows looking unused because the saved path is spelled
+    // differently from the file found on disk.
+    #[test]
+    fn listed_paths_match_however_they_are_spelled() {
+        let candidates = vec!["attachments/Map.png".to_owned(), "other/a.png".to_owned()];
+        for path in [
+            "attachments/map.png",
+            "attachments//map.png",
+            "./attachments/./MAP.png",
+            "attachments\\map.png",
+            "sub/../attachments/map.png",
+        ] {
+            let used = listed(&candidates, &[path.to_owned()]);
+            assert_eq!(used, HashSet::from(["attachments/Map.png"]), "{path}");
+        }
+        assert!(listed(&candidates, &["../attachments/map.png".to_owned()]).is_empty());
+    }
 
     fn found(note: &str, text: &str, candidates: &[&str]) -> Vec<String> {
         let candidates: Vec<_> = candidates.iter().map(|path| (*path).to_owned()).collect();

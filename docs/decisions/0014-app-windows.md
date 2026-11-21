@@ -22,11 +22,17 @@ as `main`'s `notes-changed` with note paths, and `allow-unlisten` removes other 
   every window.
 - **Command barrier by label** (`by_window` in `lib.rs`): `main` reaches `main`'s command list. A
   secondary window reaches only a disjoint secondary list, and each of those commands also checks its
-  caller's label. Only `image-preview` and, from M16's floating windows on, the live `float-*`
-  labels Rust registered count as secondary (`is_secondary_window`); any other window, `web` and
-  `tweak` included, reaches no app command.
-- **Images:** `note-asset` answers only `main`, `image-preview` and registered live `float-*`
-  windows (`main_window::reads_images`); any other label, `web` and `tweak` included, gets 403.
+  caller's label. Only `image-preview` and the live `float-<n>` labels Rust registered count as
+  secondary (`is_secondary_window`); any other window, `web` and `tweak` included, reaches no app
+  command. Rust registers a floating window's label before building it and removes it when the
+  window closes or is destroyed, and from every window before destroying them when the notes folder
+  leaves or another is chosen; labels are numbered per run and never reused, apart from the ids
+  saved in `floating.json`. A `float_*` command acts only on its caller, the window named by its own
+  label, never by an argument, and only while the registry holds it, so the preview reaches none of
+  them and a floating window reaches no other.
+- **Images:** `note-asset` answers only `main`, `image-preview` and registered live `float-<n>`
+  windows (`main_window::reads_images`); any other label, `web`, `tweak` and an unregistered
+  `float-*` included, gets 403.
 - **No capability:** secondary windows get none, so the ACL refuses them every core command: no
   event listening or sending, no `core:window:*`. Rust decides their geometry, visibility and focus.
 - **Updates over an IPC channel:** a secondary window hands Rust a `tauri::ipc::Channel` through its
@@ -47,3 +53,7 @@ as `main`'s `notes-changed` with note paths, and `allow-unlisten` removes other 
   fetch command. A path is far below that.
 - The image preview never takes focus or clicks: Rust shows it without activating and it stays
   disabled and click-through, so the panel's hover and focus rules ignore it.
+- Floating windows take clicks but never activate (`WS_EX_NOACTIVATE`, enabled), so they move,
+  resize and close through their own commands (Tauri's `start_dragging` and
+  `start_resize_dragging` run in Rust, needing no `core:window` permission) while the user's app
+  keeps the foreground. Their state reaches them over their channels, each with its own version.

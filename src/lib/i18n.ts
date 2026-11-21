@@ -220,6 +220,13 @@ const en = {
   "link.openHere": "Open here",
   "link.copy": "Copy link",
   "link.gestures": "Shift+click / Middle click",
+  "image.menu": "Image actions",
+  "image.float": "Open as floating window",
+  "image.unfloat": "Close floating window",
+  "float.label": "Floating image",
+  "float.opacity": "Opacity",
+  "float.clickThrough": "Let clicks through (hold Alt over the image to reach these controls)",
+  "float.close": "Close",
   "menu.rename": "Rename",
   "menu.pin": "Pin",
   "menu.unpin": "Unpin",
@@ -399,6 +406,9 @@ const en = {
     "Ctrl+Alt with a letter or digit types characters (AltGr) on some keyboards; choose another combination.",
   "error.shortcutKeyUnsupported": "This key cannot be part of the shortcut.",
   "error.shortcutTaken": "{shortcut} is taken by another app; the previous shortcut stays.",
+  "error.floatingLimit": "Up to {max} floating windows can be open; close one first.",
+  "error.floatingVersion":
+    "The floating windows were saved by another version of DocDock, so new ones cannot be saved.",
 };
 
 export type MessageKey = keyof typeof en;
@@ -624,6 +634,14 @@ const ptBR: Record<MessageKey, string> = {
   "link.openHere": "Abrir aqui",
   "link.copy": "Copiar link",
   "link.gestures": "Shift+clique / Clique do meio",
+  "image.menu": "Ações da imagem",
+  "image.float": "Abrir como janela flutuante",
+  "image.unfloat": "Fechar janela flutuante",
+  "float.label": "Imagem flutuante",
+  "float.opacity": "Opacidade",
+  "float.clickThrough":
+    "Deixar cliques passarem (segure Alt sobre a imagem para alcançar estes controles)",
+  "float.close": "Fechar",
   "menu.rename": "Renomear",
   "menu.pin": "Fixar",
   "menu.unpin": "Desafixar",
@@ -809,6 +827,9 @@ const ptBR: Record<MessageKey, string> = {
     "Ctrl+Alt com uma letra ou um dígito digita caracteres (AltGr) em alguns teclados; escolha outra combinação.",
   "error.shortcutKeyUnsupported": "Esta tecla não pode fazer parte do atalho.",
   "error.shortcutTaken": "{shortcut} está em uso por outro app; o atalho anterior continua.",
+  "error.floatingLimit": "Até {max} janelas flutuantes podem ficar abertas; feche uma antes.",
+  "error.floatingVersion":
+    "As janelas flutuantes foram salvas por outra versão do DocDock, então novas não podem ser salvas.",
 };
 
 const messages: Record<Locale, Record<MessageKey, string>> = { en, "pt-BR": ptBR };

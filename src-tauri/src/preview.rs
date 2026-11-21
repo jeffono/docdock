@@ -277,6 +277,23 @@ pub fn place(
     })
 }
 
+/// The image's own box within `placement`, without the frame's padding and arrow: where a
+/// floating window opens to show the image as the preview would.
+pub fn image_rect(placement: &Placement, dpi: u32) -> Rect {
+    let (pad, arrow) = (scale_dpi(dpi, FRAME_PAD), scale_dpi(dpi, ARROW_WIDTH));
+    let rect = placement.rect;
+    let (left, right) = match placement.side {
+        Side::Right => (rect.left + pad, rect.right - pad - arrow),
+        Side::Left => (rect.left + pad + arrow, rect.right - pad),
+    };
+    Rect {
+        left,
+        top: rect.top + pad,
+        right,
+        bottom: rect.bottom - pad,
+    }
+}
+
 /// Forgets the image and tells both windows, if one was shown or about to be. The caller hides the
 /// window. Returns whether there was one.
 pub fn dismiss(app: &AppHandle) -> bool {
@@ -463,6 +480,23 @@ mod tests {
                 arrow_y: 158.0,
             }
         );
+    }
+
+    // Catches a floating window opened beside the panel keeping the preview's frame and arrow
+    // around the image.
+    #[test]
+    fn the_image_box_leaves_out_the_frame_on_either_side() {
+        for side in [Side::Right, Side::Left] {
+            let placement = placed(side, 400, (400, 300), 96).unwrap();
+            let image = image_rect(&placement, 96);
+            assert_eq!(
+                (image.right - image.left, image.bottom - image.top),
+                (400, 300)
+            );
+            assert_eq!(image.top, placement.rect.top + 8);
+        }
+        let placement = placed(Side::Right, 400, (400, 300), 96).unwrap();
+        assert_eq!(image_rect(&placement, 96).left, placement.rect.left + 8);
     }
 
     #[test]

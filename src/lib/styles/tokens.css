@@ -18,6 +18,10 @@
   --color-warning-line: light-dark(#f0d48a, #5c4a1c);
   /* Behind a dialog that asks before a costly action. */
   --color-scrim: light-dark(rgb(0 0 0 / 0.18), rgb(0 0 0 / 0.45));
+  /* A hovered floating window's image: a hairline that traces it, then a soft shadow. The only
+     shadow, because a floating window has no frame to show where it ends. */
+  --color-float-ring: light-dark(rgb(0 0 0 / 0.28), rgb(255 255 255 / 0.32));
+  --color-float-shadow: light-dark(rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.6));
 
   /* GitHub Light Default and GitHub Dark Default syntax colors. */
   --color-code-comment: light-dark(#6e7781, #8b949e);
@@ -34,6 +38,8 @@
   --space-4: 1rem;
 
   --radius-sm: 5px;
+  /* Fully rounded ends, as a pill. */
+  --radius-full: 9999px;
 
   /* Two bars add up to `WEB_TOP` in `src-tauri/src/dock.rs`, where the web page starts. */
   --size-bar: 2.75rem;

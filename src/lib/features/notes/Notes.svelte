@@ -5,6 +5,8 @@ import { dateTime, errorText, t } from "../../i18n";
 import {
   type CaptureChoice,
   clipboardWrite,
+  floatingClosePath,
+  floatingList,
   type Leftover,
   type Listing,
   type Note,
@@ -31,6 +33,7 @@ import {
   notesTrust,
   notesUndoDelete,
   type OpenNote,
+  onFloatingPaths,
   onNotesChanged,
   onPanelHidden,
   onPanelSearch,
@@ -64,6 +67,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
+import { normalizePath, openFloating } from "../floating/detach";
 import { imagePreview } from "../image-preview/preview";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import Permission from "../web/Permission.svelte";
@@ -684,6 +688,7 @@ function forget() {
   cardMenu?.close();
   folderMenu?.close();
   closeLinkMenu();
+  closeImageMenu();
   menuCard = null;
   menuFolder = "";
   selection = "";
@@ -1811,6 +1816,54 @@ async function openLinkMenu(
   if (menuLink?.url === url && from.isConnected) linkMenu.show({ at, from });
 }
 
+let imageMenu: Menu;
+/** The note image the image menu acts on. */
+let menuImage = $state<HTMLElement | null>(null);
+function closeImageMenu() {
+  if (!menuImage) return;
+  menuImage = null;
+  imageMenu?.close();
+}
+async function openImageMenu(event: MouseEvent | KeyboardEvent, image: HTMLElement) {
+  event.preventDefault();
+  event.stopPropagation();
+  // Opening the menu dismisses the side preview, which listens for it.
+  const rect = image.getBoundingClientRect();
+  const at =
+    event instanceof MouseEvent
+      ? { x: event.clientX, y: event.clientY }
+      : { x: rect.left, y: rect.bottom };
+  menuImage = image;
+  await tick();
+  // Focus returns to a focused thumbnail, else to the list.
+  const from = image === document.activeElement ? image : list;
+  if (menuImage === image && image.isConnected) imageMenu.show({ at, from });
+}
+function floatImage(image: HTMLElement) {
+  if (!image.isConnected) return;
+  error = "";
+  void openFloating(image).catch((e) => {
+    error = errorText(e);
+  });
+}
+/** The images open floating windows show, normalized as Rust compares them. */
+let floatingPaths = $state<ReadonlySet<string>>(new Set());
+const showFloating = (paths: string[]) => {
+  floatingPaths = new Set(paths.map(normalizePath));
+};
+const isFloating = (image: HTMLElement) =>
+  floatingPaths.has(normalizePath(image.dataset.image ?? ""));
+/** Opens `image` as a floating window or, with `toggle`, closes the one that shows it. */
+function toggleFloating(image: HTMLElement, toggle: boolean) {
+  preview.dismiss();
+  const path = image.dataset.image;
+  if (toggle && path && isFloating(image)) {
+    void floatingClosePath(path).catch((e) => {
+      error = errorText(e);
+    });
+  } else floatImage(image);
+}
+
 let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
 // Selection changes reveal their destination; remounting a card after editing must not scroll it.
@@ -2230,6 +2283,10 @@ onMount(() => {
   }, 30_000);
   const unlisten = onNotesChanged(changed);
   const stopPreview = preview.attach();
+  void floatingList()
+    .then(showFloating)
+    .catch(() => {});
+  const floatingChanged = onFloatingPaths(showFloating);
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
@@ -2238,6 +2295,7 @@ onMount(() => {
     noteSearchTyped = false;
     shortcutSheet.close();
     closeLinkMenu();
+    closeImageMenu();
     // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
     if (!removed?.trash) removed = null;
     noticeAway = true;
@@ -2282,6 +2340,7 @@ onMount(() => {
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
     void captureChosen.then((stop) => stop());
+    void floatingChanged.then((stop) => stop());
   };
 });
 </script>
@@ -2307,6 +2366,13 @@ onMount(() => {
       <button role="menuitem" tabindex="-1" onclick={() => void openPage(target.url.href).catch(linkError)}>{t("link.openHere")}</button>
     {/if}
     <button role="menuitem" tabindex="-1" onclick={() => void clipboardWrite(target.href).catch(linkError)}>{t("link.copy")}</button>
+  {/if}
+</Menu>
+
+<Menu bind:this={imageMenu} label={t("image.menu")} ontoggle={(open) => { if (!open) menuImage = null; }}>
+  {#if menuImage}
+    {@const image = menuImage}
+    <button role="menuitem" tabindex="-1" onclick={() => toggleFloating(image, true)}>{t(isFloating(image) ? "image.unfloat" : "image.float")}</button>
   {/if}
 </Menu>
 
@@ -2527,6 +2593,9 @@ onMount(() => {
             onedit={(start) => (edited ? leaveEditor() : edit(card.hit.path, start))}
             onlink={(event) => linkClick(event, true)}
             onlinkmenu={openLinkMenu}
+            onimagemenu={openImageMenu}
+            onimagefloat={toggleFloating}
+            floating={floatingPaths}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
             status={edited ? saveText : ""}

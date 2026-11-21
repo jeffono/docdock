@@ -14,13 +14,15 @@ src/                     UI (Svelte 5 + Vite)
   lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
   lib/theme.svelte.ts    Theme setting applied as the root color scheme
   lib/features/<name>/   Components, state and tests: notes, web, tab (edge tab), preferences,
-                         image-preview, tweak-panel (development builds only)
+                         image-preview, floating, tweak-panel (development builds only)
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
 src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
-  main_window.rs         Creates app windows (`main`, the image preview) hardened alike
+  main_window.rs         Creates app windows (`main`, the image preview, floating windows) hardened alike
   preview.rs             Side image preview: pure placement beside the panel and its commands
+  floats.rs              Pure floating-window rules: `floating.json`, fitting to monitors, Alt reveal
+  floating.rs            Floating windows: registry, worker, commands and lifecycle
   panel.rs               Pure panel state machine
   handle.rs              Pure edge handle rules: where it sits, when it shows, which stretch opens
   motion.rs              Slide duration and easing; tunable live in development builds
@@ -154,6 +156,66 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   showing the window waits for. What the preview window hears carries a separate version, which
   changes only with the image shown. The window decodes the next image before swapping and drops any image, decoding or
   shown, when it hides.
+- **Floating windows** ([0014](decisions/0014-app-windows.md)): up to 8 `float-<n>` windows, the
+  base for M17's post-its. `floating_open` validates the image, reserves a label in the registry,
+  asks the dock thread where the preview would show the image (`Request::PlaceFloat`, through
+  `preview::place` and `preview::image_rect`) and builds a hidden secondary window, a tool window
+  that never activates but stays enabled (`platform::prepare_floating`). Under `SAVING` it checks
+  that the folder, the image, the epoch and the window are all still there and saves the entry;
+  only then does it show the window topmost with `SetWindowPos` (never Tauri's `show` or
+  `set_focus`), and only if no close or folder change came meanwhile (`floating::save_and_show`).
+  A close after the save removes the entry itself, and a folder change after it destroys the window
+  but keeps the entry, rightly saved in the folder it opened on, so nothing is rolled back across
+  folders. Unlike the
+  preview, it is not the dock's: it never slides, and clicking or dragging it changes no
+  foreground, so the panel's hover and focus rules are unaffected. Dragging and resizing go
+  through Tauri's `start_dragging` and `start_resize_dragging`, from the window's own commands.
+  The window is the image plus a transparent `floats::SHADOW_PAD` gutter on every side, and keeps
+  the image's aspect ratio: from the natural size on opening, from the saved size on restoring,
+  and from the image itself once it loads (`float_natural`), which shrinks a window saved with
+  other proportions to fit the image without moving its corner.
+  A `WM_SIZING` subclass, installed on the window's thread (`platform::constrain_sizing`), lets
+  `floats::constrain_sizing` decide every rectangle of a resize, the work area winning over the
+  minimum size; `float_zoom` grows or shrinks a window already shown around its center within
+  `floats::zoom_rect`'s bounds, never showing, raising or activating it, and with no Win32 call
+  under the registry's lock; placing and restoring reshape it with
+  `floats::contain`. Later windows cascade down and away from the panel, within the room beside it
+  (`floats::cascade`). Zooming inside the window and panning are the page's own
+  (`features/floating/zoom.ts`). `main` hears which images open windows show (`floating_list`,
+  then `floating-paths`, emitted whenever a window opens, closes or goes) and marks them with a
+  badge laid in each rendered image's corner (`features/floating/detach.ts`), which closes their
+  windows (`floating_close_path`); paths compare as `attachments::normalize` does. Closing by
+  path, from the tray ("Close all floating windows") or one window at a time all go through the
+  same user close.
+  Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
+  polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
+  started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades
+  500 ms after they pause, and once more in `exit_ready`, off the main thread, before the exit gate
+  lets the app go; exit waits for that save. The registry is never locked on the main thread, since its holders change window
+  styles, which waits for it: the main thread's window events and the tray's unlock only message
+  the worker, and the command barrier and `note-asset` read a separate set of live labels held
+  only for the lookup.
+- **Floating windows and the notes folder:** each window belongs to the folder it opened on, by
+  path and marker id (`notes::FolderIdentity`), and to the registry's epoch. A folder leaving
+  (`watch.rs`) starts a new epoch: every label leaves the live set first, so its commands and
+  images stop at once, then every window is destroyed without touching the file
+  ([0009](decisions/0009-note-privacy.md)). Choosing or trusting a folder does the same before the
+  settings change (`floating::begin_switch`), holds every opening and restore off until it ends,
+  then starts another epoch and reopens the configured folder's windows. Work started on an
+  earlier epoch never registers or shows a window, nor saves a move or a pruned entry. A close
+  marks its window first and forgets its entry before destroying it; a revocation that overtakes
+  it forgets the entry itself, while the folder is still configured, so a closed window never
+  returns with its folder.
+  `note-asset` answers a floating window only while the configured folder is still the one it
+  opened on. Every read and write of `.docdock/floating.json` checks, under `SAVING`, as the
+  attachment cleanup holds it, that the folder is still the identity it started on, and fails with
+  `FolderChanged` against any other, including one chosen at the same path. Lock order: `SAVING`,
+  then the floating registry. The file (`floats.rs`, version 1) keeps each window's id, kind, image path, physical
+  rectangle and opacity, and entries of unknown kinds as they are; a file of another version is
+  neither opened nor overwritten, and a corrupt one reads as empty. Startup and the folder's return
+  reopen windows unlocked, sized to and then kept on the monitors there are now
+  (`floats::fit_to_monitors`), dropping entries whose image is gone and keeping those that cannot
+  be checked. Closing a window forgets its entry; a window destroyed otherwise keeps it.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
   `tweak-state`, and `dock.rs` reads the live tuning, or the constants in release builds, once per
@@ -211,7 +273,8 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   writes would close them at a cost not justified today.
 - `watch::monitor` checks the state every 2 s and emits `notes-changed` on a change. On leaving, the UI
   (`folderAction` in `features/notes/folder-state.ts`) forgets every note's text, name and tag, and
-  Rust forgets what it keeps for Undo. The one exception is an editor with unsaved text, which stays
+  Rust forgets what it keeps for Undo and closes the image preview and the floating windows, which
+  reopen on return. The one exception is an editor with unsaved text, which stays
   in memory until saved on return or discarded.
 
 ### Writing without losing content
@@ -284,7 +347,10 @@ The cleanup considers PNG, JPEG, GIF and WebP files under folders named `attachm
 ignoring case and skipping hidden folders, symlinks and junctions. An image is in use if a Markdown
 or HTML link resolves to it relative to the note, or the note contains its filename as a substring.
 Matching ignores case and recognizes percent encoding. Notes in the folder's trash use their
-original paths, including notes inside deleted folders. The scan reads Markdown text in Rust and keeps
+original paths, including notes inside deleted folders. An image a path in `.docdock/floating.json`
+names is in use too, whatever the file's version, so deleting a note never sends away the image a
+floating window shows: both paths compare once resolved (either separator, `.` and `..`, empty
+parts, case) and as the file the saved path reaches. The scan reads Markdown text in Rust and keeps
 it in memory only. A scan that cannot read a note or folder stops. Before moving any selected image,
 Rust scans again under the save lock and skips images now in use. Accepted gap: a reference through a
 Windows 8.3 short name (`MAPA~1.PNG`) is not recognized; DocDock never writes one.

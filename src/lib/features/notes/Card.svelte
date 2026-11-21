@@ -3,6 +3,7 @@ import type { Snippet } from "svelte";
 import { date, dateTime, t } from "../../i18n";
 import IconButton from "../../ui/IconButton.svelte";
 import TextField from "../../ui/TextField.svelte";
+import { badgeImage, decorate, imageTarget, markFloating } from "../floating/detach";
 import { countNote } from "./count";
 import { folderOf } from "./grouping";
 import Highlight from "./Highlight.svelte";
@@ -30,6 +31,9 @@ let {
   onedit,
   onlink,
   onlinkmenu,
+  onimagemenu,
+  onimagefloat,
+  floating,
   onpage,
   editing = false,
   status = "",
@@ -57,6 +61,12 @@ let {
   /** Handles a click or middle click on a link in the content; true if it was one. */
   onlink: (event: MouseEvent) => boolean;
   onlinkmenu: (event: MouseEvent | KeyboardEvent, href: string, from: HTMLElement) => void;
+  /** A right click, Shift+F10 or Menu on a local image, a single one or a grid thumbnail. */
+  onimagemenu: (event: MouseEvent | KeyboardEvent, image: HTMLElement) => void;
+  /** Detaches a note image into a floating window; `toggle` closes it instead if one shows it. */
+  onimagefloat: (image: HTMLElement, toggle: boolean) => void;
+  /** The images floating windows show, as `normalizePath` gives them. */
+  floating: ReadonlySet<string>;
   onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
@@ -94,17 +104,45 @@ $effect(() => {
 });
 
 function bodyClick(event: MouseEvent) {
+  const badged = badgeImage(event.target);
+  if (badged) {
+    onimagefloat(badged, true);
+    return;
+  }
   if (onlink(event)) return;
   if (card.level === "preview") onexpand();
 }
-function bodyLinkMenu(event: MouseEvent | KeyboardEvent) {
+/** A middle click on a note image, outside a link, detaches it. */
+function bodyAuxClick(event: MouseEvent) {
+  if (onlink(event)) return;
+  const image = event.button === 1 ? imageTarget(event.target) : null;
+  if (image && !image.closest("a[href]")) {
+    event.preventDefault();
+    onimagefloat(image, false);
+  }
+}
+const floatLabels = $derived.by(() => {
+  void floating;
+  return { float: t("image.float"), unfloat: t("image.unfloat") };
+});
+$effect(() => {
+  if (body) markFloating(body, floating, floatLabels);
+});
+function bodyMenu(event: MouseEvent | KeyboardEvent) {
   if (event instanceof KeyboardEvent && !linkMenuKey(event)) return;
   const link = (event.target as Element).closest<HTMLAnchorElement>("a[href]");
-  if (link) onlinkmenu(event, link.getAttribute("href") ?? "", link);
+  if (link) return onlinkmenu(event, link.getAttribute("href") ?? "", link);
+  const image = imageTarget(event.target);
+  if (image) onimagemenu(event, image);
 }
 /** A double click on the text edits it; its first click already expanded a preview. */
 function bodyDoubleClick(event: MouseEvent) {
-  if (editing || card.url || (event.target as Element).closest("a, .image-thumb, img")) return;
+  if (
+    editing ||
+    card.url ||
+    (event.target as Element).closest("a, .image-thumb, img, .float-badge")
+  )
+    return;
   onedit(body && text !== undefined ? editStart(body, text, event) : undefined);
 }
 
@@ -202,13 +240,15 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
         class:preview={card.level === "preview"}
         class:clipped={card.level === "preview" && clipped}
         onclick={bodyClick}
-        onauxclick={onlink}
+        onauxclick={bodyAuxClick}
         onmousedown={(event) => {
-          if (event.button === 1 && (event.target as Element).closest("a[href]"))
+          // No autoscroll over what a middle click opens.
+          const target = event.target as Element;
+          if (event.button === 1 && (target.closest("a[href]") || imageTarget(target)))
             event.preventDefault();
         }}
-        oncontextmenu={bodyLinkMenu}
-        onkeydown={bodyLinkMenu}
+        oncontextmenu={bodyMenu}
+        onkeydown={bodyMenu}
         ondblclick={bodyDoubleClick}
         role="presentation"
         {@attach (element) => {
@@ -218,6 +258,8 @@ const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
             element.replaceChildren(fragment);
             for (const stop of element.querySelectorAll<HTMLElement>("a, .image-thumb"))
               stop.tabIndex = -1;
+            decorate(element);
+            markFloating(element, floating, floatLabels);
           });
           return () => { current = false; };
         }}

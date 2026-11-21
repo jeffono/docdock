@@ -43,9 +43,10 @@ const UI: &str = "http://tauri.localhost/";
 /// Origins Tauri treats as local: the UI, `localhost:1420` (the UI in `tauri dev`) and the
 /// registered `note-asset` scheme. A page window that loaded one must still reach nothing.
 const LOCAL: [&str; 3] = [UI, "http://localhost:1420/", "http://note-asset.localhost/"];
-/// Windows that are neither `main` nor secondary: the page, the development tweak window and a
-/// floating-window label nothing registered.
-const OTHERS: [&str; 3] = ["web", "tweak", "float-9"];
+/// Windows that are neither `main` nor secondary: the page, the development tweak window and
+/// floating-window labels nothing registered. Registered ones are tested in `floating.rs`, since
+/// only Rust registers them.
+const OTHERS: [&str; 4] = ["web", "tweak", "float-9", "float-03"];
 
 type Window = WebviewWindow<MockRuntime>;
 
