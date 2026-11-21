@@ -185,7 +185,10 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   ([0009](decisions/0009-note-privacy.md)). Choosing or trusting a folder does the same before the
   settings change (`floating::begin_switch`), holds every opening and restore off until it ends,
   then starts another epoch and reopens the configured folder's windows. Work started on an
-  earlier epoch never registers or shows a window, nor saves a move, a close or a pruned entry.
+  earlier epoch never registers or shows a window, nor saves a move or a pruned entry. A close
+  marks its window first and forgets its entry before destroying it; a revocation that overtakes
+  it forgets the entry itself, while the folder is still configured, so a closed window never
+  returns with its folder.
   `note-asset` answers a floating window only while the configured folder is still the one it
   opened on. Every read and write of `.docdock/floating.json` checks, under `SAVING`, as the
   attachment cleanup holds it, that the folder is still the identity it started on, and fails with

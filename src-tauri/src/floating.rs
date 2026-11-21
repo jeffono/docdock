@@ -70,6 +70,9 @@ struct Live {
     /// only while that epoch lasts.
     folder: FolderIdentity,
     epoch: u64,
+    /// The user closed it: its entry is being forgotten, by the close or by a revocation that
+    /// overtakes it.
+    closing: bool,
     opacity: f64,
     click_through: bool,
     revealed: bool,
@@ -153,6 +156,7 @@ impl Registry {
             raw: 0,
             folder: folder.clone(),
             epoch,
+            closing: false,
             opacity: floats::clamp_opacity(opacity),
             click_through: false,
             revealed: false,
@@ -171,6 +175,13 @@ impl Registry {
     fn revoke(&mut self) -> Vec<Live> {
         self.epoch += 1;
         std::mem::take(&mut self.live)
+    }
+
+    /// Marks the window `label` closed by the user; answers its entry's id and folder.
+    fn mark_closing(&mut self, label: &str) -> Option<(String, FolderIdentity)> {
+        let live = self.live.iter_mut().find(|live| live.label == label)?;
+        live.closing = true;
+        Some((live.id.clone(), live.folder.clone()))
     }
 
     /// A folder choice begins: as `revoke`, and nothing opens until it ends.
@@ -708,18 +719,49 @@ pub fn restore(app: &AppHandle) {
 /// saved entry stays for when the folder returns
 /// ([0009](../../docs/decisions/0009-note-privacy.md)). Openings still on their way give up.
 pub fn folder_left(app: &AppHandle) {
+    revoke_all(app, Registry::revoke);
+}
+
+/// Revokes every window and destroys it; first forgets the entries of those the user was closing,
+/// while their folder is still the one configured, so a close overtaken by a folder change never
+/// comes back with that folder.
+fn revoke_all(app: &AppHandle, revoke: impl FnOnce(&mut Registry) -> Vec<Live>) {
     let gone = {
         let mut registry = registry();
-        let gone = registry.revoke();
+        let gone = revoke(&mut registry);
         for live in &gone {
             forget_label(&live.label);
         }
         gone
     };
+    for (folder, ids) in closing(&gone) {
+        let forgot = crate::notes::update_floating(app, folder, |store| {
+            store.remove(&ids);
+            Ok(())
+        });
+        if let Err(error) = forgot {
+            eprintln!("[floating] closed window not forgotten: {error:?}");
+        }
+    }
     for live in &gone {
         destroy(app, &live.label);
     }
     report(app);
+}
+
+/// The ids of the windows in `gone` the user was closing, by folder.
+fn closing(gone: &[Live]) -> Vec<(&FolderIdentity, Vec<&str>)> {
+    let mut by_folder: Vec<(&FolderIdentity, Vec<&str>)> = Vec::new();
+    for live in gone.iter().filter(|live| live.closing) {
+        match by_folder
+            .iter_mut()
+            .find(|(folder, _)| **folder == live.folder)
+        {
+            Some((_, ids)) => ids.push(&live.id),
+            None => by_folder.push((&live.folder, vec![&live.id])),
+        }
+    }
+    by_folder
 }
 
 /// The notes folder came back: its windows reopen.
@@ -744,18 +786,7 @@ impl Drop for SwitchGuard {
 /// and no window opens or reopens until the returned guard drops, after the settings change, with
 /// a new epoch again.
 pub fn begin_switch(app: &AppHandle) -> SwitchGuard {
-    let gone = {
-        let mut registry = registry();
-        let gone = registry.begin_switch();
-        for live in &gone {
-            forget_label(&live.label);
-        }
-        gone
-    };
-    for live in &gone {
-        destroy(app, &live.label);
-    }
-    report(app);
+    revoke_all(app, Registry::begin_switch);
     SwitchGuard(app.clone())
 }
 
@@ -768,22 +799,23 @@ pub fn folder_of(label: &str) -> Option<FolderIdentity> {
         .map(|live| live.folder.clone())
 }
 
-/// The user closed `label`: its window and its saved entry go.
+/// The user closed `label`: its saved entry goes first, then its window. The window is marked
+/// closing before anything else, so a folder change that revokes it meanwhile forgets the entry
+/// itself (`revoke_all`) while its folder is still configured; the folder identity check keeps the
+/// removal from ever reaching another folder.
 pub fn close(app: &AppHandle, label: &str) {
-    let Some(live) = take(label) else {
+    let Some((id, folder)) = registry().mark_closing(label) else {
         return;
     };
-    destroy(app, label);
-    let forgot = crate::notes::update_floating(app, &live.folder, |store| {
-        if registry().epoch != live.epoch {
-            return Err(Error::FolderChanged);
-        }
-        store.remove(&[&live.id]);
+    let forgot = crate::notes::update_floating(app, &folder, |store| {
+        store.remove(&[&id]);
         Ok(())
     });
     if let Err(error) = forgot {
         eprintln!("[floating] closed window not forgotten: {error:?}");
     }
+    take(label);
+    destroy(app, label);
     report(app);
 }
 
@@ -1115,6 +1147,38 @@ mod tests {
                 .reserve(after, &new_id(), "a.png", 1.0, &folder())
                 .is_ok()
         );
+    }
+
+    // Regression: a folder choice that revoked a window the user was closing kept its entry, so
+    // the closed window came back with that folder.
+    #[test]
+    fn a_close_overtaken_by_a_folder_change_is_still_forgotten() {
+        let mut registry = Registry::new();
+        let mut store = floats::Store::default();
+        for path in ["a.png", "b.png"] {
+            let id = new_id();
+            registry.reserve(0, &id, path, 1.0, &folder()).unwrap();
+            store.add(Entry {
+                id,
+                kind: Kind::Image,
+                path: path.into(),
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+                opacity: 1.0,
+            });
+        }
+        let label = registry.live[0].label.clone();
+        let (closed, _) = registry.mark_closing(&label).unwrap();
+        // The folder change revokes both before the close saved anything.
+        let gone = registry.begin_switch();
+        let forgotten = closing(&gone);
+        assert_eq!(forgotten.len(), 1);
+        assert_eq!(forgotten[0].1, [closed.as_str()]);
+        store.remove(&forgotten[0].1);
+        let kept: Vec<_> = store.entries().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(kept, ["b.png"]);
     }
 
     // Catches one floating window's command changing another's opacity or click-through.

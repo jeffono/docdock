@@ -3035,11 +3035,12 @@ fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Respo
     response
 }
 pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec<u8>> {
-    let root = root(app).ok().map(|root| {
-        let identity = identity_of(&root).ok();
-        (root.path.clone(), identity)
-    });
-    image_response_for(webview, root, crate::floating::folder_of, uri_path)
+    // Held until the image is read, so the folder checked is the one read from.
+    let root = root(app).ok();
+    let checked = root
+        .as_ref()
+        .map(|root| (root.path.clone(), identity_of(root).ok()));
+    image_response_for(webview, checked, crate::floating::folder_of, uri_path)
 }
 /// `image_response`, and a floating window reads images only from the folder it opened on
 /// (`owner`), which `root`'s identity must still be: one of another folder gets 403.
