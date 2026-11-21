@@ -5,7 +5,9 @@ import { dateTime, errorText, t } from "../../i18n";
 import {
   type CaptureChoice,
   clipboardWrite,
+  type EditNoteRequest,
   floatingClosePath,
+  floatingEditCurrent,
   floatingList,
   floatingOpenNote,
   type Leftover,
@@ -1887,14 +1889,18 @@ function toggleNoteFloating(card: Card) {
 }
 /**
  * A post-it asked to edit its note: the panel, already focused, shows it expanded in the editor,
- * leaving the page, the reader view and any other note being edited.
+ * leaving the page, the reader view and any other note being edited. A request that reaches the
+ * panel after another folder was chosen, or while one is, names a note of the folder before: it is
+ * dropped, checked again after leaving the editor, which may wait for the user.
  */
-export async function editNote(path: string) {
+export async function editNote({ path, epoch }: EditNoteRequest) {
+  const current = async () => !choosing && (await floatingEditCurrent(epoch));
+  if (!(await current())) return;
   if (editing && selected === path) {
     editor?.focus();
     return;
   }
-  if (!(await leaveEditor())) return;
+  if (!(await leaveEditor()) || !(await current())) return;
   await openInEditor(path);
   reveal(path);
 }

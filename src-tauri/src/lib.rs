@@ -167,6 +167,7 @@ pub fn run() {
         commands::image_preview_hide,
         commands::floating_open,
         commands::floating_open_note,
+        commands::floating_edit_current,
         commands::floating_list,
         commands::floating_close_path,
     ];

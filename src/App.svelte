@@ -152,12 +152,12 @@ onMount(() => {
   });
   const toggle = onToggleMode(() => void action(switchMode(!web)));
   // A post-it asked to edit its note; the panel already took focus.
-  const editNote = onPanelEditNote((path) => {
+  const editNote = onPanelEditNote((request) => {
     const inNotes = !web && !preferences && !article;
     void action(
       (inNotes ? Promise.resolve() : switchMode(false))
         .then(() => tick())
-        .then(() => notes.editNote(path)),
+        .then(() => notes.editNote(request)),
     );
   });
   const search = onPanelSearch(() => {

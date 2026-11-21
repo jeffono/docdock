@@ -517,6 +517,12 @@ pub async fn floating_open_note(
     crate::floating::open_note(&app, &requests, path, rect)
 }
 
+/// A post-it's request to edit, made on `epoch`, still names a note of the configured folder.
+#[tauri::command(async)]
+pub fn floating_edit_current(epoch: u64) -> bool {
+    crate::floating::edit_current(epoch)
+}
+
 /// The images and notes the open floating windows show, so the notes mark them.
 #[tauri::command(async)]
 pub fn floating_list() -> Vec<String> {

@@ -936,6 +936,31 @@ fn read_bytes(path: &Path) -> Result<Vec<u8>, Error> {
 fn read_note(path: &Path) -> Result<String, Error> {
     String::from_utf8(read_bytes(path)?).map_err(|_| Error::NotUtf8)
 }
+/// Reads the file `relative` names in `root`, as `resolve` finds it, holding every folder above it
+/// from the check to the read, so none is swapped for a junction in between: the bytes are those of
+/// the file checked, inside the folder. Answers its canonical path too.
+fn read_resolved(
+    root: &Path,
+    relative: &str,
+    allowed: fn(&Path) -> bool,
+) -> Result<(PathBuf, Vec<u8>), Error> {
+    let target = resolve(root, relative, allowed)?;
+    let parent = target.parent().ok_or(Error::InvalidPath)?;
+    let _held = hold_ancestry(parent).map_err(|_| Error::OutsideFolder)?;
+    // Again once held: a folder on the way may have been swapped before.
+    if resolve(root, relative, allowed)? != target {
+        return Err(Error::OutsideFolder);
+    }
+    let mut file = platform::open_plain_file(&target).map_err(|_| Error::OutsideFolder)?;
+    too_large(file.metadata()?.len())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok((target, bytes))
+}
+/// A note as `read_resolved` reads it.
+fn read_resolved_note(root: &Path, relative: &str) -> Result<String, Error> {
+    String::from_utf8(read_resolved(root, relative, markdown)?.1).map_err(|_| Error::NotUtf8)
+}
 /// Identifies the exact bytes the editor loaded. Hashing the content, rather than using mtime and size,
 /// also catches same-size edits and tools that preserve mtime. Tokens are never persisted, so the
 /// unspecified `DefaultHasher` algorithm only needs to be stable within one run.
@@ -945,7 +970,7 @@ fn version(bytes: &[u8]) -> String {
     format!("{:016x}", hasher.finish())
 }
 pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
-    let text = read_note(&resolve(&root(app)?, path, markdown)?)?;
+    let text = read_resolved_note(&root(app)?, path)?;
     Ok(OpenNote {
         version: version(text.as_bytes()),
         text,
@@ -2250,7 +2275,7 @@ fn floating_note_in(root: &Path, path: &str) -> Result<Option<String>, Error> {
     if !present_in(root, path, markdown)? {
         return Ok(None);
     }
-    read_note(&resolve(root, path, markdown)?).map(Some)
+    read_resolved_note(root, path).map(Some)
 }
 /// The floating windows saved in the configured notes folder, with its identity, if it is
 /// available and the one chosen; see `load_floating`. Under `SAVING`, as every write.
@@ -3041,9 +3066,8 @@ fn read_image(root: &Path, uri_path: &str) -> Option<(Vec<u8>, &'static str)> {
     let relative = percent_decode_str(uri_path.strip_prefix('/')?)
         .decode_utf8()
         .ok()?;
-    let target = resolve(root, &relative, is_image).ok()?;
-    let content_type = image_type(&target)?;
-    Some((fs::read(target).ok()?, content_type))
+    let (target, bytes) = read_resolved(root, &relative, is_image).ok()?;
+    Some((bytes, image_type(&target)?))
 }
 fn empty_response(status: StatusCode) -> Response<Vec<u8>> {
     let mut response = Response::new(Vec::new());

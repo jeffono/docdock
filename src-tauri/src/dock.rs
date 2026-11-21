@@ -80,7 +80,7 @@ pub enum Request {
     },
     /// A post-it asks to edit its note: the panel takes focus, as with the shortcut, and opens the
     /// note in its editor.
-    EditNote(String),
+    EditNote(EditNoteRequest),
 }
 
 /// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
@@ -95,6 +95,14 @@ struct FocusReport {
 #[derive(Debug, Clone, Copy, Serialize)]
 struct SearchRequest {
     toggle: bool,
+}
+
+/// The note `path` a post-it asks the panel to edit, from the notes folder of floating windows'
+/// `epoch`: the panel drops it once that epoch ends (`floating::edit_current`).
+#[derive(Debug, Clone, Serialize)]
+pub struct EditNoteRequest {
+    pub path: String,
+    pub epoch: u64,
 }
 
 /// Logical width within the limits of this monitor.
@@ -494,13 +502,13 @@ impl Dock {
                 }
                 Action::None
             }
-            Request::EditNote(path) => {
+            Request::EditNote(request) => {
                 self.hide_preview();
                 let dialog = self.dialog;
                 let action = self.panel.step(Input::Shortcut { dialog }, now);
                 self.apply(action);
                 if action == Action::Summon {
-                    let _ = self.app.emit_to("main", "panel-edit-note", path);
+                    let _ = self.app.emit_to("main", "panel-edit-note", request);
                 }
                 Action::None
             }
