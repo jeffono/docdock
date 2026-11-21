@@ -411,6 +411,24 @@ pub fn show_topmost(raw: isize, rect: Rect) {
     log_failure("SetWindowPos", result);
 }
 
+/// Moves and resizes the window to `rect` without showing, activating or raising it.
+pub fn move_window(raw: isize, rect: Rect) {
+    let flags = SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER;
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    let result = unsafe {
+        SetWindowPos(
+            HWND(raw as *mut _),
+            None,
+            rect.left,
+            rect.top,
+            width,
+            height,
+            flags,
+        )
+    };
+    log_failure("SetWindowPos", result);
+}
+
 pub fn hide_window(raw: isize) {
     let _ = unsafe { ShowWindow(HWND(raw as *mut _), SW_HIDE) };
 }

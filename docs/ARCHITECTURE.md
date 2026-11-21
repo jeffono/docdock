@@ -171,10 +171,14 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   foreground, so the panel's hover and focus rules are unaffected. Dragging and resizing go
   through Tauri's `start_dragging` and `start_resize_dragging`, from the window's own commands.
   The window is the image plus a transparent `floats::SHADOW_PAD` gutter on every side, and keeps
-  the image's aspect ratio: from the natural size on opening, from the saved size on restoring.
+  the image's aspect ratio: from the natural size on opening, from the saved size on restoring,
+  and from the image itself once it loads (`float_natural`), which shrinks a window saved with
+  other proportions to fit the image without moving its corner.
   A `WM_SIZING` subclass, installed on the window's thread (`platform::constrain_sizing`), lets
-  `floats::constrain_sizing` decide every rectangle of a resize; `float_zoom` grows or shrinks it
-  around its center within `floats::zoom_rect`'s bounds; placing and restoring reshape it with
+  `floats::constrain_sizing` decide every rectangle of a resize, the work area winning over the
+  minimum size; `float_zoom` grows or shrinks a window already shown around its center within
+  `floats::zoom_rect`'s bounds, never showing, raising or activating it, and with no Win32 call
+  under the registry's lock; placing and restoring reshape it with
   `floats::contain`. Later windows cascade down and away from the panel, within the room beside it
   (`floats::cascade`). Zooming inside the window and panning are the page's own
   (`features/floating/zoom.ts`).

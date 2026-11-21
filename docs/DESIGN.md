@@ -450,7 +450,8 @@ notes differ only in section and starting state.
   area's width, 76% of its height); past that the image zooms inside the window, toward the
   pointer, up to 8×, and zooming out returns to no inner zoom before the window shrinks. While
   zoomed inside, Ctrl+drag pans the image, never past its edges and settling on the center within
-  6 px; Ctrl+double-click returns to the whole image at its natural size where it fits. Dragging
+  6 px; Ctrl+double-click returns to the whole image at its natural size where it fits. Ctrl and
+  Alt together (AltGr) do none of these. Dragging
   the image or the pill's background moves the window; invisible strips 6 px either side of the
   image's edges and corners resize it, keeping its proportions, the opposite edge or corner in
   place, the image's shorter side at least 96 logical px and the window within the monitor's work

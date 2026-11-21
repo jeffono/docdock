@@ -14,8 +14,9 @@
 //! through, watches Alt and the cursor so holding Alt over such a window reaches its controls.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -66,8 +67,11 @@ struct Live {
     path: String,
     /// The window, once built and prepared; 0 before.
     raw: isize,
-    /// The image's width over its height, which the window keeps when resized or zoomed.
-    aspect: f64,
+    /// The image's width over its height, which the window keeps when resized or zoomed; shared
+    /// with its `WM_SIZING` hook.
+    aspect: Aspect,
+    /// Saved and shown once: until then nothing but opening shows it.
+    shown: bool,
     /// The notes folder it opened on, and the registry's epoch then: it is saved only there, and
     /// only while that epoch lasts.
     folder: FolderIdentity,
@@ -103,6 +107,24 @@ impl Live {
         {
             eprintln!("[floating] update not delivered: {error}");
         }
+    }
+}
+
+/// An image's width over its height, read by the window's thread while resizing.
+#[derive(Clone)]
+struct Aspect(Arc<AtomicU64>);
+
+impl Aspect {
+    fn new(aspect: f64) -> Self {
+        Self(Arc::new(AtomicU64::new(aspect.to_bits())))
+    }
+
+    fn get(&self) -> f64 {
+        f64::from_bits(self.0.load(Ordering::Relaxed))
+    }
+
+    fn set(&self, aspect: f64) {
+        self.0.store(aspect.to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -156,7 +178,8 @@ impl Registry {
             id: id.to_owned(),
             path: path.to_owned(),
             raw: 0,
-            aspect: 1.0,
+            aspect: Aspect::new(1.0),
+            shown: false,
             folder: folder.clone(),
             epoch,
             closing: false,
@@ -528,11 +551,13 @@ fn build(app: &AppHandle, label: &str, aspect: f64) -> Result<(), Error> {
     };
     platform::prepare_floating(raw);
     // Resizing keeps the image's proportions, so the window never shows margins around it.
+    let aspect = Aspect::new(aspect);
+    let hooked = aspect.clone();
     let sized = window.run_on_main_thread(move || {
         let sizing: platform::Sizing = Box::new(move |rect, edge, dpi, work| {
             let pad = scale_dpi(dpi, floats::SHADOW_PAD);
             let min = scale_dpi(dpi, floats::MIN_SIDE);
-            floats::constrain_sizing(rect, edge, aspect, pad, min, work)
+            floats::constrain_sizing(rect, edge, hooked.get(), pad, min, work)
         });
         if let Err(error) = platform::constrain_sizing(raw, sizing) {
             eprintln!("[floating] resizing keeps no proportions: {error}");
@@ -568,8 +593,15 @@ fn show_if_current(
     epoch: u64,
     show: impl FnOnce(isize),
 ) -> bool {
-    let registry = lock(registry);
-    registry.confirm(label, epoch).map(show).is_some()
+    let mut registry = lock(registry);
+    let Some(raw) = registry.confirm(label, epoch) else {
+        return false;
+    };
+    show(raw);
+    if let Some(live) = registry.live.iter_mut().find(|live| live.label == label) {
+        live.shown = true;
+    }
+    true
 }
 
 /// The end of opening a new window, built hidden: `save` its entry, which must ask `admit` under
@@ -911,31 +943,65 @@ pub struct Zoomed {
 
 /// Zooms the window `label` so its image is `width` CSS pixels wide, keeping its proportions,
 /// within `floats::zoom_rect`'s bounds on the monitor that shows it, around the same center.
+/// The shown window `label` and its image's proportions. Copied out, so Win32 calls never run
+/// under the registry's lock.
+fn shown(label: &str) -> Result<(isize, Aspect), Error> {
+    let (raw, aspect, shown) =
+        with_live(label, |live| (live.raw, live.aspect.clone(), live.shown))?;
+    if raw == 0 || !shown {
+        return Err(Error::unexpected("floating window not shown"));
+    }
+    Ok((raw, aspect))
+}
+
+/// The window's rectangle, its monitor, and the gutter and the shorter side's minimum there.
+fn measured(raw: isize) -> Result<(Rect, platform::Monitor, i32, i32), Error> {
+    let window = platform::window_rect(raw).ok_or_else(|| Error::unexpected("window gone"))?;
+    let monitor = floats::monitor_of(window, &platform::monitors())
+        .ok_or_else(|| Error::unexpected("no monitor"))?;
+    let pad = scale_dpi(monitor.dpi, floats::SHADOW_PAD);
+    let min = scale_dpi(monitor.dpi, floats::MIN_SIDE);
+    Ok((window, monitor, pad, min))
+}
+
+/// Zooms the window `label` so its image is `width` CSS pixels wide, keeping its proportions,
+/// within `floats::zoom_rect`'s bounds on the monitor that shows it, around the same center. Only
+/// a window already shown, and never showing or activating it.
 pub fn zoom(label: &str, width: f64) -> Result<Zoomed, Error> {
-    let zoomed = with_live(label, |live| {
-        let window = (live.raw != 0)
-            .then(|| platform::window_rect(live.raw))
-            .flatten()?;
-        let monitor = floats::monitor_of(window, &platform::monitors())?;
-        let dpi = monitor.dpi;
-        let (pad, min) = (
-            scale_dpi(dpi, floats::SHADOW_PAD),
-            scale_dpi(dpi, floats::MIN_SIDE),
-        );
-        let scale = f64::from(dpi) / f64::from(platform::BASE_DPI);
-        let (rect, at_max) =
-            floats::zoom_rect(window, width * scale, live.aspect, pad, min, monitor.work);
-        platform::show_topmost(live.raw, rect);
-        let image = floats::inset(rect, pad);
-        Some(Zoomed {
-            width: f64::from(image.right - image.left) / scale,
-            height: f64::from(image.bottom - image.top) / scale,
-            at_max,
-        })
-    })?;
-    let zoomed = zoomed.ok_or_else(|| Error::unexpected("floating window not shown"))?;
+    let (raw, aspect) = shown(label)?;
+    let (window, monitor, pad, min) = measured(raw)?;
+    let scale = f64::from(monitor.dpi) / f64::from(platform::BASE_DPI);
+    let (rect, at_max) =
+        floats::zoom_rect(window, width * scale, aspect.get(), pad, min, monitor.work);
+    platform::move_window(raw, rect);
     send(Message::Changed(label.to_owned()));
-    Ok(zoomed)
+    let image = floats::inset(rect, pad);
+    Ok(Zoomed {
+        width: f64::from(image.right - image.left) / scale,
+        height: f64::from(image.bottom - image.top) / scale,
+        at_max,
+    })
+}
+
+/// The image the window `label` shows is `width` by `height` pixels: when the proportions it
+/// keeps differ, as for an entry saved before them or edited by hand, it takes the image's, and the
+/// window shrinks to fit the image without moving its corner, showing nothing new.
+pub fn natural(label: &str, width: u32, height: u32) -> Result<(), Error> {
+    if width == 0 || height == 0 {
+        return Ok(());
+    }
+    let (raw, aspect) = with_live(label, |live| (live.raw, live.aspect.clone()))?;
+    let real = f64::from(width) / f64::from(height);
+    if (real / aspect.get() - 1.0).abs() < 0.01 {
+        return Ok(());
+    }
+    aspect.set(real);
+    if raw != 0 {
+        let (window, _, pad, _) = measured(raw)?;
+        platform::move_window(raw, floats::contain(window, real, pad));
+        send(Message::Changed(label.to_owned()));
+    }
+    Ok(())
 }
 
 /// Moves the window with the pointer, as its title bar would.
@@ -1069,6 +1135,7 @@ mod tests {
         for label in ["image-preview", "main", "web", "float-424242"] {
             assert!(with_live(label, |_| ()).is_err(), "{label}");
             assert!(zoom(label, 400.0).is_err(), "{label}");
+            assert!(natural(label, 400, 300).is_err(), "{label}");
             assert!(set_opacity(label, 0.5).is_err(), "{label}");
             assert!(!is_live(label), "{label}");
         }
@@ -1259,6 +1326,14 @@ mod tests {
         store.remove(&forgotten[0].1);
         let kept: Vec<_> = store.entries().map(|entry| entry.path.as_str()).collect();
         assert_eq!(kept, ["b.png"]);
+    }
+
+    // Catches a zoom revealing a window still hidden while it opens.
+    #[test]
+    fn a_window_not_shown_yet_never_zooms() {
+        let label = register_for_tests(&folder());
+        assert!(zoom(&label, 400.0).is_err());
+        take(&label);
     }
 
     // Catches one floating window's command changing another's opacity or click-through.

@@ -472,6 +472,9 @@ export type FloatZoomed = { width: number; height: number; atMax: boolean };
  * around its center, up to the side preview's share of the monitor.
  */
 export const floatZoom = (width: number) => invoke<FloatZoomed>("float_zoom", { width });
+/** The image's natural size, so the window keeps the image's own proportions. */
+export const floatNatural = (width: number, height: number) =>
+  invoke<void>("float_natural", { width, height });
 /** Moves the window with the pointer; call while the primary button is down. */
 export const floatDrag = () => invoke<void>("float_drag");
 export type ResizeDirection =

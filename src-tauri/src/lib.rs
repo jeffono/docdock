@@ -174,6 +174,7 @@ pub fn run() {
         commands::float_set_click_through,
         commands::float_close,
         commands::float_zoom,
+        commands::float_natural,
         commands::float_drag,
         commands::float_resize,
     ];

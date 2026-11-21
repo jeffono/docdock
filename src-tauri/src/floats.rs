@@ -387,11 +387,20 @@ fn fit_width(width: i32, height: i32, aspect: f64) -> f64 {
     f64::from(width.max(0)).min(f64::from(height.max(0)) * aspect)
 }
 
-/// A window `width` pixels wide for its image of `aspect`, with `pad` around it, its corner at
-/// `left`, `top`.
-fn window_at(left: i32, top: i32, width: f64, aspect: f64, pad: i32) -> Rect {
-    let width = width.round().max(1.0) as i32;
-    let height = (f64::from(width) / aspect).round().max(1.0) as i32;
+/// A window for its image of `aspect`, `width` pixels wide as far as `max` (the image's largest
+/// width and height) allows, with `pad` around it, its corner at `left`, `top`. Both sides come
+/// from the exact proportions before rounding, so a skinny image never rounds past `max`.
+fn window_at(left: i32, top: i32, width: f64, aspect: f64, pad: i32, max: (i32, i32)) -> Rect {
+    let (max_width, max_height) = (max.0.max(1), max.1.max(1));
+    let width = width.min(f64::from(max_width));
+    let (width, height) = match width / aspect {
+        height if height > f64::from(max_height) => {
+            (f64::from(max_height) * aspect, f64::from(max_height))
+        }
+        height => (width, height),
+    };
+    let width = (width.round() as i32).clamp(1, max_width);
+    let height = (height.round() as i32).clamp(1, max_height);
     Rect {
         left,
         top,
@@ -404,14 +413,16 @@ fn window_at(left: i32, top: i32, width: f64, aspect: f64, pad: i32) -> Rect {
 /// the largest such image within it, keeping its top left corner.
 pub fn contain(rect: Rect, aspect: f64, pad: i32) -> Rect {
     let image = inset(rect, pad);
-    let width = fit_width(image.right - image.left, image.bottom - image.top, aspect);
-    window_at(rect.left, rect.top, width, aspect, pad)
+    let room = (image.right - image.left, image.bottom - image.top);
+    let width = fit_width(room.0, room.1, aspect);
+    window_at(rect.left, rect.top, width, aspect, pad, room)
 }
 
 /// What a resize from `edge` may make of the window `rect`, whose image of `aspect` sits `pad`
 /// inside it: the image keeps its proportions, the edge or corner opposite the one dragged stays,
-/// the image's shorter side never falls under `min` and the window never grows past `work`. A side
-/// edge sets the image's width or height; a corner, whichever grew more.
+/// the image's shorter side never falls under `min` and the window never grows past `work`, which
+/// wins over `min` for a very long image. A side edge sets the image's width or height; a corner,
+/// whichever grew more.
 pub fn constrain_sizing(
     rect: Rect,
     edge: SizingEdge,
@@ -443,9 +454,10 @@ pub fn constrain_sizing(
     } else {
         work.bottom - rect.top
     };
-    let widest = fit_width(room_width - 2 * pad, room_height - 2 * pad, aspect);
-    let width = wanted.min(widest).max(min_width(aspect, min));
-    let sized = window_at(0, 0, width, aspect, pad);
+    let room = (room_width - 2 * pad, room_height - 2 * pad);
+    let widest = fit_width(room.0, room.1, aspect);
+    let width = wanted.max(min_width(aspect, min)).min(widest);
+    let sized = window_at(0, 0, width, aspect, pad, room);
     let (window_width, window_height) = (sized.right, sized.bottom);
     let left = if leftward {
         rect.right - window_width
@@ -491,7 +503,7 @@ pub fn zoom_rect(
     let width = if width.is_finite() { width } else { widest };
     let width = width.clamp(narrowest, widest);
     let at_max = width >= widest - 0.5;
-    let sized = window_at(0, 0, width, aspect, pad);
+    let sized = window_at(0, 0, width, aspect, pad, (max_width, max_height));
     let (window_width, window_height) = (sized.right, sized.bottom);
     let center_x = (window.left + window.right) / 2;
     let center_y = (window.top + window.bottom) / 2;
@@ -966,6 +978,32 @@ mod tests {
         };
         let limited = constrain_sizing(pulled, Bottom, 2.0, PAD, 96, WORK);
         assert!(limited.right <= WORK.right && limited.bottom <= WORK.bottom);
+    }
+
+    // Regression: the shorter side's minimum took a 24:1 image past the monitor.
+    #[test]
+    fn the_work_area_wins_over_the_minimum_for_a_long_image() {
+        use SizingEdge::*;
+        let start = window(0, 300, 1200, 50);
+        for edge in [Right, Bottom, BottomRight] {
+            let sized = constrain_sizing(start, edge, 24.0, PAD, 96, WORK);
+            assert!(sized.right <= WORK.right, "{edge:?}: {sized:?}");
+            let (width, height) = size(sized);
+            let ratio = f64::from(width - 2 * PAD) / f64::from(height - 2 * PAD);
+            assert!((ratio - 24.0).abs() < 0.5, "{edge:?}: {ratio}");
+        }
+    }
+
+    // Regression: rounding a skinny image's width up to one pixel before deriving its height took
+    // it past the largest height.
+    #[test]
+    fn a_skinny_image_stays_within_the_largest_size() {
+        let aspect = 1.0 / 2000.0;
+        let (zoomed, at_max) = zoom_rect(window(800, 100, 1, 500), 5000.0, aspect, PAD, 96, WORK);
+        assert_eq!(size(zoomed), (1 + 2 * PAD, 790 + 2 * PAD));
+        assert!(at_max);
+        let fitted = contain(window(0, 0, 400, 300), aspect, PAD);
+        assert_eq!(size(fitted), (1 + 2 * PAD, 300 + 2 * PAD));
     }
 
     #[test]

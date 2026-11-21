@@ -547,6 +547,11 @@ pub fn float_zoom(
 ) -> Result<crate::floating::Zoomed, Error> {
     crate::floating::zoom(window.label(), width)
 }
+/// The image the window shows is `width` by `height` pixels, so the window keeps its proportions.
+#[tauri::command(async)]
+pub fn float_natural(window: tauri::WebviewWindow, width: u32, height: u32) -> Result<(), Error> {
+    crate::floating::natural(window.label(), width, height)
+}
 #[tauri::command(async)]
 pub fn float_drag(window: tauri::WebviewWindow) -> Result<(), Error> {
     crate::floating::drag(&window)

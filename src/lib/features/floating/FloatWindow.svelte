@@ -12,6 +12,7 @@ import {
   type FloatUpdate,
   floatClose,
   floatDrag,
+  floatNatural,
   floatResize,
   floatSetClickThrough,
   floatSetOpacity,
@@ -129,9 +130,12 @@ function fromCenter(event: MouseEvent): Point {
   };
 }
 
+/** Ctrl and Alt together are AltGr on layouts such as ABNT2: they do nothing here. */
+const altGr = (event: MouseEvent) => event.ctrlKey && event.altKey;
+
 /** Ctrl+wheel zooms, Alt+wheel fades; so does the plain wheel over the bar. */
 function wheel(event: WheelEvent) {
-  if (event.deltaY === 0) return;
+  if (event.deltaY === 0 || altGr(event)) return;
   const up = event.deltaY < 0;
   if (event.ctrlKey && !event.altKey) {
     event.preventDefault();
@@ -150,7 +154,7 @@ let panning: { pointer: number; from: Point; start: Point } | null = null;
 function pointerdown(event: PointerEvent) {
   if (event.button !== 0 || (event.target as Element).closest("button, input, .edge")) return;
   event.preventDefault();
-  if (event.ctrlKey && zoom > 1) {
+  if (event.ctrlKey && !event.altKey && zoom > 1) {
     root.setPointerCapture(event.pointerId);
     panning = {
       pointer: event.pointerId,
@@ -176,7 +180,7 @@ function pointerup(event: PointerEvent) {
 
 /** Ctrl+double-click returns to the whole image, at its natural size where it fits. */
 function reset(event: MouseEvent) {
-  if (!event.ctrlKey) return;
+  if (!event.ctrlKey || event.altKey) return;
   event.preventDefault();
   zoom = 1;
   pan = { x: 0, y: 0 };
@@ -239,7 +243,12 @@ onMount(() => {
   ondblclick={reset}
 >
   <div class="stage" bind:this={stage}>
-    <img bind:this={image} alt={name} draggable="false" />
+    <img
+      bind:this={image}
+      alt={name}
+      draggable="false"
+      onload={() => void floatNatural(image.naturalWidth, image.naturalHeight).catch(() => {})}
+    />
   </div>
   <div class="bar" class:shown={controls}>
     <input
@@ -301,7 +310,8 @@ onMount(() => {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    /* The window keeps the image's proportions; until Rust has them, nothing is cropped. */
+    object-fit: contain;
     transform-origin: center;
     user-select: none;
   }
