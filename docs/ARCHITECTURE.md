@@ -159,28 +159,37 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
 - **Floating windows** ([0014](decisions/0014-app-windows.md)): up to 8 `float-<n>` windows, the
   base for M17's post-its. `floating_open` validates the image, reserves a label in the registry,
   asks the dock thread where the preview would show the image (`Request::PlaceFloat`, through
-  `preview::place` and `preview::image_rect`), builds a secondary window, makes it a tool window
-  that never activates but stays enabled (`platform::prepare_floating`) and shows it topmost with
-  `SetWindowPos`, never Tauri's `show` or `set_focus`. Unlike the preview, it is not the dock's: it
-  never slides, and clicking or dragging it changes no foreground, so the panel's hover and focus
-  rules are unaffected. Dragging and resizing go through Tauri's `start_dragging` and
-  `start_resize_dragging`, from the window's own commands. Click-through is
-  `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread polls every
-  50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it started are
-  released (`floats::reveal_step`). The same worker saves moves, resizes and fades 500 ms after
-  they pause, and on exit (`floating::flush`). The registry is never locked on the main thread,
-  since its holders change window styles, which waits for it: the main thread's window events, the
-  tray's unlock and exit only message the worker, and the command barrier and `note-asset` read a
-  separate set of live labels held only for the lookup.
-  `.docdock/floating.json` (`floats.rs`, version 1, read and written through `notes.rs`'s `root`
-  under its own lock) keeps each window's id, kind, image path, physical rectangle and opacity, and
-  entries of unknown kinds as they are; a file of another version is neither opened nor
-  overwritten, and a corrupt one reads as empty. Startup and the folder's return reopen them
-  unlocked, fitted to the monitors there are now (`floats::fit_to_monitors`), dropping entries
-  whose image is gone and keeping those that cannot be checked. A folder leaving destroys every
-  window at once without touching the file ([0009](decisions/0009-note-privacy.md)); choosing or
-  trusting a folder closes them and reopens the new folder's. Closing a window forgets its entry;
-  a window destroyed otherwise keeps it.
+  `preview::place` and `preview::image_rect`) and builds a hidden secondary window, a tool window
+  that never activates but stays enabled (`platform::prepare_floating`). It saves the window's
+  entry, then shows it topmost with `SetWindowPos` (never Tauri's `show` or `set_focus`) only if
+  no close or folder change came meanwhile, and otherwise removes the entry again
+  (`floating::finish_open`), so a window closed while opening never comes back. Unlike the
+  preview, it is not the dock's: it never slides, and clicking or dragging it changes no
+  foreground, so the panel's hover and focus rules are unaffected. Dragging and resizing go
+  through Tauri's `start_dragging` and `start_resize_dragging`, from the window's own commands.
+  Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
+  polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
+  started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades
+  500 ms after they pause, and once more when the exit gate lets the app go (`exit_ready`, off the
+  main thread). The registry is never locked on the main thread, since its holders change window
+  styles, which waits for it: the main thread's window events and the tray's unlock only message
+  the worker, and the command barrier and `note-asset` read a separate set of live labels held
+  only for the lookup.
+- **Floating windows and the notes folder:** each window belongs to the folder it opened on, by
+  path and marker id (`notes::FolderIdentity`), and to the registry's epoch. A folder leaving
+  (`watch.rs`), or another being chosen or trusted (before and after the settings change), starts
+  a new epoch: every label leaves the live set first, so its commands and images stop at once, then
+  every window is destroyed without touching the file ([0009](decisions/0009-note-privacy.md)).
+  Openings and restores started on an earlier epoch never register or show a window, and every
+  read and write of `.docdock/floating.json` names the identity it started on and fails with
+  `FolderChanged` against any other folder, including one chosen at the same path. Writes take
+  `SAVING`, as the attachment cleanup does, and a new entry is saved only while its image is still
+  there. The file (`floats.rs`, version 1) keeps each window's id, kind, image path, physical
+  rectangle and opacity, and entries of unknown kinds as they are; a file of another version is
+  neither opened nor overwritten, and a corrupt one reads as empty. Startup and the folder's return
+  reopen windows unlocked, sized to and then kept on the monitors there are now
+  (`floats::fit_to_monitors`), dropping entries whose image is gone and keeping those that cannot
+  be checked. Closing a window forgets its entry; a window destroyed otherwise keeps it.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
   `tweak-state`, and `dock.rs` reads the live tuning, or the constants in release builds, once per
@@ -313,8 +322,9 @@ ignoring case and skipping hidden folders, symlinks and junctions. An image is i
 or HTML link resolves to it relative to the note, or the note contains its filename as a substring.
 Matching ignores case and recognizes percent encoding. Notes in the folder's trash use their
 original paths, including notes inside deleted folders. An image a path in `.docdock/floating.json`
-names, ignoring case, is in use too, whatever the file's version, so deleting a note never sends
-away the image a floating window shows. The scan reads Markdown text in Rust and keeps
+names is in use too, whatever the file's version, so deleting a note never sends away the image a
+floating window shows: both paths compare once resolved (either separator, `.` and `..`, empty
+parts, case) and as the file the saved path reaches. The scan reads Markdown text in Rust and keeps
 it in memory only. A scan that cannot read a note or folder stops. Before moving any selected image,
 Rust scans again under the save lock and skips images now in use. Accepted gap: a reference through a
 Windows 8.3 short name (`MAPA~1.PNG`) is not recognized; DocDock never writes one.

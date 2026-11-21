@@ -5,6 +5,11 @@
 //! for this run: it has no capability, reaches only the `float_*` commands, and only for itself,
 //! and hears what to show only through the IPC channel it hands over with `float_state`.
 //!
+//! Every window belongs to the notes folder it opened on (`notes::FolderIdentity`, its path and
+//! marker id) and to the registry's epoch, which changes whenever that folder leaves or another is
+//! chosen: work started on an earlier epoch never registers, shows or saves a window, and anything
+//! it would write must name the folder still configured.
+//!
 //! One worker thread saves moves and fades after a pause and, while any window lets clicks
 //! through, watches Alt and the cursor so holding Alt over such a window reaches its controls.
 
@@ -22,6 +27,7 @@ use crate::dock::Request;
 use crate::error::Error;
 use crate::floats::{self, Entry, Kind, MAX_FLOATING};
 use crate::i18n::Locale;
+use crate::notes::FolderIdentity;
 use crate::platform::{self, Rect};
 
 /// How often Alt and the cursor are read while a window lets clicks through.
@@ -60,8 +66,8 @@ struct Live {
     path: String,
     /// The window, once built and prepared; 0 before.
     raw: isize,
-    /// `notes::folder_choices` when it opened: it is saved only into that folder.
-    folder: u64,
+    /// The notes folder it opened on: it is saved only there.
+    folder: FolderIdentity,
     opacity: f64,
     click_through: bool,
     revealed: bool,
@@ -96,16 +102,82 @@ impl Live {
 struct Registry {
     /// The last label number given; labels are never reused within a run.
     next: u64,
+    /// Changes whenever the windows' notes folder leaves or another is chosen.
+    epoch: u64,
     live: Vec<Live>,
+}
+
+impl Registry {
+    const fn new() -> Self {
+        Self {
+            next: 0,
+            epoch: 0,
+            live: Vec::new(),
+        }
+    }
+
+    /// Takes a label and a place for a window still to be built, for work started on `epoch`;
+    /// answers its label and how many windows were open already.
+    fn reserve(
+        &mut self,
+        epoch: u64,
+        id: &str,
+        path: &str,
+        opacity: f64,
+        folder: &FolderIdentity,
+    ) -> Result<(String, usize), Error> {
+        if epoch != self.epoch {
+            return Err(Error::FolderChanged);
+        }
+        let open = self.live.len();
+        if open >= MAX_FLOATING {
+            return Err(Error::FloatingLimit { max: MAX_FLOATING });
+        }
+        self.next += 1;
+        let label = floats::label(self.next);
+        self.live.push(Live {
+            label: label.clone(),
+            id: id.to_owned(),
+            path: path.to_owned(),
+            raw: 0,
+            folder: folder.clone(),
+            opacity: floats::clamp_opacity(opacity),
+            click_through: false,
+            revealed: false,
+            version: 1,
+            channel: None,
+        });
+        Ok((label, open))
+    }
+
+    fn take(&mut self, label: &str) -> Option<Live> {
+        let at = self.live.iter().position(|live| live.label == label)?;
+        Some(self.live.remove(at))
+    }
+
+    /// Starts a new epoch and takes every window.
+    fn revoke(&mut self) -> Vec<Live> {
+        self.epoch += 1;
+        std::mem::take(&mut self.live)
+    }
+
+    /// The built window `label`, if it may show now: no close or folder change came since the
+    /// opening started on `epoch`.
+    fn confirm(&self, label: &str, epoch: u64) -> Option<isize> {
+        if epoch != self.epoch {
+            return None;
+        }
+        self.live
+            .iter()
+            .find(|live| live.label == label && live.raw != 0)
+            .map(|live| live.raw)
+    }
 }
 
 /// The floating windows of this run. Never taken on the main thread: its holders call Win32
 /// functions that wait for the main thread, such as changing a window's style. Commands that take
-/// it are asynchronous for that reason.
-static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
-    next: 0,
-    live: Vec::new(),
-});
+/// it are asynchronous for that reason. Never taken while holding `notes`' locks.
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry::new());
 /// The labels of `REGISTRY`'s windows, for the command barrier and `note-asset`, which run on the
 /// main thread. Held only to read or change the set, never around anything else.
 static LABELS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
@@ -113,8 +185,12 @@ static WORKER: OnceLock<Sender<Message>> = OnceLock::new();
 /// One restore at a time, so two never open the same saved window.
 static RESTORING: Mutex<()> = Mutex::new(());
 
+fn lock(registry: &Mutex<Registry>) -> MutexGuard<'_, Registry> {
+    registry.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn registry() -> MutexGuard<'static, Registry> {
-    REGISTRY.lock().unwrap_or_else(|e| e.into_inner())
+    lock(&REGISTRY)
 }
 
 fn labels() -> MutexGuard<'static, BTreeSet<String>> {
@@ -128,11 +204,11 @@ pub fn is_live(label: &str) -> bool {
 
 /// Registers `label` as a live floating window's, before its window exists, so its page reaches
 /// its commands and images from the start.
-pub fn admit(label: &str) {
+pub(crate) fn admit(label: &str) {
     labels().insert(label.to_owned());
 }
 
-fn forget_label(label: &str) {
+pub(crate) fn forget_label(label: &str) {
     labels().remove(label);
 }
 
@@ -173,7 +249,7 @@ fn send(message: Message) {
 struct Dirty {
     rect: Rect,
     opacity: f64,
-    folder: u64,
+    folder: FolderIdentity,
 }
 
 struct Worker {
@@ -222,7 +298,7 @@ impl Worker {
                     let dirty = Dirty {
                         rect,
                         opacity: live.opacity,
-                        folder: live.folder,
+                        folder: live.folder.clone(),
                     };
                     Some((live.id.clone(), dirty))
                 });
@@ -245,25 +321,29 @@ impl Worker {
         }
     }
 
-    /// Saves the moves and fades waiting, each into the folder its window opened on: a window
-    /// closed meanwhile, or one of another folder, changes nothing.
+    /// Saves the moves and fades waiting, each only into the folder its window opened on, and only
+    /// while that folder is still the one configured; a window closed meanwhile changes nothing.
     fn save(&mut self) {
         self.save_at = None;
-        let folder = crate::notes::folder_choices();
-        let dirty: Vec<_> = std::mem::take(&mut self.dirty)
-            .into_iter()
-            .filter(|(_, dirty)| dirty.folder == folder)
-            .collect();
-        if dirty.is_empty() {
-            return;
-        }
-        let saved = crate::notes::update_floating(&self.app, |store| {
-            for (id, dirty) in &dirty {
-                store.update(id, dirty.rect, dirty.opacity);
+        let mut by_folder: Vec<(FolderIdentity, Vec<(String, Dirty)>)> = Vec::new();
+        for (id, dirty) in std::mem::take(&mut self.dirty) {
+            match by_folder
+                .iter_mut()
+                .find(|(folder, _)| *folder == dirty.folder)
+            {
+                Some((_, changes)) => changes.push((id, dirty)),
+                None => by_folder.push((dirty.folder.clone(), vec![(id, dirty)])),
             }
-        });
-        if let Err(error) = saved {
-            eprintln!("[floating] position not saved: {error:?}");
+        }
+        for (folder, changes) in by_folder {
+            let saved = crate::notes::update_floating(&self.app, &folder, |store| {
+                for (id, dirty) in &changes {
+                    store.update(id, dirty.rect, dirty.opacity);
+                }
+            });
+            if let Err(error) = saved {
+                eprintln!("[floating] position not saved: {error:?}");
+            }
         }
     }
 }
@@ -334,38 +414,24 @@ fn new_id() -> String {
     )
 }
 
-/// Takes a label and a place in the registry for a window still to be built; answers its label
-/// and how many windows were open already.
-fn reserve(id: &str, path: &str, opacity: f64, folder: u64) -> Result<(String, usize), Error> {
+/// `Registry::reserve` on the app's registry, registering the label as live.
+fn reserve(
+    epoch: u64,
+    id: &str,
+    path: &str,
+    opacity: f64,
+    folder: &FolderIdentity,
+) -> Result<(String, usize), Error> {
     let mut registry = registry();
-    let open = registry.live.len();
-    if open >= MAX_FLOATING {
-        return Err(Error::FloatingLimit { max: MAX_FLOATING });
-    }
-    registry.next += 1;
-    let label = floats::label(registry.next);
-    admit(&label);
-    registry.live.push(Live {
-        label: label.clone(),
-        id: id.to_owned(),
-        path: path.to_owned(),
-        raw: 0,
-        folder,
-        opacity: floats::clamp_opacity(opacity),
-        click_through: false,
-        revealed: false,
-        version: 1,
-        channel: None,
-    });
-    Ok((label, open))
+    let reserved = registry.reserve(epoch, id, path, opacity, folder)?;
+    admit(&reserved.0);
+    Ok(reserved)
 }
 
-/// Removes the window `label` from the registry, if it is still there.
+/// Removes the window `label` from the registry and the live labels, if it is still there.
 fn take(label: &str) -> Option<Live> {
     forget_label(label);
-    let mut registry = registry();
-    let at = registry.live.iter().position(|live| live.label == label)?;
-    Some(registry.live.remove(at))
+    registry().take(label)
 }
 
 fn destroy(app: &AppHandle, label: &str) {
@@ -376,10 +442,10 @@ fn destroy(app: &AppHandle, label: &str) {
     }
 }
 
-/// Builds the reserved window `label`, hardened as every secondary app window, and shows it at
-/// `rect` without activating it. Gives up, destroying it, if the registry no longer holds it, as
-/// after the notes folder went away.
-fn build(app: &AppHandle, label: &str, rect: Rect) -> Result<(), Error> {
+/// Builds the reserved window `label` hidden, hardened as every secondary app window, as a tool
+/// window that never activates. Gives up, destroying it, if the registry no longer holds it, as
+/// after a close or the notes folder going away.
+fn build(app: &AppHandle, label: &str) -> Result<(), Error> {
     let side = f64::from(floats::MIN_SIDE);
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("DocDock")
@@ -405,25 +471,50 @@ fn build(app: &AppHandle, label: &str, rect: Rect) -> Result<(), Error> {
         let _ = window.destroy();
         return Err(Error::unexpected("floating window closed while opening"));
     }
-    // Twice: a window landing on a monitor of another scale is resized by the DPI change.
-    platform::show_topmost(raw, rect);
-    platform::show_topmost(raw, rect);
     Ok(())
 }
 
-/// Opens a window for the saved `entry` at `rect`, for the folder counted `folder`.
-fn open_entry(app: &AppHandle, entry: &Entry, rect: Rect, folder: u64) -> Result<(), Error> {
-    let (label, _) = reserve(&entry.id, &entry.path, entry.opacity, folder)?;
-    let built = build(app, &label, rect);
-    if built.is_err() {
-        take(&label);
+/// Shows the hidden window `raw` at `rect`, above other windows, without activating it. Twice: a
+/// window landing on a monitor of another scale is resized by the DPI change.
+fn show(raw: isize, rect: Rect) {
+    platform::show_topmost(raw, rect);
+    platform::show_topmost(raw, rect);
+}
+
+/// Shows the built window `label` only if no close or folder change came since the opening
+/// started on `epoch`. Under the registry's lock, so neither can slip in between.
+fn show_if_current(
+    registry: &Mutex<Registry>,
+    label: &str,
+    epoch: u64,
+    show: impl FnOnce(isize),
+) -> bool {
+    let registry = lock(registry);
+    registry.confirm(label, epoch).map(show).is_some()
+}
+
+/// The end of opening a new window: `save` its entry first, then show it only if neither a close
+/// nor a folder change came meanwhile (`show_if_current`); otherwise `forget` the entry again, so
+/// a window closed while opening never comes back at the next start.
+fn finish_open(
+    registry: &Mutex<Registry>,
+    label: &str,
+    epoch: u64,
+    save: impl FnOnce() -> Result<(), Error>,
+    forget: impl FnOnce(),
+    show: impl FnOnce(isize),
+) -> Result<(), Error> {
+    save()?;
+    if show_if_current(registry, label, epoch, show) {
+        return Ok(());
     }
-    built
+    forget();
+    Err(Error::unexpected("floating window closed while opening"))
 }
 
 /// Detaches `path`, an image relative to the notes folder, into a floating window where the side
 /// preview would show it for its thumbnail at `thumb` (a CSS box in `main`), slightly apart from
-/// the windows already open, and saves it.
+/// the windows already open. Its entry is saved before it shows.
 pub fn open(
     app: &AppHandle,
     requests: &Sender<Request>,
@@ -431,16 +522,15 @@ pub fn open(
     thumb: [i32; 4],
     natural: (u32, u32),
 ) -> Result<(), Error> {
-    let folder = crate::notes::check_image(app, &path)?;
-    // A file another version wrote is never overwritten, so the window could not be saved.
-    crate::notes::read_floating(app)?.ok_or(Error::FloatingVersion)?;
+    let epoch = registry().epoch;
+    let folder = crate::notes::floating_folder(app, &path)?;
     let id = new_id();
-    let (label, open) = reserve(&id, &path, 1.0, folder)?;
+    let (label, open) = reserve(epoch, &id, &path, 1.0, &folder)?;
     let opened = place(requests, thumb, natural).and_then(|(rect, dpi)| {
         let rect = floats::cascade(rect, open, dpi);
         let rect = floats::fit_to_monitors(rect, &platform::monitors());
         let mut entry = Entry {
-            id,
+            id: id.clone(),
             kind: Kind::Image,
             path,
             x: 0,
@@ -450,13 +540,25 @@ pub fn open(
             opacity: 1.0,
         };
         entry.set_rect(rect);
-        build(app, &label, rect)?;
-        if crate::notes::folder_choices() != folder {
-            return Err(Error::FolderChanged);
-        }
-        crate::notes::update_floating(app, |store| store.add(entry))
+        build(app, &label)?;
+        finish_open(
+            &REGISTRY,
+            &label,
+            epoch,
+            || crate::notes::add_floating(app, &folder, entry),
+            || {
+                let forgot = crate::notes::update_floating(app, &folder, |store| {
+                    store.remove(&[&id]);
+                });
+                if let Err(error) = forgot {
+                    eprintln!("[floating] window closed while opening not forgotten: {error:?}");
+                }
+            },
+            |raw| show(raw, rect),
+        )
     });
-    if opened.is_err() && take(&label).is_some() {
+    if opened.is_err() {
+        take(&label);
         destroy(app, &label);
     }
     opened
@@ -479,15 +581,37 @@ fn place(
     placed.recv_timeout(PLACE_WAIT).map_err(Error::unexpected)
 }
 
+/// Opens a window for the saved `entry` at `rect`, for work started on `epoch`.
+fn open_saved(
+    app: &AppHandle,
+    entry: &Entry,
+    rect: Rect,
+    epoch: u64,
+    folder: &FolderIdentity,
+) -> Result<(), Error> {
+    let (label, _) = reserve(epoch, &entry.id, &entry.path, entry.opacity, folder)?;
+    let shown = build(app, &label).and_then(|()| {
+        show_if_current(&REGISTRY, &label, epoch, |raw| show(raw, rect))
+            .then_some(())
+            .ok_or(Error::FolderChanged)
+    });
+    if shown.is_err() {
+        take(&label);
+        destroy(app, &label);
+    }
+    shown
+}
+
 /// Reopens the windows saved in the notes folder, unlocked, where they were as far as the
 /// monitors there are now allow. Entries whose image is gone are dropped; those whose image cannot
-/// be checked now stay for the next time. Runs off the main thread.
+/// be checked now stay for the next time. Stops once the folder leaves or another is chosen. Runs
+/// off the main thread.
 pub fn restore(app: &AppHandle) {
     let _restoring = RESTORING.lock().unwrap_or_else(|e| e.into_inner());
-    let folder = crate::notes::folder_choices();
-    let store = match crate::notes::read_floating(app) {
-        Ok(Some(store)) => store,
-        Ok(None) => return,
+    let epoch = registry().epoch;
+    let (folder, store) = match crate::notes::read_floating(app) {
+        Ok((folder, Some(store))) => (folder, store),
+        Ok((_, None)) => return,
         Err(error) => {
             eprintln!("[floating] saved windows not read: {error:?}");
             return;
@@ -496,10 +620,17 @@ pub fn restore(app: &AppHandle) {
     let monitors = platform::monitors();
     let mut gone = Vec::new();
     for entry in store.entries() {
-        if registry().live.iter().any(|live| live.id == entry.id) {
+        let open = {
+            let registry = registry();
+            if registry.epoch != epoch {
+                return;
+            }
+            registry.live.iter().any(|live| live.id == entry.id)
+        };
+        if open {
             continue;
         }
-        match crate::notes::image_present(app, &entry.path) {
+        match crate::notes::image_present(app, &folder, &entry.path) {
             Ok(true) => {}
             Ok(false) => {
                 gone.push(entry.id.as_str());
@@ -508,25 +639,33 @@ pub fn restore(app: &AppHandle) {
             Err(_) => continue,
         }
         let rect = floats::fit_to_monitors(entry.rect(), &monitors);
-        match open_entry(app, entry, rect, folder) {
+        match open_saved(app, entry, rect, epoch, &folder) {
             Ok(()) => {}
-            Err(Error::FloatingLimit { .. }) => break,
+            Err(Error::FloatingLimit { .. } | Error::FolderChanged) => break,
             Err(error) => eprintln!("[floating] window not reopened: {error:?}"),
         }
     }
     if !gone.is_empty()
-        && let Err(error) = crate::notes::update_floating(app, |store| store.remove(&gone))
+        && let Err(error) = crate::notes::update_floating(app, &folder, |store| store.remove(&gone))
     {
         eprintln!("[floating] gone images not dropped: {error:?}");
     }
 }
 
-/// The notes folder went away, such as a vault that locked: every window goes at once, and its
-/// saved entry stays for when the folder returns ([0009](../../docs/decisions/0009-note-privacy.md)).
+/// The notes folder went away, such as a vault that locked, or another is about to be chosen: a
+/// new epoch starts, every window stops reaching its commands and images at once, then goes; its
+/// saved entry stays for when the folder returns
+/// ([0009](../../docs/decisions/0009-note-privacy.md)). Openings still on their way give up.
 pub fn folder_left(app: &AppHandle) {
-    let gone = std::mem::take(&mut registry().live);
+    let gone = {
+        let mut registry = registry();
+        let gone = registry.revoke();
+        for live in &gone {
+            forget_label(&live.label);
+        }
+        gone
+    };
     for live in &gone {
-        forget_label(&live.label);
         destroy(app, &live.label);
     }
     report(app);
@@ -538,8 +677,9 @@ pub fn folder_returned(app: &AppHandle) {
     thread::spawn(move || restore(&app));
 }
 
-/// Another notes folder was chosen, or the one at the path confirmed: the windows of the folder
-/// before close, and the new folder's reopen.
+/// Another notes folder was chosen, or the one at the path trusted, after `folder_left`: a new
+/// epoch again, so nothing opened from the folder before while the choice was made stays, then
+/// the configured folder's windows reopen.
 pub fn folder_chosen(app: &AppHandle) {
     folder_left(app);
     folder_returned(app);
@@ -551,9 +691,10 @@ pub fn close(app: &AppHandle, label: &str) {
         return;
     };
     destroy(app, label);
-    if live.folder == crate::notes::folder_choices()
-        && let Err(error) = crate::notes::update_floating(app, |store| store.remove(&[&live.id]))
-    {
+    let forgot = crate::notes::update_floating(app, &live.folder, |store| {
+        store.remove(&[&live.id]);
+    });
+    if let Err(error) = forgot {
         eprintln!("[floating] closed window not forgotten: {error:?}");
     }
     report(app);
@@ -639,8 +780,8 @@ pub fn window_event(label: &str, event: &tauri::WindowEvent) {
     }
 }
 
-/// Saves the moves and fades still waiting, before the app exits. Safe on the main thread: it
-/// waits for the worker only so long.
+/// Saves the moves and fades still waiting, before the app exits. Never on the main thread: the
+/// worker may be waiting for it, as while changing a window's style. Waits only so long.
 pub fn flush() {
     let Some(worker) = WORKER.get() else {
         return;
@@ -687,20 +828,143 @@ pub fn show_all() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    fn folder() -> FolderIdentity {
+        FolderIdentity::default()
+    }
+
+    /// A registry holding one window opening on its current epoch, built as `raw` 7.
+    fn opening() -> (Mutex<Registry>, String, u64) {
+        let mut registry = Registry::new();
+        let epoch = registry.epoch;
+        let (label, _) = registry
+            .reserve(epoch, &new_id(), "a.png", 1.0, &folder())
+            .unwrap();
+        registry.live[0].raw = 7;
+        (Mutex::new(registry), label, epoch)
+    }
 
     // Catches the image preview, a closed window or another window's label reaching a floating
-    // window's commands.
+    // window's commands, images or the barrier.
     #[test]
     fn only_a_live_floating_window_reaches_its_commands() {
         for label in ["image-preview", "main", "web", "float-424242"] {
             assert!(with_live(label, |_| ()).is_err(), "{label}");
             assert!(!is_live(label), "{label}");
         }
-        let (label, _) = reserve(&new_id(), "a.png", 1.0, 0).unwrap();
+        let epoch = registry().epoch;
+        let (label, _) = reserve(epoch, &new_id(), "a.png", 1.0, &folder()).unwrap();
         assert!(is_live(&label));
+        assert!(crate::is_secondary_window(&label));
+        assert!(crate::main_window::reads_images(&label));
         assert!(with_live(&label, |_| ()).is_ok());
         take(&label);
         assert!(!is_live(&label));
+        assert!(!crate::is_secondary_window(&label));
+        assert!(!crate::main_window::reads_images(&label));
         assert!(with_live(&label, |_| ()).is_err());
+        assert!(crate::is_secondary_window("image-preview"));
+    }
+
+    // Catches an opening or a restore started before a vault locked, or before another folder was
+    // chosen or trusted, still registering or showing its window afterwards.
+    #[test]
+    fn work_started_before_a_folder_change_never_opens() {
+        let (registry, label, epoch) = opening();
+        assert!(lock(&registry).revoke().len() == 1);
+        assert!(!show_if_current(&registry, &label, epoch, |_| panic!(
+            "shown"
+        )));
+        let reserved = lock(&registry).reserve(epoch, &new_id(), "b.png", 1.0, &folder());
+        assert_eq!(reserved.err(), Some(Error::FolderChanged));
+        let epoch = lock(&registry).epoch;
+        assert!(
+            lock(&registry)
+                .reserve(epoch, &new_id(), "b.png", 1.0, &folder())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn at_most_eight_windows_open() {
+        let mut registry = Registry::new();
+        for _ in 0..MAX_FLOATING {
+            assert!(
+                registry
+                    .reserve(0, &new_id(), "a.png", 1.0, &folder())
+                    .is_ok()
+            );
+        }
+        let refused = registry.reserve(0, &new_id(), "a.png", 1.0, &folder());
+        assert_eq!(refused.err(), Some(Error::FloatingLimit { max: 8 }));
+    }
+
+    /// Opens the window of `opening` with a saved store while the user closes it, before or after
+    /// its entry is saved. Answers how many entries stay saved and whether the window showed.
+    fn open_racing_a_close(close_after_save: bool) -> (usize, bool) {
+        let (registry, label, epoch) = opening();
+        let id = lock(&registry).live[0].id.clone();
+        let store = RefCell::new(floats::Store::default());
+        let close = || {
+            lock(&registry).take(&label);
+            store.borrow_mut().remove(&[&id]);
+        };
+        let mut shown = false;
+        let finished = finish_open(
+            &registry,
+            &label,
+            epoch,
+            || {
+                if !close_after_save {
+                    close();
+                }
+                store.borrow_mut().add(Entry {
+                    id: id.clone(),
+                    kind: Kind::Image,
+                    path: "a.png".into(),
+                    x: 0,
+                    y: 0,
+                    width: 10,
+                    height: 10,
+                    opacity: 1.0,
+                });
+                if close_after_save {
+                    close();
+                }
+                Ok(())
+            },
+            || store.borrow_mut().remove(&[&id]),
+            |_| shown = true,
+        );
+        assert!(finished.is_err());
+        (store.borrow().entries().count(), shown)
+    }
+
+    // Catches a window closed while it was opening coming back at the next start.
+    #[test]
+    fn a_window_closed_while_opening_stays_closed() {
+        assert_eq!(open_racing_a_close(false), (0, false));
+        assert_eq!(open_racing_a_close(true), (0, false));
+    }
+
+    #[test]
+    fn an_opening_left_alone_saves_then_shows() {
+        let (registry, label, epoch) = opening();
+        let saved = RefCell::new(false);
+        let mut shown_saved = false;
+        let finished = finish_open(
+            &registry,
+            &label,
+            epoch,
+            || {
+                *saved.borrow_mut() = true;
+                Ok(())
+            },
+            || panic!("nothing to forget"),
+            |raw| shown_saved = raw == 7 && *saved.borrow(),
+        );
+        assert!(finished.is_ok());
+        assert!(shown_saved);
     }
 }

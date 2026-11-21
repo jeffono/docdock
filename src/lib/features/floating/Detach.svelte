@@ -45,7 +45,9 @@ $effect(() => {
     if (image) show(image);
   };
   const blur = (event: FocusEvent) => {
-    if (event.target === target) show(null);
+    // Clicking the button itself moves the focus to it: the image it serves stays.
+    const toButton = event.relatedTarget instanceof Node && corner.contains(event.relatedTarget);
+    if (event.target === target && !toButton) show(null);
   };
   const hide = () => show(null);
   list.addEventListener("pointerover", over);
@@ -77,6 +79,7 @@ function detach() {
   class:shown={target !== null && !off}
   bind:this={corner}
   role="presentation"
+  onpointerdown={(event) => event.preventDefault()}
   onpointerleave={(event) => {
     if (!(event.relatedTarget instanceof Node && target?.contains(event.relatedTarget))) show(null);
   }}

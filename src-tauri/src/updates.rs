@@ -292,6 +292,10 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
         let mut state = locked(&app);
         state.exit.finish(id, saved)
     };
+    // Off the main thread, which the floating windows' worker may be waiting for.
+    if action.is_some() {
+        crate::floating::flush();
+    }
     let update = match action {
         Some(true) => locked(&app).downloaded.take(),
         Some(false) => {

@@ -263,31 +263,33 @@ fn sized(rect: Rect, work: Rect, dpi: u32) -> Rect {
     }
 }
 
-/// Where a saved window goes on the monitors there are now: where it was, on the monitor that
-/// shows most of it, while at least `MIN_VISIBLE` logical pixels of it each way stay on that
-/// monitor's work area; otherwise inside the nearest monitor's work area. Either way never larger
-/// than that work area nor smaller than `MIN_SIDE`. Without monitors, as during a display change,
-/// it stays as it is.
+/// Where a saved window goes on the monitors there are now: first sized to the work area of the
+/// monitor that shows most of it (never larger, nor smaller than `MIN_SIDE`), then left where it
+/// was while at least `MIN_VISIBLE` logical pixels of it each way stay on that work area;
+/// otherwise sized to and moved fully inside the nearest monitor's work area. Without monitors, as
+/// during a display change, it stays as it is.
 pub fn fit_to_monitors(rect: Rect, monitors: &[Monitor]) -> Rect {
     let most = monitors
         .iter()
-        .map(|monitor| (monitor, intersection(rect, monitor.work)))
-        .max_by_key(|(_, shown)| area(*shown));
-    let Some((monitor, shown)) = most else {
+        .max_by_key(|monitor| area(intersection(rect, monitor.work)));
+    let Some(monitor) = most else {
         return rect;
     };
-    if let Some(shown) = shown {
+    // Shrinking keeps the top left corner, which can take what showed off screen: the window is
+    // judged as it will be.
+    let resized = sized(rect, monitor.work, monitor.dpi);
+    if let Some(shown) = intersection(resized, monitor.work) {
         let min = scale_dpi(monitor.dpi, MIN_VISIBLE);
         if shown.right - shown.left >= min && shown.bottom - shown.top >= min {
-            return sized(rect, monitor.work, monitor.dpi);
+            return resized;
         }
     }
     let nearest = monitors
         .iter()
-        .min_by_key(|monitor| distance(rect, monitor.work))
+        .min_by_key(|monitor| distance(resized, monitor.work))
         .unwrap_or(monitor);
     let work = nearest.work;
-    let rect = sized(rect, work, nearest.dpi);
+    let rect = sized(resized, work, nearest.dpi);
     let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
     let left = rect.left.clamp(work.left, work.right - width);
     let top = rect.top.clamp(work.top, work.bottom - height);
@@ -541,6 +543,15 @@ mod tests {
         assert_eq!(fitted, rect(0, 0, 1280, 1040));
         let shown = fit_to_monitors(rect(100, 100, 3000, 2000), &monitors);
         assert_eq!(shown, rect(100, 100, 1280, 1040));
+    }
+
+    // Regression: a wide window mostly off the left edge was judged visible before shrinking,
+    // which then took all of it off screen.
+    #[test]
+    fn a_window_is_judged_visible_once_shrunk() {
+        let monitors = [monitor(0, 1920, 96)];
+        let fitted = fit_to_monitors(rect(-2200, 100, 2600, 300), &monitors);
+        assert_eq!(fitted, rect(0, 100, 1920, 300));
     }
 
     #[test]

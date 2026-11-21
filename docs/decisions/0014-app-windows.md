@@ -25,7 +25,8 @@ as `main`'s `notes-changed` with note paths, and `allow-unlisten` removes other 
   caller's label. Only `image-preview` and the live `float-<n>` labels Rust registered count as
   secondary (`is_secondary_window`); any other window, `web` and `tweak` included, reaches no app
   command. Rust registers a floating window's label before building it and removes it when the
-  window closes or is destroyed; labels are numbered per run and never reused, apart from the ids
+  window closes or is destroyed, and from every window before destroying them when the notes folder
+  leaves or another is chosen; labels are numbered per run and never reused, apart from the ids
   saved in `floating.json`. A `float_*` command acts only on its caller, the window named by its own
   label, never by an argument, and only while the registry holds it, so the preview reaches none of
   them and a floating window reaches no other.

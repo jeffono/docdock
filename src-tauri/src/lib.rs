@@ -61,13 +61,6 @@ pub fn is_secondary_window(label: &str) -> bool {
     main_window::is_secondary(label)
 }
 
-/// Registers `label` as a live floating window, as opening one does before its window exists; for
-/// the barrier's tests.
-#[doc(hidden)]
-pub fn admit_floating_label(label: &str) {
-    floating::admit(label);
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let commands: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
@@ -236,13 +229,12 @@ pub fn run() {
         .invoke_handler(by_window(commands, secondary, is_secondary_window))
         .build(tauri::generate_context!())
         .expect("failed to start application")
-        .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } if !updates::exit_allowed(app) => {
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event
+                && !updates::exit_allowed(app)
+            {
                 api.prevent_exit();
                 updates::request_exit(app, false);
             }
-            // Moves of floating windows still waiting to be saved.
-            tauri::RunEvent::Exit => floating::flush(),
-            _ => {}
         });
 }
