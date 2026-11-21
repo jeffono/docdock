@@ -6,31 +6,17 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M17 on branch `floating-notes`.
-
 ## Next
 
-M17 — Post-its as floating desktop windows (advanced, M):
-
-- Built on M16's floating-window base (`.docdock/floating.json` with `kind: "note"`, zero
-  capabilities, per-window IPC channel, opacity, click-through with Alt-reveal and tray actions,
-  capture exclusion and vault lifecycle).
-- A post-it is a read-only view of an existing note, opened from the card's menu ("Open as floating
-  window", a toggle like the image badge) beside the panel at a default size; free resizing, the text
-  scrolls, Ctrl+wheel sizes the text. Neutral identity surface, no new colors.
-- The window reads its note through its own command, only from the folder it opened on, and rereads
-  it on every change the watcher reports; renames seen by the watcher follow the note; a note gone
-  shows a notice, and restoring drops entries whose note is gone.
-- Double-click, or a pencil in its controls, opens the note in the panel for editing.
-- Notes marked private (M18) do not float.
+M18 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
+has been hidden for a while, and notes marked private in the frontmatter shown blurred until
+revealed. Notes marked private do not float, and Windows Hello also hides floating windows
+(`floating::hide_all` and `show_all` are ready).
 
 ## Later
 
 In this order:
 
-- M18 — Privacy deterrents, not encryption (advanced, M): Windows Hello to show notes after the panel
-  has been hidden for a while, and notes marked private in the frontmatter shown blurred until
-  revealed.
 - M19 — Rich content: MathML equations with Temml (standard, S–M; KaTeX depends on inline styling,
   blocked by CSP), then Mermaid diagrams (advanced, M–L), which inject `<style>`, also blocked. A
   sandboxed iframe with its own CSP would render code fences without loosening `main`. It is the first
