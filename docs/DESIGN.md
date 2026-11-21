@@ -427,11 +427,15 @@ notes differ only in section and starting state.
   thumbnails keeps it, leaving the grid hides it. Esc (its own layer), Space again, a click, scrolling,
   focus leaving the grid, editing, Browser or Preferences, any menu or dialog, the shortcut and hiding
   the panel also hide it. Not shown with too little room beside the panel (120 logical px).
-- **Floating images:** hovering a local image, single or a grid thumbnail, or focusing a thumbnail,
-  shows a `pictureInPicture` `IconButton` on a `--color-surface` backing inside its top right
-  corner, `--space-1` from the edges; it never moves the note. It, or "Open as floating window" in
-  the image's menu (right click, Shift+F10 or Menu, with "Image actions" as the menu's name),
-  detaches the image into its own window where the preview would show it, each later window 24
+- **Floating images:** a local image, single or a grid thumbnail (not one inside a link), has a
+  `pictureInPicture` badge in its top right corner, `--space-1` from the edges, with
+  `--color-surface`, a 1 px `--color-line` border and `--radius-sm`, scrolling with the image and
+  never moving the note. It shows, outlined, on hover or when the thumbnail has focus, and opens
+  the image as a floating window ("Open as floating window"). While a floating window shows the
+  image, the badge stays, its small window filled, and closes that window ("Close floating
+  window"); the image's menu (right click, Shift+F10 or Menu, named "Image actions") has the same
+  toggle, and a middle click on the image opens it. Opening detaches the image into its own window
+  where the preview would show it, each later window 24
   logical px lower and away from the panel (left of a panel on the right, right of one on the
   left), staying in the room beside the panel; at most 8 at once ("Up to 8 floating windows can be
   open; close one first." in the danger color otherwise). A floating window is borderless, topmost
@@ -441,8 +445,10 @@ notes differ only in section and starting state.
   soft shadow (`--color-float-shadow`) trace the image's own edges, or a transparent image's
   outline: the identity's one shadow, since the window has no frame to show where it ends. A pill
   of controls appears `--space-2` inside the image's top right corner (`--color-surface`, 1 px
-  `--color-line`, `--radius-full`): a thin opacity slider from 15% to 100% in 5% steps, with a
-  `--color-muted` track and a small `--color-fg` thumb, no accent; "Let clicks through" as a quiet
+  `--color-line`, `--radius-full`): how large the image shows against its natural size, inner zoom
+  included (`--font-size-sm`, `--color-muted`, tabular figures, hidden until the image loads); a
+  short opacity slider from 15% to 100% in 5% steps, its thin track `--color-fg` up to the small
+  `--color-fg` thumb and `--color-line` after it, no accent; "Let clicks through" as a quiet
   `IconButton` whose pointer icon is outlined when off and filled when on; and Close. Only the
   image fades: the pill stays opaque. Alt+wheel anywhere, or the wheel over the pill, changes the
   opacity. Ctrl+wheel zooms: the window grows or shrinks around its center, stopping at the image's
@@ -458,7 +464,8 @@ notes differ only in section and starting state.
   area. Letting clicks through hides the controls and passes every click to the windows below;
   holding Alt (not AltGr) with the pointer over the window reveals the controls and takes clicks
   again, also for a drag started meanwhile, until released. "Unlock floating windows" in the tray,
-  available while any window lets clicks through, makes all of them take clicks again. Windows
+  available while any window lets clicks through, makes all of them take clicks again, and "Close
+  all floating windows", available while any is open, closes them all as their own Close would. Windows
   reopen where they were, at their size and opacity, always taking clicks, at the next start or
   when the notes folder returns; one whose spot is now off every monitor moves onto the nearest. A
   locked vault, or another folder chosen, closes them at once, without forgetting them; a window

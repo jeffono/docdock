@@ -5,6 +5,8 @@ import { dateTime, errorText, t } from "../../i18n";
 import {
   type CaptureChoice,
   clipboardWrite,
+  floatingClosePath,
+  floatingList,
   type Leftover,
   type Listing,
   type Note,
@@ -31,6 +33,7 @@ import {
   notesTrust,
   notesUndoDelete,
   type OpenNote,
+  onFloatingPaths,
   onNotesChanged,
   onPanelHidden,
   onPanelSearch,
@@ -64,8 +67,7 @@ import IconButton from "../../ui/IconButton.svelte";
 import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
-import Detach from "../floating/Detach.svelte";
-import { openFloating } from "../floating/detach";
+import { normalizePath, openFloating } from "../floating/detach";
 import { imagePreview } from "../image-preview/preview";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import Permission from "../web/Permission.svelte";
@@ -1844,6 +1846,23 @@ function floatImage(image: HTMLElement) {
     error = errorText(e);
   });
 }
+/** The images open floating windows show, normalized as Rust compares them. */
+let floatingPaths = $state<ReadonlySet<string>>(new Set());
+const showFloating = (paths: string[]) => {
+  floatingPaths = new Set(paths.map(normalizePath));
+};
+const isFloating = (image: HTMLElement) =>
+  floatingPaths.has(normalizePath(image.dataset.image ?? ""));
+/** Opens `image` as a floating window or, with `toggle`, closes the one that shows it. */
+function toggleFloating(image: HTMLElement, toggle: boolean) {
+  preview.dismiss();
+  const path = image.dataset.image;
+  if (toggle && path && isFloating(image)) {
+    void floatingClosePath(path).catch((e) => {
+      error = errorText(e);
+    });
+  } else floatImage(image);
+}
 
 let tools = $state<HTMLElement>();
 let list = $state<HTMLElement>();
@@ -2264,6 +2283,10 @@ onMount(() => {
   }, 30_000);
   const unlisten = onNotesChanged(changed);
   const stopPreview = preview.attach();
+  void floatingList()
+    .then(showFloating)
+    .catch(() => {});
+  const floatingChanged = onFloatingPaths(showFloating);
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
@@ -2317,6 +2340,7 @@ onMount(() => {
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
     void captureChosen.then((stop) => stop());
+    void floatingChanged.then((stop) => stop());
   };
 });
 </script>
@@ -2348,10 +2372,9 @@ onMount(() => {
 <Menu bind:this={imageMenu} label={t("image.menu")} ontoggle={(open) => { if (!open) menuImage = null; }}>
   {#if menuImage}
     {@const image = menuImage}
-    <button role="menuitem" tabindex="-1" onclick={() => floatImage(image)}>{t("image.float")}</button>
+    <button role="menuitem" tabindex="-1" onclick={() => toggleFloating(image, true)}>{t(isFloating(image) ? "image.unfloat" : "image.float")}</button>
   {/if}
 </Menu>
-<Detach root={list} off={browser || inactive} onerror={(e) => { error = errorText(e); }} />
 
 <Menu bind:this={cardMenu} label={t("menu.label")} ontoggle={(open) => { if (!open) menuCard = null; }}>
   {#if menuCard}
@@ -2571,6 +2594,8 @@ onMount(() => {
             onlink={(event) => linkClick(event, true)}
             onlinkmenu={openLinkMenu}
             onimagemenu={openImageMenu}
+            onimagefloat={toggleFloating}
+            floating={floatingPaths}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
             status={edited ? saveText : ""}

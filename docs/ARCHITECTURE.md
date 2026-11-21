@@ -181,7 +181,12 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   under the registry's lock; placing and restoring reshape it with
   `floats::contain`. Later windows cascade down and away from the panel, within the room beside it
   (`floats::cascade`). Zooming inside the window and panning are the page's own
-  (`features/floating/zoom.ts`).
+  (`features/floating/zoom.ts`). `main` hears which images open windows show (`floating_list`,
+  then `floating-paths`, emitted whenever a window opens, closes or goes) and marks them with a
+  badge laid in each rendered image's corner (`features/floating/detach.ts`), which closes their
+  windows (`floating_close_path`); paths compare as `attachments::normalize` does. Closing by
+  path, from the tray ("Close all floating windows") or one window at a time all go through the
+  same user close.
   Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
   polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
   started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades

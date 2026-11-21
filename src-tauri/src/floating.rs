@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::dock::Request;
 use crate::error::Error;
@@ -128,6 +128,14 @@ impl Aspect {
     }
 }
 
+/// A window the user closed, whose entry and window are on their way out.
+#[derive(Debug, PartialEq)]
+struct Closing {
+    label: String,
+    id: String,
+    folder: FolderIdentity,
+}
+
 struct Registry {
     /// The last label number given; labels are never reused within a run.
     next: u64,
@@ -203,11 +211,33 @@ impl Registry {
         std::mem::take(&mut self.live)
     }
 
-    /// Marks the window `label` closed by the user; answers its entry's id and folder.
-    fn mark_closing(&mut self, label: &str) -> Option<(String, FolderIdentity)> {
-        let live = self.live.iter_mut().find(|live| live.label == label)?;
-        live.closing = true;
-        Some((live.id.clone(), live.folder.clone()))
+    /// Marks every window `picked` closed by the user; answers their labels, ids and folders.
+    fn mark_closing_where(&mut self, picked: impl Fn(&Live) -> bool) -> Vec<Closing> {
+        self.live
+            .iter_mut()
+            .filter(|live| picked(live))
+            .map(|live| {
+                live.closing = true;
+                Closing {
+                    label: live.label.clone(),
+                    id: live.id.clone(),
+                    folder: live.folder.clone(),
+                }
+            })
+            .collect()
+    }
+
+    /// The images the open windows show, as saved.
+    fn paths(&self) -> Vec<String> {
+        let mut paths: Vec<_> = self
+            .live
+            .iter()
+            .filter(|live| !live.closing)
+            .map(|live| live.path.clone())
+            .collect();
+        paths.sort();
+        paths.dedup();
+        paths
     }
 
     /// A folder choice begins: as `revoke`, and nothing opens until it ends.
@@ -309,6 +339,8 @@ enum Message {
     /// The window is gone, whoever destroyed it; its saved entry stays.
     Destroyed(String),
     UnlockAll,
+    /// From the tray: the user closes every window.
+    CloseAll,
     /// Save what is waiting now, then answer.
     Flush(Sender<()>),
 }
@@ -390,6 +422,7 @@ impl Worker {
                 report(&self.app);
             }
             Message::UnlockAll => unlock(&self.app),
+            Message::CloseAll => close_all(&self.app),
             Message::Flush(done) => {
                 self.save();
                 let _ = done.send(());
@@ -455,9 +488,27 @@ fn reveal() {
 }
 
 /// The tray's "Unlock floating windows" is available while any window lets clicks through.
+/// Tells the tray and `main` what changed: "Unlock floating windows" is available while any
+/// window lets clicks through and "Close all floating windows" while any is open, and `main` marks
+/// the images floating windows show (`floating-paths`).
 fn report(app: &AppHandle) {
-    let any = registry().live.iter().any(|live| live.click_through);
-    crate::tray::set_unlock_enabled(app, any);
+    let (through, open, paths) = {
+        let registry = registry();
+        let through = registry.live.iter().any(|live| live.click_through);
+        (through, !registry.live.is_empty(), registry.paths())
+    };
+    crate::tray::set_floating_items(app, through, open);
+    if let Err(error) = app.emit_to("main", PATHS, paths) {
+        eprintln!("[floating] open images not reported: {error}");
+    }
+}
+
+/// Tells `main` which images floating windows show.
+const PATHS: &str = "floating-paths";
+
+/// The images the open floating windows show, relative to the notes folder.
+pub fn paths() -> Vec<String> {
+    registry().paths()
 }
 
 fn unlock(app: &AppHandle) {
@@ -671,6 +722,7 @@ pub fn open(
         take(&label);
         destroy(app, &label);
     }
+    report(app);
     opened
 }
 
@@ -773,6 +825,7 @@ pub fn restore(app: &AppHandle) {
             Err(error) => eprintln!("[floating] window not reopened: {error:?}"),
         }
     }
+    report(app);
     if !gone.is_empty()
         && let Err(error) = crate::notes::update_floating(app, &folder, |store| {
             if !registry().current(epoch) {
@@ -876,19 +929,63 @@ pub fn folder_of(label: &str) -> Option<FolderIdentity> {
 /// itself (`revoke_all`) while its folder is still configured; the folder identity check keeps the
 /// removal from ever reaching another folder.
 pub fn close(app: &AppHandle, label: &str) {
-    let Some((id, folder)) = registry().mark_closing(label) else {
+    let closing = registry().mark_closing_where(|live| live.label == label);
+    forget_closed(app, closing);
+}
+
+/// The user closes every window showing `path`, however it is spelled, as `close` does.
+pub fn close_path(app: &AppHandle, path: &str) {
+    let closing = registry().mark_closing_where(same_image(path));
+    forget_closed(app, closing);
+}
+
+/// The user closes every window, as `close` does. Entries of other kinds stay.
+pub fn close_all(app: &AppHandle) {
+    let closing = registry().mark_closing_where(|_| true);
+    forget_closed(app, closing);
+}
+
+/// Picks the windows showing `path`, compared as saved image paths are (`attachments::normalize`).
+fn same_image(path: &str) -> impl Fn(&Live) -> bool {
+    let wanted = crate::attachments::normalize(path);
+    move |live| wanted.is_some() && crate::attachments::normalize(&live.path) == wanted
+}
+
+/// Forgets the entries of the windows the user closed, each in its own folder while it is still
+/// the one configured, then removes and destroys them.
+fn forget_closed(app: &AppHandle, closing: Vec<Closing>) {
+    if closing.is_empty() {
         return;
-    };
-    let forgot = crate::notes::update_floating(app, &folder, |store| {
-        store.remove(&[&id]);
-        Ok(())
-    });
-    if let Err(error) = forgot {
-        eprintln!("[floating] closed window not forgotten: {error:?}");
     }
-    take(label);
-    destroy(app, label);
+    let mut by_folder: Vec<(&FolderIdentity, Vec<&str>)> = Vec::new();
+    for closed in &closing {
+        match by_folder
+            .iter_mut()
+            .find(|(folder, _)| **folder == closed.folder)
+        {
+            Some((_, ids)) => ids.push(&closed.id),
+            None => by_folder.push((&closed.folder, vec![&closed.id])),
+        }
+    }
+    for (folder, ids) in by_folder {
+        let forgot = crate::notes::update_floating(app, folder, |store| {
+            store.remove(&ids);
+            Ok(())
+        });
+        if let Err(error) = forgot {
+            eprintln!("[floating] closed window not forgotten: {error:?}");
+        }
+    }
+    for closed in &closing {
+        take(&closed.label);
+        destroy(app, &closed.label);
+    }
     report(app);
+}
+
+/// From the tray: every window closes. Safe on the main thread.
+pub fn close_all_requested() {
+    send(Message::CloseAll);
 }
 
 /// The window's state when it loads; later changes go to `channel`, replacing the one it handed
@@ -1317,7 +1414,10 @@ mod tests {
             });
         }
         let label = registry.live[0].label.clone();
-        let (closed, _) = registry.mark_closing(&label).unwrap();
+        let closed = registry
+            .mark_closing_where(|live| live.label == label)
+            .remove(0)
+            .id;
         // The folder change revokes both before the close saved anything.
         let gone = registry.begin_switch();
         let forgotten = closing(&gone);
@@ -1326,6 +1426,68 @@ mod tests {
         store.remove(&forgotten[0].1);
         let kept: Vec<_> = store.entries().map(|entry| entry.path.as_str()).collect();
         assert_eq!(kept, ["b.png"]);
+    }
+
+    fn image(path: &str) -> Entry {
+        Entry {
+            id: new_id(),
+            kind: Kind::Image,
+            path: path.into(),
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            opacity: 1.0,
+        }
+    }
+
+    // Catches the badge of an image left open, or another image's window closing, when the user
+    // closes an image's floating window from the note, however the path is spelled.
+    #[test]
+    fn closing_a_path_closes_only_the_windows_of_that_image() {
+        let mut registry = Registry::new();
+        for path in [
+            "attachments/Map.png",
+            "attachments//map.png",
+            "attachments/b.png",
+        ] {
+            registry
+                .reserve(0, &new_id(), path, 1.0, &folder())
+                .unwrap();
+        }
+        let closing = registry.mark_closing_where(same_image("./attachments/MAP.png"));
+        let labels: Vec<_> = closing.iter().map(|closed| closed.label.as_str()).collect();
+        assert_eq!(labels, ["float-1", "float-2"]);
+        assert_eq!(registry.paths(), ["attachments/b.png"]);
+        assert!(
+            registry
+                .mark_closing_where(same_image("../map.png"))
+                .is_empty()
+        );
+    }
+
+    // Catches closing every window dropping entries a later build saved, such as post-its.
+    #[test]
+    fn closing_every_window_keeps_entries_of_other_kinds() {
+        let mut registry = Registry::new();
+        let note = serde_json::json!({ "id": new_id(), "kind": "note", "path": "a.md" });
+        let first = image("attachments/a.png");
+        let second = image("attachments/b.png");
+        let file = serde_json::json!({ "version": 1, "entries": [note, first, second] });
+        let mut store = floats::parse(&serde_json::to_vec(&file).unwrap()).unwrap();
+        for entry in [&first, &second] {
+            registry
+                .reserve(0, &entry.id, &entry.path, 1.0, &folder())
+                .unwrap();
+        }
+        let closing = registry.mark_closing_where(|_| true);
+        assert_eq!(closing.len(), 2);
+        assert!(registry.paths().is_empty());
+        let ids: Vec<_> = closing.iter().map(|closed| closed.id.as_str()).collect();
+        store.remove(&ids);
+        assert_eq!(store.entries().count(), 0);
+        let saved: serde_json::Value = serde_json::from_slice(&store.to_bytes()).unwrap();
+        assert_eq!(saved["entries"], serde_json::json!([note]));
     }
 
     // Catches a zoom revealing a window still hidden while it opens.

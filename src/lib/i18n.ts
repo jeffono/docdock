@@ -222,6 +222,7 @@ const en = {
   "link.gestures": "Shift+click / Middle click",
   "image.menu": "Image actions",
   "image.float": "Open as floating window",
+  "image.unfloat": "Close floating window",
   "float.label": "Floating image",
   "float.opacity": "Opacity",
   "float.clickThrough": "Let clicks through (hold Alt over the image to reach these controls)",
@@ -635,6 +636,7 @@ const ptBR: Record<MessageKey, string> = {
   "link.gestures": "Shift+clique / Clique do meio",
   "image.menu": "Ações da imagem",
   "image.float": "Abrir como janela flutuante",
+  "image.unfloat": "Fechar janela flutuante",
   "float.label": "Imagem flutuante",
   "float.opacity": "Opacidade",
   "float.clickThrough":

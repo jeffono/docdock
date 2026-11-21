@@ -166,6 +166,8 @@ pub fn run() {
         commands::image_preview_show,
         commands::image_preview_hide,
         commands::floating_open,
+        commands::floating_list,
+        commands::floating_close_path,
     ];
     let secondary: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::image_preview_state,

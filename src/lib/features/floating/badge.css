@@ -1,0 +1,66 @@
+/* The badge in a note image's corner that detaches it into a floating window, or closes that
+   window. Behavior in "Floating images" in `docs/DESIGN.md`. */
+.note-content .float-anchor {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+.note-content .image-grid > .float-anchor {
+  display: block;
+}
+
+.note-content .float-badge {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: grid;
+  place-items: center;
+  width: var(--size-control);
+  height: var(--size-control);
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--duration),
+    color var(--duration);
+}
+
+.note-content .float-anchor:hover > .float-badge,
+.note-content .float-anchor:focus-within > .float-badge,
+.note-content .float-badge.floating {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.note-content .float-badge:hover,
+.note-content .float-badge.floating {
+  color: var(--color-fg);
+}
+
+.note-content .float-badge svg {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Open as a floating window: the small window fills, the frame stays a line. */
+.note-content .float-badge.floating .pip-window {
+  fill: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-content .float-badge {
+    transition: none;
+  }
+}

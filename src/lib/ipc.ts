@@ -441,6 +441,14 @@ export const floatingOpen = (
   natural: [number, number],
 ) => invoke<void>("floating_open", { path, rect, natural });
 
+/** The images open floating windows show, relative to the notes folder. */
+export const floatingList = () => invoke<string[]>("floating_list");
+/** Closes the floating windows showing `path`. */
+export const floatingClosePath = (path: string) => invoke<void>("floating_close_path", { path });
+/** Rust tells `main` whenever the images open floating windows show change. */
+export const onFloatingPaths = (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
+  listen<string[]>("floating-paths", (event) => handler(event.payload));
+
 /**
  * In a floating window itself, which has no capability: it reaches only the `float_*` commands,
  * each acting on itself. Rust sends each change of what it shows through `onUpdate`; the highest

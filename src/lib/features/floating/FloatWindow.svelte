@@ -28,7 +28,11 @@ import { clampPan, type Point, type Size, zoomAt, zoomStep } from "./zoom";
 let root: HTMLElement;
 let stage: HTMLElement;
 let image: HTMLImageElement;
+let range: HTMLInputElement;
 let locale = $state("en");
+/** The image's natural width and the stage's width, in CSS pixels, for the zoom shown. */
+let naturalWidth = $state(0);
+let stageWidth = $state(0);
 let path = $state<string | null>(null);
 let opacity = $state(1);
 let clickThrough = $state(false);
@@ -92,6 +96,15 @@ async function setOpacity(value: number) {
 }
 
 const stageSize = (): Size => ({ width: stage.clientWidth, height: stage.clientHeight });
+/** The image's size against its natural size, zoom inside included, as a whole percent. */
+const percent = $derived(
+  naturalWidth > 0 && stageWidth > 0 ? Math.round((stageWidth / naturalWidth) * zoom * 100) : 0,
+);
+// The slider's filled part, through the CSSOM: the CSP forbids style attributes.
+$effect(() => {
+  const filled = ((opacity - MIN_OPACITY) / (1 - MIN_OPACITY)) * 100;
+  range.style.setProperty("--fill", `${filled}%`);
+});
 const naturalSize = (): Size => ({ width: image.naturalWidth, height: image.naturalHeight });
 
 /** The window is as large as it gets; any resize makes Rust say so again. */
@@ -216,6 +229,7 @@ onMount(() => {
   // Not passive: Ctrl+wheel would otherwise zoom the page itself.
   root.addEventListener("wheel", wheel, { passive: false });
   const resized = () => {
+    stageWidth = stage.clientWidth;
     atMax = false;
     pan = clampPan(pan, zoom, stageSize());
   };
@@ -247,11 +261,17 @@ onMount(() => {
       bind:this={image}
       alt={name}
       draggable="false"
-      onload={() => void floatNatural(image.naturalWidth, image.naturalHeight).catch(() => {})}
+      onload={() => {
+        naturalWidth = image.naturalWidth;
+        stageWidth = stage.clientWidth;
+        void floatNatural(image.naturalWidth, image.naturalHeight).catch(() => {});
+      }}
     />
   </div>
   <div class="bar" class:shown={controls}>
+    {#if percent > 0}<span class="zoom">{percent}%</span>{/if}
     <input
+      bind:this={range}
       type="range"
       min={MIN_OPACITY * 100}
       max="100"
@@ -338,9 +358,19 @@ onMount(() => {
     opacity: 1;
   }
 
-  /* A thin monochrome track and a small round thumb: no accent, nothing to compete with the image. */
+  /* How large the image shows against its natural size, inside zoom included. */
+  .zoom {
+    margin-left: var(--space-1);
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+
+  /* A short, thin monochrome track, solid up to the thumb, and a small round thumb: no accent,
+     nothing to compete with the image. `--fill` comes from the script. */
   input[type="range"] {
-    width: calc(2.5 * var(--size-control));
+    width: calc(2 * var(--size-control));
     height: var(--size-control);
     margin: 0 var(--space-1);
     appearance: none;
@@ -350,13 +380,17 @@ onMount(() => {
   input[type="range"]::-webkit-slider-runnable-track {
     height: calc(var(--space-1) / 2);
     border-radius: var(--radius-full);
-    background: var(--color-muted);
+    background: linear-gradient(
+      to right,
+      var(--color-fg) var(--fill, 100%),
+      var(--color-line) var(--fill, 100%)
+    );
   }
 
   input[type="range"]::-webkit-slider-thumb {
-    width: calc(2.5 * var(--space-1));
-    height: calc(2.5 * var(--space-1));
-    margin-top: calc(-1 * var(--space-1));
+    width: calc(2 * var(--space-1));
+    height: calc(2 * var(--space-1));
+    margin-top: calc(-0.75 * var(--space-1));
     border: 0;
     border-radius: var(--radius-full);
     appearance: none;
@@ -365,7 +399,8 @@ onMount(() => {
 
   /* A narrow window keeps room for toggling and closing. */
   @media (max-width: 12rem) {
-    input[type="range"] {
+    input[type="range"],
+    .zoom {
       display: none;
     }
   }

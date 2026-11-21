@@ -68,7 +68,7 @@ pub fn listed<'a>(candidates: &'a [String], paths: &[String]) -> HashSet<&'a str
 }
 
 /// `path`, relative to the notes folder, in the form `resolve` gives; `None` if it leaves it.
-fn normalize(path: &str) -> Option<String> {
+pub fn normalize(path: &str) -> Option<String> {
     let mut parts = Vec::new();
     for part in path.split(['/', '\\']) {
         match part {

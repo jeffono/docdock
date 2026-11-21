@@ -1,5 +1,9 @@
 <script lang="ts" module>
 // Lucide paths (ISC license). Only add icons used by the UI here.
+/** Lucide picture-in-picture-2 in two parts, so its small window alone fills. */
+export const PIP_FRAME = "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4";
+export const PIP_WINDOW =
+  "M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z";
 const paths = {
   shield: "M20 13c0 5-8 9-8 9s-8-4-8-9V5l8-3 8 3z",
   shieldOff: "m2 2 20 20 M9.5 2.6 12 2l8 3v8c0 .7-.2 1.4-.4 2 M4 5v8c0 5 8 9 8 9s2.5-1.3 4.7-3.3",
@@ -30,8 +34,7 @@ const paths = {
   clipboard:
     "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1 M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2",
   /** Lucide picture-in-picture-2: detach as a floating window. */
-  pictureInPicture:
-    "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4 M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z",
+  pictureInPicture: `${PIP_FRAME} ${PIP_WINDOW}`,
   /** Lucide mouse-pointer-click: clicks pass through to the windows below. */
   clickThrough:
     "M14 4.1 12 6 M5.1 8l-2.9-.8 M6 12l-1.9 2 M7.2 2.2 8 5.1 M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z",
@@ -45,7 +48,12 @@ export type IconName = keyof typeof paths;
 let { name, filled = false }: { name: IconName; filled?: boolean } = $props();
 </script>
 
-<svg class:pin={name === "pin"} class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
+{#if filled && name === "pictureInPicture"}
+  <!-- Filled, only the small window fills: an open frame cannot. -->
+  <svg class="filled" viewBox="0 0 24 24" aria-hidden="true"><path class="outline" d={PIP_FRAME} /><path d={PIP_WINDOW} /></svg>
+{:else}
+  <svg class:pin={name === "pin"} class:filled viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>
+{/if}
 
 <style>
   svg {
@@ -65,5 +73,9 @@ let { name, filled = false }: { name: IconName; filled?: boolean } = $props();
 
   svg.filled {
     fill: currentColor;
+  }
+
+  svg.filled .outline {
+    fill: none;
   }
 </style>

@@ -506,6 +506,17 @@ pub async fn floating_open(
     crate::floating::open(&app, &requests, path, rect, natural)
 }
 
+/// The images the open floating windows show, so the notes mark them.
+#[tauri::command(async)]
+pub fn floating_list() -> Vec<String> {
+    crate::floating::paths()
+}
+/// Closes the floating windows showing `path`, as their own close button would.
+#[tauri::command(async)]
+pub fn floating_close_path(app: AppHandle, path: String) {
+    crate::floating::close_path(&app, &path);
+}
+
 // A floating window's commands: each acts only on its caller, named by its own window, never by
 // an argument, and only while Rust has it registered. Off the main thread, as everything that
 // takes the floating registry.
