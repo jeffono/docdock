@@ -11,7 +11,9 @@ import {
   definitions,
   footnoteLabel,
   frontmatter,
+  type ImageRun,
   imagePath,
+  imageRuns,
   linkTarget,
   maxDepth,
   noteParser,
@@ -237,11 +239,7 @@ class Renderer {
     if (heading) return el(`h${heading[1]}` as Tag, {}, this.inline(node, node.from, node.to));
     switch (name) {
       case "Paragraph": {
-        const from = Math.max(node.from, skipTo);
-        const grid = this.imageGrid(node, from);
-        if (grid) return grid;
-        const children = this.inline(node, from, node.to);
-        return children.length ? this.at(el("p", {}, children), from, node.to) : null;
+        return this.paragraph(node, Math.max(node.from, skipTo));
       }
       case "Blockquote": {
         const line = this.slice(node.from, node.to).split("\n")[0];
@@ -325,19 +323,36 @@ class Renderer {
     }
   }
 
-  imageGrid(node: SyntaxNode, from: number): Element | null {
-    const thumbs: Element[] = [];
+  /**
+   * A paragraph from `from`: its runs of image lines as grids (`imageRuns`), the lines around them
+   * as text. Split in several, the parts share a wrapper that lays them out as siblings.
+   */
+  paragraph(node: SyntaxNode, from: number): Element | null {
+    const parts: Element[] = [];
     let pos = from;
-    for (let child = node.firstChild; child; child = child.nextSibling) {
-      if (child.to <= from) continue;
-      if (child.from < from || this.slice(pos, child.from).trim()) return null;
-      pos = child.to;
-      if (child.name === "HardBreak" || child.name === "QuoteMark") continue;
-      if (child.name === "HTMLTag" && /^<br[ \t]*\/?>$/i.test(this.slice(child.from, child.to)))
-        continue;
-      if (child.name === "Entity" && !decodeEntity(this.slice(child.from, child.to)).trim())
-        continue;
-      if (child.name !== "Image") return null;
+    const text = (to: number) => {
+      if (!this.slice(pos, to).trim()) return;
+      const children = this.inline(node, pos, to);
+      if (children.length) parts.push(this.at(el("p", {}, children), pos, to));
+    };
+    for (const run of imageRuns(node, this.slice, from)) {
+      const grid = this.imageGrid(run);
+      if (!grid) continue;
+      text(run.from);
+      parts.push(grid);
+      pos = run.to;
+    }
+    if (parts.length === 1 && !this.slice(pos, node.to).trim())
+      return this.at(parts[0], from, node.to);
+    text(node.to);
+    if (parts.length <= 1) return parts[0] ?? null;
+    return this.at(el("div", { class: "image-split" }, parts), from, node.to);
+  }
+
+  /** The grid of a run of local images, or null if any of them is not one. */
+  imageGrid(run: ImageRun): Element | null {
+    const thumbs: Element[] = [];
+    for (const child of run.images) {
       const [image] = this.inlineNode(child);
       if (typeof image === "string" || image?.tag !== "img") return null;
       const path = image.attrs?.["data-image"];
@@ -355,9 +370,7 @@ class Renderer {
         ),
       );
     }
-    return thumbs.length >= 2 && !this.slice(pos, node.to).trim()
-      ? this.at(el("div", { class: "image-grid" }, thumbs), from, node.to)
-      : null;
+    return this.at(el("div", { class: "image-grid" }, thumbs), run.from, run.to);
   }
 
   /** Code lines without their fences and without the container prefix the fence itself has. */

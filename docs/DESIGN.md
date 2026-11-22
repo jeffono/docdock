@@ -368,9 +368,12 @@ notes differ only in section and starting state.
   gesture the reveal waits, so text does not move under a click.
 - **Images:** an image shows as itself until the cursor reaches its line, which shows its Markdown
   with a small copy of the image before it (`--size-bar` tall, up to three times as wide, cropped,
-  1 px `--color-line`, `--radius-sm`, `--space-2` from the text). A paragraph of two or more local
-  images, alone on their lines, shows as the reading view's grid until the cursor enters it, which
-  shows each line with its small copy; a click on a thumbnail puts the cursor at its Markdown. Paste an image or drop image
+  1 px `--color-line`, `--radius-sm`, `--space-2` from the text); the copy and the Markdown's "!" are
+  one step for the cursor, which at the image's start stands before the copy. Lines of two or more
+  local images, alone on their lines, show as the reading view's grid until the cursor enters them,
+  which shows each line with its small copy; a click on a thumbnail puts the cursor at its Markdown.
+  A line of text between image lines splits their grid in two, in the editor and the reading view.
+  Shortly after an edit, images that change size never push the cursor out of view. Paste an image or drop image
   files from Explorer into the editor to insert them at the current selection. A drop inserts images in order. Single line breaks join consecutive pastes and
   images dropped together into one paragraph. The editor ignores non-image files.
 - **Conflicts:** a primary Keep my version and a secondary Discard my changes above the text; errors in
@@ -441,8 +444,9 @@ notes differ only in section and starting state.
 
 - Reading and editing share `features/notes/content.css`, scoped by `.note-content`. List paragraphs
   stay tight, like editor lines.
-- Images load lazily. A paragraph containing only two or more local images, separated by whitespace
-  or line breaks, shows a grid of square thumbnails; in a preview they are smaller (at least twice
+- Images load lazily. Consecutive lines of a paragraph holding only two or more local images,
+  separated by whitespace or line breaks, show a grid of square thumbnails; a line of text between
+  them splits the grid, and a lone image stays in its text; in a preview they are smaller (at least twice
   `--size-control`, `--space-1` apart) and the preview grows to show whole any grid starting
   within it, then a faded line of what follows. Tab reaches them in the expanded note. A plain
   `<br>` counts as a line break in a grid. Raw HTML elsewhere shows as plain text.

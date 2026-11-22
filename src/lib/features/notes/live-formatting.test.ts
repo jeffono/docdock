@@ -33,6 +33,16 @@ describe("image grids in the editor", () => {
     expect(gridRanges(doc, start + 3)).toEqual([]);
   });
 
+  it("splits a grid at a line of text, each part a grid of its own lines", () => {
+    const doc = `Intro\n\n${images}\nText\n${images}`;
+    const first = doc.indexOf("![");
+    const second = doc.lastIndexOf("![a]");
+    expect(gridRanges(doc, 0)).toEqual([
+      [first, first + images.length],
+      [second, second + images.length],
+    ]);
+  });
+
   it("leaves a single image and a paragraph with text as they are", () => {
     expect(gridRanges("Intro\n\n![a](a.png)", 0)).toEqual([]);
     expect(gridRanges(`Intro\n\n${images} caption`, 0)).toEqual([]);

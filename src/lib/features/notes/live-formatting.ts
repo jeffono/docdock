@@ -13,6 +13,7 @@ import {
   alertKind,
   definitions,
   footnoteLabel,
+  imageRuns,
   imageUrl,
   linkTarget,
   frontmatter as readFrontmatter,
@@ -71,7 +72,11 @@ class TaskWidget extends WidgetType {
     return true;
   }
 }
-/** A small copy of the image beside its Markdown while the cursor is on it, so it reads as which. */
+/**
+ * A small copy of the image beside its Markdown while the cursor is on it, so it reads as which. It
+ * stands in for the Markdown's "!", which it shows after it, so the cursor takes both as one step and
+ * a cursor at the image's start is before the copy.
+ */
 class ImageChipWidget extends WidgetType {
   constructor(
     readonly src: string,
@@ -83,12 +88,14 @@ class ImageChipWidget extends WidgetType {
     return other.src === this.src && other.alt === this.alt;
   }
   toDOM() {
+    const chip = document.createElement("span");
     const el = document.createElement("img");
     el.src = this.src;
     el.alt = this.alt;
     el.className = "image-chip";
     el.draggable = false;
-    return el;
+    chip.append(el, "!");
+    return chip;
   }
 }
 class ImageWidget extends WidgetType {
@@ -109,10 +116,11 @@ class ImageWidget extends WidgetType {
     return el;
   }
 }
-type GridImage = { src: string; alt: string };
+/** An image of a grid: what it shows, and where its Markdown starts from the grid's start. */
+type GridImage = { src: string; alt: string; offset: number };
 /**
- * A paragraph of two or more images shown as the reading view shows it, a grid. A click on an
- * image puts the cursor on its Markdown, which shows the paragraph as lines again.
+ * Lines of two or more images shown as the reading view shows them, a grid. A click on an image
+ * puts the cursor on its Markdown, which shows the lines again.
  */
 class GridWidget extends WidgetType {
   constructor(readonly images: readonly GridImage[]) {
@@ -122,14 +130,17 @@ class GridWidget extends WidgetType {
     return (
       other.images.length === this.images.length &&
       other.images.every(
-        (image, i) => image.src === this.images[i].src && image.alt === this.images[i].alt,
+        (image, i) =>
+          image.src === this.images[i].src &&
+          image.alt === this.images[i].alt &&
+          image.offset === this.images[i].offset,
       )
     );
   }
   toDOM(view: EditorView) {
     const grid = document.createElement("div");
     grid.className = "image-grid";
-    this.images.forEach((image, index) => {
+    for (const image of this.images) {
       const thumb = document.createElement("button");
       thumb.type = "button";
       thumb.tabIndex = -1;
@@ -146,68 +157,48 @@ class GridWidget extends WidgetType {
       thumb.addEventListener("mousedown", (event) => {
         if (event.button !== 0) return;
         event.preventDefault();
-        // Found from where the grid is now, which edits above it may have moved.
-        const at = imageStarts(view.state, view.posAtDOM(grid))[index];
-        if (at === undefined) return;
+        // From where the grid is now, which edits above it may have moved.
+        const at = view.posAtDOM(grid) + image.offset;
         view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
         view.focus();
       });
       grid.append(thumb);
-    });
+    }
     return grid;
   }
   ignoreEvent() {
     return true;
   }
 }
-/** Where each image of the paragraph starting at `from` starts. */
-function imageStarts(state: EditorState, from: number): number[] {
-  const starts: number[] = [];
-  const paragraph = syntaxTree(state).resolveInner(from, 1);
-  let node = paragraph;
-  while (node.name !== "Paragraph" && node.parent) node = node.parent;
-  for (let child = node.firstChild; child; child = child.nextSibling)
-    if (child.name === "Image") starts.push(child.from);
-  return starts;
-}
+/** A grid in the editor: the whole lines of a run of local images (`imageRuns`), and its images. */
+type EditorGrid = { from: number; to: number; images: GridImage[] };
 /**
- * The images of a paragraph made only of two or more local images, apart from line breaks,
- * as the reading view makes a grid of; null for any other paragraph.
+ * The grids of a paragraph of whole lines, outside lists and quotes, since only whole lines can be
+ * replaced as a block: its runs of image lines whose images are all local.
  */
-function gridImages(
-  node: SyntaxNode,
-  slice: (from: number, to: number) => string,
-  defs: ReturnType<typeof definitions>,
-  note: string,
-): GridImage[] | null {
-  const images: GridImage[] = [];
-  let pos = node.from;
-  for (let child = node.firstChild; child; child = child.nextSibling) {
-    if (slice(pos, child.from).trim()) return null;
-    pos = child.to;
-    if (child.name === "HardBreak") continue;
-    if (child.name !== "Image") return null;
-    const url = linkTarget(child, slice, defs)?.url;
-    const src = url && imageUrl(url, note);
-    if (!src) return null;
-    images.push({ src, alt: slice(child.from, child.to).match(/^!\[([^\]]*)\]/)?.[1] ?? "" });
-  }
-  return images.length >= 2 && !slice(pos, node.to).trim() ? images : null;
-}
-/**
- * `gridImages` for a paragraph of whole lines, outside lists and quotes: only those can be replaced
- * as a block.
- */
-function gridParagraph(
+function paragraphGrids(
   state: EditorState,
   node: SyntaxNode,
   slice: (from: number, to: number) => string,
   defs: ReturnType<typeof definitions>,
   note: string,
-): GridImage[] | null {
+): EditorGrid[] {
   const { doc } = state;
-  const whole = doc.lineAt(node.from).from === node.from && doc.lineAt(node.to).to === node.to;
-  return whole ? gridImages(node, slice, defs, note) : null;
+  if (doc.lineAt(node.from).from !== node.from) return [];
+  const grids: EditorGrid[] = [];
+  runs: for (const run of imageRuns(node, slice)) {
+    const from = doc.lineAt(run.from).from;
+    const images: GridImage[] = [];
+    for (const child of run.images) {
+      const url = linkTarget(child, slice, defs)?.url;
+      const src = url && imageUrl(url, note);
+      if (!src) continue runs;
+      const alt = slice(child.from, child.to).match(/^!\[([^\]]*)\]/)?.[1] ?? "";
+      images.push({ src, alt, offset: child.from - from });
+    }
+    grids.push({ from, to: doc.lineAt(run.to).to, images });
+  }
+  return grids;
 }
 /**
  * ↑ and ↓ would jump over a grid, which is one block to the cursor: they enter it instead, at its
@@ -271,16 +262,14 @@ function gridDecorations(state: EditorState): DecorationSet {
     enter(node) {
       if (meta && node.to <= meta.to) return false;
       if (node.name !== "Paragraph") return;
-      if (!active(state, node.from, node.to)) {
-        const images = gridParagraph(state, node.node, slice, defs, note);
-        if (images)
+      for (const grid of paragraphGrids(state, node.node, slice, defs, note))
+        if (!active(state, grid.from, grid.to))
           ranges.push(
-            Decoration.replace({ block: true, widget: new GridWidget(images) }).range(
-              node.from,
-              node.to,
+            Decoration.replace({ block: true, widget: new GridWidget(grid.images) }).range(
+              grid.from,
+              grid.to,
             ),
           );
-      }
       return false;
     },
   });
@@ -369,6 +358,14 @@ function headerDecoration(state: EditorState) {
       ])
     : Decoration.none;
 }
+/** Whether a grid shown now covers `pos`. */
+function inGrid(state: EditorState, pos: number): boolean {
+  let found = false;
+  state.field(grids).between(pos, pos, (from, to) => {
+    if (from <= pos && pos <= to) found = true;
+  });
+  return found;
+}
 function gridAt(state: EditorState, from: number): boolean {
   let found = false;
   state.field(grids).between(from, from, (start) => {
@@ -401,7 +398,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
     }
   };
   // A grid the cursor is in shows all its lines as Markdown, not only the cursor's.
-  let openGrid: [number, number] | null = null;
+  const openGrids: [number, number][] = [];
   for (const visible of view.visibleRanges)
     syntaxTree(view.state).iterate({
       mode: IterMode.IgnoreMounts,
@@ -410,18 +407,17 @@ function formatting(view: EditorView, note: string): DecorationSet {
       enter(node) {
         const { name } = node.type;
         if (meta && node.to <= meta.to) return false;
-        if (name === "Paragraph") {
-          // A grid shows the whole paragraph; its images take no decorations of their own.
-          if (gridAt(view.state, node.from)) return false;
-          if (gridParagraph(view.state, node.node, slice, defs, note))
-            openGrid = [node.from, node.to];
-        }
+        if (name === "Paragraph")
+          for (const grid of paragraphGrids(view.state, node.node, slice, defs, note))
+            if (active(view.state, grid.from, grid.to)) openGrids.push([grid.from, grid.to]);
+        // A grid shown takes its images' place; they get no decorations of their own.
+        if (name === "Image" && inGrid(view.state, node.from)) return false;
         const raw = /^(Image|TaskMarker|ListMark)$/.test(name)
             ? view.state.sliceDoc(node.from, node.to)
             : "",
           selected =
             active(view.state, node.from, node.to) ||
-            (openGrid !== null && node.from >= openGrid[0] && node.to <= openGrid[1]);
+            openGrids.some(([from, to]) => node.from >= from && node.to <= to);
         const mark = (cls: string) => {
           if (node.from < node.to)
             ranges.push(Decoration.mark({ class: cls }).range(node.from, node.to));
@@ -527,10 +523,9 @@ function formatting(view: EditorView, note: string): DecorationSet {
             src = url && imageUrl(url, note);
           if (src)
             ranges.push(
-              Decoration.widget({
+              Decoration.replace({
                 widget: new ImageChipWidget(src, raw.match(/^!\[([^\]]*)\]/)?.[1] ?? ""),
-                side: -1,
-              }).range(node.from),
+              }).range(node.from, node.from + 1),
             );
         }
         if (selected) return;
@@ -615,8 +610,29 @@ function formatting(view: EditorView, note: string): DecorationSet {
   );
   return Decoration.set([...unique.values()], true);
 }
+/**
+ * Images and grids change size as an edit shows or hides them, and images load after the editor
+ * has scrolled to the cursor: shortly after an edit, a change of height brings the cursor back into
+ * view if it left it.
+ */
+const cursorAfterResize = ViewPlugin.fromClass(
+  class {
+    edited = 0;
+    update(update: import("@codemirror/view").ViewUpdate) {
+      if (update.transactions.some((tr) => tr.isUserEvent("input") || tr.isUserEvent("delete")))
+        this.edited = Date.now();
+      if (!update.heightChanged || Date.now() - this.edited > 1000 || !update.view.hasFocus) return;
+      const { view } = update;
+      // A view cannot dispatch during its own update.
+      requestAnimationFrame(() => {
+        if (view.dom.isConnected) view.dispatch({ scrollIntoView: true });
+      });
+    }
+  },
+);
 export function liveFormatting() {
   return [
+    cursorAfterResize,
     pointerReveal(),
     frontmatter,
     grids,
