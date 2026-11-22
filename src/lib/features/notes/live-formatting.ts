@@ -1,9 +1,10 @@
 import { syntaxTree } from "@codemirror/language";
-import { type EditorState, Facet, StateField } from "@codemirror/state";
+import { type EditorState, Facet, Prec, StateField } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
@@ -193,6 +194,58 @@ function gridImages(
   }
   return images.length >= 2 && !slice(pos, node.to).trim() ? images : null;
 }
+/**
+ * `gridImages` for a paragraph of whole lines, outside lists and quotes: only those can be replaced
+ * as a block.
+ */
+function gridParagraph(
+  state: EditorState,
+  node: SyntaxNode,
+  slice: (from: number, to: number) => string,
+  defs: ReturnType<typeof definitions>,
+  note: string,
+): GridImage[] | null {
+  const { doc } = state;
+  const whole = doc.lineAt(node.from).from === node.from && doc.lineAt(node.to).to === node.to;
+  return whole ? gridImages(node, slice, defs, note) : null;
+}
+/**
+ * ↑ and ↓ would jump over a grid, which is one block to the cursor: they enter it instead, at its
+ * first line from above and its last from below, which shows its lines.
+ */
+const gridKeys = Prec.high(
+  keymap.of([
+    {
+      key: "ArrowDown",
+      run: (view) => {
+        const { state } = view;
+        const { main } = state.selection;
+        if (!main.empty || state.selection.ranges.length > 1) return false;
+        const line = state.doc.lineAt(main.head);
+        if (line.to >= state.doc.length || !gridAt(state, line.to + 1)) return false;
+        view.dispatch({ selection: { anchor: line.to + 1 }, scrollIntoView: true });
+        return true;
+      },
+    },
+    {
+      key: "ArrowUp",
+      run: (view) => {
+        const { state } = view;
+        const { main } = state.selection;
+        if (!main.empty || state.selection.ranges.length > 1) return false;
+        const line = state.doc.lineAt(main.head);
+        if (line.from === 0) return false;
+        let start = -1;
+        state.field(grids).between(line.from - 1, line.from - 1, (_from, to) => {
+          if (to === line.from - 1) start = state.doc.lineAt(to).from;
+        });
+        if (start < 0) return false;
+        view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+        return true;
+      },
+    },
+  ]),
+);
 // A grid spans lines, so it is a block replacement, which only state may provide.
 export const grids = StateField.define<DecorationSet>({
   create: (state) => gridDecorations(state),
@@ -218,11 +271,8 @@ function gridDecorations(state: EditorState): DecorationSet {
     enter(node) {
       if (meta && node.to <= meta.to) return false;
       if (node.name !== "Paragraph") return;
-      const { doc } = state;
-      // Only a paragraph of whole lines, outside lists and quotes, can be replaced as a block.
-      const whole = doc.lineAt(node.from).from === node.from && doc.lineAt(node.to).to === node.to;
-      if (whole && !active(state, node.from, node.to)) {
-        const images = gridImages(node.node, slice, defs, note);
+      if (!active(state, node.from, node.to)) {
+        const images = gridParagraph(state, node.node, slice, defs, note);
         if (images)
           ranges.push(
             Decoration.replace({ block: true, widget: new GridWidget(images) }).range(
@@ -350,6 +400,8 @@ function formatting(view: EditorView, note: string): DecorationSet {
       }
     }
   };
+  // A grid the cursor is in shows all its lines as Markdown, not only the cursor's.
+  let openGrid: [number, number] | null = null;
   for (const visible of view.visibleRanges)
     syntaxTree(view.state).iterate({
       mode: IterMode.IgnoreMounts,
@@ -358,12 +410,18 @@ function formatting(view: EditorView, note: string): DecorationSet {
       enter(node) {
         const { name } = node.type;
         if (meta && node.to <= meta.to) return false;
-        // A grid shows the whole paragraph; its images take no decorations of their own.
-        if (name === "Paragraph" && gridAt(view.state, node.from)) return false;
+        if (name === "Paragraph") {
+          // A grid shows the whole paragraph; its images take no decorations of their own.
+          if (gridAt(view.state, node.from)) return false;
+          if (gridParagraph(view.state, node.node, slice, defs, note))
+            openGrid = [node.from, node.to];
+        }
         const raw = /^(Image|TaskMarker|ListMark)$/.test(name)
             ? view.state.sliceDoc(node.from, node.to)
             : "",
-          selected = active(view.state, node.from, node.to);
+          selected =
+            active(view.state, node.from, node.to) ||
+            (openGrid !== null && node.from >= openGrid[0] && node.to <= openGrid[1]);
         const mark = (cls: string) => {
           if (node.from < node.to)
             ranges.push(Decoration.mark({ class: cls }).range(node.from, node.to));
@@ -562,6 +620,7 @@ export function liveFormatting() {
     pointerReveal(),
     frontmatter,
     grids,
+    gridKeys,
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
