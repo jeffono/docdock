@@ -40,6 +40,7 @@ let {
   status = "",
   editor,
   folder = false,
+  deleting = false,
 }: {
   card: Card;
   now: number;
@@ -79,6 +80,8 @@ let {
   editor?: Snippet;
   /** Shows the note's folder before its title, unless a folder group already names it. */
   folder?: boolean;
+  /** Its delete is taking a while: a scrim over the card says so, and takes the pointer. */
+  deleting?: boolean;
 } = $props();
 
 const path = $derived(card.hit.path);
@@ -188,6 +191,7 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
   class:expanded={card.level === "expanded"}
   class:editing
   class:floats
+  aria-busy={deleting || undefined}
   data-path={card.hit.path}
 >
   <header>
@@ -282,10 +286,16 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
       <NoteStats total={stats} />
     {/if}
   {/if}
+  {#if deleting}
+    <div class="deleting">
+      <span class="busy" role="status"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>{t("card.deleting")}</span>
+    </div>
+  {/if}
 </div>
 
 <style>
   .card {
+    position: relative;
     margin: 0 var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
@@ -452,6 +462,60 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
   .status { margin-right: var(--header-actions); }
   @media (prefers-reduced-motion: reduce) {
     .meta, .card.row .title, .actions :global(button) { transition: none; }
+  }
+
+  /* A delete that takes a while, as on a network folder: the card dims under a quiet pill. */
+  .deleting {
+    position: absolute;
+    inset: -1px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--color-scrim);
+    animation: appear var(--duration) ease-out;
+  }
+
+  .busy {
+    display: inline-flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 0 var(--space-3);
+    min-height: calc(var(--size-control) - var(--space-1));
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-fg);
+    font-size: var(--font-size-sm);
+  }
+
+  .dots {
+    display: inline-flex;
+    gap: var(--space-1);
+  }
+
+  .dots i {
+    width: var(--space-1);
+    height: var(--space-1);
+    border-radius: var(--radius-full);
+    background: var(--color-muted);
+    animation: pulse calc(var(--duration) * 8) ease-in-out infinite;
+  }
+
+  .dots i:nth-child(2) { animation-delay: calc(var(--duration) * 8 / 3); }
+  .dots i:nth-child(3) { animation-delay: calc(var(--duration) * 16 / 3); }
+
+  @keyframes appear {
+    from { opacity: 0; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.3; }
+    40% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .deleting, .dots i { animation: none; }
   }
 
   .file {

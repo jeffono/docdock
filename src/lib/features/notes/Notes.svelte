@@ -1284,6 +1284,26 @@ let deleting = false;
 let warning = $state("");
 /** The note being deleted; it cannot open in the editor meanwhile. */
 let deletingPath = "";
+/** The card whose delete took long enough to say so (`showDeleting`). */
+let deletingShown = $state("");
+/** A delete that ends sooner shows nothing; one shown stays at least `DELETING_MIN`, not flashing. */
+const DELETING_DELAY = 300;
+const DELETING_MIN = 500;
+/** Waits for `work`, the delete of the card at `path`, which says so if it takes a while. */
+async function showDeleting<T>(path: string, work: Promise<T>): Promise<T> {
+  let shownAt = 0;
+  const timer = setTimeout(() => {
+    deletingShown = path;
+    shownAt = performance.now();
+  }, DELETING_DELAY);
+  try {
+    return await work;
+  } finally {
+    clearTimeout(timer);
+    const left = shownAt ? DELETING_MIN - (performance.now() - shownAt) : 0;
+    if (left > 0) await new Promise((done) => setTimeout(done, left));
+  }
+}
 /** Counts panel hides: a delete that ends after one offers no Undo, which Rust no longer keeps. */
 let panelSession = 0;
 
@@ -1391,7 +1411,7 @@ async function deleteNote(card: Card) {
     const session = panelSession;
     const at = keys.indexOf(path);
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
-    const { undo, trash, images, problem } = await removal(notesDelete(path));
+    const { undo, trash, images, problem } = await removal(showDeleting(path, notesDelete(path)));
     removed = { path, title, folder: false, trash, undo: undo && session === panelSession, images };
     renamedAway.add(path);
     forgetRemoved(path);
@@ -1407,6 +1427,7 @@ async function deleteNote(card: Card) {
   } finally {
     deleting = false;
     deletingPath = "";
+    deletingShown = "";
   }
 }
 /**
@@ -2648,6 +2669,7 @@ onMount(() => {
             editing={edited}
             status={edited ? saveText : ""}
             editor={edited ? noteEditor : undefined}
+            deleting={deletingShown === card.hit.path}
           />
         {/if}
         </div>
