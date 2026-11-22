@@ -98,6 +98,66 @@ export function decodeEntity(entity: string): string {
   return holder.textContent || entity;
 }
 
+/** Lines of a paragraph that hold only images, together, with two or more images: a grid. */
+export type ImageRun = { from: number; to: number; images: SyntaxNode[] };
+
+/** What may stand beside images on a line without making it text: breaks, quote marks, blank entities. */
+function besideImages(child: SyntaxNode, raw: string): boolean {
+  if (child.name === "HardBreak" || child.name === "QuoteMark") return true;
+  if (child.name === "HTMLTag") return /^<br[ \t]*\/?>$/i.test(raw);
+  return child.name === "Entity" && !decodeEntity(raw).trim();
+}
+
+/**
+ * The runs of consecutive lines of `paragraph`, from `from`, that hold only images, with two or more
+ * images each: every run shows as a grid, and the lines around it as text. A line with text ends a
+ * run, so text written between images splits their grid in two.
+ */
+export function imageRuns(
+  paragraph: SyntaxNode,
+  slice: (from: number, to: number) => string,
+  from = paragraph.from,
+): ImageRun[] {
+  const runs: ImageRun[] = [];
+  let run: SyntaxNode[] = [];
+  let line: SyntaxNode[] = [];
+  let text = false;
+  const close = () => {
+    const last = run.at(-1);
+    if (last && run.length >= 2) runs.push({ from: run[0].from, to: last.to, images: run });
+    run = [];
+  };
+  const endLine = () => {
+    if (text || !line.length) close();
+    else run.push(...line);
+    line = [];
+    text = false;
+  };
+  /** Text between nodes or inside one: each line break ends a line, anything visible makes it text. */
+  const read = (part: string, visible: boolean) =>
+    part.split("\n").forEach((piece, index) => {
+      if (index) endLine();
+      if (visible && piece.trim()) text = true;
+    });
+  let pos = from;
+  for (let child = paragraph.firstChild; child; child = child.nextSibling) {
+    if (child.to <= from) continue;
+    read(slice(pos, Math.max(pos, child.from)), true);
+    pos = child.to;
+    const raw = slice(child.from, child.to);
+    if (child.name === "Image" && !raw.includes("\n")) line.push(child);
+    else if (besideImages(child, raw)) read(raw, false);
+    else {
+      read(raw, true);
+      text = true;
+    }
+  }
+  read(slice(pos, paragraph.to), true);
+  endLine();
+  close();
+  return runs;
+}
+
 /** Backslash escapes and character references, as CommonMark decodes destinations and titles. */
 export function decodeMarkdown(text: string): string {
   return text.replace(

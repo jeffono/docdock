@@ -222,3 +222,21 @@ test("thumbnail labels do not name the note or hide its first heading", () => {
   expect(noteName(images)).toBeNull();
   expect(noteName(`${images}\n\n# Weekend walk\n\nSunny day`)?.title).toBe("Weekend walk");
 });
+
+// Text written between images splits their grid instead of turning every image back to full size.
+test("text between image lines splits a grid, and a lone image stays in its text", () => {
+  const model = noteModel(
+    "![](a.png)\n![](b.png)\nBetween\n![](c.png)\n![](d.png)\n\n![](e.png)\n![](f.png)\nAfter\n![](g.png)",
+    "note.md",
+  );
+  const kinds = (element: Content) =>
+    typeof element === "string"
+      ? "text"
+      : (element.children ?? []).map((child) =>
+          typeof child === "string" ? "text" : (child.attrs?.class ?? child.tag),
+        );
+  expect(kinds(model[0])).toEqual(["image-grid", "p", "image-grid"]);
+  expect(kinds(model[1])).toEqual(["image-grid", "p"]);
+  expect(html([model[1]])).toContain("After");
+  expect(html([model[1]])).toContain("g.png");
+});
