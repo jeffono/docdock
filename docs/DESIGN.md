@@ -351,9 +351,11 @@ notes differ only in section and starting state.
   images dropped together into one paragraph. The editor ignores non-image files.
 - **Conflicts:** a primary Keep my version and a secondary Discard my changes above the text; errors in
   red beside it.
-- **Footer:** muted word and character counts and reading (300–175 words per minute) and speaking
-  (160–130) time ranges, for the selection or the whole note, also for the focused card in reading.
-  Frontmatter is excluded.
+- **Footer:** muted word and character counts ("words"/"chars", "pal."/"car."), reading (300–175
+  words per minute) and speaking (160–130) time ranges and, with images, an `image` icon and their
+  count, for the selection or the whole note. Frontmatter and images' Markdown are excluded from the
+  counts. The focused card in reading shows only characters, reading time and images, everything
+  while the footer is hovered; a note of images alone shows only their count.
 - **Tags:** light theme uses the selected background and accent text in both views; dark theme keeps
   the surface background and muted text.
 
@@ -416,7 +418,9 @@ notes differ only in section and starting state.
 - Reading and editing share `features/notes/content.css`, scoped by `.note-content`. List paragraphs
   stay tight, like editor lines.
 - Images load lazily. A paragraph containing only two or more local images, separated by whitespace
-  or line breaks, shows a grid of square thumbnails. Tab reaches them in the expanded note. A plain
+  or line breaks, shows a grid of square thumbnails; in a preview they are smaller (at least twice
+  `--size-control`, `--space-1` apart) and the preview grows to show whole any grid starting
+  within it, then a faded line of what follows. Tab reaches them in the expanded note. A plain
   `<br>` counts as a line break in a grid. Raw HTML elsewhere shows as plain text.
 - **Image preview:** hovering a grid thumbnail for 300 ms, or focusing it and pressing Space, shows
   the image larger in a window beside the panel's inner edge, past the edge tab, vertically centered

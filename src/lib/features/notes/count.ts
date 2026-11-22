@@ -1,11 +1,12 @@
 import type { EditorSelection, Text } from "@codemirror/state";
-import { frontmatter } from "./markdown";
+import { frontmatter, noteParser } from "./markdown";
 
 const words = new Intl.Segmenter(undefined, { granularity: "word" });
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const lineBreak = /^[\r\n\v\f\u0085\u2028\u2029]/u;
 
-export type Counts = { words: number; chars: number };
+/** Words and characters of the text around images, whose Markdown is no prose; and the images. */
+export type Counts = { words: number; chars: number; images: number };
 
 export const readingRates = [300, 175] as const;
 export const speakingRates = [160, 130] as const;
@@ -26,8 +27,31 @@ export function formatTimeRange(words: number, fastWpm: number, slowWpm: number)
   return fast === slow ? fast : `${fast}~${slow}`;
 }
 
-export function countText(text: string): Counts {
-  const count = { words: 0, chars: 0 };
+/**
+ * The text without its images' Markdown, and how many there were. Each becomes a line break, which
+ * keeps the words on either side apart and counts as no character.
+ */
+function withoutImages(text: string): { prose: string; images: number } {
+  // Cheap way out for the common note without any image syntax.
+  if (!text.includes("![")) return { prose: text, images: 0 };
+  let prose = "";
+  let at = 0;
+  let images = 0;
+  noteParser.parse(text).iterate({
+    enter(node) {
+      if (node.name !== "Image") return;
+      images++;
+      prose += `${text.slice(at, node.from)}\n`;
+      at = node.to;
+      return false;
+    },
+  });
+  return { prose: prose + text.slice(at), images };
+}
+
+export function countText(source: string): Counts {
+  const { prose: text, images } = withoutImages(source);
+  const count = { words: 0, chars: 0, images };
   for (const segment of words.segment(text)) {
     if (segment.isWordLike) count.words++;
   }
@@ -53,11 +77,12 @@ export function countSelection(doc: Text, selection: EditorSelection, bodyStart:
   let count: Counts | null = null;
   for (const range of selection.ranges) {
     if (range.empty) continue;
-    count ??= { words: 0, chars: 0 };
+    count ??= { words: 0, chars: 0, images: 0 };
     if (range.to <= bodyStart) continue;
     const selected = countText(doc.sliceString(Math.max(range.from, bodyStart), range.to));
     count.words += selected.words;
     count.chars += selected.chars;
+    count.images += selected.images;
   }
   return count;
 }
