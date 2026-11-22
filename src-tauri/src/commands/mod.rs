@@ -376,6 +376,30 @@ pub fn notes_paste_image(
 /// little-endian `u32` with the length of `content` in UTF-8, `content` and the image. The headers
 /// name the note and the notes folder path and marker id `web_capture` started in, so a folder
 /// chosen since refuses the note with `folderChanged`.
+/// Where a note made from a pasted image goes, as `web_capture` answers it for
+/// `notes_create_with_image`, and the title the window it came from suggests, if any (untrusted).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteTarget {
+    folder: String,
+    folder_id: String,
+    title: Option<String>,
+}
+#[tauri::command(async)]
+pub fn notes_paste_target(app: AppHandle) -> Result<PasteTarget, Error> {
+    let (folder, folder_id) = crate::notes::capture_folder(&app)?;
+    let own = std::env::current_exe()
+        .ok()
+        .and_then(|path| Some(path.file_name()?.to_string_lossy().to_lowercase()))
+        .unwrap_or_default();
+    let owner = crate::platform::clipboard_owner();
+    let previous = crate::dock::previous_window().and_then(crate::platform::source_window);
+    Ok(PasteTarget {
+        folder,
+        folder_id,
+        title: crate::paste_source::note_title(owner.as_ref(), previous.as_ref(), &own),
+    })
+}
 #[tauri::command(async)]
 pub fn notes_create_with_image(
     app: AppHandle,

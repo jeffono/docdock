@@ -16,6 +16,7 @@ mod memory;
 pub mod permission;
 pub mod power;
 mod recycle;
+mod source;
 pub mod spell;
 pub mod taskbar;
 mod windows;
@@ -29,6 +30,7 @@ pub use self::files::{
 pub use self::guard::guard;
 pub use self::memory::set_memory_low;
 pub use self::recycle::{recyclable, recycle, shell_addresses};
+pub use self::source::{SourceWindow, clipboard_owner, window as source_window};
 pub use self::windows::{
     Activation, Monitor, OverlayWindow, PanelWindow, Point, Rect, Sizing, SizingEdge, alt_held,
     constrain_sizing, cursor_pos, drag_tolerance, escape_pressed, foreground_window, hide_window,

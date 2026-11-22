@@ -327,6 +327,12 @@ export type UnusedImages = { folderId: string; paths: string[] };
 export const notesUnusedImages = () => invoke<UnusedImages>("notes_unused_images");
 export const notesRecycleImages = (folderId: string, paths: string[]) =>
   invoke<void>("notes_recycle_images", { folderId, paths });
+/**
+ * Where a note made from a pasted image goes, for `notesCreateWithImage`, and `title`, what the
+ * window it came from suggests naming it, if anything (untrusted).
+ */
+export type PasteTarget = { folder: string; folderId: string; title: string | null };
+export const notesPasteTarget = () => invoke<PasteTarget>("notes_paste_target");
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },
