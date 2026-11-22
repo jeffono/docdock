@@ -23,7 +23,7 @@ A neutral, compact system utility. Only the user changes the identity.
   `check:fast`.
 - Red only for errors. Amber (`--color-warning*`) only tints notices that need attention without being
   errors, such as Undo after a delete. A light scrim (`--color-scrim`) dims the panel only behind a
-  dialog.
+  dialog, and a card while it is being deleted.
 - Code syntax uses the GitHub Light Default and GitHub Dark Default colors: red keywords and
   operators, dark-blue strings, blue constants, properties and definitions, violet functions, orange
   types, green tags and gray comments; punctuation and other identifiers keep the foreground color.
@@ -269,7 +269,10 @@ notes differ only in section and starting state.
   down and fades in over two `--duration`, then Undo pulses twice (accent outline, selected
   background, five `--duration` each); with reduced motion it appears at once with that look. Undo
   brings back the note and its pinned items and selects it; otherwise selection moves to the next
-  item. A note over 2 MB is not deleted: the notice says it is too large to keep a copy for Undo and
+  item. A delete taking over 300 ms, as on a network folder, dims the card under `--color-scrim`
+  with a centered pill (`--color-surface`, 1 px `--color-line`, `--radius-full`, `--font-size-sm`):
+  three small `--color-muted` dots pulsing in turn, still with reduced motion, and "Deleting…"; it
+  takes the pointer and stays at least 500 ms, so it never flashes. A note over 2 MB is not deleted: the notice says it is too large to keep a copy for Undo and
   to delete it in File Explorer.
 - **Folders:** "Delete folder" deletes at once: an empty folder is removed, any other goes whole to the
   Recycle Bin or the trash. A folder with notes shows "Folder “name” moved to the Recycle Bin." with
