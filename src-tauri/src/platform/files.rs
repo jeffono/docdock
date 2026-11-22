@@ -68,6 +68,35 @@ pub fn open_plain_file(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Where `file` really is, links resolved, in the form `fs::canonicalize` answers, which asks the
+/// same of the path it opens.
+pub fn final_path(file: &File) -> io::Result<std::path::PathBuf> {
+    use windows::Win32::Storage::FileSystem::{
+        FILE_NAME_NORMALIZED, GETFINALPATHNAMEBYHANDLE_FLAGS, GetFinalPathNameByHandleW,
+        VOLUME_NAME_DOS,
+    };
+    let mut buffer = vec![0u16; 512];
+    loop {
+        // SAFETY: the handle lives as long as `file`, and the buffer is a valid slice.
+        let length = unsafe {
+            GetFinalPathNameByHandleW(
+                HANDLE(file.as_raw_handle()),
+                &mut buffer,
+                GETFINALPATHNAMEBYHANDLE_FLAGS(FILE_NAME_NORMALIZED.0 | VOLUME_NAME_DOS.0),
+            )
+        } as usize;
+        if length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // Too small, it answers the size needed, counting the terminator.
+        if length < buffer.len() {
+            buffer.truncate(length);
+            return Ok(OsString::from_wide(&buffer).into());
+        }
+        buffer.resize(length, 0);
+    }
+}
+
 /// Rejects links and prevents directory swaps in `dir` and every folder above it while the handles live.
 pub fn hold_ancestry(dir: &Path) -> io::Result<Vec<File>> {
     hold_from_top(dir, hold_directory)

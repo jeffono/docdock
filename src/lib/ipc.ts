@@ -392,8 +392,13 @@ export const onNotesChanged = (handler: (changes: NotesChanges) => void): Promis
   listen<NotesChanges>("notes-changed", (event) => handler(event.payload));
 
 /** A post-it asked to edit its note: the panel took focus and opens it in the editor. */
-export const onPanelEditNote = (handler: (path: string) => void): Promise<UnlistenFn> =>
-  listen<string>("panel-edit-note", (event) => handler(event.payload));
+/**
+ * A post-it asks to edit its note `path`, from the notes folder of floating windows' `epoch`:
+ * `floatingEditCurrent` tells whether that folder is still the configured one.
+ */
+export type EditNoteRequest = { path: string; epoch: number };
+export const onPanelEditNote = (handler: (request: EditNoteRequest) => void): Promise<UnlistenFn> =>
+  listen<EditNoteRequest>("panel-edit-note", (event) => handler(event.payload));
 
 /** The panel finished sliding out of sight, ending the panel session it carries. */
 export const onPanelHidden = (handler: (session: number) => void): Promise<UnlistenFn> =>
@@ -448,6 +453,9 @@ export const floatingOpen = (
 /** Opens the note at `path` as a post-it beside its card at `rect`, as `floatingOpen` places it. */
 export const floatingOpenNote = (path: string, rect: [number, number, number, number]) =>
   invoke<void>("floating_open_note", { path, rect });
+/** No folder change came since floating windows' `epoch`, nor is one under way. */
+export const floatingEditCurrent = (epoch: number) =>
+  invoke<boolean>("floating_edit_current", { epoch });
 
 /** The images and notes open floating windows show, relative to the notes folder. */
 export const floatingList = () => invoke<string[]>("floating_list");

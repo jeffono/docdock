@@ -195,7 +195,9 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   which first moves the post-its of the folder it watched, live and saved by id, along the renames
   it saw there, in their order; a read that a rename or folder change overtook is dropped. `float_edit` asks the dock
   thread for `Request::EditNote`, which summons the panel as the shortcut does and emits
-  `panel-edit-note` to `main`. Commands of one kind refuse windows of the other.
+  `panel-edit-note` to `main` with the post-it's epoch; the panel opens the note only while
+  `floating_edit_current` finds that epoch current and no folder was chosen in the panel since it
+  asked, so a request overtaken by a folder change is dropped. Commands of one kind refuse windows of the other.
   Click-through is `WS_EX_LAYERED | WS_EX_TRANSPARENT`; while any window has it, one worker thread
   polls every 50 ms and, with Alt (not AltGr) over a window, clears it until Alt and any drag it
   started are released (`floats::reveal_step`). The same worker saves moves, resizes and fades
@@ -281,6 +283,10 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
 - Accepted gaps, outside 0009's threats: writes still go by path, so a forced unmount between the
   check and a write, or a junction redirected after the check, can affect one write. Handle-relative
   writes would close them at a cost not justified today.
+- Reading a note for the editor or a post-it, or an image for `note-asset`, resolves it below where
+  the folder's handle really is (`Root::real`) and reads only if the file opened really is there
+  (`read_resolved`), so a junction swapped in meanwhile, anywhere on the way, is refused. The search
+  index's bulk reads go by path.
 - `watch::monitor` checks the state every 2 s and emits `notes-changed` on a change. On leaving, the UI
   (`folderAction` in `features/notes/folder-state.ts`) forgets every note's text, name and tag, and
   Rust forgets what it keeps for Undo and closes the image preview and the floating windows, which

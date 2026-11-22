@@ -425,6 +425,13 @@ struct Root {
     path: PathBuf,
     _held: fs::File,
 }
+impl Root {
+    /// Where the folder really is, links resolved, from the handle opened where its marker was
+    /// checked: unlike its path, this cannot come to name another folder meanwhile.
+    fn real(&self) -> io::Result<PathBuf> {
+        platform::final_path(&self._held)
+    }
+}
 impl std::ops::Deref for Root {
     type Target = Path;
     fn deref(&self) -> &Path {
@@ -936,6 +943,30 @@ fn read_bytes(path: &Path) -> Result<Vec<u8>, Error> {
 fn read_note(path: &Path) -> Result<String, Error> {
     String::from_utf8(read_bytes(path)?).map_err(|_| Error::NotUtf8)
 }
+/// Reads the file `relative` names in the notes folder whose real path, links resolved, is `real`
+/// (`Root::real`), only if the file opened is the one `resolve` found there: a folder on the way
+/// swapped for a junction in between is refused, wherever it points. `limit` checks the size.
+fn read_resolved(
+    real: &Path,
+    relative: &str,
+    allowed: fn(&Path) -> bool,
+    limit: fn(u64) -> Result<(), Error>,
+) -> Result<(PathBuf, Vec<u8>), Error> {
+    let target = resolve_below(real, relative, allowed)?;
+    let mut file = platform::open_plain_file(&target)?;
+    if platform::final_path(&file)? != target {
+        return Err(Error::OutsideFolder);
+    }
+    limit(file.metadata()?.len())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok((target, bytes))
+}
+/// A note as `read_resolved` reads it.
+fn read_resolved_note(real: &Path, relative: &str) -> Result<String, Error> {
+    String::from_utf8(read_resolved(real, relative, markdown, too_large)?.1)
+        .map_err(|_| Error::NotUtf8)
+}
 /// Identifies the exact bytes the editor loaded. Hashing the content, rather than using mtime and size,
 /// also catches same-size edits and tools that preserve mtime. Tokens are never persisted, so the
 /// unspecified `DefaultHasher` algorithm only needs to be stable within one run.
@@ -945,7 +976,7 @@ fn version(bytes: &[u8]) -> String {
     format!("{:016x}", hasher.finish())
 }
 pub fn open(app: &AppHandle, path: &str) -> Result<OpenNote, Error> {
-    let text = read_note(&resolve(&root(app)?, path, markdown)?)?;
+    let text = read_resolved_note(&root(app)?.real()?, path)?;
     Ok(OpenNote {
         version: version(text.as_bytes()),
         text,
@@ -2244,13 +2275,14 @@ pub fn floating_note(
     identity: &FolderIdentity,
     path: &str,
 ) -> Result<Option<String>, Error> {
-    floating_note_in(&root_matching(&config(app)?, identity)?, path)
+    floating_note_in(&root_matching(&config(app)?, identity)?.real()?, path)
 }
-fn floating_note_in(root: &Path, path: &str) -> Result<Option<String>, Error> {
-    if !present_in(root, path, markdown)? {
+/// `real`: the folder's real path (`Root::real`).
+fn floating_note_in(real: &Path, path: &str) -> Result<Option<String>, Error> {
+    if !present_in(real, path, markdown)? {
         return Ok(None);
     }
-    read_note(&resolve(root, path, markdown)?).map(Some)
+    read_resolved_note(real, path).map(Some)
 }
 /// The floating windows saved in the configured notes folder, with its identity, if it is
 /// available and the one chosen; see `load_floating`. Under `SAVING`, as every write.
@@ -3037,13 +3069,13 @@ fn image_type(path: &Path) -> Option<&'static str> {
 fn is_image(path: &Path) -> bool {
     image_type(path).is_some()
 }
-fn read_image(root: &Path, uri_path: &str) -> Option<(Vec<u8>, &'static str)> {
+/// `real`: the folder's real path (`Root::real`). Images have no size limit.
+fn read_image(real: &Path, uri_path: &str) -> Option<(Vec<u8>, &'static str)> {
     let relative = percent_decode_str(uri_path.strip_prefix('/')?)
         .decode_utf8()
         .ok()?;
-    let target = resolve(root, &relative, is_image).ok()?;
-    let content_type = image_type(&target)?;
-    Some((fs::read(target).ok()?, content_type))
+    let (target, bytes) = read_resolved(real, &relative, is_image, |_| Ok(())).ok()?;
+    Some((bytes, image_type(&target)?))
 }
 fn empty_response(status: StatusCode) -> Response<Vec<u8>> {
     let mut response = Response::new(Vec::new());
@@ -3069,9 +3101,10 @@ fn image_response(webview: &str, root: Option<PathBuf>, uri_path: &str) -> Respo
 pub fn image_for(app: &AppHandle, webview: &str, uri_path: &str) -> Response<Vec<u8>> {
     // Held until the image is read, so the folder checked is the one read from.
     let root = root(app).ok();
+    // Read below where the folder really is, as its handle tells.
     let checked = root
         .as_ref()
-        .map(|root| (root.path.clone(), identity_of(root).ok()));
+        .and_then(|root| Some((root.real().ok()?, identity_of(root).ok())));
     image_response_for(webview, checked, crate::floating::folder_of, uri_path)
 }
 /// `image_response`, and a floating window reads images only from the folder it opened on
@@ -3521,7 +3554,8 @@ mod tests {
         let next = paste(b"\x89PNG\r\n\x1a\nnext").unwrap();
         assert_eq!(next, "attachments/a-3.png");
         assert_eq!(fs::read_to_string(folder.join("A-2.PNG")).unwrap(), "kept");
-        let response = image_response("main", Some(t.0.clone()), "/sub/attachments/a.png");
+        let real = t.0.canonicalize().unwrap();
+        let response = image_response("main", Some(real), "/sub/attachments/a.png");
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body(), png);
         assert_eq!(
@@ -3611,6 +3645,16 @@ mod tests {
         );
         assert_eq!(fs::read_dir(t.0.join("outside")).unwrap().count(), 0);
     }
+    // Regression: images were held to the note size limit, so a pasted 3 MiB photo did not show.
+    #[test]
+    fn images_larger_than_a_note_are_served() {
+        let t = Temp::new();
+        let big = vec![7u8; 3 * 1024 * 1024];
+        fs::write(t.0.join("big.jpg"), &big).unwrap();
+        let response = image_response("main", Some(t.0.canonicalize().unwrap()), "/big.jpg");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body().len(), big.len());
+    }
     #[test]
     fn images_reach_only_app_windows() {
         let t = Temp::new();
@@ -3622,7 +3666,8 @@ mod tests {
             fs::write(notas.join(p), "imagem").unwrap();
         }
         assert!(mklink(&["/J"], &notas.join("atalho"), &fora));
-        let pedir = |webview, uri| image_response(webview, Some(notas.clone()), uri);
+        let real = notas.canonicalize().unwrap();
+        let pedir = |webview, uri| image_response(webview, Some(real.clone()), uri);
 
         let ok = pedir("main", "/com%20espaco/foto.PNG");
         assert_eq!(ok.status(), StatusCode::OK);
@@ -4927,7 +4972,7 @@ mod tests {
         let (elsewhere, _) = read_floating_at(&settings).unwrap();
         let label = crate::floating::register_for_tests(&identity);
         let status = |root: &Path, identity: &FolderIdentity| {
-            let root = Some((root.to_owned(), Some(identity.clone())));
+            let root = Some((root.canonicalize().unwrap(), Some(identity.clone())));
             image_response_for(
                 &label,
                 root,
@@ -4958,7 +5003,9 @@ mod tests {
     #[test]
     fn a_post_it_reads_only_its_note() {
         let t = Temp::new();
-        let root = folder_with(&t, &[("attachments/a.png", b"a"), ("Inbox/a.md", b"# A")]);
+        let root = folder_with(&t, &[("attachments/a.png", b"a"), ("Inbox/a.md", b"# A")])
+            .canonicalize()
+            .unwrap();
         assert_eq!(
             floating_note_in(&root, "Inbox/a.md"),
             Ok(Some("# A".into()))

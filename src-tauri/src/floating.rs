@@ -24,7 +24,7 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use crate::dock::Request;
+use crate::dock::{EditNoteRequest, Request};
 use crate::error::Error;
 use crate::floats::{self, Entry, Kind, MAX_FLOATING};
 use crate::i18n::Locale;
@@ -1101,15 +1101,22 @@ pub fn set_text_scale(label: &str, scale: f64) -> Result<(), Error> {
     Ok(())
 }
 
-/// Opens the post-it's note in the panel for editing.
+/// Opens the post-it's note in the panel for editing, while the notes folder it opened on lasts.
 pub fn edit(label: &str, requests: &Sender<Request>) -> Result<(), Error> {
-    let (kind, path) = with_live(label, |live| (live.kind, live.path.clone()))?;
+    let (kind, path, epoch) = with_live(label, |live| (live.kind, live.path.clone(), live.epoch))?;
     if kind != Kind::Note {
         return Err(Error::unexpected("command restricted to post-its"));
     }
     requests
-        .send(Request::EditNote(path))
+        .send(Request::EditNote(EditNoteRequest { path, epoch }))
         .map_err(Error::unexpected)
+}
+
+/// A post-it's request to edit, made on `epoch`, still names a note of the configured folder: no
+/// folder change came since, nor is one under way. The panel asks before opening it, since the
+/// request may reach it after another folder was chosen.
+pub fn edit_current(epoch: u64) -> bool {
+    registry().current(epoch)
 }
 
 /// Something in the notes folder changed, `renames` among it as the watcher saw them in `root`
