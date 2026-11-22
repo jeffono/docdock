@@ -92,12 +92,37 @@ const stats = $derived(text === undefined ? null : countNote(text));
 let body = $state<HTMLElement>();
 let clipped = $state(false);
 
+/**
+ * A preview grows past its usual height to show whole any image grid that starts within it, its
+ * thumbnails smaller there, and a faded line of what follows. Through the CSSOM: the CSP forbids
+ * style attributes.
+ */
+function fitGrids(element: HTMLElement) {
+  element.style.maxHeight = "";
+  const style = getComputedStyle(element);
+  // `max-height` holds the content box: offsets count from below the top padding.
+  const usual = Number.parseFloat(style.maxHeight);
+  const top = element.getBoundingClientRect().top + Number.parseFloat(style.paddingTop);
+  let reach = usual;
+  for (const grid of element.querySelectorAll<HTMLElement>(".image-grid")) {
+    const box = grid.getBoundingClientRect();
+    if (box.top - top >= usual) break;
+    reach = Math.max(reach, box.bottom - top);
+  }
+  if (reach <= usual) return;
+  // Room for the fade over the first line after, when more follows.
+  const more = element.scrollHeight > reach + Number.parseFloat(style.paddingTop) + 1;
+  const fade = more ? 2.5 * Number.parseFloat(style.fontSize) : 0;
+  element.style.maxHeight = `${Math.ceil(reach + fade)}px`;
+}
+
 // The fade at the bottom of a preview only makes sense when something is cut off.
 $effect(() => {
   void text;
   const element = body;
   if (!element || level !== "preview") return;
   const measure = () => {
+    fitGrids(element);
     clipped = element.scrollHeight > element.clientHeight + 1;
   };
   const frame = requestAnimationFrame(measure);
@@ -106,6 +131,7 @@ $effect(() => {
   return () => {
     cancelAnimationFrame(frame);
     observer.disconnect();
+    element.style.maxHeight = "";
   };
 });
 
@@ -283,7 +309,7 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
       {/if}
     </div>
     {#if selected && stats}
-      <NoteStats total={stats} />
+      <NoteStats total={stats} full={false} />
     {/if}
   {/if}
   {#if deleting}
@@ -589,6 +615,12 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
     max-height: calc(8 * var(--line-height) * var(--font-size-md));
     overflow: hidden;
     cursor: pointer;
+  }
+
+  /* Smaller thumbnails, so a grid shows whole in a preview (`fitGrids`). */
+  .body.preview :global(.image-grid) {
+    grid-template-columns: repeat(auto-fill, minmax(calc(2 * var(--size-control)), 1fr));
+    gap: var(--space-1);
   }
 
   .body.clipped {

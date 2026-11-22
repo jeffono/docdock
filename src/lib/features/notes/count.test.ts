@@ -5,11 +5,19 @@ import { countNote, countSelection, countText, formatTimeRange, noteBodyStart } 
 describe("editor count", () => {
   it("starts after the closing frontmatter delimiter", () => {
     const doc = Text.of(["---", "title: A note", "---", "Body"]);
-    expect(countText(doc.sliceString(noteBodyStart(doc)))).toEqual({ words: 1, chars: 4 });
+    expect(countText(doc.sliceString(noteBodyStart(doc)))).toEqual({
+      words: 1,
+      chars: 4,
+      images: 0,
+    });
   });
 
   it("excludes frontmatter in a raw note with CRLF line endings", () => {
-    expect(countNote("---\r\ntitle: Hidden\r\n---\r\nOne two")).toEqual({ words: 2, chars: 7 });
+    expect(countNote("---\r\ntitle: Hidden\r\n---\r\nOne two")).toEqual({
+      words: 2,
+      chars: 7,
+      images: 0,
+    });
   });
 
   it("counts apostrophes and accented letters within words", () => {
@@ -18,6 +26,18 @@ describe("editor count", () => {
 
   it("counts emoji and combining sequences as single characters", () => {
     expect(countText("👩‍💻e\u0301").chars).toBe(2);
+  });
+
+  it("counts images apart from the prose around them", () => {
+    expect(countText("Trip ![a](x.png) ![](attachments/y%20z.jpg)\nday")).toEqual({
+      words: 2,
+      chars: 9,
+      images: 2,
+    });
+  });
+
+  it("leaves image syntax inside code as text", () => {
+    expect(countText("`![a](x.png)`").images).toBe(0);
   });
 
   it("excludes line breaks but counts spaces", () => {
@@ -32,7 +52,7 @@ describe("editor count", () => {
       EditorSelection.cursor(body + 3),
       EditorSelection.range(body + 4, doc.length),
     ]);
-    expect(countSelection(doc, selection, body)).toEqual({ words: 2, chars: 6 });
+    expect(countSelection(doc, selection, body)).toEqual({ words: 2, chars: 6, images: 0 });
   });
 });
 
