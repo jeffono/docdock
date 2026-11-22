@@ -2694,6 +2694,32 @@ pub const fn image_too_large() -> Error {
         limit_mb: (MAX_ATTACHMENT_BYTES / (1024 * 1024)) as u64,
     }
 }
+/// The image without the zeros some sources pad it with after its end, as Edge does when an image
+/// is dragged out of it: after a JPEG's end marker or a PNG's end chunk. Anything else stays whole.
+fn without_padding(bytes: &[u8]) -> &[u8] {
+    // An image over the limit is refused next, without being searched first.
+    if bytes.last() != Some(&0) || bytes.len() > MAX_ATTACHMENT_BYTES {
+        return bytes;
+    }
+    let end = if bytes.starts_with(b"\xff\xd8\xff") {
+        bytes
+            .windows(2)
+            .rposition(|pair| pair == b"\xff\xd9")
+            .map(|at| at + 2)
+    } else if bytes.starts_with(b"\x89PNG") {
+        // The end chunk's type, then its 4-byte checksum.
+        bytes
+            .windows(4)
+            .rposition(|four| four == b"IEND")
+            .map(|at| at + 8)
+    } else {
+        None
+    };
+    match end {
+        Some(end) if end <= bytes.len() && bytes[end..].iter().all(|&b| b == 0) => &bytes[..end],
+        _ => bytes,
+    }
+}
 fn attachment_extension(bytes: &[u8]) -> Result<&'static str, Error> {
     if bytes.len() > MAX_ATTACHMENT_BYTES {
         return Err(image_too_large());
@@ -2910,6 +2936,7 @@ pub fn recycle_images(app: &AppHandle, folder_id: &str, paths: &[String]) -> Res
 }
 
 fn paste_image_in(root: &Path, path: &str, bytes: &[u8]) -> Result<String, Error> {
+    let bytes = without_padding(bytes);
     let ext = attachment_extension(bytes)?;
     let note = resolve(root, path, markdown)?;
     let parent = note.parent().ok_or(Error::InvalidPath)?;
@@ -3040,6 +3067,7 @@ fn create_with_image_in(
     image: &[u8],
     publish: fn(&Path, &str, &[u8]) -> Result<Saved, Error>,
 ) -> Result<Saved, Error> {
+    let image = without_padding(image);
     let ext = attachment_extension(image)?;
     too_large(content.len() as u64)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
@@ -3688,6 +3716,17 @@ mod tests {
             fs::read_to_string(t.0.join("sub/a.md")).unwrap(),
             "unchanged"
         );
+    }
+    // Catches images dragged out of Edge saved with tens of kilobytes of zeros after their end.
+    #[test]
+    fn padding_after_an_image_end_is_dropped() {
+        let jpeg = b"\xff\xd8\xff\xe0data\x00\xff\xd9";
+        assert_eq!(without_padding(&[&jpeg[..], &[0; 16]].concat()), jpeg);
+        let png = b"\x89PNG\r\n\x1a\nIHDRdataIEND\xaeB`\x82";
+        assert_eq!(without_padding(&[&png[..], &[0; 16]].concat()), png);
+        // Zeros inside the image, before its end marker, are its own.
+        let inner = b"\xff\xd8\xff\xe0\xff\xd9\x00\x00more\x00";
+        assert_eq!(without_padding(inner), inner);
     }
     // Catches image links full of escapes, or image names as long as their note's.
     #[test]

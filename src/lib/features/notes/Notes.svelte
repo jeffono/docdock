@@ -26,6 +26,7 @@ import {
   notesList,
   notesMove,
   notesOpen,
+  notesPasteImage,
   notesPasteTarget,
   notesRename,
   notesRestore,
@@ -45,6 +46,7 @@ import {
   openExternal,
   type PageArticle,
   type Pinned,
+  panelActivate,
   panelClose,
   pinnedAdd,
   pinnedList,
@@ -89,6 +91,14 @@ import {
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
+import {
+  appended,
+  bringsContent,
+  checkImageSize,
+  type Dropped,
+  droppedContent,
+  imagesBlock,
+} from "./drop";
 import Editor from "./Editor.svelte";
 import { folderAction, folderNotice } from "./folder-state";
 import { dateHeadings, folderOf } from "./grouping";
@@ -1161,32 +1171,51 @@ function pasteImage(event: ClipboardEvent) {
     ?.getAsFile();
   if (!file) return;
   event.preventDefault();
-  void createWithImage(file);
+  void createFrom({ images: [file] }, false);
 }
 /**
- * A new note holding `image`, named after the window it came from (or "Pasted image"), in the
- * notes folder of the moment of pasting; it opens editing, its title selected to be renamed.
+ * A new note holding what was pasted or dropped, named after the window it came from (else "Pasted
+ * image", or the text's first words), in the notes folder of that moment; it opens editing, its title
+ * selected to be renamed. `dropped`: dragged in, so the panel, never activated by a drag, takes focus.
  */
-async function createWithImage(image: File) {
+async function createFrom(content: Dropped, dropped: boolean) {
   if (creating || capturing || choosing || savingPage) return;
   creating = true;
   try {
     error = "";
     warning = "";
+    if (dropped) void panelActivate();
     if (!(await leaveEditor())) return;
-    const [target, bytes] = await Promise.all([notesPasteTarget(), image.arrayBuffer()]);
-    const title = target.title ?? t("paste.untitled");
+    const target = await notesPasteTarget(dropped);
+    const title =
+      target.title ??
+      ("text" in content ? noteName(content.text)?.title : undefined) ??
+      t("paste.untitled");
     const max = nameRoom(MADE_NAME, target.folder);
     // A window title cut for the file name stays whole in the frontmatter.
-    const content = holdsTitle(noteFileName(title, [], max), title)
+    const header = holdsTitle(noteFileName(title, [], max), title)
       ? ""
       : (retitle("", title, true) ?? "");
-    const name = await createNamed(
-      title,
-      (name) =>
-        notesCreateWithImage(target.folder, target.folderId, name, content, new Uint8Array(bytes)),
-      max,
-    );
+    let name: string | null;
+    if ("text" in content) {
+      const text = `${header}${content.text.replace(/\n+$/, "")}\n`;
+      name = await createNamed(title, (name) => notesSave(name, text, ""), max);
+    } else {
+      // The first image goes in with the note, in one write; any others follow it.
+      const [first, ...rest] = content.images;
+      for (const image of content.images) checkImageSize(image);
+      const bytes = new Uint8Array(await first.arrayBuffer());
+      name = await createNamed(
+        title,
+        (name) => notesCreateWithImage(target.folder, target.folderId, name, header, bytes),
+        max,
+      );
+      // The note exists by now: it opens even if the other images could not join it.
+      if (name && rest.length)
+        await appendTo(name, { images: rest }).catch((e) => {
+          error = errorText(e);
+        });
+    }
     if (!name) return;
     await relist();
     await openInEditor(name);
@@ -1196,6 +1225,95 @@ async function createWithImage(image: File) {
   } finally {
     creating = false;
   }
+}
+
+/**
+ * Adds what was dropped to the end of the note at `path`, which is not being edited: images are
+ * attached beside it first. The note is read once, before; if it changed, moved or was replaced
+ * since, nothing is written to it and `dropChanged` says so, rather than adding to another file.
+ */
+async function appendTo(path: string, content: Dropped) {
+  if ("images" in content) for (const image of content.images) checkImageSize(image);
+  const note = await notesOpen(path);
+  const links: string[] = [];
+  if ("images" in content)
+    for (const image of content.images)
+      links.push(await notesPasteImage(path, new Uint8Array(await image.arrayBuffer())));
+  const text = appended(note.text, "text" in content ? content.text : imagesBlock(links));
+  const saved = await notesRewrite(path, text, note.version);
+  if (saved.status !== "saved") throw { code: "dropChanged" };
+  contents[path] = { text, version: saved.version };
+}
+
+/** A drag from another app over the panel: the "New note" card shows while it lasts. */
+let dragIn = $state(false);
+/** Where the drag would drop now: "new" for the "New note" card, else a note's path. */
+let dropZone = $state<string | null>(null);
+/** The note a drop is being added to, shown busy until it is. */
+let appending = $state<string | null>(null);
+
+/** Where a drag at `event` would drop, or null where nothing takes it. */
+function dropTarget(event: DragEvent): string | null {
+  const element = event.target instanceof Element ? event.target : null;
+  if (element?.closest(".new-note-drop")) return "new";
+  const card = element?.closest<HTMLElement>(".card[data-path]");
+  const path = card?.dataset.path;
+  // An editing note takes drops in its own editor; a pinned web page is no note.
+  if (!path || card.classList.contains("editing")) return null;
+  return notes.some((note) => note.path === path) ? path : null;
+}
+function dragFromApp(event: DragEvent): boolean {
+  // A pinned item dragged to reorder is no content.
+  return (
+    !inactive &&
+    !browser &&
+    ready &&
+    !dragged &&
+    bringsContent(Array.from(event.dataTransfer?.types ?? []))
+  );
+}
+function dragOverPanel(event: DragEvent) {
+  if (!dragFromApp(event)) return;
+  dragIn = true;
+  dropZone = dropTarget(event);
+  if (!dropZone || appending) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+}
+function dragLeavePanel(event: DragEvent) {
+  // Null only when the drag leaves the window, not when it moves between its elements.
+  if (event.relatedTarget) return;
+  dragIn = false;
+  dropZone = null;
+}
+function dropOnPanel(event: DragEvent) {
+  const zone = dragFromApp(event) && !appending ? dropTarget(event) : null;
+  dragIn = false;
+  dropZone = null;
+  if (!zone) return;
+  event.preventDefault();
+  const content = droppedContent(event.dataTransfer);
+  if (content === "unsupported") {
+    error = t("drop.unsupported");
+    return;
+  }
+  if (!content) return;
+  if (zone === "new") {
+    void createFrom(content, true);
+    return;
+  }
+  appending = zone;
+  error = "";
+  appendTo(zone, content)
+    .then(() => {
+      selection = zone;
+    })
+    .catch((e) => {
+      error = errorText(e);
+    })
+    .finally(() => {
+      appending = null;
+    });
 }
 
 /** F2: the title field of the note's editor, opening it if needed, with the title selected. */
@@ -2433,6 +2551,9 @@ onMount(() => {
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden((ended) => {
     preview.closed();
+    // A drag cancelled over the panel may never say it left.
+    dragIn = false;
+    dropZone = null;
     noteSearchTyped = false;
     shortcutSheet.close();
     closeLinkMenu();
@@ -2492,7 +2613,7 @@ onMount(() => {
 {/snippet}
 
 <svelte:document onpaste={pasteImage} />
-<svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
+<svelte:window ondragenter={dragOverPanel} ondragover={dragOverPanel} ondragleave={dragLeavePanel} ondrop={dropOnPanel} onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
@@ -2582,6 +2703,9 @@ onMount(() => {
         aria-label={t(browser ? "web.address" : "notes.search")}
         placeholder={t("notes.searchPlaceholder")}
       />
+      {#if dragIn}
+        <div class="new-note-drop" class:active={dropZone === "new"}><Icon name="plus" />{t("drop.newNote")}</div>
+      {/if}
       <IconButton quiet icon="plus" label={t(browser ? "web.saveNote" : "notes.create")} disabled={!ready || (browser && (!pageUrl || pageUnavailable || savingPage || capturing))} onclick={() => browser ? savePage() : create(creationText(query))} />
       <!-- In the bar, the put-away notice takes no height of its own and never moves the list. -->
       {#if !browser && ready && listing.skipped.length > 0 && !skippedOpen}
@@ -2745,6 +2869,7 @@ onMount(() => {
             status={edited ? saveText : ""}
             editor={edited ? noteEditor : undefined}
             deleting={deletingShown === card.hit.path}
+            droptarget={dropZone === card.hit.path}
           />
         {/if}
         </div>
@@ -2967,6 +3092,7 @@ onMount(() => {
   }
 
   .tools {
+    position: relative;
     display: flex;
     flex: none;
     gap: var(--space-2);
@@ -2974,6 +3100,27 @@ onMount(() => {
     height: var(--size-bar);
     align-items: center;
     padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
+  }
+
+  /* Over the search bar and "+" while something is dragged in from another app. */
+  .new-note-drop {
+    position: absolute;
+    inset: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
+    z-index: 1;
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--color-accent);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  .new-note-drop.active {
+    border-style: solid;
+    background: var(--color-selected);
   }
 
   .skipped-toggle {

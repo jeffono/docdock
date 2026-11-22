@@ -410,7 +410,12 @@ signature and size. Paste and page capture share the attachment writer, which na
 the note's file stem as a short plain slug (lowercase, accents folded, words joined by hyphens, cut at
 one within 30 characters) and takes the first free name for that extension (`my-note.png`,
 `my-note-2.png`, …) in `attachments/` beside the note. `move_new` prevents overwrites, and the relative Markdown link percent-encodes the
-file name. **Copy and cut** in `main` go through
+file name. Zeros after a JPEG's or PNG's end, which Edge pads dragged images with, are dropped. After
+one failed IPC request Tauri sends every later one as JSON until the page reloads, so the image
+commands also take bytes as a JSON array of numbers. Drops from other apps (`features/notes/drop.ts`)
+are read during the drop event; appending reads the note once, before attaching images, and saves
+with that version: a note changed, moved or replaced meanwhile is left alone with `dropChanged`, and
+images already attached are left to the unused-image cleanup. **Copy and cut** in `main` go through
 `lib/clipboard.ts` and `platform/clipboard.rs`, which mark the text to stay out of clipboard history
 and cloud clipboard.
 

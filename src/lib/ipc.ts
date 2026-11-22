@@ -332,7 +332,9 @@ export const notesRecycleImages = (folderId: string, paths: string[]) =>
  * window it came from suggests naming it, if anything (untrusted).
  */
 export type PasteTarget = { folder: string; folderId: string; title: string | null };
-export const notesPasteTarget = () => invoke<PasteTarget>("notes_paste_target");
+/** `dropped`: for something dragged in, named after the window the panel opened over. */
+export const notesPasteTarget = (dropped = false) =>
+  invoke<PasteTarget>("notes_paste_target", { dropped });
 export const notesPasteImage = (path: string, bytes: Uint8Array) =>
   invoke<string>("notes_paste_image", bytes, {
     headers: { "x-note-path": encodeURIComponent(path) },

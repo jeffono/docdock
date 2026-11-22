@@ -325,6 +325,8 @@ const en = {
   "capture.clipped": "The page is too long for one image, so only its start was captured.",
   "capture.saved": "The capture was saved as the note “{title}”.",
   "paste.untitled": "Pasted image",
+  "drop.newNote": "New note",
+  "drop.unsupported": "Drop text or a PNG, JPEG, GIF or WebP image.",
   "web.openPage": "Open page",
   "web.back": "Back",
   "web.forward": "Forward",
@@ -368,6 +370,7 @@ const en = {
   "error.notUtf8": "The note is not UTF-8 text.",
   "error.unsupportedImage": "Paste a PNG, JPEG, GIF or WebP image.",
   "error.imageTooLarge": "The image exceeds the {limitMb} MB limit.",
+  "error.dropChanged": "The note changed while the drop was being added. Drop it again.",
   "error.attachmentFolderUnsafe":
     "Cannot save an attachment through a folder link or an unavailable folder.",
   "error.saveFailed": "Could not save the note: {detail}",
@@ -747,6 +750,8 @@ const ptBR: Record<MessageKey, string> = {
   "capture.clipped": "A página é longa demais para uma imagem, então só o início foi capturado.",
   "capture.saved": "A captura foi salva como a nota “{title}”.",
   "paste.untitled": "Imagem colada",
+  "drop.newNote": "Nova nota",
+  "drop.unsupported": "Solte texto ou uma imagem PNG, JPEG, GIF ou WebP.",
   "web.openPage": "Abrir página",
   "web.back": "Voltar",
   "web.forward": "Avançar",
@@ -793,6 +798,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.notUtf8": "A nota não é texto UTF-8.",
   "error.unsupportedImage": "Cole uma imagem PNG, JPEG, GIF ou WebP.",
   "error.imageTooLarge": "A imagem excede o limite de {limitMb} MB.",
+  "error.dropChanged": "A nota mudou enquanto o conteúdo era adicionado. Solte de novo.",
   "error.attachmentFolderUnsafe":
     "Não é possível salvar um anexo por um link de pasta ou uma pasta indisponível.",
   "error.saveFailed": "Não foi possível salvar a nota: {detail}",
