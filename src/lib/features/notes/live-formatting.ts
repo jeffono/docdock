@@ -7,7 +7,7 @@ import {
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
-import { IterMode } from "@lezer/common";
+import { IterMode, type SyntaxNode } from "@lezer/common";
 import {
   alertKind,
   definitions,
@@ -108,6 +108,134 @@ class ImageWidget extends WidgetType {
     return el;
   }
 }
+type GridImage = { src: string; alt: string };
+/**
+ * A paragraph of two or more images shown as the reading view shows it, a grid. A click on an
+ * image puts the cursor on its Markdown, which shows the paragraph as lines again.
+ */
+class GridWidget extends WidgetType {
+  constructor(readonly images: readonly GridImage[]) {
+    super();
+  }
+  eq(other: GridWidget) {
+    return (
+      other.images.length === this.images.length &&
+      other.images.every(
+        (image, i) => image.src === this.images[i].src && image.alt === this.images[i].alt,
+      )
+    );
+  }
+  toDOM(view: EditorView) {
+    const grid = document.createElement("div");
+    grid.className = "image-grid";
+    this.images.forEach((image, index) => {
+      const thumb = document.createElement("button");
+      thumb.type = "button";
+      thumb.tabIndex = -1;
+      thumb.className = "image-thumb";
+      thumb.setAttribute(
+        "aria-label",
+        image.alt || image.src.slice(image.src.lastIndexOf("/") + 1),
+      );
+      const img = document.createElement("img");
+      img.src = image.src;
+      img.alt = image.alt;
+      img.draggable = false;
+      thumb.append(img);
+      thumb.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        // Found from where the grid is now, which edits above it may have moved.
+        const at = imageStarts(view.state, view.posAtDOM(grid))[index];
+        if (at === undefined) return;
+        view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
+        view.focus();
+      });
+      grid.append(thumb);
+    });
+    return grid;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+/** Where each image of the paragraph starting at `from` starts. */
+function imageStarts(state: EditorState, from: number): number[] {
+  const starts: number[] = [];
+  const paragraph = syntaxTree(state).resolveInner(from, 1);
+  let node = paragraph;
+  while (node.name !== "Paragraph" && node.parent) node = node.parent;
+  for (let child = node.firstChild; child; child = child.nextSibling)
+    if (child.name === "Image") starts.push(child.from);
+  return starts;
+}
+/**
+ * The images of a paragraph made only of two or more local images, apart from line breaks,
+ * as the reading view makes a grid of; null for any other paragraph.
+ */
+function gridImages(
+  node: SyntaxNode,
+  slice: (from: number, to: number) => string,
+  defs: ReturnType<typeof definitions>,
+  note: string,
+): GridImage[] | null {
+  const images: GridImage[] = [];
+  let pos = node.from;
+  for (let child = node.firstChild; child; child = child.nextSibling) {
+    if (slice(pos, child.from).trim()) return null;
+    pos = child.to;
+    if (child.name === "HardBreak") continue;
+    if (child.name !== "Image") return null;
+    const url = linkTarget(child, slice, defs)?.url;
+    const src = url && imageUrl(url, note);
+    if (!src) return null;
+    images.push({ src, alt: slice(child.from, child.to).match(/^!\[([^\]]*)\]/)?.[1] ?? "" });
+  }
+  return images.length >= 2 && !slice(pos, node.to).trim() ? images : null;
+}
+// A grid spans lines, so it is a block replacement, which only state may provide.
+export const grids = StateField.define<DecorationSet>({
+  create: (state) => gridDecorations(state),
+  update: (value, transaction) =>
+    transaction.docChanged ||
+    revealChanged(transaction) ||
+    syntaxTree(transaction.startState) !== syntaxTree(transaction.state) ||
+    transaction.startState.facet(notePath) !== transaction.state.facet(notePath)
+      ? gridDecorations(transaction.state)
+      : value,
+  provide: (field) => EditorView.decorations.from(field),
+});
+function gridDecorations(state: EditorState): DecorationSet {
+  // Cheap way out for the common note without any image syntax.
+  if (!state.doc.sliceString(0).includes("![")) return Decoration.none;
+  const slice = (from: number, to: number) => state.sliceDoc(from, to);
+  const tree = syntaxTree(state);
+  const defs = definitions(tree.topNode, slice);
+  const note = state.facet(notePath);
+  const meta = metadata(state);
+  const ranges: ReturnType<Decoration["range"]>[] = [];
+  tree.iterate({
+    enter(node) {
+      if (meta && node.to <= meta.to) return false;
+      if (node.name !== "Paragraph") return;
+      const { doc } = state;
+      // Only a paragraph of whole lines, outside lists and quotes, can be replaced as a block.
+      const whole = doc.lineAt(node.from).from === node.from && doc.lineAt(node.to).to === node.to;
+      if (whole && !active(state, node.from, node.to)) {
+        const images = gridImages(node.node, slice, defs, note);
+        if (images)
+          ranges.push(
+            Decoration.replace({ block: true, widget: new GridWidget(images) }).range(
+              node.from,
+              node.to,
+            ),
+          );
+      }
+      return false;
+    },
+  });
+  return Decoration.set(ranges);
+}
 type Metadata = { to: number; title: string | null; tags: string[] } | null;
 const metadataCache = new WeakMap<EditorState["doc"], Metadata>();
 function metadata(state: EditorState): Metadata {
@@ -191,6 +319,13 @@ function headerDecoration(state: EditorState) {
       ])
     : Decoration.none;
 }
+function gridAt(state: EditorState, from: number): boolean {
+  let found = false;
+  state.field(grids).between(from, from, (start) => {
+    if (start === from) found = true;
+  });
+  return found;
+}
 function formatting(view: EditorView, note: string): DecorationSet {
   const ranges: ReturnType<Decoration["range"]>[] = [],
     lines = new Map<number, Set<string>>();
@@ -223,6 +358,8 @@ function formatting(view: EditorView, note: string): DecorationSet {
       enter(node) {
         const { name } = node.type;
         if (meta && node.to <= meta.to) return false;
+        // A grid shows the whole paragraph; its images take no decorations of their own.
+        if (name === "Paragraph" && gridAt(view.state, node.from)) return false;
         const raw = /^(Image|TaskMarker|ListMark)$/.test(name)
             ? view.state.sliceDoc(node.from, node.to)
             : "",
@@ -424,6 +561,7 @@ export function liveFormatting() {
   return [
     pointerReveal(),
     frontmatter,
+    grids,
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
@@ -437,6 +575,7 @@ export function liveFormatting() {
             update.viewportChanged ||
             update.startState.facet(notePath) !== update.state.facet(notePath) ||
             update.startState.field(frontmatter) !== update.state.field(frontmatter) ||
+            update.startState.field(grids) !== update.state.field(grids) ||
             syntaxTree(update.startState) !== syntaxTree(update.state)
           )
             this.decorations = formatting(update.view, update.state.facet(notePath));
