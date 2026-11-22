@@ -343,6 +343,8 @@ notes differ only in section and starting state.
   card keeps its header; the small Saving… / Saved status sits left of the actions, absent on conflict
   or error, whose notices sit at the top of the body. The editing card has an accent border, and its
   text keeps the reading padding, so toggling does not move it. Reading is the default.
+- **Cursor room:** moving the cursor scrolls the list to keep it about three lines from the top and
+  bottom of what shows, never under the card's stuck header.
 - **Live formatting:** syntax is visible on selection lines and hidden elsewhere. A cursor touching an
   inline code span or fenced block shows both delimiters, including the info string. During a pointer
   gesture the reveal waits, so text does not move under a click.

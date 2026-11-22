@@ -344,9 +344,30 @@ function autosave(version: string) {
   });
 }
 let saving = autosave(untrack(() => note.version));
+/**
+ * The cursor keeps about three lines from the top and bottom of what shows when it moves, never
+ * under the editing card's header, which stays stuck at the top of the list.
+ */
+function scrollRoom() {
+  // The editor's line: `--font-size-md` (in rem) times `--line-height`.
+  const tokens = getComputedStyle(host);
+  const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const line =
+    Number.parseFloat(tokens.getPropertyValue("--font-size-md")) *
+    rem *
+    Number.parseFloat(tokens.getPropertyValue("--line-height"));
+  return [
+    EditorView.cursorScrollMargin.of({ x: 5, y: Math.round(3 * line) || 5 }),
+    EditorView.scrollMargins.of(() => {
+      const header = host.closest(".card")?.querySelector<HTMLElement>(":scope > header");
+      return { top: header?.offsetHeight ?? 0 };
+    }),
+  ];
+}
 const extensions = () => [
   rawText.init(() => raw),
   rawHistory,
+  scrollRoom(),
   EditorView.updateListener.of(({ state, docChanged, selectionSet }) => {
     if (docChanged) {
       bodyStart = noteBodyStart(state.doc);
