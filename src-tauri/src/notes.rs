@@ -705,6 +705,8 @@ pub fn choose(app: &AppHandle, requests: &Sender<Request>) -> Result<Option<Fold
             let _saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
             deleted().pending.clear();
             CHOSEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // Another folder may come to the same path, such as a vault mounted where one was.
+            *SHELL_REACH.lock().unwrap_or_else(|e| e.into_inner()) = None;
             crate::watch::stop();
             // The picker hid the preview already; this also ends a show validated in the old
             // folder.
@@ -1571,7 +1573,8 @@ fn delete_folder_in(
     Ok(removal)
 }
 pub fn delete_folder(app: &AppHandle, path: &str) -> Result<Removal, Error> {
-    delete_folder_in(&root(app)?, path, platform::recycle)
+    let root = root(app)?;
+    delete_folder_in(&root, path, recycler(bin_reachable(&root)))
 }
 /// Puts the pinned items of `relative`, a note or a folder, back as they were before its delete
 /// changed `_pinned.md` from `before` to `after`: in place if the list did not change since. A deleted
@@ -1813,7 +1816,15 @@ fn place_image(root: &Path, source: &Path, path: &str) -> Result<(), Error> {
     place(source, &into, name, false, std::iter::empty(), |_| false).map(|_| ())
 }
 pub fn delete_note(app: &AppHandle, path: &str) -> Result<Removal, Error> {
-    delete_note_in(&root(app)?, path, platform::recycle, platform::recyclable)
+    let root = root(app)?;
+    let reaches = bin_reachable(&root);
+    delete_note_in(&root, path, recycler(reaches), |path| {
+        if reaches {
+            platform::recyclable(path)
+        } else {
+            Ok(false)
+        }
+    })
 }
 pub fn undo_delete(app: &AppHandle, path: &str) -> Result<(), Error> {
     undo_delete_in(&root(app)?, path)
@@ -1847,7 +1858,9 @@ pub fn send_pending(app: &AppHandle, session: u64) -> Result<bool, Error> {
     let root = root(app)?;
     let ended = ended_pending(session);
     let any = !ended.is_empty();
-    send_pending_in(&root, ended, chosen, platform::recycle);
+    if any {
+        send_pending_in(&root, ended, chosen, recycler(bin_reachable(&root)));
+    }
     Ok(any)
 }
 /// Takes the images pending from notes deleted in panel sessions up to `session`, if it ended.
@@ -2122,15 +2135,68 @@ pub fn empty_trash(app: &AppHandle, ids: &[String]) -> Result<(), Error> {
 /// longer than `trash::KEEP_MS`: at startup, on choosing a folder and when the panel hides. Only in
 /// the folder chosen, checked by its marker, and never while it is unavailable. Under the save lock,
 /// as `empty_trash_in`.
+/// Then, still away, learns whether the shell reaches the folder (`bin_reachable`), so the first
+/// delete there does not wait for it.
 pub fn purge_trash(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         let Ok(root) = root(&app) else { return };
-        let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(dir) = trash_path(&root) {
-            trash::purge(&dir, trash::now_ms());
+        {
+            let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(dir) = trash_path(&root) {
+                trash::purge(&dir, trash::now_ms());
+            }
         }
+        let Ok(real) = root.canonicalize() else {
+            return;
+        };
+        // The folder may lock or leave meanwhile: its handle is not held while the shell answers.
+        drop(root);
+        remembered_reach(&real, platform::shell_addresses);
     });
+}
+/// Whether the shell addresses the last folder it answered for, by its canonical path; forgotten
+/// when a folder is chosen.
+static SHELL_REACH: Mutex<Option<(PathBuf, bool)>> = Mutex::new(None);
+/// Whether the shell addresses the folder at the canonical `real`, asked through `ask` until it
+/// answers for sure, then remembered: a vault mounted by WinFsp takes about two seconds to refuse,
+/// and would on every delete. Not held while asking, so a delete elsewhere never waits for that.
+/// Without a sure answer, it is tried as before.
+fn remembered_reach(real: &Path, ask: impl FnOnce(&Path) -> Option<bool>) -> bool {
+    {
+        let known = SHELL_REACH.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, reaches)) = known.as_ref()
+            && at == real
+        {
+            return *reaches;
+        }
+    }
+    let Some(reaches) = ask(real) else {
+        return true;
+    };
+    *SHELL_REACH.lock().unwrap_or_else(|e| e.into_inner()) = Some((real.to_owned(), reaches));
+    reaches
+}
+/// Whether a Recycle Bin may be reached from the notes folder: never where the shell cannot even
+/// address it, whose items go straight to the folder's own trash.
+fn bin_reachable(root: &Path) -> bool {
+    root.canonicalize().map_or(true, |real| {
+        remembered_reach(&real, platform::shell_addresses)
+    })
+}
+/// `platform::recycle` for a notes folder, answering at once, as the shell would, that no Recycle
+/// Bin takes its items where it cannot address the folder (`reaches`, from `bin_reachable`).
+fn recycler(reaches: bool) -> impl Fn(&Path) -> io::Result<Option<PathBuf>> {
+    move |path| {
+        if reaches {
+            platform::recycle(path)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "the shell cannot address the notes folder",
+            ))
+        }
+    }
 }
 /// The pinned items live in this note at the root of the folder (decision 0005).
 const PINNED: &str = "_pinned.md";
@@ -2833,12 +2899,13 @@ fn send_images_in(
 
 pub fn recycle_images(app: &AppHandle, folder_id: &str, paths: &[String]) -> Result<(), Error> {
     let chosen = folder_choices();
+    let root = root(app)?;
     send_images_in(
-        &root(app)?,
+        &root,
         paths,
         None,
         (folder_id, chosen),
-        platform::recycle,
+        recycler(bin_reachable(&root)),
     )
 }
 
@@ -6105,5 +6172,41 @@ mod tests {
                 .collect();
             assert!(created.is_empty());
         }
+    }
+
+    // Regression: every delete in a Cryptomator vault waited about two seconds for the shell to
+    // refuse its path again.
+    /// The shell's answers are remembered for the whole process: tests of them take turns.
+    static SHELL_REACH_TESTS: Mutex<()> = Mutex::new(());
+    #[test]
+    fn the_shell_is_asked_once_per_folder() {
+        let _turn = SHELL_REACH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let asked = std::cell::Cell::new(0);
+        let ask = |reaches: Option<bool>| {
+            let asked = &asked;
+            move |_: &Path| {
+                asked.set(asked.get() + 1);
+                reaches
+            }
+        };
+        let vault = Path::new(r"\?\UNC\test-vault\notes");
+        let local = Path::new(r"\?\Z:\test-local\notes");
+        assert!(!remembered_reach(vault, ask(Some(false))));
+        assert!(!remembered_reach(vault, ask(Some(false))));
+        assert_eq!(asked.get(), 1);
+        assert!(remembered_reach(local, ask(Some(true))));
+        assert_eq!(asked.get(), 2);
+    }
+    // Catches a folder missing for a moment, as during a rename, sending its later deletes to the
+    // folder's own trash instead of the Recycle Bin.
+    #[test]
+    fn an_unsure_shell_answer_is_not_remembered() {
+        let _turn = SHELL_REACH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let folder = Path::new(
+            r"\?\Z:	est-renamed
+otes",
+        );
+        assert!(remembered_reach(folder, |_| None));
+        assert!(!remembered_reach(folder, |_| Some(false)));
     }
 }

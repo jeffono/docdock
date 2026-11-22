@@ -9,7 +9,7 @@
 use std::cell::{Cell, RefCell};
 use std::io;
 use std::path::{Path, PathBuf};
-use windows::Win32::Foundation::{E_ABORT, ERROR_CANCELLED};
+use windows::Win32::Foundation::{E_ABORT, E_INVALIDARG, ERROR_CANCELLED};
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoCreateInstance, CoInitializeEx,
     CoTaskMemFree, CoUninitialize,
@@ -38,6 +38,30 @@ pub fn recyclable(path: &Path) -> io::Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::Unsupported => Ok(false),
         Err(error) => Err(error),
     }
+}
+
+/// Whether the shell can address `path` at all, and so maybe reach a Recycle Bin from it: `false`
+/// only when it refuses the path as such, as for a vault mounted by WinFsp, which takes about two
+/// seconds to say so every time. `None` when it cannot tell, such as for a folder missing for now.
+pub fn shell_addresses(path: &Path) -> Option<bool> {
+    let path = HSTRING::from(shell_path(path));
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                in_apartment(|| {
+                    let item: Result<IShellItem> =
+                        unsafe { SHCreateItemFromParsingName(&path, None) };
+                    Ok(match item {
+                        Ok(_) => Some(true),
+                        Err(error) if error.code() == E_INVALIDARG => Some(false),
+                        Err(_) => None,
+                    })
+                })
+            })
+            .join()
+    })
+    .ok()
+    .and_then(|answer| answer.ok().flatten())
 }
 
 fn run(path: &Path, probe: bool) -> io::Result<Option<PathBuf>> {
