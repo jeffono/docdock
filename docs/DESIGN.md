@@ -343,11 +343,15 @@ notes differ only in section and starting state.
   card keeps its header; the small Saving… / Saved status sits left of the actions, absent on conflict
   or error, whose notices sit at the top of the body. The editing card has an accent border, and its
   text keeps the reading padding, so toggling does not move it. Reading is the default.
+- **Cursor room:** moving the cursor scrolls the list to keep it about three lines from the top and
+  bottom of what shows, never under the card's stuck header.
 - **Live formatting:** syntax is visible on selection lines and hidden elsewhere. A cursor touching an
   inline code span or fenced block shows both delimiters, including the info string. During a pointer
   gesture the reveal waits, so text does not move under a click.
-- **Images:** paste an image or drop image files from Explorer into the editor to insert them at the
-  current selection. A drop inserts images in order. Single line breaks join consecutive pastes and
+- **Images:** an image shows as itself until the cursor reaches its line, which shows its Markdown
+  with a small copy of the image before it (`--size-bar` tall, up to three times as wide, cropped,
+  1 px `--color-line`, `--radius-sm`, `--space-2` from the text). Paste an image or drop image
+  files from Explorer into the editor to insert them at the current selection. A drop inserts images in order. Single line breaks join consecutive pastes and
   images dropped together into one paragraph. The editor ignores non-image files.
 - **Conflicts:** a primary Keep my version and a secondary Discard my changes above the text; errors in
   red beside it.

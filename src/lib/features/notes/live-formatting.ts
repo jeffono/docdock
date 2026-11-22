@@ -70,6 +70,26 @@ class TaskWidget extends WidgetType {
     return true;
   }
 }
+/** A small copy of the image beside its Markdown while the cursor is on it, so it reads as which. */
+class ImageChipWidget extends WidgetType {
+  constructor(
+    readonly src: string,
+    readonly alt: string,
+  ) {
+    super();
+  }
+  eq(other: ImageChipWidget) {
+    return other.src === this.src && other.alt === this.alt;
+  }
+  toDOM() {
+    const el = document.createElement("img");
+    el.src = this.src;
+    el.alt = this.alt;
+    el.className = "image-chip";
+    el.draggable = false;
+    return el;
+  }
+}
 class ImageWidget extends WidgetType {
   constructor(
     readonly src: string,
@@ -306,6 +326,17 @@ function formatting(view: EditorView, note: string): DecorationSet {
             if (parent.name === "FencedCode") lineClass(node.from, node.to, "fence");
           }
           return false;
+        }
+        if (selected && name === "Image") {
+          const url = linkTarget(node.node, slice, defs)?.url,
+            src = url && imageUrl(url, note);
+          if (src)
+            ranges.push(
+              Decoration.widget({
+                widget: new ImageChipWidget(src, raw.match(/^!\[([^\]]*)\]/)?.[1] ?? ""),
+                side: -1,
+              }).range(node.from),
+            );
         }
         if (selected) return;
         if (/^(HeaderMark|QuoteMark)$/.test(name)) {
