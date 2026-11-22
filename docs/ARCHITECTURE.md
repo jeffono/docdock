@@ -328,7 +328,9 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   goes to the folder's own trash (`trash.rs`), inside the notes folder, kept 30 days, restorable from
   Preferences; the shell's decision for each item is final (bin missing, item over its limit or bin set
   to delete at once). Folders go the same way, with Undo only from the trash. Pinned items are removed
-  and Undo restores them.
+  and Undo restores them. Whether the shell can address the folder at all is asked once per folder
+  (`remembered_reach`), warmed with the trash purge: a vault mounted by WinFsp takes about 2 s to
+  refuse, and its items go straight to the trash.
 - **A note's images** follow it after the panel hides: those in `attachments/` folders that it
   references and no other note does, live or in the trash, by the reference rule of "Unused images".
   The delete moves only the note and records their paths as pending (`Pending`), with the folder's

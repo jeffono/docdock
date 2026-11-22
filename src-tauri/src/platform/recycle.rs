@@ -40,6 +40,25 @@ pub fn recyclable(path: &Path) -> io::Result<bool> {
     }
 }
 
+/// Whether the shell can address `path` at all, and so maybe reach a Recycle Bin from it. A vault
+/// mounted by WinFsp cannot, and takes about two seconds to say so, every time. True when the
+/// shell cannot be asked.
+pub fn shell_reaches(path: &Path) -> bool {
+    let path = HSTRING::from(shell_path(path));
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                in_apartment(|| {
+                    let item: Result<IShellItem> =
+                        unsafe { SHCreateItemFromParsingName(&path, None) };
+                    Ok(item.is_ok())
+                })
+            })
+            .join()
+    })
+    .map_or(true, |reaches| reaches.unwrap_or(true))
+}
+
 fn run(path: &Path, probe: bool) -> io::Result<Option<PathBuf>> {
     let path = HSTRING::from(shell_path(path));
     // A thread of its own: COM needs an apartment, and the caller's thread may belong to a pool.
