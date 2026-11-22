@@ -16,6 +16,7 @@ import {
   keptNote,
   move,
   movedPath,
+  nameRoom,
   navKeys,
   noteFileName,
   renamedPath,
@@ -250,6 +251,8 @@ it("shows a note's file name only where it differs from the title beyond what fi
   expect(fileLabel("a/projeto.md", "Projeto")).toBe("projeto.md");
   expect(fileLabel("a/Plano Q3.md", "Plano: Q3")).toBeNull();
   expect(fileLabel("CON_.md", "CON")).toBeNull();
+  expect(fileLabel("Receitas de pão.md", "Receitas de pão da vovó")).toBeNull();
+  expect(fileLabel("Receitas de p.md", "Receitas de pão")).toBe("Receitas de p.md");
 });
 
 describe("noteFileName", () => {
@@ -277,8 +280,24 @@ describe("noteFileName", () => {
     expect(noteFileName("_pinned", [])).toBe("_pinned 2.md");
   });
 
-  it("caps very long names", () => {
-    expect(noteFileName("x".repeat(500), []).length).toBeLessThanOrEqual(103);
+  // Catches names too long for File Explorer, sync clients or a vault.
+  it("cuts a long name at a word within the length asked", () => {
+    const title = "Receitas de pão da vovó para o fim de semana com a família toda reunida";
+    expect(noteFileName(title, [])).toBe(
+      "Receitas de pão da vovó para o fim de semana com a família.md",
+    );
+    expect(noteFileName(title, [], 30)).toBe("Receitas de pão da vovó para o.md");
+    expect(noteFileName("x".repeat(500), [], 30)).toBe(`${"x".repeat(30)}.md`);
+  });
+});
+
+describe("nameRoom", () => {
+  // Catches a note in a deep folder whose path most programs cannot open.
+  it("shortens names so the whole path stays openable", () => {
+    expect(nameRoom(60, "C:\\Notes")).toBe(60);
+    const deep = `C:\\${"d".repeat(200)}`;
+    expect(nameRoom(60, deep, "sub")).toBe(259 - deep.length - 1 - 4 - 3);
+    expect(nameRoom(60, `C:\\${"d".repeat(300)}`)).toBe(8);
   });
 });
 

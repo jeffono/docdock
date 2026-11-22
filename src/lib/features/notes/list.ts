@@ -334,23 +334,49 @@ export function shallower(card: Card): Level | null {
 }
 
 const RESERVED = /^(?:con|prn|aux|nul|com\d|lpt\d)$/i;
-const MAX_STEM = 100;
+/** File name lengths, in characters before ".md": for a title typed, and for one the app made up. */
+export const TYPED_NAME = 60;
+export const MADE_NAME = 30;
+/** The longest path most Windows programs open, File Explorer and Office included. */
+const MAX_PATH = 259;
 const NEVER = "_pinned";
 
 /**
- * The file a new note gets for the typed text, at the root of the notes folder. It never leaves the
- * folder (no separators, no drive, no "..") and never takes a name in `taken` (compared ignoring
- * case, as Windows does) nor `_pinned.md`, which belongs to the pinned list.
+ * The longest name, up to `wanted`, a note in `folder` ("" for the root) of the notes folder at
+ * `root` can take while its whole path stays one most programs open; never below a short word.
  */
-export function noteFileName(text: string, taken: Iterable<string>): string {
-  let stem = Array.from(text, (c) => (c < " " || '<>:"/\\|?*'.includes(c) ? " " : c))
+export function nameRoom(wanted: number, root: string, folder = ""): number {
+  const used = root.length + 1 + (folder ? folder.length + 1 : 0) + ".md".length;
+  return Math.max(8, Math.min(wanted, MAX_PATH - used));
+}
+
+/** `text` cut at a word end within `max` characters, or at `max` when its first word is longer. */
+function cutAtWord(text: string, max: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  // Cut in code points: a lone half of a surrogate pair is no valid file name.
+  const cut = chars.slice(0, max + 1);
+  const space = cut.lastIndexOf(" ");
+  return cut.slice(0, space > 0 ? space : max).join("");
+}
+
+/** The typed text as a file name can hold it, before any cut. */
+function fileStem(text: string): string {
+  return Array.from(text, (c) => (c < " " || '<>:"/\\|?*'.includes(c) ? " " : c))
     .join("")
     .replace(/\.md$/i, "")
     .replace(/\s+/g, " ")
     .replace(/^[.\s]+|[.\s]+$/g, "");
-  stem = Array.from(stem)
-    .slice(0, MAX_STEM)
-    .join("")
+}
+
+/**
+ * The file a new note gets for the typed text, at the root of the notes folder, cut at a word within
+ * `max` characters. It never leaves the folder (no separators, no drive, no "..") and never takes a
+ * name in `taken` (compared ignoring case, as Windows does) nor `_pinned.md`, which belongs to the
+ * pinned list.
+ */
+export function noteFileName(text: string, taken: Iterable<string>, max = TYPED_NAME): string {
+  let stem = cutAtWord(fileStem(text), max)
     .trim()
     .replace(/[.\s]+$/, "");
   if (!stem) stem = "Untitled";
@@ -363,13 +389,19 @@ export function noteFileName(text: string, taken: Iterable<string>): string {
   return name;
 }
 
+/** Whether a note named `name` (with ".md") for `text` holds all of it, so it needs no frontmatter title. */
+export function holdsTitle(name: string, text: string): boolean {
+  return name.slice(0, -3) === text.replace(/\s+/g, " ").trim();
+}
+
 /**
- * The note's file name when it differs from the title shown beyond what a file name cannot hold (the
- * frontmatter title of a note whose name was taken, or a file renamed elsewhere); else null.
+ * The note's file name when it differs from the title shown beyond what a file name cannot hold or
+ * a cut at a word (the frontmatter title of a note whose name was taken, or a file renamed
+ * elsewhere); else null.
  */
 export function fileLabel(path: string, title: string): string | null {
   const name = path.slice(path.lastIndexOf("/") + 1);
-  return noteFileName(title, []) === name ? null : name;
+  return noteFileName(title, [], Array.from(name).length - 3) === name ? null : name;
 }
 
 /** A note named as `noteFileName` names one created without text, which gets a name when left. */
@@ -382,7 +414,12 @@ export function isUntitled(path: string): boolean {
  * `noteFileName` picks it. `paths` are every note's path; the note's own name counts as free, so a
  * case-only change keeps it.
  */
-export function renamedPath(from: string, title: string, paths: Iterable<string>): string {
+export function renamedPath(
+  from: string,
+  title: string,
+  paths: Iterable<string>,
+  max = TYPED_NAME,
+): string {
   const dirPrefix = (path: string) => path.slice(0, path.lastIndexOf("/") + 1);
   const folder = dirPrefix(from);
   const taken: string[] = [];
@@ -390,7 +427,7 @@ export function renamedPath(from: string, title: string, paths: Iterable<string>
     const sibling = dirPrefix(path).toLowerCase() === folder.toLowerCase();
     if (sibling && path.toLowerCase() !== from.toLowerCase()) taken.push(path.slice(folder.length));
   }
-  return folder + noteFileName(title, taken);
+  return folder + noteFileName(title, taken, max);
 }
 
 /**

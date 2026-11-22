@@ -234,6 +234,13 @@ notes differ only in section and starting state.
   panel opened over when that is a capture tool (Snipping Tool and the like), its program's name cut
   from the end ("Page - Google Chrome" gives "Page"); otherwise "Pasted image". Every way of
   creating opens the new note expanded and editing; a pasted image's opens with its title selected.
+- **File names:** a note's file name is cut at a word within 60 characters for a title typed or
+  written in the frontmatter, and within 30 for one the app makes (a window or page title, a note's
+  first words), shorter still when the notes folder's path is long, so the whole path stays within
+  the 260 characters most Windows programs open. A title typed or taken from a window that is cut
+  this way also goes whole into the frontmatter, which the card shows. Images are named after their note in lowercase, without
+  accents and with hyphens (`receitas-de-pao-2.png`), within 30 characters, so their links read
+  without escapes. Existing files are never renamed for this.
 - **Editing:** the pencil, Ctrl+E on the selected card or a double click on its text (which selects
   the clicked word, kept where it was on screen). One card edits at a time and shows its own save
   status, conflict and errors. If the search would hide it, it stays at the top until editing ends.
@@ -244,8 +251,7 @@ notes differ only in section and starting state.
   or Esc (which restores the title) go on to the text, and leaving the field renames. The file name
   follows the title in the same folder, with " 2" and so on when taken; when it cannot hold the title,
   the title is also written to the frontmatter. A note still named `Untitled` or `Untitled N` is named
-  on leaving the editor from the frontmatter title, else a first heading, else its first words (cut
-  near 60 characters).
+  on leaving the editor from the frontmatter title, else a first heading, else its first words.
 - **Card menu:** right click on a note card, Shift+F10 or the Menu key opens Rename (F2), Pin or Unpin
   (Ctrl+D), Move (Ctrl+M), a separator and Delete (Ctrl+Delete), shortcuts muted at the right. At the
   pointer, or under the header from the keyboard. Text fields, the editor and selected reading text

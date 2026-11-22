@@ -3,6 +3,7 @@
 import type { SyntaxNode } from "@lezer/common";
 import { noteAssetUrl } from "./asset-url";
 import { codeLanguage, codeSpans } from "./code-colors";
+import { MADE_NAME } from "./list";
 import {
   alertKind,
   type Definitions,
@@ -160,8 +161,6 @@ function plain(content: Content): string {
   return blockTags.has(content.tag) ? ` ${inner} ` : inner;
 }
 const words = (content: Content) => plain(content).replace(/\s+/g, " ").trim();
-/** Names are cut at a word near this length. */
-const NAME_LENGTH = 60;
 
 /**
  * The name for a note still called `Untitled`, as a reader sees it: the frontmatter title (marked, as
@@ -181,11 +180,11 @@ export function noteName(source: string): { title: string; frontmatter: boolean 
   if (!top) return null;
   if (typeof top !== "string" && top.tag === "h1") return { title: words(top), frontmatter: false };
   const text = Array.from(body.map(words).join(" ").replace(/\s+/g, " ").trim());
-  if (text.length <= NAME_LENGTH) return { title: text.join(""), frontmatter: false };
+  if (text.length <= MADE_NAME) return { title: text.join(""), frontmatter: false };
   // Cut in code points: a lone half of a surrogate pair is no valid file name.
-  const cut = text.slice(0, NAME_LENGTH + 1);
+  const cut = text.slice(0, MADE_NAME + 1);
   const space = cut.lastIndexOf(" ");
-  return { title: cut.slice(0, space > 0 ? space : NAME_LENGTH).join(""), frontmatter: false };
+  return { title: cut.slice(0, space > 0 ? space : MADE_NAME).join(""), frontmatter: false };
 }
 
 class Renderer {

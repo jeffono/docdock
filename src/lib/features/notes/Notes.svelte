@@ -104,19 +104,23 @@ import {
   entryKey,
   escapeAction,
   folderLabels,
+  holdsTitle,
   isMissing,
   isUntitled,
   jumpSection,
   keptNote,
   type Level,
+  MADE_NAME,
   move,
   movedPath,
+  nameRoom,
   navKeys,
   noteFileName,
   renamedPath,
   revealScroll,
   rows,
   shallower,
+  TYPED_NAME,
 } from "./list";
 import {
   listingState,
@@ -780,18 +784,19 @@ export async function choose() {
 }
 
 /**
- * Saves a new note named after `text` through `save`, trying the next name while one is taken; the
- * name saved, or null with `error` set.
+ * Saves a new note named after `text`, cut at a word within `max` characters, through `save`, trying
+ * the next name while one is taken; the name saved, or null with `error` set.
  */
 let creating = $state(false);
 async function createNamed(
   text: string,
   save: (name: string) => Promise<SaveResult>,
+  max: number,
 ): Promise<string | null> {
   const taken = notes.map((note) => note.path);
   // Another app may have taken the name since the listing: the save then conflicts, and the next name is tried.
   for (let attempt = 0; attempt < 50; attempt++) {
-    const name = noteFileName(text, taken);
+    const name = noteFileName(text, taken, max);
     if ((await save(name)).status === "saved") return name;
     taken.push(name);
   }
@@ -814,15 +819,23 @@ async function openInEditor(name: string, since = generation) {
   await edit(name, undefined, since);
 }
 
-/** Creates the note for the typed text and opens it expanded for editing. */
-async function create(text: string, content = "") {
+/**
+ * Creates the note for the typed text and opens it expanded for editing. A title the file name cannot
+ * hold whole also goes into the frontmatter. `page`: a page's note, whose content already holds its
+ * title, gets the shorter name of a title the app made.
+ */
+async function create(text: string, content = "", page = false) {
   if (creating) return;
   creating = true;
   try {
     error = "";
     if (!(await leaveEditor())) return;
     if (!content && !browser) content = creationContent(query);
-    const name = await createNamed(text, (name) => notesSave(name, content, ""));
+    const max = nameRoom(page ? MADE_NAME : TYPED_NAME, folder?.path ?? "");
+    const title = text.replace(/\s+/g, " ").trim();
+    if (!page && title && !holdsTitle(noteFileName(text, [], max), title))
+      content = retitle(content, title, true) ?? content;
+    const name = await createNamed(text, (name) => notesSave(name, content, ""), max);
     if (!name) return;
     await relist();
     await openInEditor(name);
@@ -848,14 +861,14 @@ async function savePage() {
     // In the reader view, the whole article it shows.
     if (article) {
       const note = articleNote(article);
-      await create(note.name, note.text);
+      await create(note.name, note.text, true);
       return;
     }
     const page = await webSelection();
     pageUnavailable = page === null;
     if (!page) return;
     const note = pageNote(page);
-    await create(note.name, note.text);
+    await create(note.name, note.text, true);
   } catch (e) {
     error = errorText(e);
   } finally {
@@ -898,8 +911,10 @@ async function capturePage({ full, page }: CaptureChoice) {
     const shot = await webCapture(full, page);
     const note = pageNote({ url: shot.url, title: shot.title, selection: "" });
     // Saved whatever the panel shows now; a create meanwhile is serialized by Rust.
-    const name = await createNamed(note.name, (name) =>
-      notesCreateWithImage(shot.folder, shot.folderId, name, note.text, shot.image),
+    const name = await createNamed(
+      note.name,
+      (name) => notesCreateWithImage(shot.folder, shot.folderId, name, note.text, shot.image),
+      nameRoom(MADE_NAME, shot.folder),
     );
     if (!name) return;
     await relist();
@@ -1072,6 +1087,12 @@ function rename(
     if (source === "field" && typed === card.hit.title) return;
     const from = card.hit.path;
     const old = card.hit.title;
+    // A name the app made from the text is shorter than a title typed or written in the frontmatter.
+    const room = nameRoom(
+      source === "content" ? MADE_NAME : TYPED_NAME,
+      folder?.path ?? "",
+      folderOf(from),
+    );
     try {
       error = "";
       await current.rename(
@@ -1081,6 +1102,7 @@ function rename(
             from,
             typed,
             notes.map((note) => note.path),
+            room,
           );
           const held = planned.slice(planned.lastIndexOf("/") + 1, -3) === typed;
           return retitle(text, typed, source === "field" && !held);
@@ -1089,7 +1111,7 @@ function rename(
           const taken = notes.map((note) => note.path);
           let titled = retitled;
           for (let attempt = 0; attempt < 50; attempt++) {
-            const to = renamedPath(from, typed, taken);
+            const to = renamedPath(from, typed, taken, room);
             if (to === from) return;
             const stem = to.slice(to.lastIndexOf("/") + 1, -3);
             // A name found taken only now still keeps the typed title, saved after the move.
@@ -1153,8 +1175,17 @@ async function createWithImage(image: File) {
     warning = "";
     if (!(await leaveEditor())) return;
     const [target, bytes] = await Promise.all([notesPasteTarget(), image.arrayBuffer()]);
-    const name = await createNamed(target.title ?? t("paste.untitled"), (name) =>
-      notesCreateWithImage(target.folder, target.folderId, name, "", new Uint8Array(bytes)),
+    const title = target.title ?? t("paste.untitled");
+    const max = nameRoom(MADE_NAME, target.folder);
+    // A window title cut for the file name stays whole in the frontmatter.
+    const content = holdsTitle(noteFileName(title, [], max), title)
+      ? ""
+      : (retitle("", title, true) ?? "");
+    const name = await createNamed(
+      title,
+      (name) =>
+        notesCreateWithImage(target.folder, target.folderId, name, content, new Uint8Array(bytes)),
+      max,
     );
     if (!name) return;
     await relist();

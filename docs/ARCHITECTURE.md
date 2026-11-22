@@ -406,9 +406,10 @@ its marks whenever CodeMirror redraws a line and checks only WebView2's language
 words, never note text, and a word is misspelled only when every language flags it.
 
 **Pasted images** and image files dropped in the editor arrive as a raw IPC body. Rust checks the
-signature and size. Paste and page capture share the attachment writer, which uses the note's file
-stem and the first free name for that extension (`Note.png`, `Note-2.png`, …) in `attachments/`
-beside the note. `move_new` prevents overwrites, and the relative Markdown link percent-encodes the
+signature and size. Paste and page capture share the attachment writer, which names the image after
+the note's file stem as a short plain slug (lowercase, accents folded, words joined by hyphens, cut at
+one within 30 characters) and takes the first free name for that extension (`my-note.png`,
+`my-note-2.png`, …) in `attachments/` beside the note. `move_new` prevents overwrites, and the relative Markdown link percent-encodes the
 file name. **Copy and cut** in `main` go through
 `lib/clipboard.ts` and `platform/clipboard.rs`, which mark the text to stay out of clipboard history
 and cloud clipboard.
