@@ -34,6 +34,7 @@ src-tauri/src/           Backend (Rust)
   permissions.rs         Site permission requests of the page window: rules, remembered choices, waiting
   reader.rs              Reader view: the page's article as Markdown
   screenshot.rs          Pure page capture rules: full-page clip, size limits, image validation
+  paste_source.rs        Pure rule naming a note made from a paste after the window it came from
   notes.rs               Notes folder, settings, listing, reading, atomic saving, renaming, moving,
                          deleting with undo, leftovers, local images and `_pinned.md` reads and writes
   pinned.rs              Pure line rules for `_pinned.md`

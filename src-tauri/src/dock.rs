@@ -90,6 +90,14 @@ struct FocusReport {
     side: Side,
 }
 
+/// The window the panel last opened over, as `Dock::previous_focus`, for other threads.
+static PREVIOUS_FOCUS: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+/// The window the panel last opened over, if any: often where what is pasted in it came from.
+pub fn previous_window() -> Option<isize> {
+    let raw = PREVIOUS_FOCUS.load(std::sync::atomic::Ordering::Relaxed);
+    (raw != 0).then_some(raw)
+}
+
 /// Asks the UI for the search bar. `toggle`: the panel window already had focus, so the UI closes
 /// the panel instead if the bar already has it.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -788,6 +796,10 @@ impl Dock {
         // The native picker belongs to the panel and disappears on close; focus must not return to it.
         if !self.dialog && !self.is_foreground() {
             self.previous_focus = platform::foreground_window().or(self.previous_focus);
+            PREVIOUS_FOCUS.store(
+                self.previous_focus.unwrap_or(0),
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
     }
 

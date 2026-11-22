@@ -15,6 +15,7 @@ mod main_window;
 mod motion;
 mod notes;
 mod panel;
+mod paste_source;
 mod permissions;
 mod pinned;
 mod platform;
@@ -146,6 +147,7 @@ pub fn run() {
         commands::notes_recycle_images,
         commands::notes_paste_image,
         commands::notes_create_with_image,
+        commands::notes_paste_target,
         commands::notes_leftovers,
         commands::notes_restore,
         commands::pinned_list,

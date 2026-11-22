@@ -26,6 +26,7 @@ import {
   notesList,
   notesMove,
   notesOpen,
+  notesPasteTarget,
   notesRename,
   notesRestore,
   notesRewrite,
@@ -1122,6 +1123,48 @@ function rename(
     if (renamingTask === task) renamingTask = null;
   });
   return task;
+}
+
+/**
+ * Ctrl+V of an image alone, with the search bar or the list focused, makes a new note of it; text
+ * pastes as usual, and the editor and other fields keep their own paste.
+ */
+function pasteImage(event: ClipboardEvent) {
+  if (inactive || browser || event.defaultPrevented) return;
+  if (inField(event) && event.composedPath()[0] !== bar()) return;
+  const data = event.clipboardData;
+  if (!data || data.types.includes("text/plain")) return;
+  const file = Array.from(data.items)
+    .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+    ?.getAsFile();
+  if (!file) return;
+  event.preventDefault();
+  void createWithImage(file);
+}
+/**
+ * A new note holding `image`, named after the window it came from (or "Pasted image"), in the
+ * notes folder of the moment of pasting; it opens editing, its title selected to be renamed.
+ */
+async function createWithImage(image: File) {
+  if (creating || capturing || choosing || savingPage) return;
+  creating = true;
+  try {
+    error = "";
+    warning = "";
+    if (!(await leaveEditor())) return;
+    const [target, bytes] = await Promise.all([notesPasteTarget(), image.arrayBuffer()]);
+    const name = await createNamed(target.title ?? t("paste.untitled"), (name) =>
+      notesCreateWithImage(target.folder, target.folderId, name, "", new Uint8Array(bytes)),
+    );
+    if (!name) return;
+    await relist();
+    await openInEditor(name);
+    await editTitle(name);
+  } catch (e) {
+    error = errorText(e);
+  } finally {
+    creating = false;
+  }
 }
 
 /** F2: the title field of the note's editor, opening it if needed, with the title selected. */
@@ -2417,6 +2460,7 @@ onMount(() => {
     {@attach (element) => { if (active === entry.key) element.scrollIntoView({ block: "nearest" }); }} aria-label={webLabel(entry)}><Icon name={entry.key.startsWith("web:history:") ? "restore" : entry.kind === "open" ? "globe" : "search"} /><span>{entry.text}</span></button>
 {/snippet}
 
+<svelte:document onpaste={pasteImage} />
 <svelte:window onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />

@@ -229,7 +229,11 @@ notes differ only in section and starting state.
 
 - **Creating:** "+" creates a note in Notes (typed text becomes its title, otherwise Untitled) or saves
   the current page in Browser: title, URL and quoted selection, or the whole article in the reader
-  view. Every way of creating opens the new note expanded and editing.
+  view. Ctrl+V of an image alone (no text), with the search bar or the list focused in Notes, creates
+  a note holding it, named after the window it came from: the clipboard's owner, or the window the
+  panel opened over when that is a capture tool (Snipping Tool and the like), its program's name cut
+  from the end ("Page - Google Chrome" gives "Page"); otherwise "Pasted image". Every way of
+  creating opens the new note expanded and editing; a pasted image's opens with its title selected.
 - **Editing:** the pencil, Ctrl+E on the selected card or a double click on its text (which selects
   the clicked word, kept where it was on screen). One card edits at a time and shows its own save
   status, conflict and errors. If the search would hide it, it stays at the top until editing ends.
