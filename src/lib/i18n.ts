@@ -225,6 +225,7 @@ const en = {
   "float.unfloat": "Close floating window",
   "float.label": "Floating image",
   "float.opacity": "Opacity",
+  "float.zoom": "Zoom (Ctrl+wheel)",
   "float.clickThrough": "Let clicks through (hold Alt over the window to reach these controls)",
   "float.close": "Close",
   "postIt.label": "Floating note",
@@ -642,6 +643,7 @@ const ptBR: Record<MessageKey, string> = {
   "float.unfloat": "Fechar janela flutuante",
   "float.label": "Imagem flutuante",
   "float.opacity": "Opacidade",
+  "float.zoom": "Zoom (Ctrl+roda)",
   "float.clickThrough":
     "Deixar cliques passarem (segure Alt sobre a janela para alcançar estes controles)",
   "float.close": "Fechar",

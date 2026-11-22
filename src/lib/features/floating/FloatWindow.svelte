@@ -34,9 +34,9 @@ let hovered = $state(false);
 let zoom = $state(1);
 let pan = $state<Point>({ x: 0, y: 0 });
 const controls = $derived(revealed || (hovered && !clickThrough));
-const label = $derived.by(() => {
+const labels = $derived.by(() => {
   void locale;
-  return t("float.label");
+  return { window: t("float.label"), zoom: t("float.zoom") };
 });
 const name = $derived(path?.slice(path.lastIndexOf("/") + 1) ?? "");
 
@@ -206,14 +206,14 @@ onMount(() => {
 });
 </script>
 
-{#snippet zoomLabel()}<span class="zoom">{percent}%</span>{/snippet}
+{#snippet zoomLabel()}<span class="zoom" title={labels.zoom}>{percent}%</span>{/snippet}
 
 <div
   class="float"
   class:active={controls}
   bind:this={root}
   role="group"
-  aria-label={label}
+  aria-label={labels.window}
   onpointerenter={() => { hovered = true; }}
   onpointermove={pointermove}
   onpointerup={pointerup}
