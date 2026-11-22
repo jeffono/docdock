@@ -208,12 +208,12 @@ test("an untitled note is named by its frontmatter title, else its top heading, 
   expect(noteName("- one\n- [two](https://e.com)\n\n> three")?.title).toBe("one two three");
 });
 
-test("an untitled note's name from its words is cut at a word near 60 characters", () => {
+test("an untitled note's name from its words is cut at a word near 30 characters", () => {
   const long = "word ".repeat(30);
-  expect(noteName(long)?.title).toBe("word ".repeat(12).trim());
-  expect(noteName("x".repeat(80))?.title).toBe("x".repeat(60));
+  expect(noteName(long)?.title).toBe("word ".repeat(6).trim());
+  expect(noteName("x".repeat(80))?.title).toBe("x".repeat(30));
   // Bug: a cut through an emoji left half of it, which Rust rejects as a path.
-  expect(noteName(`${"a".repeat(59)}😀xx`)?.title).toBe(`${"a".repeat(59)}😀`);
+  expect(noteName(`${"a".repeat(29)}😀xx`)?.title).toBe(`${"a".repeat(29)}😀`);
   expect(noteName("---\ntags: [a]\n---\n\n![](a.png)\n")).toBeNull();
 });
 

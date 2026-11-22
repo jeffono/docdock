@@ -2931,12 +2931,71 @@ fn paste_image_in(root: &Path, path: &str, bytes: &[u8]) -> Result<String, Error
     let image = attach(&note, held, bytes, ext)?;
     Ok(attachment_link(&image))
 }
+/// The longest name an image takes from its note, before its counter and extension.
+const IMAGE_STEM: usize = 30;
+
+/// An image's name from its note's: lowercase, without accents, words joined by hyphens and cut at
+/// one within `IMAGE_STEM`, so its link reads without escapes; "image" when nothing is left.
+fn image_stem(note: &str) -> String {
+    let mut slug = String::new();
+    for c in note.chars().flat_map(char::to_lowercase) {
+        let folded = match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
+            'ç' | 'ć' | 'č' => "c",
+            'ď' | 'đ' => "d",
+            'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' | 'ě' => "e",
+            'ğ' => "g",
+            'ì' | 'í' | 'î' | 'ï' | 'ī' | 'į' | 'ı' => "i",
+            'ł' | 'ľ' => "l",
+            'ñ' | 'ń' | 'ň' => "n",
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' => "o",
+            'ř' => "r",
+            'ś' | 'š' | 'ş' => "s",
+            'ť' | 'ţ' => "t",
+            'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' => "u",
+            'ý' | 'ÿ' => "y",
+            'ź' | 'ż' | 'ž' => "z",
+            'æ' => "ae",
+            'œ' => "oe",
+            'ß' => "ss",
+            // Combining accents, as in a decomposed "é", fold away with nothing.
+            '\u{300}'..='\u{36f}' => "",
+            c if c.is_alphanumeric() => {
+                slug.push(c);
+                continue;
+            }
+            _ => "-",
+        };
+        slug.push_str(folded);
+    }
+    let mut stem = String::new();
+    for word in slug.split('-').filter(|word| !word.is_empty()) {
+        let joined = stem.chars().count() + usize::from(!stem.is_empty()) + word.chars().count();
+        if joined > IMAGE_STEM {
+            // A first word too long to fit is cut rather than leaving nothing.
+            if stem.is_empty() {
+                stem = word.chars().take(IMAGE_STEM).collect();
+            }
+            break;
+        }
+        if !stem.is_empty() {
+            stem.push('-');
+        }
+        stem.push_str(word);
+    }
+    if stem.is_empty() {
+        "image".to_owned()
+    } else {
+        stem
+    }
+}
+
 /// Writes an image named after `note` into its canonical parent's `attachments` folder, holding
 /// the ancestry in `held`. Adds a counter when the name is taken. Answers the new file's path.
 fn attach(note: &Path, mut held: Vec<fs::File>, bytes: &[u8], ext: &str) -> Result<PathBuf, Error> {
     let parent = note.parent().ok_or(Error::InvalidPath)?;
     let stem = note.file_stem().ok_or(Error::InvalidPath)?;
-    let mut name = platform::fit_name(stem, platform::MAX_NAME - 1 - ext.len());
+    let mut name = std::ffi::OsString::from(image_stem(&stem.to_string_lossy()));
     name.push(format!(".{ext}"));
     let folder = parent.join("attachments");
     match fs::create_dir(&folder) {
@@ -3630,6 +3689,18 @@ mod tests {
             "unchanged"
         );
     }
+    // Catches image links full of escapes, or image names as long as their note's.
+    #[test]
+    fn an_image_name_is_a_short_plain_slug_of_its_note() {
+        assert_eq!(image_stem("Receitas de Pão: Ação!"), "receitas-de-pao-acao");
+        assert_eq!(image_stem("Cafe\u{301} 東京"), "cafe-東京");
+        assert_eq!(
+            image_stem("Planilha de custos do segundo semestre"),
+            "planilha-de-custos-do-segundo"
+        );
+        assert_eq!(image_stem(&"x".repeat(40)), "x".repeat(30));
+        assert_eq!(image_stem("¿?"), "image");
+    }
     /// A notes folder marked as chosen, for captures.
     fn marked() -> (Temp, String) {
         let t = Temp::new();
@@ -3651,10 +3722,10 @@ mod tests {
         assert!(matches!(created, Ok(Saved::Saved { .. })));
         assert_eq!(
             fs::read_to_string(t.0.join("Page (%20) & fragment #1.md")).unwrap(),
-            "---\n---\n\n![](attachments/Page%20%28%2520%29%20%26%20fragment%20%231.png)"
+            "---\n---\n\n![](attachments/page-20-fragment-1.png)"
         );
         assert_eq!(
-            fs::read(t.0.join("attachments/Page (%20) & fragment #1.png")).unwrap(),
+            fs::read(t.0.join("attachments/page-20-fragment-1.png")).unwrap(),
             PNG
         );
     }
@@ -3675,7 +3746,7 @@ mod tests {
         let failed = create_with_image_in(&t.0, &id, "Page.md", "", PNG, |_, _, _| {
             Err(Error::unexpected("disk full"))
         });
-        let image = t.0.canonicalize().unwrap().join("attachments/Page.png");
+        let image = t.0.canonicalize().unwrap().join("attachments/page.png");
         assert_eq!(
             failed,
             Err(Error::ImageKept {
