@@ -241,10 +241,13 @@ onMount(() => {
     inset: 0;
   }
 
+  /* The vertical padding is the sheet's, so the text scrolls clipped as far from the bottom edge as
+     from the top, scrolled or not. */
   .sheet {
     position: absolute;
     inset: var(--pad);
     overflow: hidden;
+    padding: var(--space-2) 0;
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
     background: var(--color-surface);
@@ -261,7 +264,7 @@ onMount(() => {
   .scroller {
     height: 100%;
     overflow: auto;
-    padding: var(--space-2) var(--space-3);
+    padding: 0 var(--space-3);
     user-select: none;
   }
 
@@ -272,6 +275,10 @@ onMount(() => {
 
   .body > :global(:first-child) {
     margin-top: 0;
+  }
+
+  .body > :global(:last-child) {
+    margin-bottom: 0;
   }
 
   .body :global(.note-header) {

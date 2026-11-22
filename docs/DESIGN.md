@@ -446,7 +446,8 @@ notes differ only in section and starting state.
   outline: the identity's one shadow, since the window has no frame to show where it ends. A pill
   of controls appears `--space-2` inside the image's top right corner (`--color-surface`, 1 px
   `--color-line`, `--radius-full`): how large the image shows against its natural size, inner zoom
-  included (`--font-size-sm`, `--color-muted`, tabular figures, hidden until the image loads);
+  included (`--font-size-sm`, `--color-muted`, tabular figures, hidden until the image loads,
+  tooltip "Zoom (Ctrl+wheel)");
   then, past a 1 px `--color-line` divider, a small muted `blend` icon and a short opacity slider
   from 15% to 100% in 5% steps, its thin track `--color-fg` up to the small `--color-fg` thumb and
   `--color-line` after it, no accent; "Let clicks through" as a quiet
@@ -480,7 +481,8 @@ notes differ only in section and starting state.
   `--space-2` gutter, hover hairline and shadow, opacity, click-through with Alt, tray items,
   reopening and the vault), on a sheet of `--color-surface` with a 1 px `--color-line` border and
   `--radius-sm`, the note rendered as in the panel, title included, inside `--space-2` by
-  `--space-3` padding, scrolling with the wheel. Its pill has the opacity slider, a pencil ("Edit
+  `--space-3` padding, which the text keeps from both edges even while it scrolls, scrolling with
+  the wheel. Its pill has the opacity slider, a pencil ("Edit
   in the panel (double-click)"), "Let clicks through" and Close; the whole sheet fades, never the
   pill. Dragging the sheet more than 4 px moves the window; its edges and corners resize it to any
   proportions, each side of the sheet at least 96 logical px. A double click, or the pencil, brings
