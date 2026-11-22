@@ -41,6 +41,7 @@ let {
   editor,
   folder = false,
   deleting = false,
+  droptarget = false,
 }: {
   card: Card;
   now: number;
@@ -82,6 +83,8 @@ let {
   folder?: boolean;
   /** Its delete is taking a while: a scrim over the card says so, and takes the pointer. */
   deleting?: boolean;
+  /** Something dragged from another app would be added to its end if dropped now. */
+  droptarget?: boolean;
 } = $props();
 
 const path = $derived(card.hit.path);
@@ -217,6 +220,7 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
   class:expanded={card.level === "expanded"}
   class:editing
   class:floats
+  class:drop={droptarget}
   aria-busy={deleting || undefined}
   data-path={card.hit.path}
 >
@@ -345,6 +349,11 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
 
   .card.editing {
     border-color: var(--color-accent);
+  }
+
+  .card.drop {
+    border-color: var(--color-accent);
+    background: var(--color-selected);
   }
 
   .card.selected.line .title {

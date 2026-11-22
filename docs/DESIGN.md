@@ -234,6 +234,14 @@ notes differ only in section and starting state.
   panel opened over when that is a capture tool (Snipping Tool and the like), its program's name cut
   from the end ("Page - Google Chrome" gives "Page"); otherwise "Pasted image". Every way of
   creating opens the new note expanded and editing; a pasted image's opens with its title selected.
+- **Dropping from other apps:** images (files, or images dragged out of a browser) and text dragged
+  over the panel in Notes open it as the edge does. While the drag lasts, a "New note" card with a
+  dashed accent border covers the search bar and "+"; over it, or over a note, the target takes the
+  selected background and an accent border. On "New note" the drop becomes a note named as a pasted
+  image's, after the window the panel opened over (else "Pasted image", or the text's first words),
+  and the panel takes focus with the title selected. On a note not being edited it is added to the
+  end as a paragraph of its own; in the editor it goes where it is dropped. Files that are not images
+  are refused with a notice. Browser mode takes no drops.
 - **File names:** a note's file name is cut at a word within 60 characters for a title typed or
   written in the frontmatter, and within 30 for one the app makes (a window or page title, a note's
   first words), shorter still when the notes folder's path is long, so the whole path stays within

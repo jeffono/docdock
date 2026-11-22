@@ -352,6 +352,20 @@ pub fn notes_recycle_images(
     crate::watch::notify(&app);
     result
 }
+/// A raw IPC body's bytes. After one failed IPC request Tauri sends every later one as JSON for the
+/// rest of the page's life, bytes then arriving as an array of numbers: those are taken as well.
+fn body_bytes(body: &tauri::ipc::InvokeBody) -> Result<std::borrow::Cow<'_, [u8]>, Error> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.into()),
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(values)) => values
+            .iter()
+            .map(|value| value.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect::<Option<Vec<u8>>>()
+            .map(Into::into)
+            .ok_or(Error::UnsupportedImage),
+        _ => Err(Error::UnsupportedImage),
+    }
+}
 /// Raw IPC avoids expanding image bytes into JSON numbers.
 #[tauri::command(async)]
 pub fn notes_paste_image(
@@ -366,10 +380,7 @@ pub fn notes_paste_image(
     let path = percent_encoding::percent_decode_str(path)
         .decode_utf8()
         .map_err(|_| Error::InvalidPath)?;
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err(Error::UnsupportedImage);
-    };
-    crate::notes::paste_image(&app, &path, bytes)
+    crate::notes::paste_image(&app, &path, &body_bytes(request.body())?)
 }
 /// A new note holding `content` and then a link to an image put beside it, as
 /// `notes_create_with_image` in `notes.rs` says. Raw IPC as `notes_paste_image`: the body is a
@@ -385,14 +396,20 @@ pub struct PasteTarget {
     folder_id: String,
     title: Option<String>,
 }
+/// `dropped`: something dragged in, whose source is the window the panel opened over, not the
+/// clipboard's owner.
 #[tauri::command(async)]
-pub fn notes_paste_target(app: AppHandle) -> Result<PasteTarget, Error> {
+pub fn notes_paste_target(app: AppHandle, dropped: bool) -> Result<PasteTarget, Error> {
     let (folder, folder_id) = crate::notes::capture_folder(&app)?;
     let own = std::env::current_exe()
         .ok()
         .and_then(|path| Some(path.file_name()?.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
-    let owner = crate::platform::clipboard_owner();
+    let owner = if dropped {
+        None
+    } else {
+        crate::platform::clipboard_owner()
+    };
     let previous = crate::dock::previous_window().and_then(crate::platform::source_window);
     Ok(PasteTarget {
         folder,
@@ -421,9 +438,7 @@ pub fn notes_create_with_image(
         header("x-notes-folder")?,
         header("x-notes-folder-id")?,
     );
-    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
-        return Err(Error::UnsupportedImage);
-    };
+    let body = body_bytes(request.body())?;
     let (length, rest) = body
         .split_first_chunk::<4>()
         .ok_or(Error::UnsupportedImage)?;
@@ -792,5 +807,23 @@ pub fn spelling_add(
         Err(Error::unexpected(
             "the word could not be added to the Windows dictionary",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::ipc::InvokeBody;
+
+    // Catches every image paste failing for the rest of the session once Tauri's IPC falls back to
+    // JSON, as dropped browser images did.
+    #[test]
+    fn image_bytes_arrive_raw_or_as_json_numbers() {
+        let raw = InvokeBody::Raw(vec![1, 2, 255]);
+        assert_eq!(body_bytes(&raw).unwrap().as_ref(), [1, 2, 255]);
+        let json = InvokeBody::Json(serde_json::json!([1, 2, 255]));
+        assert_eq!(body_bytes(&json).unwrap().as_ref(), [1, 2, 255]);
+        let wrong = InvokeBody::Json(serde_json::json!([1, 256]));
+        assert_eq!(body_bytes(&wrong), Err(Error::UnsupportedImage));
     }
 }
