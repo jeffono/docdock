@@ -370,6 +370,7 @@ const en = {
   "error.notUtf8": "The note is not UTF-8 text.",
   "error.unsupportedImage": "Paste a PNG, JPEG, GIF or WebP image.",
   "error.imageTooLarge": "The image exceeds the {limitMb} MB limit.",
+  "error.dropChanged": "The note changed while the drop was being added. Drop it again.",
   "error.attachmentFolderUnsafe":
     "Cannot save an attachment through a folder link or an unavailable folder.",
   "error.saveFailed": "Could not save the note: {detail}",
@@ -797,6 +798,7 @@ const ptBR: Record<MessageKey, string> = {
   "error.notUtf8": "A nota não é texto UTF-8.",
   "error.unsupportedImage": "Cole uma imagem PNG, JPEG, GIF ou WebP.",
   "error.imageTooLarge": "A imagem excede o limite de {limitMb} MB.",
+  "error.dropChanged": "A nota mudou enquanto o conteúdo era adicionado. Solte de novo.",
   "error.attachmentFolderUnsafe":
     "Não é possível salvar um anexo por um link de pasta ou uma pasta indisponível.",
   "error.saveFailed": "Não foi possível salvar a nota: {detail}",

@@ -2697,7 +2697,8 @@ pub const fn image_too_large() -> Error {
 /// The image without the zeros some sources pad it with after its end, as Edge does when an image
 /// is dragged out of it: after a JPEG's end marker or a PNG's end chunk. Anything else stays whole.
 fn without_padding(bytes: &[u8]) -> &[u8] {
-    if bytes.last() != Some(&0) {
+    // An image over the limit is refused next, without being searched first.
+    if bytes.last() != Some(&0) || bytes.len() > MAX_ATTACHMENT_BYTES {
         return bytes;
     }
     let end = if bytes.starts_with(b"\xff\xd8\xff") {

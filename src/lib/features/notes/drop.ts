@@ -35,7 +35,23 @@ export function appended(note: string, block: string): string {
   const newline = note.match(/\r\n|\n|\r/)?.[0] ?? "\n";
   const body = block.replace(/\n+$/, "").replace(/\n/g, newline);
   if (!note) return body + newline;
-  const breaks = note.match(/(?:\r\n|\n|\r)*$/)?.[0].split(newline).length ?? 1;
-  const separator = newline.repeat(Math.max(0, 3 - breaks));
-  return note + separator + body + newline;
+  // Counted from the end by hand: a regex over the line breaks backtracks badly on long runs.
+  let end = note.length;
+  let breaks = 0;
+  while (breaks < 2 && end > 0) {
+    if (note.startsWith("\r\n", end - 2)) end -= 2;
+    else if (note[end - 1] === "\n" || note[end - 1] === "\r") end -= 1;
+    else break;
+    breaks++;
+  }
+  return note + newline.repeat(2 - breaks) + body + newline;
+}
+
+/** The largest image Rust attaches, as its `MAX_ATTACHMENT_BYTES`: larger ones are not read. */
+export const IMAGE_LIMIT_MB = 10;
+
+/** Fails as Rust would for an image over the limit, before its bytes are read into memory. */
+export function checkImageSize(image: File) {
+  if (image.size > IMAGE_LIMIT_MB * 1024 * 1024)
+    throw { code: "imageTooLarge", limitMb: IMAGE_LIMIT_MB };
 }

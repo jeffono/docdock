@@ -91,7 +91,14 @@ import {
 import type { AutosaveState } from "./autosave";
 import CardView from "./Card.svelte";
 import { dragSlot } from "./drag";
-import { appended, bringsContent, type Dropped, droppedContent, imagesBlock } from "./drop";
+import {
+  appended,
+  bringsContent,
+  checkImageSize,
+  type Dropped,
+  droppedContent,
+  imagesBlock,
+} from "./drop";
 import Editor from "./Editor.svelte";
 import { folderAction, folderNotice } from "./folder-state";
 import { dateHeadings, folderOf } from "./grouping";
@@ -1196,13 +1203,18 @@ async function createFrom(content: Dropped, dropped: boolean) {
     } else {
       // The first image goes in with the note, in one write; any others follow it.
       const [first, ...rest] = content.images;
+      for (const image of content.images) checkImageSize(image);
       const bytes = new Uint8Array(await first.arrayBuffer());
       name = await createNamed(
         title,
         (name) => notesCreateWithImage(target.folder, target.folderId, name, header, bytes),
         max,
       );
-      if (name && rest.length) await appendTo(name, { images: rest });
+      // The note exists by now: it opens even if the other images could not join it.
+      if (name && rest.length)
+        await appendTo(name, { images: rest }).catch((e) => {
+          error = errorText(e);
+        });
     }
     if (!name) return;
     await relist();
@@ -1217,24 +1229,20 @@ async function createFrom(content: Dropped, dropped: boolean) {
 
 /**
  * Adds what was dropped to the end of the note at `path`, which is not being edited: images are
- * attached beside it first. A note changed meanwhile is read again, so nothing of it is lost.
+ * attached beside it first. The note is read once, before; if it changed, moved or was replaced
+ * since, nothing is written to it and `dropChanged` says so, rather than adding to another file.
  */
 async function appendTo(path: string, content: Dropped) {
+  if ("images" in content) for (const image of content.images) checkImageSize(image);
+  const note = await notesOpen(path);
   const links: string[] = [];
   if ("images" in content)
     for (const image of content.images)
       links.push(await notesPasteImage(path, new Uint8Array(await image.arrayBuffer())));
-  const block = "text" in content ? content.text : imagesBlock(links);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const note = await notesOpen(path);
-    const text = appended(note.text, block);
-    const saved = await notesRewrite(path, text, note.version);
-    if (saved.status === "saved") {
-      contents[path] = { text, version: saved.version };
-      return;
-    }
-  }
-  throw { code: "saveFailed", detail: path };
+  const text = appended(note.text, "text" in content ? content.text : imagesBlock(links));
+  const saved = await notesRewrite(path, text, note.version);
+  if (saved.status !== "saved") throw { code: "dropChanged" };
+  contents[path] = { text, version: saved.version };
 }
 
 /** A drag from another app over the panel: the "New note" card shows while it lasts. */
@@ -1250,9 +1258,9 @@ function dropTarget(event: DragEvent): string | null {
   if (element?.closest(".new-note-drop")) return "new";
   const card = element?.closest<HTMLElement>(".card[data-path]");
   const path = card?.dataset.path;
-  // An editing note takes drops in its own editor; a web page holds no content.
-  if (!path || card.classList.contains("editing") || card.classList.contains("page")) return null;
-  return path;
+  // An editing note takes drops in its own editor; a pinned web page is no note.
+  if (!path || card.classList.contains("editing")) return null;
+  return notes.some((note) => note.path === path) ? path : null;
 }
 function dragFromApp(event: DragEvent): boolean {
   // A pinned item dragged to reorder is no content.

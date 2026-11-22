@@ -357,6 +357,12 @@ pub fn notes_recycle_images(
 fn body_bytes(body: &tauri::ipc::InvokeBody) -> Result<std::borrow::Cow<'_, [u8]>, Error> {
     match body {
         tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.into()),
+        // Bounded before copying: an image with a note never comes near twice the image limit.
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(values))
+            if values.len() > 2 * crate::notes::MAX_ATTACHMENT_BYTES =>
+        {
+            Err(crate::notes::image_too_large())
+        }
         tauri::ipc::InvokeBody::Json(serde_json::Value::Array(values)) => values
             .iter()
             .map(|value| value.as_u64().and_then(|n| u8::try_from(n).ok()))

@@ -16,6 +16,12 @@ describe("appended", () => {
   it("keeps the note's line endings", () => {
     expect(appended("a\r\nb\r\n", "x\ny")).toBe("a\r\nb\r\n\r\nx\r\ny\r\n");
   });
+
+  // Bug: counting the note's last line breaks with a regex hung on long runs of blank lines.
+  it("stays fast on a note with many blank lines", () => {
+    const note = `a${"\r\n".repeat(5000)}b`;
+    expect(appended(note, "x")).toBe(`${note}\r\n\r\nx\r\n`);
+  });
 });
 
 describe("droppedContent", () => {
