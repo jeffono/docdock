@@ -158,6 +158,33 @@ export function imageRuns(
   return runs;
 }
 
+/** True when `body` contains at least one grid of two or more local images (`imageRuns`). */
+export function hasImageGallery(body: string, note: string): boolean {
+  if (!body.includes("![")) return false;
+  const tree = noteParser.parse(body);
+  const slice = (from: number, to: number) => body.slice(from, to);
+  const defs = definitions(tree.topNode, slice);
+  const visit = (node: SyntaxNode, depth: number): boolean => {
+    if (depth > maxDepth) return false;
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.name === "FencedCode" || child.name === "CodeBlock") continue;
+      if (child.name === "Paragraph") {
+        for (const run of imageRuns(child, slice)) {
+          if (
+            run.images.every((img) => {
+              const target = linkTarget(img, slice, defs);
+              return target !== null && imagePath(target.url, note) !== null;
+            })
+          )
+            return true;
+        }
+      } else if (visit(child, depth + 1)) return true;
+    }
+    return false;
+  };
+  return visit(tree.topNode, 0);
+}
+
 /** Backslash escapes and character references, as CommonMark decodes destinations and titles. */
 export function decodeMarkdown(text: string): string {
   return text.replace(

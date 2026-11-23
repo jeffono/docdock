@@ -2,7 +2,7 @@
 // action does. The component only draws it and runs the effects. No IPC here.
 import type { PinnedItem } from "../../ipc";
 import { type DateGroup, type FolderGroup, folderCompare, folderOf } from "./grouping";
-import { filterQuery } from "./query";
+import { effectiveFilters, filterQuery, type QueryCompletion } from "./query";
 import type { Hit } from "./search";
 
 /** `line` is a one-line row for a note that is not pinned. */
@@ -79,10 +79,18 @@ export function buildList(input: {
   kept: (Hit & { gone: boolean }) | null;
   /** The expanded card is being edited: whatever the search or `_pinned.md` say, it stays a card. */
   editing: boolean;
+  now?: Date;
+  completing?: QueryCompletion | null;
 }): ListModel {
-  const { hits, query, expanded, kept, editing } = input;
+  const { hits, query, expanded, kept, editing, now, completing = null } = input;
   const byPath = new Map(hits.map((hit) => [hit.path, hit]));
   const searching = query.trim() !== "";
+  const filters = effectiveFilters(query, now, completing);
+  const urlAllowed =
+    filters.tags.length === 0 && filters.dates.length === 0 && !filters.needGallery;
+  const urlTerms = filters.text
+    ? filters.text.toLocaleLowerCase().split(/\s+/).filter(Boolean)
+    : [];
   const keptCard = (pinned: boolean): Card | null => {
     if (!kept || !(editing || (kept.gone && !pinned))) return null;
     const { gone, ...hit } = kept;
@@ -93,12 +101,10 @@ export function buildList(input: {
   let held: Card | null = null;
   for (const item of input.pinned) {
     if (item.kind === "url") {
+      const targetText = `${item.title} ${item.target}`.toLocaleLowerCase();
       if (
         !pinnedPaths.has(item.target) &&
-        (!searching ||
-          `${item.title} ${item.target}`
-            .toLocaleLowerCase()
-            .includes(query.trim().toLocaleLowerCase()))
+        (!searching || (urlAllowed && urlTerms.every((term) => targetText.includes(term))))
       ) {
         pinned.push({
           hit: { path: item.target, title: item.title, tags: [], modified: 0, snippet: null },

@@ -518,12 +518,22 @@ pub async fn image_preview_show(
 ) -> Result<(), Error> {
     crate::preview::show(&app, &requests, path, rect, natural)
 }
+/// Shows a closed note in the side preview beside its card at `rect`.
+#[tauri::command(async)]
+pub fn image_preview_show_note(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    path: String,
+    rect: [i32; 4],
+) -> Result<(), Error> {
+    crate::preview::show_note(&app, &requests, path, rect)
+}
 /// Off the main thread, as everything that takes the preview's session.
 #[tauri::command(async)]
 pub fn image_preview_hide(requests: State<'_, Sender<Request>>) {
     crate::preview::hide(&requests);
 }
-/// The preview window's only command: what it shows when it loads, and the channel for what it
+/// The preview window's only state command: what it shows when it loads, and the channel for what it
 /// shows next. Off the main thread, as everything that takes the preview's session.
 #[tauri::command(async)]
 pub fn image_preview_state(
@@ -535,6 +545,17 @@ pub fn image_preview_state(
         return Err(Error::unexpected("command restricted to the image preview"));
     }
     Ok(crate::preview::state(channel, *locale))
+}
+/// Reads the note currently shown in the side preview window.
+#[tauri::command(async)]
+pub fn image_preview_note(
+    app: AppHandle,
+    webview: tauri::Webview,
+) -> Result<Option<String>, Error> {
+    if webview.label() != crate::preview::LABEL {
+        return Err(Error::unexpected("command restricted to the image preview"));
+    }
+    crate::preview::note(&app)
 }
 
 /// Detaches an image of the notes folder into a floating window. Asynchronous because creating its
@@ -560,6 +581,29 @@ pub async fn floating_open_note(
     rect: [i32; 4],
 ) -> Result<(), Error> {
     crate::floating::open_note(&app, &requests, path, rect)
+}
+
+/// Starts a pointer drag for a note card, preparing an opaque ghost or grabbing its open post-it.
+#[tauri::command]
+pub async fn floating_drag_start(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    id: u64,
+    path: String,
+) -> Result<(), Error> {
+    crate::floating::start_drag_note(&app, &requests, id, path)
+}
+
+/// Finishes the active note drag, opening or keeping the post-it at the drop spot if committed.
+#[tauri::command]
+pub async fn floating_drag_end(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    id: u64,
+    commit: bool,
+    cursor: Option<[i32; 2]>,
+) -> Result<bool, Error> {
+    crate::floating::end_drag_note(&app, &requests, id, commit, cursor)
 }
 
 /// A post-it's request to edit, made on `epoch`, still names a note of the configured folder.
@@ -645,6 +689,18 @@ pub fn float_edit(
 #[tauri::command(async)]
 pub fn float_drag(window: tauri::WebviewWindow) -> Result<(), Error> {
     crate::floating::drag(&window)
+}
+/// Signals that a newly opened post-it rendered its first frame so any drag ghost can hide.
+#[tauri::command(async)]
+pub fn float_ready(
+    window: tauri::WebviewWindow,
+    requests: State<'_, Sender<Request>>,
+) -> Result<(), Error> {
+    if !crate::floating::is_live(window.label()) {
+        return Err(Error::unexpected("command restricted to floating windows"));
+    }
+    crate::floating::ready(window.label(), &requests);
+    Ok(())
 }
 #[tauri::command(async)]
 pub fn float_resize(window: tauri::WebviewWindow, direction: String) -> Result<(), Error> {
@@ -775,6 +831,18 @@ pub fn note_search_suggestions(app: AppHandle) -> Result<bool, Error> {
 #[tauri::command]
 pub fn note_search_set_suggestions(app: AppHandle, enabled: bool) -> Result<(), Error> {
     crate::notes::set_note_search_suggestions(&app, enabled)
+}
+#[tauri::command]
+pub fn notes_preview_mode(app: AppHandle) -> Result<crate::notes::NotePreviewMode, Error> {
+    crate::notes::note_preview(&app)
+}
+#[tauri::command]
+pub fn notes_set_preview_mode(
+    app: AppHandle,
+    requests: State<'_, Sender<Request>>,
+    mode: crate::notes::NotePreviewMode,
+) -> Result<(), Error> {
+    crate::notes::set_note_preview(&app, &requests, mode)
 }
 #[tauri::command]
 pub fn spelling_enabled(app: AppHandle) -> Result<bool, Error> {

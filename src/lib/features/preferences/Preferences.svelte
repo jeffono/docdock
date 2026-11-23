@@ -7,6 +7,7 @@ import {
   blockingSetAllowed,
   blockingSites,
   type NotesFolder,
+  notePreviewModes,
   notesFolder,
   notesRecycleImages,
   notesTrash,
@@ -39,6 +40,11 @@ import { noteAssetUrl } from "../notes/asset-url";
 import { folderNotice } from "../notes/folder-state";
 import NoteOrder from "../notes/NoteOrder.svelte";
 import { noteOrderBusy, relativeDates, setRelativeDates } from "../notes/order-store";
+import {
+  loadNotePreviewMode,
+  notePreviewMode,
+  setNotePreviewMode,
+} from "../notes/preview-mode-store";
 import { relativeDate } from "../notes/relative-date";
 import ShortcutList from "../notes/ShortcutList.svelte";
 import {
@@ -236,11 +242,18 @@ function resetTheme() {
   for (const input of document.querySelectorAll<HTMLInputElement>('input[name="theme"]'))
     input.checked = input.value === appearance.theme;
 }
+function resetNotePreview() {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="note-preview"]'))
+    input.checked = input.value === $notePreviewMode;
+}
 async function refreshFolder() {
   folder = await notesFolder();
 }
 onMount(() => {
   void loadNoteSearchSuggestions().catch((e) => {
+    error = errorText(e);
+  });
+  void loadNotePreviewMode().catch((e) => {
     error = errorText(e);
   });
   void action(async () => {
@@ -321,6 +334,13 @@ onMount(() => {
       <div class="setting">
         <label><input type="checkbox" checked={$relativeDates} disabled={busy || $noteOrderBusy} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $relativeDates; void action(() => setRelativeDates(enabled)); }} />{t("preferences.relativeDates")}</label>
       </div>
+      <fieldset disabled={busy || $notePreviewMode === null}>
+        <legend>{t("preferences.notePreview")}</legend>
+        {#each notePreviewModes as mode}
+          <label><input type="radio" name="note-preview" value={mode} checked={$notePreviewMode === mode} onchange={() => action(() => setNotePreviewMode(mode).catch((e) => { resetNotePreview(); throw e; }))} />{t(`preferences.notePreview.${mode}`)}</label>
+        {/each}
+        <p class="hint">{t("preferences.notePreviewHint")}</p>
+      </fieldset>
       <div class="setting">
         <label><input type="checkbox" checked={$noteSearchSuggestions === true} disabled={busy || $noteSearchSuggestions === null} aria-describedby="note-search-suggestions-hint" onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = $noteSearchSuggestions === true; void action(() => setNoteSearchSuggestions(enabled)); }} />{t("preferences.noteSearchSuggestions")}</label>
         <p id="note-search-suggestions-hint">{t("preferences.noteSearchSuggestionsHint")}</p>
@@ -484,6 +504,7 @@ p[role="alert"] { color: var(--color-danger); }
 .setting { padding-bottom: var(--space-4); }
 .update-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 fieldset { border: 0; padding: 0; margin: var(--space-4) 0; }
+fieldset .hint { margin: var(--space-2) 0 0; }
 label { display: inline-flex; align-items: center; gap: var(--space-1); margin-right: var(--space-4); }
 input { accent-color: var(--color-accent); }
 .trash { list-style: none; margin: 0 0 var(--space-3); padding: 0; border-top: 1px solid var(--color-line); }

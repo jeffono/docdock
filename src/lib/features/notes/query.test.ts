@@ -1,13 +1,19 @@
 import { expect, test } from "vitest";
 import {
+  activeFilters,
   applyCompletion,
+  clearFilters,
   completionChoices,
+  creationContent,
   creationText,
   filterQuery,
+  hasActiveFilters,
   noteSuggestionQuery,
   parseQuery,
   queryCompletion,
+  setDateFilter,
   tagToken,
+  toggleFilterToken,
 } from "./query";
 
 test("note searches are ineligible for web suggestions by default", () => {
@@ -108,4 +114,62 @@ test("a partial token still offers its sole matching suggestion", () => {
 });
 test("moving the caret outside a token clears completion", () => {
   expect(queryCompletion("budget #wor", 3)).toBeNull();
+});
+
+test("parses and completes is:link and has:gallery filters", () => {
+  expect(parseQuery("notes is:link has:gallery #work")).toEqual({
+    text: "notes",
+    tokens: [
+      { kind: "is", value: "link", from: 6, to: 13 },
+      { kind: "has", value: "gallery", from: 14, to: 25 },
+      { kind: "tag", value: "work", from: 26, to: 31 },
+    ],
+  });
+  const isCtx = queryCompletion("is:li", 5);
+  expect(isCtx).toEqual({ kind: "is", from: 0, to: 5, prefix: "li" });
+  if (!isCtx) throw new Error("Missing is completion");
+  expect(applyCompletion("is:li", isCtx, "link")).toEqual({ text: "is:link ", caret: 8 });
+  const hasCtx = queryCompletion("has:gal", 7);
+  expect(hasCtx).toEqual({ kind: "has", from: 0, to: 7, prefix: "gal" });
+  if (!hasCtx) throw new Error("Missing has completion");
+  expect(applyCompletion("has:gal", hasCtx, "gallery")).toEqual({
+    text: "has:gallery ",
+    caret: 12,
+  });
+  expect(filterQuery("is:link")).toBe(true);
+  expect(filterQuery("has:gallery")).toBe(true);
+  expect(creationText("notes is:link has:gallery")).toBe("notes");
+  expect(noteSuggestionQuery("notes is:link has:gallery", true)).toBe("notes");
+  expect(creationContent("notes is:link has:gallery")).toBe("");
+});
+
+test("filter helpers toggle, replace dates, detect active filters and clear cleanly", () => {
+  let q = "budget";
+  q = toggleFilterToken(q, "is", "link");
+  expect(q).toBe("budget is:link");
+  q = toggleFilterToken(q, "has", "gallery");
+  expect(q).toBe("budget is:link has:gallery");
+  q = setDateFilter(q, "today");
+  expect(q).toBe("budget is:link has:gallery date:today");
+  q = setDateFilter(q, "7d");
+  expect(q).toBe("budget is:link has:gallery date:7d");
+  expect(setDateFilter(q, "7d")).toBe("budget is:link has:gallery");
+  q = toggleFilterToken(q, "tag", "work");
+  expect(q).toBe("budget is:link has:gallery date:7d #work");
+  expect(activeFilters(q)).toEqual({
+    link: true,
+    gallery: true,
+    dates: ["7d"],
+    tagKeys: new Set(["work"]),
+  });
+  expect(hasActiveFilters(q)).toBe(true);
+  expect(hasActiveFilters("budget is:other date:invalid")).toBe(false);
+  expect(toggleFilterToken(q, "is", "link")).toBe("budget has:gallery date:7d #work");
+  expect(toggleFilterToken(q, "tag", "WORK")).toBe("budget is:link has:gallery date:7d");
+  expect(clearFilters(q)).toBe("budget");
+});
+
+test("removing a filter preserves internal whitespace in remaining quoted tags", () => {
+  expect(toggleFilterToken('#"a  b" is:link', "is", "link")).toBe('#"a  b"');
+  expect(setDateFilter('#"a  b"   date:today   budget', null)).toBe('#"a  b" budget');
 });

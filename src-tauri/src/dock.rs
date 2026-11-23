@@ -50,6 +50,8 @@ pub enum Request {
     Shortcut,
     /// Side chosen in the tray.
     SetSide(Side),
+    /// Closed-note hover preview preference changed in Preferences.
+    SetNotePreview(crate::notes::NotePreviewMode),
     /// The tab the UI draws was clicked; only the resting open panel's tab counts.
     Tab,
     /// Logical width from the UI's resize handle, `None` for the default. `done` ends a drag and
@@ -60,16 +62,18 @@ pub enum Request {
     },
     /// The image preview window was created and is still invisible.
     AttachPreview(isize),
-    /// Shows the image preview beside a thumbnail: `rect` is its CSS box in the panel's viewport,
-    /// as `[x, y, width, height]`, and `natural` the image's size in pixels. Only while
-    /// `generation` is still the preview's current show.
+    /// Shows the side preview beside a thumbnail or closed note card: `rect` is its CSS box in
+    /// the panel's viewport, as `[x, y, width, height]`, and `natural` the content's size in
+    /// pixels. Only while `generation` is still the preview's current show.
     ShowPreview {
         generation: u64,
+        kind: crate::preview::Kind,
         rect: [i32; 4],
         natural: (u32, u32),
     },
-    /// Hides the image preview window; whoever sends it already forgot the image.
-    HidePreview,
+    /// Hides the image preview window; `Some(generation)` ignores a hide superseded by a later
+    /// show, such as a ghost started while an earlier hide was still queued.
+    HidePreview(Option<u64>),
     /// Where a floating window for an image in the panel opens: as `ShowPreview` would show it,
     /// else in the middle of the panel's monitor. `reply` takes the image's box and the room
     /// beside the panel.
@@ -78,9 +82,85 @@ pub enum Request {
         natural: (u32, u32),
         reply: Sender<crate::floats::Placed>,
     },
+    /// Starts tracking a pointer drag of a note card (`Ghost` or `Existing` post-it window).
+    StartNoteDrag {
+        id: u64,
+        target: NoteDragTarget,
+    },
+    /// Ends the active note drag and resolves whether the drop spawns, moves, or cancels.
+    EndNoteDrag {
+        id: u64,
+        commit: bool,
+        cursor: Option<[i32; 2]>,
+        reply: Sender<EndDragOutcome>,
+    },
+    /// Associates the spawned floating window's label with the active drag handoff.
+    BindDragHandoff {
+        generation: u64,
+        label: String,
+    },
+    /// Hides the post-it drag ghost once the spawned floating window has rendered its first frame.
+    FinishDragHandoff(DragHandoffEnd),
     /// A post-it asks to edit its note: the panel takes focus, as with the shortcut, and opens the
     /// note in its editor.
     EditNote(EditNoteRequest),
+}
+
+/// Which pending drag handoff may dismiss the ghost window.
+#[derive(Debug, Clone)]
+pub enum DragHandoffEnd {
+    Generation(u64),
+    Label(String),
+}
+
+/// What a pointer drag of a note controls while crossing outside the panel.
+#[derive(Debug, Clone)]
+pub enum NoteDragTarget {
+    Ghost {
+        path: String,
+        generation: u64,
+        epoch: u64,
+        folder: crate::notes::FolderIdentity,
+    },
+    Existing {
+        label: String,
+        raw: isize,
+        origin: Rect,
+    },
+}
+
+/// Resolution sent back to `floating::end_drag_note` when the pointer drag ends.
+#[derive(Debug, Clone)]
+pub enum EndDragOutcome {
+    Cancelled,
+    Moved {
+        label: String,
+    },
+    Spawn {
+        path: String,
+        rect: Rect,
+        generation: u64,
+        epoch: u64,
+        folder: crate::notes::FolderIdentity,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ActiveNoteDrag {
+    id: u64,
+    target: NoteDragTarget,
+    outside: bool,
+    last_rect: Option<Rect>,
+    last_dpi: u32,
+    cancelled: bool,
+    released_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone)]
+struct DragHandoff {
+    generation: u64,
+    label: Option<String>,
+    until: Instant,
 }
 
 /// Tells the UI whether the panel window or its page is foreground, and which edge is inner.
@@ -294,6 +374,14 @@ struct Dock {
     previous_focus: Option<isize>,
     /// This Escape press has already been seen or handled.
     escape_spent: bool,
+    /// Active pointer drag of a note card (`Ghost` or `Existing` open post-it).
+    note_drag: Option<ActiveNoteDrag>,
+    /// Drag ghost waiting for the newly opened post-it window's first paint, plus fallback expiry.
+    drag_handoff: Option<DragHandoff>,
+    /// Closed-note side preview mode (`off`, `hover`, `alt`).
+    note_preview: crate::notes::NotePreviewMode,
+    /// Last Alt-held state emitted to `main` while `note_preview == Alt`.
+    alt_held: bool,
     slide: Option<Slide>,
 }
 
@@ -443,6 +531,8 @@ impl Dock {
             Request::SetDialog(dialog) => {
                 // Choosing another notes folder goes through a picker, so this covers it too.
                 if dialog {
+                    self.drag_handoff = None;
+                    self.cancel_note_drag(true);
                     self.hide_preview();
                 }
                 self.dialog = dialog;
@@ -450,6 +540,8 @@ impl Dock {
             }
             Request::Close => self.panel.step(Input::Close, now),
             Request::AttachWeb(raw) => {
+                self.drag_handoff = None;
+                self.cancel_note_drag(true);
                 self.hide_preview();
                 // A page attached while parked gets the low target on the next pass, with `main`.
                 self.memory_low = false;
@@ -466,6 +558,8 @@ impl Dock {
             }
             Request::SetWebVisible(visible) => {
                 if visible {
+                    self.drag_handoff = None;
+                    self.cancel_note_drag(true);
                     self.hide_preview();
                 }
                 let x = self.window_x();
@@ -497,6 +591,8 @@ impl Dock {
             Request::SetPinned(true) => self.panel.step(Input::Pin, now),
             Request::SetPinned(false) => self.panel.step(Input::Unpin, now),
             Request::Shortcut => {
+                self.drag_handoff = None;
+                self.cancel_note_drag(true);
                 self.hide_preview();
                 // Read before activating: only a press made inside the panel can close it.
                 let toggle = self.window.is_foreground();
@@ -511,6 +607,8 @@ impl Dock {
                 Action::None
             }
             Request::EditNote(request) => {
+                self.drag_handoff = None;
+                self.cancel_note_drag(true);
                 self.hide_preview();
                 let dialog = self.dialog;
                 let action = self.panel.step(Input::Shortcut { dialog }, now);
@@ -525,6 +623,13 @@ impl Dock {
                 // Without monitors, as during a transition, the current one still flips side.
                 let monitor = edge_monitor(platform::monitors(), side).unwrap_or(self.monitor);
                 self.relocate(monitor);
+                Action::None
+            }
+            Request::SetNotePreview(mode) => {
+                self.note_preview = mode;
+                if mode != crate::notes::NotePreviewMode::Alt {
+                    self.report_alt(false);
+                }
                 Action::None
             }
             // A tab sliding under the cursor, or the closed panel's, takes no click.
@@ -558,14 +663,17 @@ impl Dock {
             }
             Request::ShowPreview {
                 generation,
+                kind,
                 rect,
                 natural,
             } => {
-                self.show_preview(generation, rect, natural);
+                self.show_preview(generation, kind, rect, natural);
                 Action::None
             }
-            Request::HidePreview => {
-                self.hide_preview_window();
+            Request::HidePreview(expected) => {
+                if expected.is_none_or(crate::preview::is_closed_at) {
+                    self.hide_preview_window();
+                }
                 Action::None
             }
             Request::PlaceFloat {
@@ -576,18 +684,146 @@ impl Dock {
                 let _ = reply.send(self.place_float(rect, natural));
                 Action::None
             }
+            Request::StartNoteDrag { id, target } => {
+                self.drag_handoff = None;
+                self.cancel_note_drag(false);
+                if !self.is_open() || self.web_visible || self.dialog {
+                    if matches!(target, NoteDragTarget::Ghost { .. }) {
+                        self.hide_preview();
+                    }
+                    let _ = self.app.emit_to("main", "panel-drag-cancel", id);
+                } else {
+                    self.note_drag = Some(ActiveNoteDrag {
+                        id,
+                        target,
+                        outside: false,
+                        last_rect: None,
+                        last_dpi: 0,
+                        cancelled: false,
+                        released_at: None,
+                    });
+                    self.step_note_drag(now, false);
+                }
+                Action::None
+            }
+            Request::EndNoteDrag {
+                id,
+                commit,
+                cursor,
+                reply,
+            } => {
+                if !self.note_drag.as_ref().is_some_and(|drag| drag.id == id) {
+                    let _ = reply.send(EndDragOutcome::Cancelled);
+                    Action::None
+                } else {
+                    if commit && !self.note_drag.as_ref().unwrap().cancelled {
+                        let final_cursor = cursor
+                            .map(|point| self.client_point(point))
+                            .or_else(platform::cursor_pos);
+                        if let Some(pos) = final_cursor {
+                            self.apply_note_drag_cursor(pos);
+                        }
+                    }
+                    let outcome = match self.note_drag.take() {
+                        Some(drag)
+                            if commit
+                                && !drag.cancelled
+                                && drag.outside
+                                && drag.last_rect.is_some() =>
+                        {
+                            let rect = drag.last_rect.unwrap();
+                            match drag.target {
+                                NoteDragTarget::Existing { label, .. } => {
+                                    EndDragOutcome::Moved { label }
+                                }
+                                NoteDragTarget::Ghost {
+                                    path,
+                                    generation,
+                                    epoch,
+                                    folder,
+                                } => {
+                                    self.drag_handoff = Some(DragHandoff {
+                                        generation,
+                                        label: None,
+                                        until: now + Duration::from_millis(600),
+                                    });
+                                    EndDragOutcome::Spawn {
+                                        path,
+                                        rect,
+                                        generation,
+                                        epoch,
+                                        folder,
+                                    }
+                                }
+                            }
+                        }
+                        Some(drag) => {
+                            match drag.target {
+                                NoteDragTarget::Ghost { .. } => self.hide_preview(),
+                                NoteDragTarget::Existing { raw, origin, .. }
+                                    if !drag.cancelled && drag.outside =>
+                                {
+                                    platform::show_topmost(raw, origin);
+                                    if drag.last_dpi != 0 && drag.last_dpi != self.monitor.dpi {
+                                        platform::show_topmost(raw, origin);
+                                    }
+                                }
+                                NoteDragTarget::Existing { .. } => {}
+                            }
+                            EndDragOutcome::Cancelled
+                        }
+                        None => EndDragOutcome::Cancelled,
+                    };
+                    let _ = reply.send(outcome);
+                    Action::None
+                }
+            }
+            Request::BindDragHandoff { generation, label } => {
+                if let Some(handoff) = &mut self.drag_handoff
+                    && handoff.generation == generation
+                {
+                    handoff.label = Some(label);
+                }
+                Action::None
+            }
+            Request::FinishDragHandoff(end) => {
+                if let Some(handoff) = &self.drag_handoff {
+                    let matches = match &end {
+                        DragHandoffEnd::Generation(want) => handoff.generation == *want,
+                        DragHandoffEnd::Label(label) => {
+                            handoff.label.as_deref() == Some(label.as_str())
+                        }
+                    };
+                    if matches {
+                        let generation = handoff.generation;
+                        self.drag_handoff = None;
+                        if crate::preview::is_current(generation) {
+                            self.hide_preview();
+                        }
+                    }
+                }
+                Action::None
+            }
         };
         self.apply(action);
         self.report_shown();
         self.update_handle();
     }
 
-    /// Shows the image preview beside the thumbnail at `thumb` only over the resting, open panel
-    /// in Notes, without a dialog: anything else hides it.
-    fn show_preview(&mut self, generation: u64, thumb: [i32; 4], natural: (u32, u32)) {
+    /// Shows the side preview beside the thumbnail or card at `thumb` only over the resting, open
+    /// panel in Notes, without a dialog: anything else hides it.
+    fn show_preview(
+        &mut self,
+        generation: u64,
+        kind: crate::preview::Kind,
+        thumb: [i32; 4],
+        natural: (u32, u32),
+    ) {
+        self.drag_handoff = None;
+        self.cancel_note_drag(false);
         let resting = self.is_open() && self.slide.is_none() && !self.web_visible && !self.dialog;
         let window = self.preview.filter(|window| resting && window.exists());
-        let placement = self.place_preview(thumb, natural);
+        let placement = self.place_preview(kind, thumb, natural);
         // A later show, or the hide or close that replaced this one, decides instead; a close
         // cannot slip in between the check and the show.
         match window.zip(placement) {
@@ -614,18 +850,33 @@ impl Dock {
 
     fn place_preview(
         &self,
+        kind: crate::preview::Kind,
         thumb: [i32; 4],
         natural: (u32, u32),
     ) -> Option<crate::preview::Placement> {
-        crate::preview::place(
-            self.monitor.work,
-            self.rect,
-            self.side,
-            self.thumb_rect(thumb),
-            natural,
-            self.monitor.dpi,
-            self.away(),
-        )
+        let rect = self.thumb_rect(thumb);
+        let tab = self.away();
+        match kind {
+            crate::preview::Kind::Image => crate::preview::place(
+                self.monitor.work,
+                self.rect,
+                self.side,
+                rect,
+                natural,
+                self.monitor.dpi,
+                tab,
+            ),
+            crate::preview::Kind::Note => crate::preview::place_note(
+                self.monitor.work,
+                self.rect,
+                self.side,
+                rect,
+                natural,
+                self.monitor.dpi,
+                tab,
+            ),
+            crate::preview::Kind::PostIt => None,
+        }
     }
 
     /// A floating window opens where the preview would show its image, without the frame, or in
@@ -633,7 +884,7 @@ impl Dock {
     /// the panel, past its tab, is where later windows cascade.
     fn place_float(&self, thumb: [i32; 4], natural: (u32, u32)) -> crate::floats::Placed {
         let dpi = self.monitor.dpi;
-        let image = match self.place_preview(thumb, natural) {
+        let image = match self.place_preview(crate::preview::Kind::Image, thumb, natural) {
             Some(placement) => crate::preview::image_rect(&placement, dpi),
             None => crate::floats::centered(self.monitor.work, natural, dpi),
         };
@@ -653,6 +904,152 @@ impl Dock {
             dpi,
             side: self.side,
             free,
+        }
+    }
+
+    fn drop_spot_at(&self, cursor: Point) -> crate::floats::DropSpot {
+        let monitors = platform::monitors();
+        let point = Rect {
+            left: cursor.x,
+            top: cursor.y,
+            right: cursor.x + 1,
+            bottom: cursor.y + 1,
+        };
+        let monitor = monitors
+            .iter()
+            .find(|monitor| monitor.bounds.contains(cursor))
+            .copied()
+            .or_else(|| crate::floats::monitor_of(point, &monitors))
+            .unwrap_or(self.monitor);
+        crate::floats::DropSpot {
+            cursor,
+            work: monitor.work,
+            dpi: monitor.dpi,
+        }
+    }
+
+    fn cancel_note_drag(&mut self, notify: bool) {
+        let Some(mut drag) = self.note_drag.take() else {
+            return;
+        };
+        let id = drag.id;
+        match &drag.target {
+            NoteDragTarget::Ghost { .. } => self.hide_preview(),
+            &NoteDragTarget::Existing { raw, origin, .. } if drag.outside => {
+                platform::show_topmost(raw, origin);
+                if drag.last_dpi != 0 && drag.last_dpi != self.monitor.dpi {
+                    platform::show_topmost(raw, origin);
+                }
+            }
+            NoteDragTarget::Existing { .. } => {}
+        }
+        if notify {
+            drag.cancelled = true;
+            self.note_drag = Some(drag);
+            let _ = self.app.emit_to("main", "panel-drag-cancel", id);
+        }
+    }
+
+    fn client_point(&self, css: [i32; 2]) -> Point {
+        let rect = self.thumb_rect([css[0], css[1], 0, 0]);
+        Point {
+            x: rect.left,
+            y: rect.top,
+        }
+    }
+
+    fn apply_note_drag_cursor(&mut self, cursor: Point) {
+        if self.note_drag.is_none() {
+            return;
+        }
+        let framed = handle::framed_rect(&self.monitor, self.rect, self.side, self.tuning.tab);
+        let inside = self.rect.contains(cursor) || framed.contains(cursor);
+        if inside {
+            let was_outside = self.note_drag.as_ref().is_some_and(|drag| drag.outside);
+            if was_outside {
+                let (is_ghost, existing_restore) = match &self.note_drag.as_ref().unwrap().target {
+                    NoteDragTarget::Ghost { .. } => (true, None),
+                    &NoteDragTarget::Existing { raw, origin, .. } => (false, Some((raw, origin))),
+                };
+                let dpi_changed = {
+                    let drag = self.note_drag.as_mut().unwrap();
+                    let changed = drag.last_dpi != 0 && drag.last_dpi != self.monitor.dpi;
+                    drag.outside = false;
+                    drag.last_rect = None;
+                    drag.last_dpi = 0;
+                    changed
+                };
+                if is_ghost {
+                    self.hide_preview_window();
+                } else if let Some((raw, origin)) = existing_restore {
+                    platform::show_topmost(raw, origin);
+                    if dpi_changed {
+                        platform::show_topmost(raw, origin);
+                    }
+                }
+            }
+        } else {
+            let spot = self.drop_spot_at(cursor);
+            let pad = scale_dpi(spot.dpi, crate::floats::SHADOW_PAD);
+            let drag = self.note_drag.as_ref().unwrap();
+            let rect = match &drag.target {
+                NoteDragTarget::Ghost { .. } => {
+                    crate::floats::drop_rect(spot, crate::floats::NOTE_SIZE, pad)
+                }
+                &NoteDragTarget::Existing { origin, .. } => {
+                    crate::floats::drop_existing_rect(spot, origin, pad)
+                }
+            };
+            if !drag.outside || drag.last_rect != Some(rect) {
+                let dpi_changed = drag.last_dpi != 0 && drag.last_dpi != spot.dpi;
+                match drag.target {
+                    NoteDragTarget::Ghost { generation, .. } => {
+                        if let Some(window) = self.preview.filter(OverlayWindow::exists)
+                            && crate::preview::is_current(generation)
+                        {
+                            window.show(rect);
+                            if dpi_changed {
+                                window.show(rect);
+                            }
+                            self.preview_shown = true;
+                        }
+                    }
+                    NoteDragTarget::Existing { raw, .. } => {
+                        platform::show_topmost(raw, rect);
+                        if dpi_changed {
+                            platform::show_topmost(raw, rect);
+                        }
+                    }
+                }
+                if let Some(drag) = self.note_drag.as_mut() {
+                    drag.outside = true;
+                    drag.last_rect = Some(rect);
+                    drag.last_dpi = spot.dpi;
+                }
+            }
+        }
+    }
+
+    fn step_note_drag(&mut self, now: Instant, escape: bool) {
+        let Some(drag) = self.note_drag.as_ref() else {
+            return;
+        };
+        if drag.cancelled || drag.released_at.is_some() {
+            return;
+        }
+        if escape || platform::secondary_button_pressed() {
+            self.cancel_note_drag(true);
+            return;
+        }
+        let Some(cursor) = platform::cursor_pos() else {
+            return;
+        };
+        self.apply_note_drag_cursor(cursor);
+        // Sampled after measuring `cursor` so an ultra-fast release flick still records the spot.
+        if !platform::primary_button_down()
+            && let Some(drag) = self.note_drag.as_mut()
+        {
+            drag.released_at = Some(now);
         }
     }
 
@@ -709,21 +1106,55 @@ impl Dock {
         let focus = self.focus();
         let page_focused = focus == Focus::Page;
         let escape = self.escape_tap();
+        if let Some(handoff) = &self.drag_handoff
+            && now >= handoff.until
+        {
+            let generation = handoff.generation;
+            self.drag_handoff = None;
+            if crate::preview::is_current(generation) {
+                self.hide_preview();
+            }
+        }
+        let timed_out_drag = self
+            .note_drag
+            .as_ref()
+            .and_then(|drag| drag.released_at)
+            .is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_millis(300));
+        if timed_out_drag {
+            self.cancel_note_drag(true);
+        } else {
+            self.step_note_drag(now, escape);
+        }
         if page_focused && zone == CursorZone::Outside && escape {
             platform::restore_focus(self.previous_focus);
         }
         // A site's permission request holds the panel open, as a dialog does, until answered.
         let tick = Input::Tick {
             zone,
-            dialog: self.dialog || self.resizing || crate::permissions::asking(),
+            dialog: self.dialog
+                || self.resizing
+                || self.note_drag.as_ref().is_some_and(|drag| !drag.cancelled)
+                || crate::permissions::asking(),
             focus,
             rush: zone == CursorZone::Edge && self.rushing,
         };
         let action = self.panel.step(tick, now);
         self.apply(action);
+        let alt = self.is_open()
+            && !self.web_visible
+            && self.note_preview == crate::notes::NotePreviewMode::Alt
+            && platform::alt_held();
+        self.report_alt(alt);
         self.report_focus(focus);
         self.report_shown();
         self.update_handle();
+    }
+
+    fn report_alt(&mut self, held: bool) {
+        if self.alt_held != held {
+            self.alt_held = held;
+            let _ = self.app.emit_to("main", "panel-alt", held);
+        }
     }
 
     /// Permission requests are asked only while the page is on screen.
@@ -857,6 +1288,9 @@ impl Dock {
                 }
             }
             Action::Hide => {
+                self.report_alt(false);
+                self.drag_handoff = None;
+                self.cancel_note_drag(false);
                 self.hide_preview();
                 self.reveal.hold();
                 self.release_focus();
@@ -912,7 +1346,7 @@ impl Dock {
     fn run(mut self, requests: Receiver<Request>) {
         let mut next_poll = Instant::now();
         loop {
-            if self.slide.is_some() || self.handle_slide.is_some() {
+            if self.slide.is_some() || self.handle_slide.is_some() || self.note_drag.is_some() {
                 platform::wait_frame();
                 while let Ok(request) = requests.try_recv() {
                     self.handle(request);
@@ -927,6 +1361,9 @@ impl Dock {
             if Instant::now() >= next_poll {
                 self.poll();
                 next_poll = Instant::now() + POLL;
+            } else if self.note_drag.is_some() {
+                let escape = self.escape_tap();
+                self.step_note_drag(Instant::now(), escape);
             }
             self.animate();
             self.update_memory();
@@ -942,6 +1379,7 @@ pub fn start(
     requests: Receiver<Request>,
     side: Side,
     width: Option<u32>,
+    note_preview: crate::notes::NotePreviewMode,
 ) {
     let monitor = edge_monitor(platform::monitors(), side).expect("no monitor available");
     let rect = panel_rect(&monitor, side, width);
@@ -978,6 +1416,10 @@ pub fn start(
         reported: None,
         previous_focus: None,
         escape_spent: false,
+        note_drag: None,
+        drag_handoff: None,
+        note_preview,
+        alt_held: false,
         slide: None,
     };
     // Runs on the main thread during setup, before any preview exists, so skip `hide_preview`

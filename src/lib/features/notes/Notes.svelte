@@ -7,6 +7,8 @@ import {
   clipboardWrite,
   type EditNoteRequest,
   floatingClosePath,
+  floatingDragEnd,
+  floatingDragStart,
   floatingEditCurrent,
   floatingList,
   floatingOpenNote,
@@ -40,6 +42,7 @@ import {
   type OpenNote,
   onFloatingPaths,
   onNotesChanged,
+  onPanelDragCancel,
   onPanelHidden,
   onPanelSearch,
   onWebCapture,
@@ -146,14 +149,23 @@ import NoteOrder from "./NoteOrder.svelte";
 import { orderHits } from "./order";
 import { grouping, noteOrder } from "./order-store";
 import { articleNote, pageNote } from "./page";
+import { loadNotePreviewMode, notePreviewMode } from "./preview-mode-store";
 import {
+  activeFilters,
   applyCompletion,
+  clearFilters,
   completionChoices,
   completionToken,
   creationContent,
   creationText,
+  foldTag,
+  hasActiveFilters,
+  hasPresets,
+  isPresets,
   noteSuggestionQuery,
   queryCompletion,
+  setDateFilter,
+  toggleFilterToken,
 } from "./query";
 import { datePresets } from "./query-date";
 import type { EditStart } from "./reading-position";
@@ -216,11 +228,17 @@ async function showSkipped(open: boolean) {
 let folders = $state<string[]>([]);
 let error = $state("");
 let editing = $state(false);
-/** The side image preview of thumbnails in the list. */
-const preview = imagePreview();
+/** The side preview of thumbnails and any closed markdown note in the list. */
+const preview = imagePreview(selectedClosedCard);
 // It belongs to reading the list: editing, Browser and Preferences dismiss it.
 $effect(() => {
   if (editing || browser || inactive) preview.dismiss();
+});
+$effect(() => {
+  preview.setNoteMode($notePreviewMode ?? "hover");
+});
+$effect(() => {
+  preview.setDragging(draggingNote !== null || dragged !== null);
 });
 let query = $state("");
 let noteSearchTyped = $state(false);
@@ -513,14 +531,59 @@ const completionContext = $derived(
 );
 const completionItems = $derived.by(() => {
   void indexVersion;
+  const prefix = completionContext?.prefix.toLowerCase() ?? "";
   const values =
     ready && completionContext
       ? completionContext.kind === "date"
-        ? datePresets.filter((preset) => preset.startsWith(completionContext.prefix))
-        : folderTags(folderIndex.index, completionContext.prefix)
+        ? datePresets.filter((preset) => preset.startsWith(prefix))
+        : completionContext.kind === "is"
+          ? isPresets.filter((preset) => preset.startsWith(prefix))
+          : completionContext.kind === "has"
+            ? hasPresets.filter((preset) => preset.startsWith(prefix))
+            : folderTags(folderIndex.index, completionContext.prefix)
       : [];
   return completionContext ? completionChoices(query, completionContext, values) : [];
 });
+
+let filterMenu = $state<Menu>();
+let filterTrigger = $state<HTMLButtonElement>();
+let filterMenuOpen = $state(false);
+let closeFilterOnClick = false;
+const filters = $derived(activeFilters(query));
+const filtersActive = $derived(hasActiveFilters(query));
+const filterTags = $derived.by(() => {
+  void indexVersion;
+  return ready ? folderTags(folderIndex.index, "").slice(0, 30) : [];
+});
+
+function applyFilter(next: string) {
+  query = next;
+  selection = "";
+  completionDismissed = true;
+  preview.dismiss();
+  void leaveEditor();
+}
+
+function openFilterMenu(last = false) {
+  if (!filterTrigger || !filterMenu) return;
+  const box = filterTrigger.getBoundingClientRect();
+  filterMenu.show({ last, at: { x: box.left, y: box.bottom }, from: filterTrigger });
+}
+
+function selectedClosedCard(): HTMLElement | null {
+  if (!list || !document.hasFocus() || editing || browser || inactive || !active) return null;
+  const focused = document.activeElement;
+  if (focused !== list && focused !== bar()) return null;
+  return list.querySelector<HTMLElement>(
+    `.card.line[data-note][data-path="${CSS.escape(active)}"]`,
+  );
+}
+
+function syncNotePreview() {
+  void tick().then(() => {
+    preview.selectNote(selectedClosedCard());
+  });
+}
 
 async function sync(list: Note[], retained: Note[] = []): Promise<void> {
   await folderIndex.sync(list, retained);
@@ -571,6 +634,8 @@ const model = $derived.by(() => {
     expanded,
     kept,
     editing,
+    now: new Date(groupingDay),
+    completing: completionItems.length ? completionContext : null,
   });
   return built;
 });
@@ -979,6 +1044,7 @@ async function setLevel(card: Card, level: Level) {
 }
 
 function toggle(card: Card) {
+  if (suppressClick) return;
   if (card.url) {
     void openPage(card.url).catch((e) => {
       error = errorText(e);
@@ -1263,12 +1329,13 @@ function dropTarget(event: DragEvent): string | null {
   return notes.some((note) => note.path === path) ? path : null;
 }
 function dragFromApp(event: DragEvent): boolean {
-  // A pinned item dragged to reorder is no content.
+  // A pinned or note item dragged out of the panel is no content.
   return (
     !inactive &&
     !browser &&
     ready &&
     !dragged &&
+    !draggingNote &&
     bringsContent(Array.from(event.dataTransfer?.types ?? []))
   );
 }
@@ -1328,10 +1395,27 @@ async function editTitle(path: string) {
   input?.select();
 }
 
+const DRAG_START = 4;
+let nextDragId = 0;
 let reordering = false;
 let dragged = $state<{ target: string; base: string } | null>(null);
 let dragOver = $state("");
-let dragImageCaptured = $state(false);
+let draggingNote = $state<string | null>(null);
+let dragOutside = $state(false);
+let suppressClick = false;
+let suppressContext = false;
+let press: {
+  id: number;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  card?: Card;
+  target: string;
+  captureEl: HTMLElement;
+  active: boolean;
+  floatStarted: boolean;
+  startPromise: Promise<void> | null;
+} | null = null;
 let animationDuration = $state(0);
 let dropping = false;
 let dragLayout: { keys: string[]; heights: number[]; top: number; scroll: number } | null = null;
@@ -1352,19 +1436,11 @@ $effect(() => {
   if (focused.classList.contains("surface")) editor?.focus();
   else focused.focus({ preventScroll: true });
 });
-function overPin(event: DragEvent) {
-  if (!dragged || !dragLayout || editing || !list) return;
-  const { keys, heights, top, scroll } = dragLayout;
-  const y = event.clientY - top + list.scrollTop - scroll;
-  if (y < 0 || y > heights.reduce((sum, height) => sum + height, 0)) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-  if (event.type === "drop") {
-    void dropPin(event);
-    return;
-  }
-  const next = keys[dragSlot(heights, keys.indexOf(dragged.target), keys.indexOf(dragOver), y)];
-  if (next !== dragOver) dragOver = next;
+function dragEnd() {
+  if (dropping) return;
+  dragLayout = null;
+  dragged = null;
+  dragOver = "";
 }
 onMount(() => {
   const media = matchMedia("(prefers-reduced-motion: reduce)");
@@ -1379,21 +1455,6 @@ onMount(() => {
   media.addEventListener("change", update);
   return () => media.removeEventListener("change", update);
 });
-function dragEnd() {
-  if (dropping) return;
-  dragImageCaptured = false;
-  dragLayout = null;
-  dragged = null;
-  dragOver = "";
-}
-async function dropPin(event: DragEvent) {
-  if (!dragged) return;
-  event.preventDefault();
-  dropping = true;
-  await reorder(dragged.target, dragOver || dragged.target, dragged.base);
-  dropping = false;
-  dragEnd();
-}
 async function reorder(target: string, to: string, base = pinned.version) {
   if (reordering || editing || target === to) return;
   reordering = true;
@@ -1407,45 +1468,188 @@ async function reorder(target: string, to: string, base = pinned.version) {
     reordering = false;
   }
 }
-/** Only headers drag, preserving native note text selection. */
-function pinDrag(target: string) {
-  return (element: HTMLElement) => {
-    const handle = element.querySelector<HTMLElement>(".head") ?? element;
-    handle.draggable = !editing;
-    const start = (event: DragEvent) => {
-      if (editing || reordering || !list) {
-        event.preventDefault();
-        return;
-      }
-      const rect = element.getBoundingClientRect();
-      event.dataTransfer?.setDragImage(
-        element,
-        event.clientX - rect.left,
-        event.clientY - rect.top,
-      );
-      const slots = [...list.querySelectorAll<HTMLElement>(".list-entry[data-pin]")];
-      dragLayout = {
-        keys: slots.map((slot) => slot.dataset.pin ?? ""),
-        heights: slots.map((slot) => slot.getBoundingClientRect().height),
-        top: slots[0].getBoundingClientRect().top,
-        scroll: list.scrollTop,
-      };
-      dragged = { target, base: pinned.version };
-      dragOver = target;
-      requestAnimationFrame(() => {
-        if (dragged) dragImageCaptured = true;
-      });
-      event.dataTransfer?.setData("text/plain", target);
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-    };
-    handle.addEventListener("dragstart", start);
-    handle.addEventListener("dragend", dragEnd);
-    return () => {
-      handle.draggable = false;
-      handle.removeEventListener("dragstart", start);
-      handle.removeEventListener("dragend", dragEnd);
-    };
+function beginPinReorder(target: string) {
+  if (!list) return;
+  const slots = [...list.querySelectorAll<HTMLElement>(".list-entry[data-pin]")];
+  if (!slots.length) return;
+  dragLayout = {
+    keys: slots.map((slot) => slot.dataset.pin ?? ""),
+    heights: slots.map((slot) => slot.getBoundingClientRect().height),
+    top: slots[0].getBoundingClientRect().top,
+    scroll: list.scrollTop,
   };
+  dragged = { target, base: pinned.version };
+  dragOver = target;
+}
+function isOutsideViewport(x: number, y: number): boolean {
+  return x < 0 || x >= window.innerWidth || y < 0 || y >= window.innerHeight;
+}
+function startFloatDrag(path: string) {
+  const current = press;
+  if (!current) return;
+  current.floatStarted = true;
+  draggingNote = path;
+  current.startPromise = floatingDragStart(current.id, path).catch((e) => {
+    error = errorText(e);
+    if (press?.id === current.id) void finishPointerDrag(false);
+  });
+}
+function movePointerDrag(event: PointerEvent) {
+  if (!press || event.pointerId !== press.pointerId) return;
+  if ((event.buttons & 1) === 0) {
+    void finishPointerDrag(true, [Math.round(event.clientX), Math.round(event.clientY)]);
+    return;
+  }
+  if (!press.active) {
+    if (Math.hypot(event.clientX - press.startX, event.clientY - press.startY) < DRAG_START) {
+      return;
+    }
+    press.active = true;
+    suppressClick = true;
+    try {
+      press.captureEl.setPointerCapture(event.pointerId);
+    } catch {}
+    preview.dismiss();
+    if (press.card?.pinned || !press.card) {
+      beginPinReorder(press.target);
+    }
+    if (press.card && !press.card.pinned && !press.card.url) {
+      startFloatDrag(press.target);
+    }
+  }
+  if (!press?.active) return;
+  const outside = isOutsideViewport(event.clientX, event.clientY);
+  dragOutside = outside;
+  if (outside) {
+    if (dragged) dragOver = dragged.target;
+    if (press.card && !press.card.url && !press.floatStarted) {
+      startFloatDrag(press.target);
+    }
+    return;
+  }
+  if (dragged && dragLayout && list) {
+    const { keys, heights, top, scroll } = dragLayout;
+    const y = event.clientY - top + list.scrollTop - scroll;
+    if (y >= 0 && y <= heights.reduce((sum, height) => sum + height, 0)) {
+      const next = keys[dragSlot(heights, keys.indexOf(dragged.target), keys.indexOf(dragOver), y)];
+      if (next !== dragOver) dragOver = next;
+    }
+  }
+}
+function upPointerDrag(event: PointerEvent) {
+  if (!press || event.pointerId !== press.pointerId) return;
+  void finishPointerDrag(true, [Math.round(event.clientX), Math.round(event.clientY)]);
+}
+function cancelPointerDrag(event: PointerEvent) {
+  if (!press || event.pointerId !== press.pointerId) return;
+  void finishPointerDrag(false);
+}
+function keyPointerDrag(event: KeyboardEvent) {
+  if (press?.active && event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    void finishPointerDrag(false);
+  }
+}
+function downPointerDrag(event: PointerEvent) {
+  if (press?.active && event.button === 2) {
+    event.preventDefault();
+    event.stopPropagation();
+    suppressContext = true;
+    setTimeout(() => {
+      suppressContext = false;
+    }, 0);
+    void finishPointerDrag(false);
+  }
+}
+function contextPointerDrag(event: MouseEvent) {
+  if (press?.active || suppressContext) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+/** Only headers drag via pointer capture, keeping native note text selection and normal cursor. */
+function beginPointerDrag(
+  event: PointerEvent,
+  target: string,
+  captureEl: HTMLElement,
+  card?: Card,
+) {
+  if (event.button !== 0 || editing || !list || press) return;
+  if ((card?.pinned || !card) && reordering) return;
+  press = {
+    id: ++nextDragId,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    card,
+    target,
+    captureEl,
+    active: false,
+    floatStarted: false,
+    startPromise: null,
+  };
+  window.addEventListener("pointermove", movePointerDrag);
+  window.addEventListener("pointerup", upPointerDrag);
+  window.addEventListener("pointercancel", cancelPointerDrag);
+  window.addEventListener("keydown", keyPointerDrag, true);
+  window.addEventListener("pointerdown", downPointerDrag, true);
+  window.addEventListener("contextmenu", contextPointerDrag, true);
+}
+async function finishPointerDrag(commit: boolean, point?: [number, number]) {
+  const current = press;
+  if (!current) return;
+  press = null;
+  window.removeEventListener("pointermove", movePointerDrag);
+  window.removeEventListener("pointerup", upPointerDrag);
+  window.removeEventListener("pointercancel", cancelPointerDrag);
+  window.removeEventListener("keydown", keyPointerDrag, true);
+  window.removeEventListener("pointerdown", downPointerDrag, true);
+  window.removeEventListener("contextmenu", contextPointerDrag, true);
+  if (current.active) {
+    setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+  }
+  try {
+    if (current.captureEl.hasPointerCapture(current.pointerId)) {
+      current.captureEl.releasePointerCapture(current.pointerId);
+    }
+  } catch {}
+  const wasActive = current.active;
+  const wasDragged = dragged;
+  const wasOver = dragOver;
+  const wasOutside = point ? isOutsideViewport(point[0], point[1]) : dragOutside;
+  const floatStarted = current.floatStarted;
+  const startPromise = current.startPromise;
+  dragOutside = false;
+  draggingNote = null;
+  if (!wasActive) return;
+  if (commit && wasOutside && current.card && !current.card.url && !floatStarted) {
+    try {
+      await floatingDragStart(current.id, current.target);
+    } catch (e) {
+      error = errorText(e);
+      if (wasDragged) dragEnd();
+      return;
+    }
+    await floatingDragEnd(current.id, true, point ?? null).catch((e) => {
+      error = errorText(e);
+    });
+  } else if (floatStarted) {
+    if (startPromise) await startPromise;
+    await floatingDragEnd(current.id, commit && wasOutside, point ?? null).catch((e) => {
+      error = errorText(e);
+    });
+  }
+  if (wasDragged) {
+    if (commit && !wasOutside && wasOver && wasOver !== wasDragged.target) {
+      dropping = true;
+      await reorder(wasDragged.target, wasOver, wasDragged.base);
+      dropping = false;
+    }
+    dragEnd();
+  }
 }
 async function pinnedAction(action: () => Promise<Pinned>) {
   try {
@@ -2149,6 +2353,7 @@ function typed(event: Event) {
   showingHistory = false;
   if (browser) addressEditing = true;
   selection = "";
+  preview.dismiss();
   void leaveEditor();
 }
 
@@ -2177,6 +2382,7 @@ function arrow(event: KeyboardEvent) {
     }
   }
   selection = move(keys, active, down ? 1 : -1);
+  syncNotePreview();
 }
 
 /** An explicit close leaves editing first, the guarded way; on a conflict or error the panel stays. */
@@ -2245,6 +2451,7 @@ function listKey(event: KeyboardEvent, inBar: boolean) {
       ) {
         event.preventDefault();
         selection = jumpSection(listRows, active, event.key === "ArrowUp" ? -1 : 1);
+        syncNotePreview();
         return;
       }
       if (
@@ -2536,12 +2743,16 @@ function shortcut(event: KeyboardEvent) {
 
 onMount(() => {
   void loadNoteSearchSuggestions().catch(() => {});
+  void loadNotePreviewMode().catch(() => {});
   // Refresh after midnight and after a suspended machine resumes, without remounting cards.
   const clock = window.setInterval(() => {
     relativeNow = Date.now();
   }, 30_000);
   const unlisten = onNotesChanged(changed);
   const stopPreview = preview.attach();
+  const dragCancel = onPanelDragCancel((id) => {
+    if (press?.id === id) void finishPointerDrag(false);
+  });
   void floatingList()
     .then(showFloating)
     .catch(() => {});
@@ -2551,11 +2762,13 @@ onMount(() => {
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
   const hidden = onPanelHidden((ended) => {
     preview.closed();
+    void finishPointerDrag(false);
     // A drag cancelled over the panel may never say it left.
     dragIn = false;
     dropZone = null;
     noteSearchTyped = false;
     shortcutSheet.close();
+    filterMenu?.close();
     closeLinkMenu();
     closeImageMenu();
     // The panel forgot a note deleted to the Recycle Bin; one in the trash can still come back.
@@ -2597,7 +2810,9 @@ onMount(() => {
     });
   return () => {
     window.clearInterval(clock);
+    void finishPointerDrag(false);
     stopPreview();
+    void dragCancel.then((stop) => stop());
     void unlisten.then((stop) => stop());
     void hidden.then((stop) => stop());
     void search.then((stop) => stop());
@@ -2613,7 +2828,7 @@ onMount(() => {
 {/snippet}
 
 <svelte:document onpaste={pasteImage} />
-<svelte:window ondragenter={dragOverPanel} ondragover={dragOverPanel} ondragleave={dragLeavePanel} ondrop={dropOnPanel} onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); }} />
+<svelte:window ondragenter={dragOverPanel} ondragover={dragOverPanel} ondragleave={dragLeavePanel} ondrop={dropOnPanel} onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); preview.selectNote(null); }} />
 
 <ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
@@ -2651,6 +2866,46 @@ onMount(() => {
   {/if}
 </Menu>
 
+<Menu bind:this={filterMenu} id="search-filter-menu" label={t("filter.label")} ontoggle={(open) => { filterMenuOpen = open; }}>
+  <div role="group" aria-label={t("filter.type")}>
+    <p class="filter-heading" aria-hidden="true">{t("filter.type")}</p>
+    <button role="menuitemcheckbox" aria-checked={filters.link} tabindex="-1" onclick={() => applyFilter(toggleFilterToken(query, "is", "link"))}>
+      <span class="check" aria-hidden="true">{filters.link ? "✓" : ""}</span>{t("filter.links")}
+    </button>
+    <button role="menuitemcheckbox" aria-checked={filters.gallery} tabindex="-1" onclick={() => applyFilter(toggleFilterToken(query, "has", "gallery"))}>
+      <span class="check" aria-hidden="true">{filters.gallery ? "✓" : ""}</span>{t("filter.galleries")}
+    </button>
+  </div>
+  <hr />
+  <div role="group" aria-label={t("filter.date")}>
+    <p class="filter-heading" aria-hidden="true">{t("filter.date")}</p>
+    {#each datePresets as preset (preset)}
+      {@const checked = filters.dates.includes(preset)}
+      <button role="menuitemradio" aria-checked={checked} tabindex="-1" onclick={() => applyFilter(setDateFilter(query, preset))}>
+        <span class="check" aria-hidden="true">{checked ? "✓" : ""}</span>{dateLabel(preset)}
+      </button>
+    {/each}
+  </div>
+  {#if filterTags.length}
+    <hr />
+    <div role="group" aria-label={t("filter.tags")}>
+      <p class="filter-heading" aria-hidden="true">{t("filter.tags")}</p>
+      {#each filterTags as tag (tag)}
+        {@const checked = filters.tagKeys.has(foldTag(tag))}
+        <button role="menuitemcheckbox" aria-checked={checked} tabindex="-1" onclick={() => applyFilter(toggleFilterToken(query, "tag", tag))}>
+          <span class="check" aria-hidden="true">{checked ? "✓" : ""}</span>{tag}
+        </button>
+      {/each}
+    </div>
+  {/if}
+  {#if filtersActive}
+    <hr />
+    <button role="menuitem" tabindex="-1" onclick={() => applyFilter(clearFilters(query))}>
+      <span class="check" aria-hidden="true"></span>{t("filter.clear")}
+    </button>
+  {/if}
+</Menu>
+
 {#snippet noteEditor()}
   {#if opened}
     <Editor
@@ -2680,29 +2935,61 @@ onMount(() => {
 <section hidden={inactive} aria-label={t("notes.label")}>
     <div class="tools" bind:this={tools} onkeydowncapture={barKey} oninput={typed} role="presentation">
       {#if browser}<Shield url={pageUrl} onerror={(message) => { error = message; }} />{/if}
-      <TextField
-        value={inputQuery}
-        oninput={(event) => {
-          if (browser) address = event.currentTarget.value;
-          else {
-            query = event.currentTarget.value;
-            // Opting in later does not send text typed while the option was off.
-            noteSearchTyped = $noteSearchSuggestions === true;
-          }
-        }}
-        onkeyup={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateCompletion(event); }}
-        onselect={updateCompletion}
-        onclick={updateCompletion}
-        onfocus={updateCompletion}
-        onblur={() => { completionCaret = null; }}
-        aria-controls={completionItems.length ? "query-completion" : undefined}
-        aria-expanded={browser ? undefined : completionItems.length > 0}
-        aria-autocomplete={browser ? undefined : "list"}
-        role={browser ? undefined : "combobox"}
-        aria-activedescendant={completionItems.length ? "query-" + completionContext?.kind + "-" + completionSelection : undefined}
-        aria-label={t(browser ? "web.address" : "notes.search")}
-        placeholder={t("notes.searchPlaceholder")}
-      />
+      <div class="search-field" class:has-filter={!browser && ready}>
+        <TextField
+          value={inputQuery}
+          oninput={(event) => {
+            if (browser) address = event.currentTarget.value;
+            else {
+              query = event.currentTarget.value;
+              // Opting in later does not send text typed while the option was off.
+              noteSearchTyped = $noteSearchSuggestions === true;
+            }
+          }}
+          onkeyup={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) updateCompletion(event); }}
+          onselect={updateCompletion}
+          onclick={updateCompletion}
+          onfocus={updateCompletion}
+          onblur={(event) => { completionCaret = null; if (event.relatedTarget !== list) preview.selectNote(null); }}
+          aria-controls={completionItems.length ? "query-completion" : undefined}
+          aria-expanded={browser ? undefined : completionItems.length > 0}
+          aria-autocomplete={browser ? undefined : "list"}
+          role={browser ? undefined : "combobox"}
+          aria-activedescendant={completionItems.length ? "query-" + completionContext?.kind + "-" + completionSelection : undefined}
+          aria-label={t(browser ? "web.address" : "notes.search")}
+          placeholder={t("notes.searchPlaceholder")}
+        />
+        {#if !browser && ready}
+          <button
+            type="button"
+            bind:this={filterTrigger}
+            class="filter-button"
+            class:active={filtersActive}
+            aria-label={t("filter.label")}
+            title={t("filter.label")}
+            aria-haspopup="menu"
+            aria-expanded={filterMenuOpen}
+            aria-controls="search-filter-menu"
+            onpointerdown={() => { closeFilterOnClick = filterMenuOpen; }}
+            onclick={() => {
+              if (closeFilterOnClick) {
+                closeFilterOnClick = false;
+                return;
+              }
+              if (filterMenuOpen) filterMenu?.close();
+              else openFilterMenu();
+            }}
+            onkeydown={(event) => {
+              if (!["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              openFilterMenu(event.key === "ArrowUp");
+            }}
+          >
+            <Icon name="filter" />
+          </button>
+        {/if}
+      </div>
       {#if dragIn}
         <div class="new-note-drop" class:active={dropZone === "new"}><Icon name="plus" />{t("drop.newNote")}</div>
       {/if}
@@ -2713,10 +3000,31 @@ onMount(() => {
       {/if}
     </div>
   {#if completionItems.length}
-    <div class="web-suggestions" id="query-completion" role="listbox" aria-label={t(completionContext?.kind === "date" ? "notes.dateCompletion" : "notes.tagCompletion")}>
-      {#each completionItems as value, index (completionContext?.kind + ":" + value)}
-        <button id={"query-" + completionContext?.kind + "-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptCompletion(value)}
-          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}><span>{completionContext?.kind === "date" ? dateLabel(value) : completionToken("tag", value)}</span></button>
+    {@const kind = completionContext?.kind ?? "tag"}
+    <div
+      class="web-suggestions"
+      id="query-completion"
+      role="listbox"
+      aria-label={t(
+        kind === "date"
+          ? "notes.dateCompletion"
+          : kind === "tag"
+            ? "notes.tagCompletion"
+            : "filter.completion",
+      )}
+    >
+      {#each completionItems as value, index (kind + ":" + value)}
+        <button id={"query-" + kind + "-" + index} role="option" aria-selected={completionSelection === index} class="suggestion" class:selected={completionSelection === index} tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => acceptCompletion(value)}
+          {@attach (element) => { if (completionSelection === index) element.scrollIntoView({ block: "nearest" }); }}>
+          {#if kind === "date"}
+            <span>{dateLabel(value)}</span>
+          {:else if kind === "is" || kind === "has"}
+            <span>{completionToken(kind, value)}</span>
+            <small class="hint">{t(kind === "is" ? "filter.links" : "filter.galleries")}</small>
+          {:else}
+            <span>{completionToken("tag", value)}</span>
+          {/if}
+        </button>
       {/each}
     </div>
   {/if}
@@ -2787,9 +3095,10 @@ onMount(() => {
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions: the list is one Tab stop driven by the list keys; its click only returns focus. -->
     <div class="list" id="note-list" role="region" aria-label={t("notes.label")}
-      tabindex="0" bind:this={list} ondragover={overPin} ondrop={overPin} onclick={returnFocus} oncontextmenu={contextMenu} onwheel={() => { stopScrolling(); preview.dismiss(); }} onpointerdown={stopScrolling}
+      tabindex="0" bind:this={list} onclick={returnFocus} oncontextmenu={contextMenu} onwheel={() => { stopScrolling(); preview.dismiss(); }} onpointerdown={stopScrolling}
       onscroll={preview.dismiss} onpointerover={preview.pointerover} onpointerleave={preview.leave} onfocusin={preview.focusin} onfocusout={preview.focusout} onkeydown={preview.keydown}
-      onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; }}>
+      onfocus={(event) => { if (event.target === list && !active) selection = keys[0] ?? ""; syncNotePreview(); }}
+      onblur={(event) => { if (event.target === list && event.relatedTarget !== bar() && !(event.relatedTarget instanceof Node && list?.contains(event.relatedTarget))) preview.selectNote(null); }}>
       {#if pinned.restorable}
         <div class="restore">
           <p class="message">{t("pinned.deleted")}</p>
@@ -2804,7 +3113,7 @@ onMount(() => {
       {/if}
       <!-- One block for both sections, so a card that changes section moves instead of being rebuilt. -->
       {#each (intent === null ? listRows : []) as row (row.key)}
-        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-gap={dragImageCaptured && dragged && "entry" in row && entryKey(row.entry) === dragged.target} animate:slide>
+        <div class="list-entry" data-pin={"entry" in row && previewModel.pinned.includes(row.entry) ? entryKey(row.entry) : undefined} class:drag-active={dragged !== null && !dragOutside && "entry" in row && entryKey(row.entry) === dragged.target} animate:slide>
         {#if "heading" in row}
           <div class="section-heading"><h2>{t(row.heading === "pinned" ? "list.pinned" : "list.notes")}</h2>{#if row.heading === "notes"}<NoteOrder />{/if}</div>
         {:else if "group" in row}
@@ -2820,13 +3129,18 @@ onMount(() => {
         {:else if isMissing(row.entry)}
           {@const entry = row.entry}
           {@const current = active === entry.target}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions: pointer reorder alongside Alt+Shift+Arrow shortcuts. -->
           <div
-            {@attach pinDrag(entry.target)}
             class="missing"
             class:selected={current}
             role="group"
             aria-label={entry.title}
             aria-current={current || undefined}
+            onpointerdown={(event) => {
+              if (!(event.target as Element).closest("button")) {
+                beginPointerDrag(event, entry.target, event.currentTarget);
+              }
+            }}
             {@attach (element) => {
               if (current) element.scrollIntoView({ block: "nearest" });
             }}
@@ -2848,7 +3162,6 @@ onMount(() => {
             {card}
             now={relativeNow}
             folder={showFolder || card.pinned}
-            drag={card.pinned ? pinDrag(card.hit.path) : undefined}
             text={contents[card.hit.path]?.text}
             selected={active === card.hit.path}
             onheader={() => toggle(card)}
@@ -2862,7 +3175,9 @@ onMount(() => {
             onlinkmenu={openLinkMenu}
             onimagemenu={openImageMenu}
             onimagefloat={toggleFloating}
+            onfloat={() => toggleNoteFloating(card)}
             onunfloat={() => closeFloating(card.hit.path)}
+            onheaddown={(event, element) => beginPointerDrag(event, card.hit.path, element, card)}
             floating={floatingPaths}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
@@ -2969,8 +3284,7 @@ onMount(() => {
   .section-heading { display: flex; align-items: baseline; gap: var(--space-2); padding-right: var(--panel-inset-right); }
   .list-entry { display: flow-root; }
   .section-heading h2 { color: var(--color-fg); font-weight: 600; text-transform: uppercase; letter-spacing: calc(-3 * var(--tracking-tight)); }
-  .drag-gap :global(.card), .drag-gap .missing { border-style: dashed; border-color: var(--color-muted); background: transparent; }
-  .drag-gap :global(.card > *), .drag-gap .missing > * { visibility: hidden; }
+  .drag-active :global(.card), .drag-active .missing { border-color: var(--color-accent); }
   h2 {
     margin: 0;
     padding: var(--space-2) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
@@ -3035,6 +3349,7 @@ onMount(() => {
   .suggestion.in-list:hover { background: var(--color-surface); }
   .suggestion.in-list.selected { border-color: var(--color-accent); background: var(--color-selected); }
   .suggestion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suggestion .hint { margin-left: auto; color: var(--color-muted); font-size: var(--font-size-sm); }
 
   .missing {
     display: flex;
@@ -3100,6 +3415,52 @@ onMount(() => {
     height: var(--size-bar);
     align-items: center;
     padding: 0 var(--panel-inset-right) 0 var(--panel-inset-left);
+  }
+
+  .search-field {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+  }
+
+  .search-field.has-filter :global(input) {
+    padding-right: calc(var(--size-control) + var(--space-1));
+  }
+
+  .filter-button {
+    position: absolute;
+    right: 1px;
+    display: grid;
+    place-items: center;
+    width: calc(var(--size-control) - 2px);
+    height: calc(var(--size-control) - 2px);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-muted);
+    transition: color var(--duration);
+  }
+
+  .filter-button:hover {
+    color: var(--color-fg);
+  }
+
+  .filter-button.active {
+    color: var(--color-accent);
+  }
+
+  .filter-heading {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .filter-button {
+      transition: none;
+    }
   }
 
   /* Over the search bar and "+" while something is dragged in from another app. */

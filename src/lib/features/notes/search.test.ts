@@ -398,3 +398,49 @@ test("folder completion is capped at fifty distinct suggestions", async () => {
   ]);
   expect(folderTags(index, "tag")).toHaveLength(50);
 });
+
+test("is:link filters notes with a valid frontmatter url", async () => {
+  const index = await indexOf([
+    { path: "link.md", text: "---\nurl: https://example.com/page\n---\nbody" },
+    { path: "plain.md", text: "https://example.com/in-body" },
+    { path: "bad.md", text: "---\nurl: javascript:alert(1)\n---\nbody" },
+  ]);
+  expect(paths(index, "is:link")).toEqual(["link.md"]);
+  expect(paths(index, "IS:LINK body")).toEqual(["link.md"]);
+});
+
+test("has:gallery filters notes containing a local image grid of two or more consecutive images", async () => {
+  const index = await indexOf([
+    {
+      path: "sub/gallery.md",
+      text: "intro\n\n![one](attachments/a.png)\n![two](attachments/b.png)\n",
+    },
+    {
+      path: "sub/split.md",
+      text: "![one](attachments/a.png)\ntext between\n![two](attachments/b.png)\n",
+    },
+    { path: "sub/single.md", text: "![one](attachments/a.png)\n" },
+    {
+      path: "sub/remote.md",
+      text: "![one](attachments/a.png)\n![two](https://example.com/b.png)\n",
+    },
+    {
+      path: "sub/code.md",
+      text: "```md\n![one](attachments/a.png)\n![two](attachments/b.png)\n```\n",
+    },
+  ]);
+  expect(paths(index, "has:gallery")).toEqual(["sub/gallery.md"]);
+  // Moving the note into the parent folder keeps relative resolution valid when path still resolves.
+  renameEntries(index, [["sub/gallery.md", "gallery.md"]]);
+  expect(paths(index, "has:gallery")).toEqual(["gallery.md"]);
+});
+
+test("incomplete is: or has: token with open completion does not filter before selection", async () => {
+  const index = await indexOf([{ path: "a.md", text: "plain" }]);
+  const query = "is:li";
+  expect(
+    search(index, query, new Date(), queryCompletion(query, query.length)).hits.map(
+      (hit) => hit.path,
+    ),
+  ).toEqual(["a.md"]);
+});

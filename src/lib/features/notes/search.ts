@@ -1,9 +1,9 @@
 // In-memory note search: pure functions, no IPC. The caller supplies the listing and a reader for
 // note texts, and renders the results; snippets are plain text plus offsets, never HTML.
 import { inAny } from "./listing";
-import { frontmatter } from "./markdown";
-import { parseQuery, type QueryCompletion } from "./query";
-import { dateRange, metadataDate } from "./query-date";
+import { frontmatter, hasImageGallery } from "./markdown";
+import { effectiveFilters, type QueryCompletion } from "./query";
+import { metadataDate } from "./query-date";
 
 /** What the listing says about a note. */
 export type Listed = { path: string; name: string; modified: number };
@@ -17,6 +17,7 @@ type Entry = {
   titled: boolean;
   tags: string[];
   url?: string | null;
+  hasGallery: boolean;
   modified: number;
   filterDate: number;
   /** The text after the frontmatter. */
@@ -98,6 +99,7 @@ function build(listed: Listed, read: Read | null): Entry {
     titled,
     tags,
     url,
+    hasGallery: read ? hasImageGallery(body, listed.path) : false,
     modified: read?.modified ?? listed.modified,
     body,
     filterDate,
@@ -162,6 +164,7 @@ export function renameEntries(index: SearchIndex, renames: [string, string][]) {
       ...entry,
       path: to,
       title,
+      hasGallery: entry.body.includes("![") ? hasImageGallery(entry.body, to) : false,
       titleKey: collapse(title),
       folderKey: folderKey(to),
     });
@@ -299,30 +302,17 @@ export function search(
   now: Date = new Date(),
   completing: QueryCompletion | null = null,
 ): Results {
-  const parsed = parseQuery(query);
-  const terms = words(parsed.text);
-  const tags = parsed.tokens
-    .filter(
-      (token) =>
-        token.kind === "tag" &&
-        !(
-          completing?.kind === "tag" &&
-          token.from === completing.from &&
-          token.to === completing.to
-        ),
-    )
-    .map((token) => fold(token.value));
-  const dates = parsed.tokens
-    .filter((token) => token.kind === "date")
-    .flatMap((token) => {
-      const range = dateRange(token.value, now);
-      return range ? [range] : [];
-    });
+  const filters = effectiveFilters(query, now, completing);
+  const terms = words(filters.text);
+  const tags = filters.tags.map((tag) => fold(tag));
+  const { dates, needLink, needGallery } = filters;
   const whole = terms.join(" ");
   const ranked: { entry: Entry; tier: number }[] = [];
   let exactTitle = false;
   for (const entry of index.values()) {
     if (isPinnedList(entry.path)) continue;
+    if (needLink && !entry.url) continue;
+    if (needGallery && !entry.hasGallery) continue;
     if (!dates.every((range) => entry.filterDate >= range.from && entry.filterDate < range.until))
       continue;
     if (!tags.every((tag) => entry.tagKeys.includes(tag))) continue;

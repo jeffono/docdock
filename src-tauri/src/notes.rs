@@ -62,6 +62,9 @@ struct Settings {
     relative_dates: bool,
     #[serde(default, deserialize_with = "lenient")]
     note_search_suggestions: bool,
+    /// Side preview for unpinned closed notes: off, hover (default) or alt+hover.
+    #[serde(default, deserialize_with = "lenient")]
+    note_preview: NotePreviewMode,
     /// Spell checking is on unless turned off.
     #[serde(default, deserialize_with = "lenient")]
     spelling_off: bool,
@@ -202,6 +205,31 @@ pub fn note_search_suggestions(app: &AppHandle) -> Result<bool, Error> {
 }
 pub fn set_note_search_suggestions(app: &AppHandle, enabled: bool) -> Result<(), Error> {
     update(app, |settings| settings.note_search_suggestions = enabled)
+}
+#[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotePreviewMode {
+    Off,
+    #[default]
+    Hover,
+    Alt,
+}
+pub fn note_preview_setting(app: &AppHandle) -> NotePreviewMode {
+    config(app)
+        .map(|p| load(&p).note_preview)
+        .unwrap_or_default()
+}
+pub fn note_preview(app: &AppHandle) -> Result<NotePreviewMode, Error> {
+    Ok(load(&config(app)?).note_preview)
+}
+pub fn set_note_preview(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    mode: NotePreviewMode,
+) -> Result<(), Error> {
+    update(app, |settings| settings.note_preview = mode)?;
+    let _ = requests.send(Request::SetNotePreview(mode));
+    Ok(())
 }
 pub fn spelling(app: &AppHandle) -> Result<bool, Error> {
     Ok(!load(&config(app)?).spelling_off)
@@ -3315,6 +3343,14 @@ pub fn check_image(app: &AppHandle, path: &str) -> Result<u64, Error> {
     resolve(&root(app)?, path, is_image)?;
     Ok(choices)
 }
+/// `path`, relative to the recognized notes folder, is a `.md` note inside it. Returns the folder
+/// choices counted before the check and the folder's identity.
+pub fn check_note(app: &AppHandle, path: &str) -> Result<(u64, FolderIdentity), Error> {
+    let choices = folder_choices();
+    let root = root(app)?;
+    resolve(&root, path, markdown)?;
+    Ok((choices, identity_of(&root)?))
+}
 
 #[cfg(test)]
 mod tests {
@@ -3394,6 +3430,10 @@ mod tests {
             ("group_by_date", flags),
             ("relative_dates", flags),
             ("note_search_suggestions", flags),
+            (
+                "note_preview",
+                &["null", "42", "{}", "true", r#""future-preview""#],
+            ),
             ("spelling_off", flags),
             ("group_by_folder", flags),
             ("vault_file", &["42", "{}", "[]"]),
@@ -3426,6 +3466,22 @@ mod tests {
             assert_eq!(settings.search_engine, engine);
             assert_eq!(
                 serde_json::to_value(settings).unwrap()["search_engine"],
+                name
+            );
+        }
+    }
+    #[test]
+    fn note_preview_settings_read_all_modes() {
+        for (name, mode) in [
+            ("off", NotePreviewMode::Off),
+            ("hover", NotePreviewMode::Hover),
+            ("alt", NotePreviewMode::Alt),
+        ] {
+            let json = serde_json::json!({"note_preview": name});
+            let settings: Settings = serde_json::from_value(json).unwrap();
+            assert_eq!(settings.note_preview, mode);
+            assert_eq!(
+                serde_json::to_value(settings).unwrap()["note_preview"],
                 name
             );
         }

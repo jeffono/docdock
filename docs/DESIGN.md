@@ -163,7 +163,10 @@ notes differ only in section and starting state.
   out. Hiding the panel or losing focus keeps the expanded card, the search and the scroll; returning
   to the search bar does not scroll the list.
 - **Mouse:** the header and the chevron toggle line and open; the preview body and "Show all" expand
-  the card; an expanded pinned card ends with "Show less". Links work in reading.
+  the card; an expanded pinned card ends with "Show less". Links work in reading. Outside editing,
+  middle-clicking a closed `.md` note or any `.md` note's header toggles its floating post-it, and
+  hovering any closed `.md` note (pinned or unpinned) can show a side preview (see Side preview
+  and Preferences).
 - **Names:** a card shows the frontmatter title, else the file name. When the file name differs from
   the title beyond characters a file name cannot hold, the file name follows the title in muted text.
   A note in a subfolder shows its folder path before the title, muted and regular, except inside a
@@ -219,11 +222,14 @@ notes differ only in section and starting state.
   preview. Click or Enter opens the page in the panel; the bookmark removes it. New pages are saved as
   notes instead.
 - **Missing pinned notes:** a "note not found" row with a quiet remove icon; Enter or Delete removes it.
-- **Reorder pins:** drag a pinned header: a native image of the card follows the pointer, a dashed gap
-  marks the drop position, and the other cards move once the pointer crosses a slot midpoint, with an
-  eased transform over `--duration`. Only dropping saves; Esc or dropping outside restores. Or
-  Alt+Shift+↑/↓ on the selected pinned item, which stays selected. Unavailable while editing; a stale
-  file gives a nearby error.
+- **Reorder pins and drag to float:** drag a pinned header with the pointer while staying in the
+  panel: the card stays visible with an accent border and the other cards slide smoothly once the
+  pointer crosses a slot midpoint (`--duration`); releasing inside Pinned saves, Esc or right-click
+  restores. Dragging any `.md` note's header (pinned or unpinned) out past the panel keeps a normal
+  cursor with no fade and shows the opaque floating post-it sheet beside the cursor (or moves an
+  already open post-it live); releasing outside opens or keeps the post-it there, while returning
+  inside restores the list. Or Alt+Shift+↑/↓ on the selected pinned item, which stays selected.
+  Unavailable while editing; a stale file gives a nearby error.
 
 ### Creating and editing
 
@@ -339,6 +345,12 @@ notes differ only in section and starting state.
 
 ### Search filters
 
+- **Filter menu:** in Notes with a folder ready, a quiet filter icon inside the right end of the search
+  field (accented while any filter is active) opens an in-panel menu toggling Links (`is:link`), Image
+  galleries (`has:gallery`), Date presets (`date:today`, `date:7d`, `date:month`, `date:last-month`),
+  up to 30 folder `#tag` filters, and Clear filters (keeping free text).
+- **Type:** `is:link` keeps notes with an http(s) `url:` in frontmatter and pinned web links;
+  `has:gallery` keeps notes with two or more consecutive local images in a grid.
 - **Tags:** whitespace-delimited `#tag` tokens must each match a complete frontmatter tag, ignoring case
   and accents, alongside the free text. Body hashtags are ordinary text; a lone `#`, `# Title` and
   hashes inside words or URLs stay literal. Tags with spaces or quotes use a JSON-quoted token, such as
@@ -348,12 +360,12 @@ notes differ only in section and starting state.
   also work: `date:2026`, `date:2026-10-03`, `date:2026-10..2026-11`, `date:2026-10..`, `date:..2026`.
   The date is the frontmatter `created`, else `date`, else the modified time. Invalid or reversed
   tokens are ignored. All filters and free-text words apply together.
-- **Completion:** while the caret is in a token, matching tags or dates appear below the bar in the
-  suggestion style: arrows select, Enter or Tab inserts the token and a space, a click accepts, Esc
-  dismisses first. The partial token is ignored for filtering until accepted.
+- **Completion:** while the caret is in a token (`#`, `date:`, `is:`, `has:`), matching suggestions
+  appear below the bar: arrows select, Enter or Tab inserts the token and a space, a click accepts,
+  Esc dismisses first. The partial token is ignored for filtering until accepted.
 - **Creating:** queries with filters never offer automatic Create. Ctrl+Enter and "+" create from the
   free text only (untitled for tags only), seeding the tags in the frontmatter so the note stays in
-  the results; dates are ignored. The web search row offers only the free text.
+  the results; type and date filters are ignored. The web search row offers only the free text.
 
 ## Note editor
 
@@ -450,18 +462,23 @@ notes differ only in section and starting state.
   `--size-control`, `--space-1` apart) and the preview grows to show whole any grid starting
   within it, then a faded line of what follows. Tab reaches them in the expanded note. A plain
   `<br>` counts as a line break in a grid. Raw HTML elsewhere shows as plain text.
-- **Image preview:** hovering a grid thumbnail for 300 ms, or focusing it and pressing Space, shows
+- **Side preview:** hovering a grid thumbnail for 300 ms, or focusing it and pressing Space, shows
   the image larger in a window beside the panel's inner edge, past the edge tab, vertically centered
   on the thumbnail and 24 logical px from the work area's other edges. It takes at most 72% of the
   room's width and 76% of its height (never under 120 px), at most the image's natural size and
-  never upscaled. The frame is styled like the panel: `--color-bg` with a 1 px `--color-line`
-  outline, 8 px corners, `--space-2` around the image (whose corners are `--radius-sm`), no shadow,
-  and a callout arrow 8 px deep and 16 px tall on the panel's side, at the thumbnail's height.
-  It never takes focus or clicks, so the panel stays open and hovered as before, and it is excluded
-  from capture. Once shown, hovering or focusing another thumbnail switches at once; moving between
-  thumbnails keeps it, leaving the grid hides it. Esc (its own layer), Space again, a click, scrolling,
-  focus leaving the grid, editing, Browser or Preferences, any menu or dialog, the shortcut and hiding
-  the panel also hide it. Not shown with too little room beside the panel (120 logical px).
+  never upscaled. When enabled in Preferences, any closed `.md` note (pinned or unpinned) also shows
+  in the same callout frame (`360 × 400` logical px max, shrinking vertically to content down to
+  56 px with compact image grids and a bottom fade when clipped; "Empty note" when blank): 300 ms on
+  hover, 150 ms on list/bar keyboard selection in "Hover or focus" mode, 60 ms when switching between
+  notes, or immediately while Alt (not AltGr) is held over a hovered or focused note in "Alt + hover
+  or focus" mode (hover also works when the panel is unfocused). The frame is styled like the panel:
+  `--color-bg` with a 1 px `--color-line` outline, 8 px corners, `--space-2` around the content
+  (images `--radius-sm`), no shadow, and a callout arrow 8 px deep and 16 px tall on the panel's
+  side. It never takes focus or clicks, so the panel stays open and hovered as before, and is
+  excluded from capture. Once shown, moving between thumbnails switches at once. Esc (its own layer),
+  Space again on thumbnails, a click, scrolling, dragging, focus leaving, editing, Browser or
+  Preferences, any menu or dialog, the shortcut and hiding the panel also hide it. Not shown with
+  too little room beside the panel (120 logical px).
 - **Floating images:** a local image, single or a grid thumbnail (not one inside a link), has a
   `pictureInPicture` badge in its top right corner, `--space-1` from the edges, with
   `--color-surface`, a 1 px `--color-line` border and `--radius-sm`, scrolling with the image and
@@ -508,8 +525,10 @@ notes differ only in section and starting state.
   when the notes folder returns; one whose spot is now off every monitor moves onto the nearest. A
   locked vault, or another folder chosen, closes them at once, without forgetting them; a window
   whose image was deleted is forgotten.
-- **Floating notes (post-its):** a note card's menu has "Open as floating window", which opens the
-  note read-only in a floating window beside its card, 300 by 320 logical px, cascading and limited
+- **Floating notes (post-its):** a note card's menu has "Open as floating window", outside editing a
+  middle click on a closed card or any note's header toggles it, and dragging a note's header out of
+  the panel opens a new post-it at the cursor (or moves and raises an already open one there). It opens
+  the note read-only beside its card (or at the drop cursor), 300 by 320 logical px, cascading and limited
   to 8 together with floating images; while one shows the note, the item reads "Close floating
   window" and the card's header actions add a filled `pictureInPicture` that closes it. The window
   behaves as a floating image's (topmost, never taking focus, excluded from capture, transparent
@@ -577,6 +596,8 @@ scroll inside the panel with the same insets, tokens and neutral buttons, and no
 tab label.
 
 - **General:** folder path and picker, optional vault file, note order, date grouping, relative dates,
+  closed note preview (`Off`, `Hover or focus` default, or `Alt + hover or focus` where mouse hover
+  also works unfocused),
   "Web suggestions while searching notes" (off by default, with a hint that typed searches go to the
   provider), "Check spelling" (on by default, with the languages found and where Windows adds more),
   panel side and "Start with Windows". Side and startup mirror the tray, also while open; startup is

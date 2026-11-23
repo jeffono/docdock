@@ -1,18 +1,62 @@
-// The side image preview from the panel's side: feeds pointer, focus and key events of the note
+// The side preview from the panel's side: feeds pointer, focus, key and Alt events of the note
 // list to the trigger rules and runs their effects. Rust shows the window and hides it on its own.
-import { imagePreviewHide, imagePreviewShow, onImagePreviewClosed } from "../../ipc";
-import { HOVER_DELAY, type Input, idle, step, type Trigger } from "./trigger";
+import {
+  imagePreviewHide,
+  imagePreviewShow,
+  imagePreviewShowNote,
+  type NotePreviewMode,
+  onImagePreviewClosed,
+  onPanelAlt,
+} from "../../ipc";
+import {
+  type DelayKind,
+  HOVER_DELAY,
+  type Input,
+  idle,
+  NOTE_FOCUS_DELAY,
+  NOTE_SWITCH_DELAY,
+  step,
+  type Target,
+  type Trigger,
+} from "./trigger";
 
 const THUMB = ".image-grid .image-thumb";
+const NOTE_LINE = '.card.line[data-note][data-path]:not([aria-busy="true"])';
 
 const thumbOf = (target: EventTarget | null) =>
   target instanceof Element ? target.closest<HTMLElement>(THUMB) : null;
 const gridOf = (target: EventTarget | null) =>
   target instanceof Element ? target.closest(".image-grid") : null;
+const noteLineOf = (target: EventTarget | null) =>
+  target instanceof Element ? target.closest<HTMLElement>(NOTE_LINE) : null;
+
+function validTarget(target: Target<HTMLElement>): boolean {
+  if (!target.item.isConnected) return false;
+  return target.kind === "image" ? target.item.matches(THUMB) : target.item.matches(NOTE_LINE);
+}
+
+function sameWaiting(
+  a: (Target<HTMLElement> & { delay: DelayKind }) | null,
+  b: (Target<HTMLElement> & { delay: DelayKind }) | null,
+): boolean {
+  if (a === b) return true;
+  return a !== null && b !== null && a.kind === b.kind && a.item === b.item && a.delay === b.delay;
+}
+
+function delayMs(delay: DelayKind): number {
+  switch (delay) {
+    case "hover":
+      return HOVER_DELAY;
+    case "noteSwitch":
+      return NOTE_SWITCH_DELAY;
+    case "noteFocus":
+      return NOTE_FOCUS_DELAY;
+  }
+}
 
 export type ImagePreview = ReturnType<typeof imagePreview>;
 
-export function imagePreview() {
+export function imagePreview(selectedNote?: () => HTMLElement | null) {
   let state: Trigger<HTMLElement> = idle();
   let timer = 0;
   // One call at a time, in order, so a hide never overtakes the show before it.
@@ -22,30 +66,58 @@ export function imagePreview() {
   };
   /** Changes on every show, hide and close, so a show still queued behind them is dropped. */
   let turn = 0;
-  // A note refresh can re-render the shown or hovered thumbnail while the pointer rests: the
-  // preview would then point at nothing.
-  const removal = new MutationObserver(() => {
-    if (state.shown && !state.shown.isConnected) send({ kind: "dismiss" });
-    else if (state.waiting && !state.waiting.isConnected) send({ kind: "leave" });
+  // A list refresh, toggle, pin or delete can change or detach the active item while hovered.
+  const mutation = new MutationObserver(() => {
+    if (state.shown && !validTarget(state.shown)) {
+      send({ kind: "dismiss" });
+      return;
+    }
+    if (state.waiting && !validTarget(state.waiting)) {
+      if (state.waiting.kind === "note") {
+        if (state.hoveredNote === state.waiting.item) send({ kind: "hoverNote", note: null });
+        else if (state.selectedNote === state.waiting.item)
+          send({ kind: "selectNote", note: null });
+        else send({ kind: "dismiss" });
+      } else {
+        send({ kind: "leave" });
+      }
+      return;
+    }
+    if (
+      state.hoveredNote &&
+      (!state.hoveredNote.isConnected || !state.hoveredNote.matches(NOTE_LINE))
+    ) {
+      send({ kind: "hoverNote", note: null });
+    }
   });
   let observing = false;
   function observe() {
-    const active = state.shown !== null || state.waiting !== null;
+    const active = state.shown !== null || state.waiting !== null || state.hoveredNote !== null;
     if (active === observing) return;
     observing = active;
-    if (active) removal.observe(document.body, { childList: true, subtree: true });
-    else removal.disconnect();
+    if (active) {
+      mutation.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["class", "aria-busy"],
+      });
+    } else {
+      mutation.disconnect();
+    }
   }
 
   function send(input: Input<HTMLElement>) {
     const before = state;
     const [next, effect] = step(state, input);
     state = next;
-    if (next.waiting !== before.waiting) {
+    if (!sameWaiting(before.waiting, next.waiting)) {
       window.clearTimeout(timer);
       const waiting = next.waiting;
-      if (waiting)
-        timer = window.setTimeout(() => send({ kind: "elapsed", thumb: waiting }), HOVER_DELAY);
+      if (waiting) {
+        const target: Target<HTMLElement> = { kind: waiting.kind, item: waiting.item };
+        timer = window.setTimeout(() => send({ kind: "elapsed", target }), delayMs(waiting.delay));
+      }
     }
     if (effect !== "none" || input.kind === "closed") turn++;
     observe();
@@ -53,28 +125,47 @@ export function imagePreview() {
     else if (effect === "hide") run(imagePreviewHide);
   }
 
-  function reveal(thumb: HTMLElement) {
-    const image = thumb.querySelector("img");
-    const path = thumb.dataset.image;
-    // Rust sizes the window from the image, so only a loaded thumbnail can show.
-    if (!path || !image?.complete || !image.naturalWidth || !image.naturalHeight) {
-      send({ kind: "dismiss" });
-      return;
-    }
-    const box = thumb.getBoundingClientRect();
+  function reveal(target: Target<HTMLElement>) {
+    const box = target.item.getBoundingClientRect();
     const rect: [number, number, number, number] = [
       Math.round(box.left),
       Math.round(box.top),
       Math.round(box.width),
       Math.round(box.height),
     ];
-    const natural: [number, number] = [image.naturalWidth, image.naturalHeight];
+    if (target.kind === "image") {
+      const image = target.item.querySelector("img");
+      const path = target.item.dataset.image;
+      // Rust sizes the window from the image, so only a loaded thumbnail can show.
+      if (!path || !image?.complete || !image.naturalWidth || !image.naturalHeight) {
+        send({ kind: "dismiss" });
+        return;
+      }
+      const natural: [number, number] = [image.naturalWidth, image.naturalHeight];
+      const mine = turn;
+      run(() => {
+        if (mine !== turn) return Promise.resolve();
+        return imagePreviewShow(path, rect, natural).catch(() => {
+          // Gone or no longer in the notes folder: hide whatever showed before it.
+          if (state.shown?.kind === "image" && state.shown.item === target.item) {
+            send({ kind: "dismiss" });
+          }
+        });
+      });
+      return;
+    }
+    const path = target.item.dataset.path;
+    if (!path) {
+      send({ kind: "dismiss" });
+      return;
+    }
     const mine = turn;
     run(() => {
       if (mine !== turn) return Promise.resolve();
-      return imagePreviewShow(path, rect, natural).catch(() => {
-        // Gone or no longer in the notes folder: hide whatever showed before it.
-        if (state.shown === thumb) send({ kind: "dismiss" });
+      return imagePreviewShowNote(path, rect).catch(() => {
+        if (state.shown?.kind === "note" && state.shown.item === target.item) {
+          send({ kind: "dismiss" });
+        }
       });
     });
   }
@@ -87,10 +178,31 @@ export function imagePreview() {
     closed: () => send({ kind: "closed" }),
     pointerover(event: PointerEvent) {
       const thumb = thumbOf(event.target);
-      if (thumb) send({ kind: "hover", thumb });
-      else send(gridOf(event.target) ? { kind: "hover", thumb: null } : { kind: "leave" });
+      if (thumb) {
+        send({ kind: "hover", thumb });
+        return;
+      }
+      if (gridOf(event.target)) {
+        send({ kind: "hover", thumb: null });
+        return;
+      }
+      const note = noteLineOf(event.target);
+      if (note) {
+        send({ kind: "hoverNote", note });
+        return;
+      }
+      send({ kind: "leave" });
     },
     leave: () => send({ kind: "leave" }),
+    selectNote(note: HTMLElement | null) {
+      send({ kind: "selectNote", note: note?.matches(NOTE_LINE) ? note : null });
+    },
+    setNoteMode(mode: NotePreviewMode) {
+      send({ kind: "noteMode", mode });
+    },
+    setDragging(active: boolean) {
+      send({ kind: "dragging", active });
+    },
     focusin(event: FocusEvent) {
       const thumb = thumbOf(event.target);
       if (thumb) send({ kind: "focus", thumb });
@@ -107,7 +219,7 @@ export function imagePreview() {
       event.preventDefault();
       if (!event.repeat) send({ kind: "toggle", thumb });
     },
-    /** Esc as its own layer, a click anywhere, any menu or dialog, and Rust's own hide. */
+    /** Esc as its own layer, a click anywhere, drags, menus, Alt state and Rust's own hide. */
     attach() {
       const escapeKey = (event: KeyboardEvent) => {
         if (event.key !== "Escape" || event.isComposing || state.shown === null) return;
@@ -121,18 +233,29 @@ export function imagePreview() {
       window.addEventListener("keydown", escapeKey, true);
       window.addEventListener("pointerdown", dismiss, true);
       window.addEventListener("contextmenu", dismiss, true);
+      window.addEventListener("dragstart", dismiss, true);
       // Popovers and dialogs: `toggle` does not bubble, but capture still sees it.
       window.addEventListener("toggle", opened, true);
       const closed = onImagePreviewClosed(() => send({ kind: "closed" }));
+      const panelAlt = onPanelAlt((held) => {
+        if (!held) {
+          send({ kind: "alt", held: false });
+          return;
+        }
+        const current = selectedNote?.() ?? null;
+        send({ kind: "alt", held: true, selected: current?.matches(NOTE_LINE) ? current : null });
+      });
       return () => {
         window.removeEventListener("keydown", escapeKey, true);
         window.removeEventListener("pointerdown", dismiss, true);
         window.removeEventListener("contextmenu", dismiss, true);
+        window.removeEventListener("dragstart", dismiss, true);
         window.removeEventListener("toggle", opened, true);
         void closed.then((stop) => stop());
+        void panelAlt.then((stop) => stop());
         dismiss();
         window.clearTimeout(timer);
-        removal.disconnect();
+        mutation.disconnect();
       };
     },
   };

@@ -8,6 +8,12 @@ const en = {
   "preferences.noteSearchSuggestions": "Web suggestions while searching notes",
   "preferences.noteSearchSuggestionsHint":
     "Sends the text you type when searching notes to your search provider.",
+  "preferences.notePreview": "Closed note preview",
+  "preferences.notePreview.off": "Off",
+  "preferences.notePreview.hover": "Hover or focus",
+  "preferences.notePreview.alt": "Alt + hover or focus",
+  "preferences.notePreviewHint":
+    "Shows a side preview when hovering or focusing any closed note. Alt + hover also works when the panel is unfocused.",
   "preferences.spellingLanguages":
     "Languages: {languages}. Windows Settings > Time & language > Language adds more.",
   "preferences.spellingNone":
@@ -181,6 +187,15 @@ const en = {
   "notes.date7d": "Last 7 days",
   "notes.dateMonth": "This month",
   "notes.dateLastMonth": "Last month",
+  "filter.label": "Filter notes",
+  "filter.type": "Type",
+  "filter.links": "Links",
+  "filter.galleries": "Image galleries",
+  "filter.date": "Date",
+  "filter.tags": "Tags",
+  "filter.clear": "Clear filters",
+  "filter.completion": "Note filters",
+  "preview.emptyNote": "Empty note",
   "notes.searchPlaceholder": "Search notes or enter a URL…",
   "notes.emptyFolder":
     "No notes yet. Type a title in the bar above and press Ctrl+Enter to create one.",
@@ -430,6 +445,12 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.noteSearchSuggestions": "Sugestões da web ao buscar notas",
   "preferences.noteSearchSuggestionsHint":
     "Envia o texto que você digita ao buscar notas para o seu provedor de pesquisa.",
+  "preferences.notePreview": "Preview de nota fechada",
+  "preferences.notePreview.off": "Desativado",
+  "preferences.notePreview.hover": "Ao passar o mouse ou focar",
+  "preferences.notePreview.alt": "Alt + mouse ou foco",
+  "preferences.notePreviewHint":
+    "Exibe um preview lateral ao passar o mouse ou focar qualquer nota fechada. Alt + mouse também funciona com o painel sem foco.",
   "preferences.spellingLanguages":
     "Idiomas: {languages}. Adicione outros em Configurações do Windows > Hora e idioma > Idioma.",
   "preferences.spellingNone":
@@ -604,6 +625,15 @@ const ptBR: Record<MessageKey, string> = {
   "notes.date7d": "Últimos 7 dias",
   "notes.dateMonth": "Este mês",
   "notes.dateLastMonth": "Mês passado",
+  "filter.label": "Filtrar notas",
+  "filter.type": "Tipo",
+  "filter.links": "Links",
+  "filter.galleries": "Galerias de imagens",
+  "filter.date": "Data",
+  "filter.tags": "Tags",
+  "filter.clear": "Limpar filtros",
+  "filter.completion": "Filtros de notas",
+  "preview.emptyNote": "Nota vazia",
   "notes.searchPlaceholder": "Buscar notas ou digitar URL…",
   "notes.emptyFolder":
     "Nenhuma nota ainda. Digite um título na barra acima e tecle Ctrl+Enter para criar uma.",

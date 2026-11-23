@@ -16,12 +16,12 @@ use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindow
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
     GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
-    HWND_TOPMOST, IsIconic, IsWindow, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_NCDESTROY, WM_SIZING, WMSZ_BOTTOM,
-    WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT,
-    WMSZ_TOPRIGHT, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT,
+    HWND_TOPMOST, IsIconic, IsWindow, SC_KEYMENU, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_NCDESTROY, WM_SIZING,
+    WM_SYSCOMMAND, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP,
+    WMSZ_TOPLEFT, WMSZ_TOPRIGHT, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 use windows::core::BOOL;
 
@@ -86,6 +86,13 @@ pub fn primary_button_down() -> bool {
     let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
     let button = if swapped { VK_RBUTTON } else { VK_LBUTTON };
     unsafe { GetAsyncKeyState(i32::from(button.0)) < 0 }
+}
+
+/// The secondary mouse button is held or was pressed since the last read (`0x8001`).
+pub fn secondary_button_pressed() -> bool {
+    let swapped = unsafe { GetSystemMetrics(SM_SWAPBUTTON) } != 0;
+    let button = if swapped { VK_LBUTTON } else { VK_RBUTTON };
+    unsafe { GetAsyncKeyState(i32::from(button.0)) as u16 & 0x8001 != 0 }
 }
 
 /// Alt is held, but not as AltGr, which layouts such as ABNT2 send as Ctrl+Alt.
@@ -532,6 +539,39 @@ unsafe extern "system" fn sizing_subclass(
     unsafe { DefSubclassProc(window, message, wparam, lparam) }
 }
 
+fn is_key_menu(wparam: usize) -> bool {
+    (wparam & 0xFFF0) == SC_KEYMENU as usize
+}
+
+/// Suppresses `WM_SYSCOMMAND(SC_KEYMENU)` on the window's thread so `Alt` and `Alt+Arrow` preview
+/// navigation never open the Windows system menu; `Alt+F4` (`SC_CLOSE`) still reaches the window.
+pub fn suppress_key_menu(raw: isize) -> Result<(), String> {
+    let added = unsafe { SetWindowSubclass(HWND(raw as _), Some(key_menu_subclass), 1, 0) };
+    if added.as_bool() {
+        Ok(())
+    } else {
+        Err("failed to subclass the window".into())
+    }
+}
+
+unsafe extern "system" fn key_menu_subclass(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    id: usize,
+    _data: usize,
+) -> LRESULT {
+    match message {
+        WM_SYSCOMMAND if is_key_menu(wparam.0) => return LRESULT(0),
+        WM_NCDESTROY => {
+            let _ = unsafe { RemoveWindowSubclass(window, Some(key_menu_subclass), id) };
+        }
+        _ => {}
+    }
+    unsafe { DefSubclassProc(window, message, wparam, lparam) }
+}
+
 /// The outline's rectangles cut to the visible columns of `visible`, as one region.
 /// The outline clipped to `visible`, or `None` if any part of it could not be built.
 fn outline_region(outline: &Outline, visible: Rect) -> Option<HRGN> {
@@ -662,5 +702,13 @@ mod tests {
                 bottom: 709
             }
         );
+    }
+
+    #[test]
+    fn key_menu_matches_only_sc_keymenu() {
+        use windows::Win32::UI::WindowsAndMessaging::SC_CLOSE;
+        assert!(is_key_menu(SC_KEYMENU as usize));
+        assert!(is_key_menu((SC_KEYMENU as usize) | 0x0F));
+        assert!(!is_key_menu(SC_CLOSE as usize));
     }
 }

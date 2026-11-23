@@ -19,7 +19,6 @@ import "./content.css";
 let {
   card,
   now,
-  drag,
   text,
   selected,
   onheader,
@@ -33,7 +32,9 @@ let {
   onlinkmenu,
   onimagemenu,
   onimagefloat,
+  onfloat,
   onunfloat,
+  onheaddown,
   floating,
   onpage,
   editing = false,
@@ -45,7 +46,6 @@ let {
 }: {
   card: Card;
   now: number;
-  drag?: (element: HTMLElement) => () => void;
   /** Raw text of the note once read; the line state does not need it. */
   text: string | undefined;
   /** Chosen with the arrows or the mouse. */
@@ -70,6 +70,9 @@ let {
   onimagefloat: (image: HTMLElement, toggle: boolean) => void;
   /** Closes the floating window that shows this note. */
   onunfloat: () => void;
+  /** Toggles the note as a floating post-it. */
+  onfloat: () => void;
+  onheaddown?: (event: PointerEvent, cardElement: HTMLElement) => void;
   /** The images and notes floating windows show, as `normalizePath` gives them. */
   floating: ReadonlySet<string>;
   onpage: (url: string) => void;
@@ -204,10 +207,19 @@ function fieldKey(event: KeyboardEvent) {
 }
 const toggleLabel = $derived(open ? t("card.collapse") : t("card.show"));
 const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)));
+let cardEl = $state<HTMLElement>();
+
+function middleClickFloats(event: MouseEvent): boolean {
+  if (event.button !== 1 || editing || card.url) return false;
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest(".actions, .gutter")) return false;
+  return !open || Boolean(target.closest(".head"));
+}
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions: middle click is a pointer shortcut alongside the card actions menu. -->
 <div
-  {@attach drag}
+  bind:this={cardEl}
   class="card"
   role="group"
   aria-label={card.hit.title}
@@ -222,7 +234,17 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
   class:floats
   class:drop={droptarget}
   aria-busy={deleting || undefined}
+  data-note={card.url ? undefined : ""}
   data-path={card.hit.path}
+  onmousedown={(event) => {
+    if (middleClickFloats(event)) event.preventDefault();
+  }}
+  onauxclick={(event) => {
+    if (middleClickFloats(event)) {
+      event.preventDefault();
+      onfloat();
+    }
+  }}
 >
   <header>
     {#if !card.url}<div class="gutter">
@@ -240,8 +262,16 @@ const floats = $derived(!card.url && floating.has(normalizePath(card.hit.path)))
         />
       </span>
     {/if}
-    <!-- Hidden rather than removed: pinned drag is attached to this button. -->
-    <button tabindex="-1" class="head" hidden={editing} onclick={onheader}>
+    <!-- Hidden rather than removed while editing so the header layout does not shift. -->
+    <button
+      tabindex="-1"
+      class="head"
+      hidden={editing}
+      onclick={onheader}
+      onpointerdown={(event) => {
+        if (cardEl) onheaddown?.(event, cardEl);
+      }}
+    >
       <span class="title">{#if prefix}<small class="folder">{prefix}/</small>{/if}{card.hit.title}{#if file}<small class="file">{file}</small>{/if}</span>
       <span class="meta">
       {#if card.url}<small class="tag" title={card.url}>{pageHost(card.url)}</small>{/if}

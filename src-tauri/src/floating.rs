@@ -737,8 +737,51 @@ fn open_kind(
     from: [i32; 4],
     natural: (u32, u32),
 ) -> Result<(), Error> {
-    let epoch = registry().epoch;
-    let folder = crate::notes::floating_folder(app, kind, &path)?;
+    open_with_rect(
+        app,
+        kind,
+        path,
+        None,
+        |_| {},
+        |open| {
+            let placed = place(requests, from, natural)?;
+            let aspect = match natural {
+                (width, height) if width > 0 && height > 0 => f64::from(width) / f64::from(height),
+                _ => floats::aspect_of(placed.image),
+            };
+            let pad = scale_dpi(placed.dpi, floats::SHADOW_PAD);
+            let window = floats::outset(placed.image, pad);
+            let window = floats::cascade(window, open, placed.dpi, placed.side, placed.free);
+            let rect = fitted(window, kind, aspect, &platform::monitors());
+            Ok((aspect, rect))
+        },
+    )
+}
+
+fn open_with_rect(
+    app: &AppHandle,
+    kind: Kind,
+    path: String,
+    origin: Option<(u64, FolderIdentity)>,
+    on_reserved: impl FnOnce(&str),
+    compute: impl FnOnce(usize) -> Result<(f64, Rect), Error>,
+) -> Result<(), Error> {
+    let (epoch, folder) = match origin {
+        Some((epoch, folder)) => {
+            if !registry().current(epoch) {
+                return Err(Error::FolderChanged);
+            }
+            let current = crate::notes::floating_folder(app, kind, &path)?;
+            if current != folder {
+                return Err(Error::FolderChanged);
+            }
+            (epoch, folder)
+        }
+        None => (
+            registry().epoch,
+            crate::notes::floating_folder(app, kind, &path)?,
+        ),
+    };
     let mut entry = Entry {
         id: new_id(),
         kind,
@@ -751,15 +794,8 @@ fn open_kind(
         text_scale: None,
     };
     let (label, open) = reserve(epoch, &entry, &folder)?;
-    let opened = place(requests, from, natural).and_then(|placed| {
-        let aspect = match natural {
-            (width, height) if width > 0 && height > 0 => f64::from(width) / f64::from(height),
-            _ => floats::aspect_of(placed.image),
-        };
-        let pad = scale_dpi(placed.dpi, floats::SHADOW_PAD);
-        let window = floats::outset(placed.image, pad);
-        let window = floats::cascade(window, open, placed.dpi, placed.side, placed.free);
-        let rect = fitted(window, kind, aspect, &platform::monitors());
+    on_reserved(&label);
+    let opened = compute(open).and_then(|(aspect, rect)| {
         entry.set_rect(rect);
         build(app, &label, kind, aspect)?;
         save_and_show(
@@ -776,6 +812,120 @@ fn open_kind(
     }
     report(app);
     opened
+}
+
+/// Starts a pointer-capture drag for `path`, targeting an existing post-it window or a live ghost.
+pub fn start_drag_note(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    id: u64,
+    path: String,
+) -> Result<(), Error> {
+    let (epoch, existing) = {
+        let registry = registry();
+        if registry.switching > 0 {
+            return Err(Error::FolderChanged);
+        }
+        let existing = registry
+            .live
+            .iter()
+            .find(|live| {
+                live.kind == Kind::Note && !live.closing && live.raw != 0 && same(&live.path, &path)
+            })
+            .map(|live| (live.label.clone(), live.raw));
+        if existing.is_none() && registry.live.len() >= MAX_FLOATING {
+            return Err(Error::FloatingLimit { max: MAX_FLOATING });
+        }
+        (registry.epoch, existing)
+    };
+    let target = if let Some((label, raw)) = existing
+        && let Some(origin) = platform::window_rect(raw)
+    {
+        crate::dock::NoteDragTarget::Existing { label, raw, origin }
+    } else {
+        let (generation, folder) = crate::preview::begin_post_it(app, requests, path.clone())?;
+        if !registry().current(epoch) {
+            crate::preview::close(app);
+            return Err(Error::FolderChanged);
+        }
+        crate::dock::NoteDragTarget::Ghost {
+            path,
+            generation,
+            epoch,
+            folder,
+        }
+    };
+    requests
+        .send(Request::StartNoteDrag { id, target })
+        .map_err(Error::unexpected)
+}
+
+/// Finishes the active note drag and opens or confirms the moved post-it when committed outside.
+pub fn end_drag_note(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    id: u64,
+    commit: bool,
+    cursor: Option<[i32; 2]>,
+) -> Result<bool, Error> {
+    let (reply, outcome) = mpsc::channel();
+    requests
+        .send(Request::EndNoteDrag {
+            id,
+            commit,
+            cursor,
+            reply,
+        })
+        .map_err(Error::unexpected)?;
+    match outcome
+        .recv_timeout(PLACE_WAIT)
+        .map_err(Error::unexpected)?
+    {
+        crate::dock::EndDragOutcome::Cancelled => Ok(false),
+        crate::dock::EndDragOutcome::Moved { label } => {
+            send(Message::Changed(label));
+            Ok(true)
+        }
+        crate::dock::EndDragOutcome::Spawn {
+            path,
+            rect,
+            generation,
+            epoch,
+            folder,
+        } => {
+            let rect = fitted(rect, Kind::Note, 1.0, &platform::monitors());
+            let opened = open_with_rect(
+                app,
+                Kind::Note,
+                path,
+                Some((epoch, folder)),
+                |label| {
+                    let _ = requests.send(Request::BindDragHandoff {
+                        generation,
+                        label: label.to_owned(),
+                    });
+                },
+                |_| Ok((1.0, rect)),
+            );
+            if let Err(error) = opened {
+                let _ = requests.send(Request::FinishDragHandoff(
+                    crate::dock::DragHandoffEnd::Generation(generation),
+                ));
+                if matches!(error, Error::FolderChanged) {
+                    return Ok(false);
+                }
+                return Err(error);
+            }
+            Ok(true)
+        }
+    }
+}
+
+/// Dismisses the drag ghost waiting on `label` once that newly opened post-it renders its frame.
+pub fn ready(label: &str, requests: &Sender<Request>) {
+    let _ = requests.send(Request::FinishDragHandoff(
+        crate::dock::DragHandoffEnd::Label(label.to_owned()),
+    ));
 }
 
 /// `window` on the monitors there are now and, for an image of `aspect`, reshaped to it.
