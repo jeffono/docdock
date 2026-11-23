@@ -118,6 +118,9 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   (Undo copies, shortcut recording, trash purge) and emits `panel-hidden`.
 - **Esc:** in `main` the UI owns it, one layer at a time, and only the last layer asks Rust to close.
   Rust reads the key only for a focused page, which has no channel to Rust.
+- **System menu:** `platform::suppress_key_menu` swallows `WM_SYSCOMMAND(SC_KEYMENU)` on `main`, and
+  `platform/edge.rs` disables WebView2's `Alt`-release accelerator in `Owner::Ui`, so `Alt` and
+  `Alt+Arrow` preview navigation never trigger the Windows window menu while keeping `Alt+F4`.
 - **Focus band:** Rust emits `panel-focus` when the panel window or its page gains or loses the
   foreground; DOM focus events cannot see the page window.
 - **Shortcut** (`shortcut.rs`): registered by Rust as virtual keys, so the UI's physical key is
@@ -137,26 +140,32 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
 - **Memory while parked:** `platform/memory.rs` sets WebView2's memory target to low on both webviews
   while parked and back to normal when a slide starts; `dock.rs` derives the level from that state.
   Scripts keep running, so autosave and file events stay live; `TrySuspend` would pause them.
-- **Image preview** ([0014](decisions/0014-app-windows.md)): one reusable `image-preview` window,
+- **Side preview** ([0014](decisions/0014-app-windows.md)): one reusable `image-preview` window,
   created hidden on first use by an asynchronous command and handed to `dock.rs`, which alone shows,
-  places and hides it, so it never races a slide. It is a tool window that never activates, stays
+  places and hides it, so it never races a slide. It serves grid images (`Kind::Image`), closed
+  markdown notes (`Kind::Note`), and the opaque post-it drag ghost (`Kind::PostIt`). It is a tool window that never activates, stays
   disabled and is click-through for good, so it is not one of the panel's windows for focus, hover,
-  slides or memory. The UI (`features/image-preview/trigger.ts`, pure) sends the thumbnail's CSS
-  box and the image's natural size; `preview.rs` turns them into physical pixels from the panel
-  window's origin and DPI and places the framed image beside the panel, past the edge tab
-  (`preview::place`); the dock publishes where the frame's arrow points to the preview window and
-  shows the window in one step under the preview's lock (`apply_placement`). It shows only
-  over the resting open panel in Notes without a dialog; hiding the panel, a placement change
-  (monitor, side, tab, width), showing the page, a dialog, the shortcut, the folder going away or
-  another folder chosen hide it, and Rust then tells both windows (no path on the preview's channel,
-  `image-preview-closed` to `main`, also for a show still on its way, so `main` drops the shows it
-  queued after it). Every show, hide and close starts a new generation: a show publishes its image
-  only while its generation is current and no other folder was chosen since it validated the path,
-  and the dock thread checks the generation and shows the window under the same lock, so a slow
-  show never outlives a hide or a locked vault. That lock is never taken on the main thread, which
-  showing the window waits for. What the preview window hears carries a separate version, which
-  changes only with the image shown. The window decodes the next image before swapping and drops any image, decoding or
-  shown, when it hides.
+  slides or memory. The UI (`features/image-preview/trigger.ts`, pure) sends the element's CSS box
+  (plus natural size for images via `image_preview_show`, or note path via `image_preview_show_note`);
+  `preview.rs` turns them into physical pixels from the panel window's origin and DPI and places the
+  callout beside the panel, past the edge tab (`preview::place` or `preview::place_note` up to
+  `NOTE_SIZE` 360 × 400); the dock publishes where the frame's arrow points to the preview window and
+  shows the window in one step under the preview's lock (`apply_placement`). For notes, `ImagePreview`
+  fetches the text via `image_preview_note` (allowed only from `preview::LABEL`), clips it via pure
+  `note-clip.ts` (100 lines / 12,000 chars), renders through `renderNote`, and shrinks the bubble height
+  via `ResizeObserver` around `arrowY` (except `Kind::PostIt`, which renders full post-it sheet framing). When `note_preview` is `Alt`, `dock.rs` polls
+  `platform::alt_held()` every 50 ms while the panel is open in Notes and emits `panel-alt` to `main`
+  so `Alt+hover` (including unfocused) and `Alt+focus` work immediately. It shows only over the resting open panel in Notes without a
+  dialog; hiding the panel, a placement change (monitor, side, tab, width), showing the page, a
+  dialog, the shortcut, dragging, the folder going away or another folder chosen hide it, and Rust
+  then tells both windows (no path on the preview's channel, `image-preview-closed` to `main`, also
+  for a show still on its way, so `main` drops the shows it queued after it). Every show, hide and
+  close starts a new generation: a show publishes its target only while its generation is current and
+  no other folder was chosen since it validated the path, and the dock thread checks the generation
+  and shows the window under the same lock, so a slow show never outlives a hide or a locked vault.
+  That lock is never taken on the main thread, which showing the window waits for. What the preview
+  window hears carries a separate version, which changes only with the target shown. The window
+  decodes the next image before swapping and drops any image or rendered note DOM when it hides.
 - **Floating windows** ([0014](decisions/0014-app-windows.md)): up to 8 `float-<n>` windows, of
   two kinds: images and post-its (notes shown read-only). `floating_open` validates the image, reserves a label in the registry,
   asks the dock thread where the preview would show the image (`Request::PlaceFloat`, through
@@ -188,8 +197,13 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   windows (`floating_close_path`); paths compare as `attachments::normalize` does. Closing by
   path, from the tray ("Close all floating windows") or one window at a time all go through the
   same user close.
-  A post-it (`floating_open_note`, `PostIt.svelte`) opens the same way beside the note's card at
-  `floats::NOTE_SIZE`, resizes freely (`floats::constrain_free`) and never zooms; Ctrl+wheel sizes
+  A post-it (`floating_open_note`, `floating_drag_start`/`floating_drag_end`, `PostIt.svelte`) opens the same way beside
+  the note's card, or via pointer-capture drag (`floating_drag_start` preparing either
+  `Kind::PostIt` via `preview::begin_post_it` or grabbing an open `Existing` post-it window, tracked
+  on `wait_frame()` by `dock.rs::step_note_drag`, keeping the panel held open outside the edge and
+  cancelling on Esc / secondary button via `panel-drag-cancel`, then spawning at `rect` and hiding
+  the ghost seamlessly once `PostIt` calls `float_ready`) at `floats::NOTE_SIZE`, resizes
+  freely (`floats::constrain_free`) and never zooms; Ctrl+wheel sizes
   its text, saved as the entry's `textScale`. It reads its note through `float_note`, only from the
   folder it opened on (`notes::floating_note`), and again whenever Rust raises its `revision`:
   `watch.rs` hands every change it reports to the worker (`floating::notes_changed_requested`),
@@ -387,8 +401,10 @@ recognized.
 ### Search and list
 
 `features/notes/search.ts` keeps an in-memory index in the UI, synced from `notes_list` modification
-times and `notes_texts`; nothing about tags or text is persisted. `query.ts` parses free text, `#tag`
-and `date:` tokens (rules in "Search filters" in `docs/DESIGN.md`). `features/notes/list.ts` is the pure
+times and `notes_texts`; it tracks `hasGallery` using `markdown.ts`'s `hasImageGallery`, and nothing
+about tags or text is persisted. `query.ts` parses free text, `#tag`, `date:`, `is:link` and
+`has:gallery` tokens (rules in "Search filters" in `docs/DESIGN.md`). `features/notes/list.ts` is
+the pure
 model of cards, sections and keyboard actions; `Notes.svelte` runs the effects. The edited card keeps a
 fixed key, so pinning, a `_pinned.md` change or a rename moves it instead of rebuilding the editor.
 `tauri.conf.json` disables native file-drop interception so HTML drag and drop works.

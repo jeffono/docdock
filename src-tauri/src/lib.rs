@@ -159,6 +159,8 @@ pub fn run() {
         commands::clipboard_write,
         commands::note_search_suggestions,
         commands::note_search_set_suggestions,
+        commands::notes_preview_mode,
+        commands::notes_set_preview_mode,
         commands::spelling_enabled,
         commands::spelling_set_enabled,
         commands::spelling_languages,
@@ -166,15 +168,19 @@ pub fn run() {
         commands::spelling_suggest,
         commands::spelling_add,
         commands::image_preview_show,
+        commands::image_preview_show_note,
         commands::image_preview_hide,
         commands::floating_open,
         commands::floating_open_note,
+        commands::floating_drag_start,
+        commands::floating_drag_end,
         commands::floating_edit_current,
         commands::floating_list,
         commands::floating_close_path,
     ];
     let secondary: fn(tauri::ipc::Invoke) -> bool = tauri::generate_handler![
         commands::image_preview_state,
+        commands::image_preview_note,
         commands::float_state,
         commands::float_set_opacity,
         commands::float_set_click_through,
@@ -185,6 +191,7 @@ pub fn run() {
         commands::float_set_text_scale,
         commands::float_edit,
         commands::float_drag,
+        commands::float_ready,
         commands::float_resize,
     ];
     tauri::Builder::default()
@@ -206,6 +213,9 @@ pub fn run() {
             let locale = i18n::Locale::current();
             let (requests, receiver) = mpsc::channel();
             let hwnd = window.hwnd()?.0 as isize;
+            if let Err(error) = platform::suppress_key_menu(hwnd) {
+                eprintln!("[panel] system menu shortcut not suppressed: {error}");
+            }
             tray::setup(app, hwnd, locale, side, requests.clone())?;
             app.manage(locale);
             app.manage(spelling::Spelling::start());
@@ -222,6 +232,7 @@ pub fn run() {
                 receiver,
                 side,
                 notes::width(app.handle()),
+                notes::note_preview_setting(app.handle()),
             );
             floating::start(app.handle());
             floating::folder_returned(app.handle());

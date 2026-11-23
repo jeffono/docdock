@@ -518,3 +518,45 @@ it("date headings stay out of keyboard navigation while the edited note keeps it
   );
   expect(navKeys(model, visible)).toEqual(["a.md", "b.md", "c.md"]);
 });
+
+it("pinned web links match is:link and free text, and are excluded by gallery, tag or date filters", () => {
+  const url = "https://example.com/docs";
+  const pinned = [item(url, { kind: "url", title: "Docs" })];
+  expect(paths(buildList({ ...base, hits: [], query: "is:link", pinned }).pinned)).toEqual([url]);
+  expect(paths(buildList({ ...base, hits: [], query: "is:link docs", pinned }).pinned)).toEqual([
+    url,
+  ]);
+  for (const query of ["has:gallery", "#work", "date:today", "is:link has:gallery"]) {
+    expect(paths(buildList({ ...base, hits: [], query, pinned }).pinned)).toEqual([]);
+  }
+});
+
+it("pinned web links stay visible for invalid or still-completing filter tokens", () => {
+  const url = "https://example.com/docs";
+  const pinned = [item(url, { kind: "url", title: "Docs" })];
+  expect(paths(buildList({ ...base, hits: [], query: "date:invalid", pinned }).pinned)).toEqual([
+    url,
+  ]);
+  expect(
+    paths(
+      buildList({
+        ...base,
+        hits: [],
+        query: "#wor",
+        pinned,
+        completing: { kind: "tag", from: 0, to: 4, prefix: "wor" },
+      }).pinned,
+    ),
+  ).toEqual([url]);
+  expect(
+    paths(
+      buildList({
+        ...base,
+        hits: [],
+        query: "has:gal",
+        pinned,
+        completing: { kind: "has", from: 0, to: 7, prefix: "gal" },
+      }).pinned,
+    ),
+  ).toEqual([url]);
+});

@@ -44,6 +44,8 @@ const paths = {
     "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3 M12 9v4 M12 17h.01",
   image:
     "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M11 9a2 2 0 1 1-4 0 2 2 0 0 1 4 0 M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21",
+  /** Lucide list-filter: search filters. */
+  filter: "M3 6h18 M7 12h10 M10 18h4",
 };
 export type IconName = keyof typeof paths;
 </script>

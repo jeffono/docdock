@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::dock::Side;
-use crate::platform::{Monitor, Rect, SizingEdge, scale_dpi};
+use crate::platform::{Monitor, Point, Rect, SizingEdge, scale_dpi};
 
 /// The most floating windows open at once.
 pub const MAX_FLOATING: usize = 8;
@@ -619,6 +619,46 @@ pub fn centered(work: Rect, natural: (u32, u32), dpi: u32) -> Rect {
     }
 }
 
+/// Where the pointer dropped a note outside the panel: cursor position, monitor work area and DPI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DropSpot {
+    pub cursor: Point,
+    pub work: Rect,
+    pub dpi: u32,
+}
+
+fn place_at_cursor(spot: DropSpot, width: i32, height: i32, pad: i32) -> Rect {
+    let work = spot.work;
+    let width = width.clamp(1, (work.right - work.left).max(1));
+    let height = height.clamp(1, (work.bottom - work.top).max(1));
+    let grab_y = scale_dpi(spot.dpi, 24) + pad;
+    let left = (spot.cursor.x - width / 2).clamp(work.left, (work.right - width).max(work.left));
+    let top = (spot.cursor.y - grab_y).clamp(work.top, (work.bottom - height).max(work.top));
+    Rect {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+    }
+}
+
+/// Window rectangle for a new post-it of logical `size` dropped at `spot`.
+pub fn drop_rect(spot: DropSpot, size: (u32, u32), pad: i32) -> Rect {
+    let width = scale_dpi(spot.dpi, size.0) + 2 * pad;
+    let height = scale_dpi(spot.dpi, size.1) + 2 * pad;
+    place_at_cursor(spot, width, height, pad)
+}
+
+/// Window rectangle for an existing post-it moved to `spot`, keeping its current size.
+pub fn drop_existing_rect(spot: DropSpot, current: Rect, pad: i32) -> Rect {
+    place_at_cursor(
+        spot,
+        current.right - current.left,
+        current.bottom - current.top,
+        pad,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1190,5 +1230,54 @@ mod tests {
         let work = rect(0, 0, 1920, 1040);
         assert_eq!(centered(work, (400, 300), 96), rect(760, 370, 400, 300));
         assert_eq!(centered(work, (4000, 1000), 96), rect(480, 400, 960, 240));
+    }
+
+    #[test]
+    fn drop_rect_centers_horizontally_on_cursor_and_clamps_to_work_area() {
+        let work = rect(0, 0, 1920, 1040);
+        let dropped = drop_rect(
+            DropSpot {
+                cursor: Point { x: 800, y: 400 },
+                work,
+                dpi: 96,
+            },
+            NOTE_SIZE,
+            PAD,
+        );
+        assert_eq!(size(dropped), (300 + 16, 320 + 16));
+        assert_eq!((dropped.left + dropped.right) / 2, 800);
+        assert_eq!(dropped.top, 400 - 24 - PAD);
+
+        // Near bottom-right corner at 150% DPI.
+        let corner = drop_rect(
+            DropSpot {
+                cursor: Point { x: 1910, y: 1030 },
+                work,
+                dpi: 144,
+            },
+            NOTE_SIZE,
+            12,
+        );
+        assert_eq!(corner.right, work.right);
+        assert_eq!(corner.bottom, work.bottom);
+        assert!(corner.left >= work.left && corner.top >= work.top);
+    }
+
+    #[test]
+    fn drop_existing_rect_preserves_window_size() {
+        let work = rect(0, 0, 1920, 1040);
+        let existing = rect(100, 100, 450, 520);
+        let moved = drop_existing_rect(
+            DropSpot {
+                cursor: Point { x: 600, y: 300 },
+                work,
+                dpi: 96,
+            },
+            existing,
+            PAD,
+        );
+        assert_eq!(size(moved), (450, 520));
+        assert_eq!((moved.left + moved.right) / 2, 600);
+        assert_eq!(moved.top, 300 - 24 - PAD);
     }
 }

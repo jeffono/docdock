@@ -14,11 +14,14 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::dock::{Request, Side};
 use crate::error::Error;
 use crate::i18n::Locale;
+use crate::notes::FolderIdentity;
 use crate::platform::{BASE_DPI, Point, Rect, scale_dpi};
 
 pub const LABEL: &str = "image-preview";
 /// Tells `main` that Rust hid the preview on its own, such as when the panel hides.
 const CLOSED: &str = "image-preview-closed";
+/// Logical pixels of a closed-note preview's content area before clamping to the monitor room.
+const NOTE_SIZE: (u32, u32) = (360, 400);
 
 /// Logical pixels between the preview and the edge tab, so the tab is never covered.
 const GAP: u32 = 8;
@@ -39,16 +42,31 @@ const ARROW_HALF: f64 = 8.0;
 /// The frame's corner radius; the arrow stays clear of the corners by this and 2 more.
 const RADIUS: f64 = 8.0;
 
-/// Which image the preview shows, and whether a show is on its way.
+/// What the side preview window shows.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    #[default]
+    Image,
+    Note,
+    PostIt,
+}
+
+/// Which item the preview shows, and whether a show is on its way.
 #[derive(Debug, Default)]
 struct Preview {
     /// Changes on every show, hide and close, so work started for an earlier turn is dropped.
     generation: u64,
-    /// Changes only when `path` does: the preview window keeps the highest it hears of.
+    /// Changes only when what is shown changes: the preview window keeps the highest it hears of.
     version: u64,
+    kind: Kind,
     path: Option<String>,
+    /// Notes folder identity for a `Kind::Note` preview, verified when reading the note.
+    folder: Option<FolderIdentity>,
     /// A show began and has not published yet.
     pending: bool,
+    /// Kind of a show that has begun and not published yet.
+    pending_kind: Option<Kind>,
     /// Where the frame's arrow points, from the window placed for the current show.
     side: Side,
     arrow_y: f64,
@@ -57,45 +75,69 @@ struct Preview {
 /// What a close ended.
 #[derive(Debug, PartialEq)]
 struct Closed {
-    /// An image was published: the preview window must forget it.
+    generation: u64,
+    /// An item was published: the preview window must forget it.
     cleared: bool,
-    /// An image was published or on its way: `main` must forget it too.
+    /// An item was published or on its way: `main` must forget it too.
     active: bool,
 }
 
 impl Preview {
-    /// Starts a show; its image is published only if `publish` gets this turn back.
-    fn begin(&mut self) -> u64 {
+    /// Starts a show; its item is published only if `publish` gets this turn back.
+    fn begin(&mut self, kind: Kind) -> u64 {
         self.generation += 1;
         self.pending = true;
+        self.pending_kind = Some(kind);
         self.generation
     }
 
     /// Publishes `path` for the show started at `generation`, unless a later show, a hide or a close
     /// came since, or another notes folder was chosen since validation (`folder` then and now).
-    fn publish(&mut self, generation: u64, folder: u64, folder_now: u64, path: String) -> bool {
+    fn publish(
+        &mut self,
+        generation: u64,
+        folder: u64,
+        folder_now: u64,
+        kind: Kind,
+        identity: Option<FolderIdentity>,
+        path: String,
+    ) -> bool {
         if generation != self.generation {
             return false;
         }
         self.pending = false;
+        self.pending_kind = None;
         if folder != folder_now {
             return false;
         }
+        self.kind = kind;
+        self.folder = identity;
         self.path = Some(path);
         self.version += 1;
         true
     }
 
-    /// Ends the turn and forgets the image.
+    /// Ends the turn and forgets the item.
     fn close(&mut self) -> Closed {
         self.generation += 1;
+        self.folder = None;
         let cleared = self.path.take().is_some();
         if cleared {
             self.version += 1;
         }
         let active = cleared || self.pending;
         self.pending = false;
-        Closed { cleared, active }
+        self.pending_kind = None;
+        Closed {
+            generation: self.generation,
+            cleared,
+            active,
+        }
+    }
+
+    fn is_post_it(&self) -> bool {
+        self.pending_kind == Some(Kind::PostIt)
+            || (self.kind == Kind::PostIt && self.path.is_some())
     }
 
     fn is_current(&self, generation: u64) -> bool {
@@ -115,6 +157,7 @@ impl Preview {
     fn update(&self) -> Update {
         Update {
             version: self.version,
+            kind: self.kind,
             path: self.path.clone(),
             side: self.side,
             arrow_y: self.arrow_y,
@@ -145,8 +188,11 @@ static SESSION: Mutex<Session> = Mutex::new(Session {
     preview: Preview {
         generation: 0,
         version: 0,
+        kind: Kind::Image,
         path: None,
+        folder: None,
         pending: false,
+        pending_kind: None,
         side: Side::Right,
         arrow_y: 0.0,
     },
@@ -166,6 +212,7 @@ fn session() -> MutexGuard<'static, Session> {
 #[serde(rename_all = "camelCase")]
 pub struct Update {
     version: u64,
+    kind: Kind,
     path: Option<String>,
     /// The panel's side, which the arrow faces.
     side: Side,
@@ -222,6 +269,34 @@ pub fn place(
     dpi: u32,
     tab_depth: i32,
 ) -> Option<Placement> {
+    place_box(work, panel, side, thumb, natural, dpi, tab_depth, true)
+}
+
+/// Where a closed-note preview goes: independent width and height clamping without forcing aspect
+/// ratio.
+pub fn place_note(
+    work: Rect,
+    panel: Rect,
+    side: Side,
+    card: Rect,
+    natural: (u32, u32),
+    dpi: u32,
+    tab_depth: i32,
+) -> Option<Placement> {
+    place_box(work, panel, side, card, natural, dpi, tab_depth, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_box(
+    work: Rect,
+    panel: Rect,
+    side: Side,
+    thumb: Rect,
+    natural: (u32, u32),
+    dpi: u32,
+    tab_depth: i32,
+    keep_aspect: bool,
+) -> Option<Placement> {
     let (width, height) = natural;
     if width == 0 || height == 0 {
         return None;
@@ -245,12 +320,21 @@ pub fn place(
     let inner_height = share(room_height, MAX_HEIGHT) - chrome.1;
     let css = |pixels: u32| f64::from(pixels) * f64::from(dpi) / f64::from(BASE_DPI);
     let (full_width, full_height) = (css(width), css(height));
-    let scale = (f64::from(inner_width) / full_width)
-        .min(f64::from(inner_height) / full_height)
-        .min(1.0);
-    // `as` saturates, and each side stays within the room it was given.
-    let w = ((full_width * scale).round() as i32).clamp(1, inner_width) + chrome.0;
-    let h = ((full_height * scale).round() as i32).clamp(1, inner_height) + chrome.1;
+    let (w, h) = if keep_aspect {
+        let scale = (f64::from(inner_width) / full_width)
+            .min(f64::from(inner_height) / full_height)
+            .min(1.0);
+        // `as` saturates, and each side stays within the room it was given.
+        (
+            ((full_width * scale).round() as i32).clamp(1, inner_width) + chrome.0,
+            ((full_height * scale).round() as i32).clamp(1, inner_height) + chrome.1,
+        )
+    } else {
+        (
+            (full_width.round() as i32).clamp(1, inner_width) + chrome.0,
+            (full_height.round() as i32).clamp(1, inner_height) + chrome.1,
+        )
+    };
     let x = match side {
         Side::Right => right - w,
         Side::Left => left,
@@ -314,13 +398,21 @@ pub fn dismiss(app: &AppHandle) -> bool {
 pub fn close(app: &AppHandle) {
     dismiss(app);
     if let Some(requests) = app.try_state::<Sender<Request>>() {
-        let _ = requests.send(Request::HidePreview);
+        let _ = requests.send(Request::HidePreview(None));
     }
 }
 
 /// Whether the show started at `generation` is still the one to show.
 pub fn is_current(generation: u64) -> bool {
     session().preview.is_current(generation)
+}
+
+/// Whether `generation` matches the current closed preview state with nothing shown or pending.
+pub fn is_closed_at(generation: u64) -> bool {
+    let session = session();
+    session.preview.generation == generation
+        && session.preview.path.is_none()
+        && !session.preview.pending
 }
 
 /// Publishes `placement` and runs `show` with its rectangle, only if the show started at
@@ -349,32 +441,120 @@ pub fn show(
     thumb: [i32; 4],
     natural: (u32, u32),
 ) -> Result<(), Error> {
-    let generation = session().preview.begin();
+    let generation = session().preview.begin(Kind::Image);
     let folder = crate::notes::check_image(app, &image)?;
     ensure_window(app, requests)?;
     // Held while sending, so the dock thread never sees the request without its image.
     let mut session = session();
     let now = crate::notes::folder_choices();
-    if !session.preview.publish(generation, folder, now, image) {
+    if !session
+        .preview
+        .publish(generation, folder, now, Kind::Image, None, image)
+    {
         return Err(Error::unexpected("image preview superseded"));
     }
     session.push();
     requests
         .send(Request::ShowPreview {
             generation,
+            kind: Kind::Image,
             rect: thumb,
             natural,
         })
         .map_err(Error::unexpected)
 }
 
-/// Hides the preview at the UI's request; the UI already knows, so `main` is not told.
+/// Shows a closed note `note` (a path relative to the notes folder) beside its card at `card`.
+pub fn show_note(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    note: String,
+    card: [i32; 4],
+) -> Result<(), Error> {
+    let generation = session().preview.begin(Kind::Note);
+    let (folder, identity) = crate::notes::check_note(app, &note)?;
+    ensure_window(app, requests)?;
+    let mut session = session();
+    let now = crate::notes::folder_choices();
+    if !session
+        .preview
+        .publish(generation, folder, now, Kind::Note, Some(identity), note)
+    {
+        return Err(Error::unexpected("note preview superseded"));
+    }
+    session.push();
+    requests
+        .send(Request::ShowPreview {
+            generation,
+            kind: Kind::Note,
+            rect: card,
+            natural: NOTE_SIZE,
+        })
+        .map_err(Error::unexpected)
+}
+
+/// Prepares `note` as an opaque post-it ghost in the preview window during a card drag without
+/// showing it yet; returns its preview generation and verified notes folder identity.
+pub fn begin_post_it(
+    app: &AppHandle,
+    requests: &Sender<Request>,
+    note: String,
+) -> Result<(u64, FolderIdentity), Error> {
+    let generation = session().preview.begin(Kind::PostIt);
+    let (folder, identity) = crate::notes::check_note(app, &note)?;
+    ensure_window(app, requests)?;
+    let mut session = session();
+    let now = crate::notes::folder_choices();
+    if !session.preview.publish(
+        generation,
+        folder,
+        now,
+        Kind::PostIt,
+        Some(identity.clone()),
+        note,
+    ) {
+        return Err(Error::unexpected("post-it ghost superseded"));
+    }
+    session.push();
+    Ok((generation, identity))
+}
+
+/// Reads the note currently shown in the preview window (note preview or drag ghost), or `None`.
+pub fn note(app: &AppHandle) -> Result<Option<String>, Error> {
+    let (generation, path, folder) = {
+        let session = session();
+        if !matches!(session.preview.kind, Kind::Note | Kind::PostIt) {
+            return Ok(None);
+        }
+        let Some((path, folder)) = session
+            .preview
+            .path
+            .clone()
+            .zip(session.preview.folder.clone())
+        else {
+            return Ok(None);
+        };
+        (session.preview.generation, path, folder)
+    };
+    let text = crate::notes::floating_note(app, &folder, &path)?;
+    if session().preview.generation != generation {
+        return Ok(None);
+    }
+    Ok(text)
+}
+
+/// Hides the preview at the UI's request; the UI already knows, so `main` is not told. Ignores
+/// delayed hide requests while a drag ghost is active or starting.
 pub fn hide(requests: &Sender<Request>) {
     let mut session = session();
-    if session.preview.close().cleared {
+    if session.preview.is_post_it() {
+        return;
+    }
+    let closed = session.preview.close();
+    if closed.cleared {
         session.push();
     }
-    let _ = requests.send(Request::HidePreview);
+    let _ = requests.send(Request::HidePreview(Some(closed.generation)));
 }
 
 /// The preview window's state when it loads; later changes go to `channel`, replacing the one it
@@ -400,7 +580,7 @@ fn ensure_window(app: &AppHandle, requests: &Sender<Request>) -> Result<(), Erro
     }
     *ready = false;
     let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-        .title("DocDock image")
+        .title("DocDock preview")
         .transparent(true)
         .decorations(false)
         .shadow(false)
@@ -584,14 +764,14 @@ mod tests {
     #[test]
     fn only_the_current_show_moves_the_arrow() {
         let mut preview = Preview::default();
-        let first = preview.begin();
-        assert!(preview.publish(first, 0, 0, "a.png".into()));
+        let first = preview.begin(Kind::Image);
+        assert!(preview.publish(first, 0, 0, Kind::Image, None, "a.png".into()));
         assert!(preview.place(first, Side::Right, 40.0));
         let version = preview.version;
-        let second = preview.begin();
+        let second = preview.begin(Kind::Image);
         assert!(!preview.place(first, Side::Left, 90.0));
         assert_eq!(preview.version, version);
-        assert!(preview.publish(second, 0, 0, "b.png".into()));
+        assert!(preview.publish(second, 0, 0, Kind::Image, None, "b.png".into()));
         assert!(preview.place(second, Side::Left, 90.0));
         let update = preview.update();
         assert_eq!((update.side, update.arrow_y), (Side::Left, 90.0));
@@ -603,26 +783,26 @@ mod tests {
     #[test]
     fn a_paused_opening_never_outlives_a_close_or_a_folder_change() {
         let mut preview = Preview::default();
-        let generation = preview.begin();
+        let generation = preview.begin(Kind::Image);
         // The folder became unavailable meanwhile: the monitor closed the preview.
         assert!(preview.close().active);
-        assert!(!preview.publish(generation, 0, 0, "a.png".into()));
+        assert!(!preview.publish(generation, 0, 0, Kind::Image, None, "a.png".into()));
         assert_eq!(preview.path, None);
         assert!(!preview.is_current(generation));
 
-        let generation = preview.begin();
+        let generation = preview.begin(Kind::Image);
         // Another folder was chosen after validation.
-        assert!(!preview.publish(generation, 0, 1, "a.png".into()));
+        assert!(!preview.publish(generation, 0, 1, Kind::Image, None, "a.png".into()));
         assert_eq!(preview.path, None);
     }
 
     #[test]
     fn only_the_latest_opening_publishes() {
         let mut preview = Preview::default();
-        let first = preview.begin();
-        let second = preview.begin();
-        assert!(!preview.publish(first, 0, 0, "a.png".into()));
-        assert!(preview.publish(second, 0, 0, "b.png".into()));
+        let first = preview.begin(Kind::Image);
+        let second = preview.begin(Kind::Image);
+        assert!(!preview.publish(first, 0, 0, Kind::Image, None, "a.png".into()));
+        assert!(preview.publish(second, 0, 0, Kind::Image, None, "b.png".into()));
         assert!(preview.is_current(second));
         assert!(!preview.is_current(first));
         assert!(preview.close().cleared);
@@ -634,9 +814,9 @@ mod tests {
     #[test]
     fn a_state_read_before_publication_ranks_below_it() {
         let mut preview = Preview::default();
-        let generation = preview.begin();
+        let generation = preview.begin(Kind::Image);
         let before = preview.update();
-        assert!(preview.publish(generation, 0, 0, "a.png".into()));
+        assert!(preview.publish(generation, 0, 0, Kind::Image, None, "a.png".into()));
         let published = preview.update();
         assert!(before.version < published.version);
         assert_eq!(before.path, None);
@@ -651,19 +831,60 @@ mod tests {
     #[test]
     fn closing_a_show_on_its_way_tells_main_but_not_the_window() {
         let mut preview = Preview::default();
-        let generation = preview.begin();
+        let generation = preview.begin(Kind::Image);
         let version = preview.version;
         assert_eq!(
             preview.close(),
             Closed {
+                generation: generation + 1,
                 cleared: false,
                 active: true
             }
         );
         assert_eq!(preview.version, version);
-        assert!(!preview.publish(generation, 0, 0, "a.png".into()));
+        assert!(!preview.publish(generation, 0, 0, Kind::Image, None, "a.png".into()));
         // Nothing left to close.
         assert!(!preview.close().active);
+    }
+
+    #[test]
+    fn note_preview_keeps_height_when_narrow_and_clears_folder_on_close() {
+        let narrow = Rect { right: 800, ..WORK };
+        let panel = Rect {
+            left: 460,
+            ..narrow
+        };
+        // Room width: 460 - 28 - 24 = 408; 72% = 293 (< 360 + 24), height 76% of 992 = 753 (> 416).
+        let placement =
+            place_note(narrow, panel, Side::Right, thumb(400), NOTE_SIZE, 96, TAB).unwrap();
+        assert_eq!(size(placement), (293, 416));
+
+        let mut preview = Preview::default();
+        let generation = preview.begin(Kind::Note);
+        let folder = FolderIdentity::default();
+        assert!(preview.publish(generation, 0, 0, Kind::Note, Some(folder), "note.md".into()));
+        assert_eq!(preview.update().kind, Kind::Note);
+        assert!(preview.folder.is_some());
+        assert!(!preview.is_post_it());
+        assert!(preview.close().cleared);
+        assert!(preview.folder.is_none());
+
+        let ghost_gen = preview.begin(Kind::PostIt);
+        assert!(preview.is_post_it());
+        assert!(preview.publish(
+            ghost_gen,
+            0,
+            0,
+            Kind::PostIt,
+            Some(FolderIdentity::default()),
+            "ghost.md".into(),
+        ));
+        assert!(preview.is_post_it());
+        assert_eq!(preview.update().kind, Kind::PostIt);
+        assert!(preview.is_current(ghost_gen));
+        assert!(preview.close().cleared);
+        assert!(!preview.is_post_it());
+        assert!(!preview.is_current(ghost_gen));
     }
 
     // Catches the thumbnail's box landing elsewhere on a scaled monitor or overflowing.

@@ -424,19 +424,22 @@ export const imagePreviewShow = (
   rect: [number, number, number, number],
   natural: [number, number],
 ) => invoke<void>("image_preview_show", { path, rect, natural });
+export const imagePreviewShowNote = (path: string, rect: [number, number, number, number]) =>
+  invoke<void>("image_preview_show_note", { path, rect });
 export const imagePreviewHide = () => invoke<void>("image_preview_hide");
 export const onImagePreviewClosed = (handler: () => void): Promise<UnlistenFn> =>
   listen("image-preview-closed", () => handler());
 
 /**
- * In the preview window itself, which has no capability: it reaches only this command, which
- * answers what to show now and sends each later change through `onUpdate`. The highest
- * `version` is the latest, whichever way it arrives.
+ * In the preview window itself, which has no capability: it reaches only its own commands, which
+ * answer what to show now and send each later change through `onUpdate`. The highest `version` is
+ * the latest, whichever way it arrives.
  */
 export const isImagePreviewWindow = () => getCurrentWebviewWindow().label === "image-preview";
 /** `side` is the panel's, which the frame's arrow faces; `arrowY` its tip in CSS pixels. */
 export type ImagePreviewUpdate = {
   version: number;
+  kind: "image" | "note" | "postit";
   path: string | null;
   side: "left" | "right";
   arrowY: number;
@@ -446,6 +449,8 @@ export function imagePreviewState(onUpdate: (update: ImagePreviewUpdate) => void
   channel.onmessage = onUpdate;
   return invoke<ImagePreviewUpdate & { locale: Locale }>("image_preview_state", { channel });
 }
+/** Reads the closed note currently shown in the side preview window, or `null` once hidden/gone. */
+export const imagePreviewNote = () => invoke<string | null>("image_preview_note");
 
 /**
  * Detaches the image at `path` into a floating window, opened where the side preview would show
@@ -461,6 +466,18 @@ export const floatingOpen = (
 /** Opens the note at `path` as a post-it beside its card at `rect`, as `floatingOpen` places it. */
 export const floatingOpenNote = (path: string, rect: [number, number, number, number]) =>
   invoke<void>("floating_open_note", { path, rect });
+/** Starts a live pointer drag for `path`, showing its post-it ghost or moving its open window. */
+export const floatingDragStart = (id: number, path: string) =>
+  invoke<void>("floating_drag_start", { id, path });
+/** Finishes the active note drag; `commit` opens or moves the post-it when outside the panel. */
+export const floatingDragEnd = (
+  id: number,
+  commit: boolean,
+  cursor: [number, number] | null = null,
+) => invoke<boolean>("floating_drag_end", { id, commit, cursor });
+/** Emitted if Rust cancels an active note drag (Esc, right click, dialog or panel hide). */
+export const onPanelDragCancel = (handler: (id: number) => void): Promise<UnlistenFn> =>
+  listen<number>("panel-drag-cancel", (event) => handler(event.payload));
 /** No folder change came since floating windows' `epoch`, nor is one under way. */
 export const floatingEditCurrent = (epoch: number) =>
   invoke<boolean>("floating_edit_current", { epoch });
@@ -520,6 +537,8 @@ export const floatSetTextScale = (scale: number) => invoke<void>("float_set_text
 export const floatEdit = () => invoke<void>("float_edit");
 /** Moves the window with the pointer; call while the primary button is down. */
 export const floatDrag = () => invoke<void>("float_drag");
+/** Signals that a newly created post-it painted its first frame so its drag ghost can hide. */
+export const floatReady = () => invoke<void>("float_ready");
 export type ResizeDirection =
   | "North"
   | "South"
@@ -611,6 +630,14 @@ export const permissionForget = (site: string, kind: PermissionKind) =>
 export const noteSearchSuggestionsEnabled = () => invoke<boolean>("note_search_suggestions");
 export const noteSearchSetSuggestions = (enabled: boolean) =>
   invoke<void>("note_search_set_suggestions", { enabled });
+
+export const notePreviewModes = ["off", "hover", "alt"] as const;
+export type NotePreviewMode = (typeof notePreviewModes)[number];
+export const notesPreviewMode = () => invoke<NotePreviewMode>("notes_preview_mode");
+export const notesSetPreviewMode = (mode: NotePreviewMode) =>
+  invoke<void>("notes_set_preview_mode", { mode });
+export const onPanelAlt = (handler: (held: boolean) => void): Promise<UnlistenFn> =>
+  listen<boolean>("panel-alt", (event) => handler(event.payload));
 
 /** Spell checking in the editor, on unless turned off in Preferences. */
 export const spellingEnabled = () => invoke<boolean>("spelling_enabled");

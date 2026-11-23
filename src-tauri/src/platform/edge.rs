@@ -8,7 +8,8 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_COMMAND,
     COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR, COREWEBVIEW2_KEY_EVENT_KIND,
     COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
-    ICoreWebView2_11, ICoreWebView2AcceleratorKeyPressedEventArgs2,
+    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP, ICoreWebView2_11,
+    ICoreWebView2AcceleratorKeyPressedEventArgs, ICoreWebView2AcceleratorKeyPressedEventArgs2,
     ICoreWebView2ContextMenuItemCollection, ICoreWebView2Controller4, ICoreWebView2Environment9,
 };
 use webview2_com::{
@@ -232,6 +233,15 @@ fn down(key: VIRTUAL_KEY) -> bool {
     unsafe { GetKeyState(i32::from(key.0)) < 0 }
 }
 
+unsafe fn disable_browser_accelerator(
+    args: &ICoreWebView2AcceleratorKeyPressedEventArgs,
+) -> windows::core::Result<()> {
+    match args.cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>() {
+        Ok(args) => unsafe { args.SetIsBrowserAcceleratorKeyEnabled(false) },
+        Err(_) => unsafe { args.SetHandled(true) },
+    }
+}
+
 /// Installs the filter, and `capture`'s items if any. For the page, waits for it before the first
 /// navigation, so call it off the WebView2 UI thread; for the UI, which loads only trusted content,
 /// it returns at once.
@@ -258,6 +268,16 @@ pub fn filter(
             let Some(args) = args else { return Ok(()) };
             let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
             args.KeyEventKind(&mut kind)?;
+            if kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP {
+                if owner == Owner::Ui {
+                    let mut key = 0;
+                    args.VirtualKey(&mut key)?;
+                    if VIRTUAL_KEY(key as u16) == VK_MENU {
+                        return disable_browser_accelerator(&args);
+                    }
+                }
+                return Ok(());
+            }
             if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN
                 && kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN
             {
@@ -275,12 +295,7 @@ pub fn filter(
                 Decision::Browser => Ok(()),
                 // Runtimes before 120 lack the per-key switch: consume the key rather than let
                 // its browser action run (fail closed; the content then misses it too).
-                Decision::Content => {
-                    match args.cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>() {
-                        Ok(args) => args.SetIsBrowserAcceleratorKeyEnabled(false),
-                        Err(_) => args.SetHandled(true),
-                    }
-                }
+                Decision::Content => disable_browser_accelerator(&args),
                 Decision::ToggleMode => {
                     args.SetHandled(true)?;
                     let _ = app.emit_to("main", "panel-toggle-mode", ());

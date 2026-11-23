@@ -13,6 +13,7 @@ import {
   floatDrag,
   floatEdit,
   floatNote,
+  floatReady,
   floatSetOpacity,
   floatSetTextScale,
 } from "../../ipc";
@@ -71,7 +72,15 @@ function apply(update: FloatUpdate) {
  * drawn again (a moved note's relative images resolve anew).
  */
 let reads = 0;
+let signaledReady = false;
 let shown: { text: string; path: string | null } | null = null;
+function markReady() {
+  if (signaledReady) return;
+  signaledReady = true;
+  requestAnimationFrame(() => {
+    void floatReady().catch(() => {});
+  });
+}
 async function read() {
   const current = ++reads;
   let text: string | null;
@@ -84,7 +93,14 @@ async function read() {
   if (current !== reads) return;
   gone = text === null;
   const at = path;
-  if (text === null || (text === shown?.text && at === shown.path)) return;
+  if (text === null) {
+    markReady();
+    return;
+  }
+  if (text === shown?.text && at === shown.path) {
+    markReady();
+    return;
+  }
   const fragment = await renderNote(text, at);
   if (current !== reads) return;
   shown = { text, path: at };
@@ -92,6 +108,7 @@ async function read() {
   // Nothing in a post-it takes focus or acts: it never activates, and editing is the panel's.
   for (const element of body.querySelectorAll<HTMLElement>("a, button, input"))
     element.tabIndex = -1;
+  markReady();
 }
 
 // Through the CSSOM: the CSP forbids style attributes.
