@@ -1,6 +1,6 @@
 [package]
 name = "docdock"
-version = "0.5.0"
+version = "0.6.0"
 description = "Autohide sidebar for viewing, adding, and editing references"
 authors = ["Jeff Ono"]
 license = "MIT"
