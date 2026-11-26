@@ -15,6 +15,28 @@
   font-family: var(--font-sans);
   line-height: var(--line-height);
 }
+:host .cm-editor .cm-placeholder {
+  color: var(--color-muted);
+}
+:host(.fill) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+:host(.fill) .cm-editor {
+  height: 100%;
+  min-height: 0;
+}
+:host(.fill) .cm-scroller {
+  overflow: auto;
+}
+:host(.fill) .cm-content {
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: var(--editor-pad-top, var(--space-2)) var(--editor-pad-right, var(--space-3))
+    var(--editor-pad-bottom, var(--space-3)) var(--editor-pad-left, var(--space-3));
+}
 :host .cm-editor .cm-content {
   /* The card body's padding, so entering editing does not move the text. */
   padding: var(--space-1) var(--space-3) var(--space-3);

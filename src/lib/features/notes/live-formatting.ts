@@ -20,7 +20,12 @@ import {
   safeHref,
 } from "./markdown";
 import { pointerReveal, revealChanged, revealed } from "./pointer-reveal";
-export const notePath = Facet.define<string, string>({ combine: (values) => values[0] ?? "" });
+export const notePath = Facet.define<string | null, string | null>({
+  combine: (values) => values[0] ?? null,
+});
+export const frontmatterEnabled = Facet.define<boolean, boolean>({
+  combine: (values) => values[0] ?? true,
+});
 
 function active(state: EditorState, from: number, to: number) {
   return revealed(state).some(
@@ -181,7 +186,7 @@ function paragraphGrids(
   node: SyntaxNode,
   slice: (from: number, to: number) => string,
   defs: ReturnType<typeof definitions>,
-  note: string,
+  note: string | null,
 ): EditorGrid[] {
   const { doc } = state;
   if (doc.lineAt(node.from).from !== node.from) return [];
@@ -191,7 +196,7 @@ function paragraphGrids(
     const images: GridImage[] = [];
     for (const child of run.images) {
       const url = linkTarget(child, slice, defs)?.url;
-      const src = url && imageUrl(url, note);
+      const src = url && note !== null ? imageUrl(url, note) : null;
       if (!src) continue runs;
       const alt = slice(child.from, child.to).match(/^!\[([^\]]*)\]/)?.[1] ?? "";
       images.push({ src, alt, offset: child.from - from });
@@ -244,7 +249,8 @@ export const grids = StateField.define<DecorationSet>({
     transaction.docChanged ||
     revealChanged(transaction) ||
     syntaxTree(transaction.startState) !== syntaxTree(transaction.state) ||
-    transaction.startState.facet(notePath) !== transaction.state.facet(notePath)
+    transaction.startState.facet(notePath) !== transaction.state.facet(notePath) ||
+    transaction.startState.facet(frontmatterEnabled) !== transaction.state.facet(frontmatterEnabled)
       ? gridDecorations(transaction.state)
       : value,
   provide: (field) => EditorView.decorations.from(field),
@@ -278,6 +284,7 @@ function gridDecorations(state: EditorState): DecorationSet {
 type Metadata = { to: number; title: string | null; tags: string[] } | null;
 const metadataCache = new WeakMap<EditorState["doc"], Metadata>();
 function metadata(state: EditorState): Metadata {
+  if (!state.facet(frontmatterEnabled)) return null;
   const { doc } = state;
   if (!metadataCache.has(doc)) {
     const meta = readFrontmatter((n) => doc.line(n).text, doc.lines);
@@ -342,7 +349,9 @@ class HeaderWidget extends WidgetType {
 const frontmatter = StateField.define<DecorationSet>({
   create: (state) => headerDecoration(state),
   update: (value, transaction) =>
-    transaction.docChanged || revealChanged(transaction)
+    transaction.docChanged ||
+    revealChanged(transaction) ||
+    transaction.startState.facet(frontmatterEnabled) !== transaction.state.facet(frontmatterEnabled)
       ? headerDecoration(transaction.state)
       : value,
   provide: (field) => EditorView.decorations.from(field),
@@ -373,7 +382,7 @@ function gridAt(state: EditorState, from: number): boolean {
   });
   return found;
 }
-function formatting(view: EditorView, note: string): DecorationSet {
+function formatting(view: EditorView, note: string | null): DecorationSet {
   const ranges: ReturnType<Decoration["range"]>[] = [],
     lines = new Map<number, Set<string>>();
   const meta = metadata(view.state);
@@ -520,7 +529,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
         }
         if (selected && name === "Image") {
           const url = linkTarget(node.node, slice, defs)?.url,
-            src = url && imageUrl(url, note);
+            src = url && note !== null ? imageUrl(url, note) : null;
           if (src)
             ranges.push(
               Decoration.replace({
@@ -538,7 +547,7 @@ function formatting(view: EditorView, note: string): DecorationSet {
           const url = linkTarget(node.node, slice, defs)?.url,
             alt = raw.match(/^!\[([^\]]*)\]/)?.[1] ?? "";
           if (url) {
-            const src = imageUrl(url, note);
+            const src = note !== null ? imageUrl(url, note) : null;
             if (src) {
               // Replace each visible line separately: view plugins cannot span line breaks.
               for (const visible of view.visibleRanges) {
@@ -649,6 +658,8 @@ export function liveFormatting() {
             revealChanged(update) ||
             update.viewportChanged ||
             update.startState.facet(notePath) !== update.state.facet(notePath) ||
+            update.startState.facet(frontmatterEnabled) !==
+              update.state.facet(frontmatterEnabled) ||
             update.startState.field(frontmatter) !== update.state.field(frontmatter) ||
             update.startState.field(grids) !== update.state.field(grids) ||
             syntaxTree(update.startState) !== syntaxTree(update.state)

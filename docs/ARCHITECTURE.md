@@ -12,9 +12,10 @@ src/                     UI (Svelte 5 + Vite)
   lib/ipc.ts             Only entry point that calls Rust
   lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
   lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
+  lib/panel-tabs.ts      Pure tab cycle and top-bar mouse-wheel switching rules
   lib/theme.svelte.ts    Theme setting applied as the root color scheme
-  lib/features/<name>/   Components, state and tests: notes, web, tab (edge tab), preferences,
-                         image-preview, floating, tweak-panel (development builds only)
+  lib/features/<name>/   Components, state and tests: notes, scratchpad, web, tab (edge tab),
+                         preferences, image-preview, floating, tweak-panel (development builds only)
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
 src-tauri/src/           Backend (Rust)
@@ -42,8 +43,8 @@ src-tauri/src/           Backend (Rust)
   trash.rs               The notes folder's own 30-day trash for deletes without a Recycle Bin
   i18n.rs                Interface language, from the Windows display language
   error.rs               Errors sent to the UI as codes
-  watch.rs               Tells the UI when the notes folder changes, leaves or returns
   updates.rs             Update check, download and the exit gate shared with Quit
+  watch.rs               Tells the UI when notes or `.docdock/scratchpad.md` change, or the folder leaves/returns
   spelling.rs            Editor spell checking on its own thread, across the user's languages
   dev.rs                 Tweak window backend, development builds only
   commands/              Tauri commands: thin delegating layer
@@ -261,10 +262,10 @@ instance exits.
 
 `updates.rs` checks at production startup, every six hours and on Windows resume; development builds
 disable updates. Triggers share one check or download, and Rust verifies the download and keeps it in
-memory. Quit and update share a native exit gate: an event asks the UI to freeze input and finish the
-editor through its save guard, and only its acknowledgement allows exit; busy operations, save errors
-and conflicts keep the process open ([0008](decisions/0008-distribution.md)). Windows NSIS relaunches
-after installing.
+memory. Quit and update share a native exit gate: an event asks the UI to freeze input and finish both
+the note editor and the Scratchpad through their save guards, and only its acknowledgement allows exit;
+busy operations, save errors and conflicts keep the process open ([0008](decisions/0008-distribution.md)).
+Windows NSIS relaunches after installing.
 
 To cut a release, align package, Cargo and Tauri versions and `Cargo.lock`, commit, push through normal
 review, then manually run Release on main; the workflow rejects mismatched versions or a stale
@@ -302,11 +303,11 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   the folder's handle really is (`Root::real`) and reads only if the file opened really is there
   (`read_resolved`), so a junction swapped in meanwhile, anywhere on the way, is refused. The search
   index's bulk reads go by path.
-- `watch::monitor` checks the state every 2 s and emits `notes-changed` on a change. On leaving, the UI
-  (`folderAction` in `features/notes/folder-state.ts`) forgets every note's text, name and tag, and
-  Rust forgets what it keeps for Undo and closes the image preview and the floating windows, which
-  reopen on return. The one exception is an editor with unsaved text, which stays
-  in memory until saved on return or discarded.
+- `watch::monitor` checks the state every 2 s and emits `notes-changed` and `scratchpad-changed` on a
+  change. On leaving, the UI (`folderAction` in `features/notes/folder-state.ts`) forgets every note's
+  text, name and tag, and Scratchpad forgets clean text as well; Rust forgets what it keeps for Undo and
+  closes the image preview and the floating windows, which reopen on return. The one exception is an
+  editor with unsaved text, which stays in memory until saved on return or discarded.
 
 ### Writing without losing content
 
@@ -326,6 +327,11 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   stops saving and keeps the text. Every way out of editing goes through one guarded leave that
   flushes and refuses on conflict or error, including hiding the panel, choosing a folder, Quit and
   updating.
+- **Scratchpad** (`features/scratchpad/Scratchpad.svelte`): backed by `.docdock/scratchpad.md`
+  inside the notes folder (`scratchpad_open`, `scratchpad_save`), sharing `ReplaceFileW` conflict
+  handling, vault protection (`0009`: missing files create nothing until non-empty content is
+  written) and the exit gate. `watch.rs` emits `scratchpad-changed` without triggering a note
+  relist, while external edits reload a clean Scratchpad as `Updated from disk`.
 - **External changes:** `watch.rs` groups `notify` events into one `notes-changed` with the renames it
   could pair. The UI follows renames, then rereads the listing, `_pinned.md` and the notes it shows;
   only a clean editor takes new text. Reads started before a folder change or rename are dropped.
@@ -412,10 +418,12 @@ fixed key, so pinning, a `_pinned.md` change or a rename moves it instead of reb
 ### Rendering and editing
 
 Both views use one parser ([0007](decisions/0007-one-markdown-parser.md)). Reading turns the syntax tree
-into an allowlisted model of DOM nodes, never HTML. The editor is CodeMirror 6 in an open shadow root,
-because its styles must load as adopted or linked sheets under the CSP. It tracks raw text apart from
-CodeMirror's offsets so mixed line endings survive edits, reloads, undo and redo; no Markdown is
-serialized. Code fences load local Lezer grammars on demand (`code-colors.ts`) for both views.
+into an allowlisted model of DOM nodes, never HTML. `MarkdownEditor.svelte` holds the decoupled
+CodeMirror 6 editor core in an open shadow root (reused by `Editor.svelte` with frontmatter and local
+image paths, and `Scratchpad.svelte` without them), because its styles must load as adopted or linked
+sheets under the CSP. It tracks raw text apart from CodeMirror's offsets so mixed line endings survive
+edits, reloads, undo and redo; no Markdown is serialized. Code fences load local Lezer grammars on
+demand (`code-colors.ts`) for both views.
 
 **Spelling** uses the Windows Spell Checking API (`spelling.rs`), not WebView2's checker, which drops
 its marks whenever CodeMirror redraws a line and checks only WebView2's languages. The UI sends single
@@ -468,7 +476,7 @@ capabilities) and [0003](decisions/0003-panel-and-web-pages.md) (the page window
   filtering use this path.
 - **Edge features** (`platform/edge.rs`): accelerator keys and context menu items outside an allowlist
   are filtered natively in both windows, because Edge's dialogs either cannot close in the panel or
-  take focus from it. Ctrl+Tab on the page is emitted to `main` as `panel-toggle-mode`.
+  take focus from it. Ctrl+Tab and Ctrl+Shift+Tab on the page emit `panel-toggle-mode` (`1` / `-1`) to `main`.
 
 ## Browser
 

@@ -1,10 +1,13 @@
 import { insertBracket } from "@codemirror/autocomplete";
-import { redo, undo } from "@codemirror/commands";
-import type { Transaction } from "@codemirror/state";
+import { isolateHistory, redo, undo } from "@codemirror/commands";
+import { Compartment, EditorState, type Transaction } from "@codemirror/state";
 import { type EditorView, keymap } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import { applyTextChanges, editorExtensions, editorState } from "./editor";
+import { grids, notePath } from "./live-formatting";
+import { addProperty } from "./properties";
 import { rawHistory, rawText } from "./reload";
+import { slashCompletion } from "./slash-commands";
 
 describe("editor text preservation", () => {
   // Emptying the line between a lone CR and an LF break once merged them into one CRLF break.
@@ -86,4 +89,109 @@ it("deletes an empty pair in a list before falling back to Markdown Backspace", 
   expect(state.doc.toString()).toBe("- ");
   expect(backspace()).toBe(true);
   expect(state.doc.toString()).toBe("");
+});
+
+describe("decoupled editor options", () => {
+  it("disables frontmatter completions and metadata slash command when frontmatter is off", () => {
+    const extensions = editorExtensions(
+      () => {},
+      () => {},
+      "Scratchpad",
+      () => ["tag"],
+      { frontmatter: false, leaveOnCtrlE: false },
+    );
+    const makeCtx = (doc: string) => ({
+      state: editorState(doc, extensions),
+      pos: doc.length,
+      explicit: true,
+      aborted: false,
+      addEventListener() {},
+      matchBefore: () => null,
+    });
+    const all = slashCompletion(makeCtx("---\ntitle: Keep\n---\n/") as never);
+    expect(all?.options.length).toBeGreaterThan(0);
+    expect(all?.options.some((o) => o.label.includes("Add metadata"))).toBe(false);
+    expect(slashCompletion(makeCtx("---\ntitle: Keep\n---\n/add") as never)).toBeNull();
+    // Ctrl+; and Ctrl+E should not be bound when disabled.
+    const bindings = makeCtx("").state.facet(keymap).flat();
+    expect(bindings.some((b) => b.run === addProperty)).toBe(false);
+    expect(bindings.some((b) => b.key === "Ctrl-e")).toBe(false);
+  });
+
+  it("restores exact mixed line endings when clearing and undoing", () => {
+    const raw = "First\r\nSecond\n";
+    let state = editorState(raw, [
+      ...editorExtensions(
+        () => {},
+        () => {},
+        "Scratchpad",
+        () => [],
+        { frontmatter: false, leaveOnCtrlE: false },
+      ),
+      rawText.init(() => raw),
+      rawHistory,
+    ]);
+    const dispatch = (transaction: Transaction) => {
+      state = transaction.state;
+    };
+    state = state.update({
+      changes: { from: 0, to: state.doc.length, insert: "" },
+      selection: { anchor: 0 },
+      annotations: isolateHistory.of("full"),
+      userEvent: "delete",
+    }).state;
+    expect(state.field(rawText)).toBe("");
+    expect(undo({ state, dispatch })).toBe(true);
+    expect(state.field(rawText)).toBe(raw);
+  });
+
+  it("records programmatic clear in undo history while read-only so undo works after it lifts", () => {
+    const editable = new Compartment();
+    const raw = "Promoted draft\n";
+    let state = editorState(raw, [
+      ...editorExtensions(
+        () => {},
+        () => {},
+        "Scratchpad",
+        () => [],
+        { frontmatter: false, leaveOnCtrlE: false },
+      ),
+      rawText.init(() => raw),
+      rawHistory,
+      editable.of(EditorState.readOnly.of(true)),
+    ]);
+    const dispatch = (transaction: Transaction) => {
+      state = transaction.state;
+    };
+    state = state.update({
+      changes: { from: 0, to: state.doc.length, insert: "" },
+      selection: { anchor: 0 },
+      annotations: isolateHistory.of("full"),
+      userEvent: "delete",
+    }).state;
+    expect(state.field(rawText)).toBe("");
+    // Once read-only lifts (after promotion completes), Ctrl+Z still restores the draft.
+    state = state.update({ effects: editable.reconfigure(EditorState.readOnly.of(false)) }).state;
+    expect(undo({ state, dispatch })).toBe(true);
+    expect(state.field(rawText)).toBe(raw);
+  });
+
+  it("resolves no local image grids when notePath is null", () => {
+    const doc = "Intro\n\n![a](a.png)\n![b](b.png)";
+    const state = editorState(doc, [
+      ...editorExtensions(
+        () => {},
+        () => {},
+        "Scratchpad",
+        () => [],
+        { frontmatter: false },
+      ),
+      notePath.of(null),
+    ]);
+    const ranges: [number, number][] = [];
+    state.field(grids).between(0, state.doc.length, (from, to) => {
+      ranges.push([from, to]);
+    });
+    expect(ranges).toEqual([]);
+  });
 });

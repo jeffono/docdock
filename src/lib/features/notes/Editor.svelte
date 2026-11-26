@@ -1,40 +1,17 @@
 <script lang="ts">
-import { isolateHistory, undo } from "@codemirror/commands";
-import { Compartment, EditorSelection, EditorState, Prec, type Text } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
-import { onMount, tick, untrack } from "svelte";
-import { privateCut } from "../../clipboard";
+import { EditorSelection } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
+import { onMount, untrack } from "svelte";
 import { errorText, type MessageKey, t } from "../../i18n";
-import {
-  clipboardWrite,
-  notesOpen,
-  notesPasteImage,
-  notesSave,
-  notesTrust,
-  type OpenNote,
-  spellingAdd,
-  spellingCheck,
-  spellingSuggest,
-} from "../../ipc";
+import { notesOpen, notesPasteImage, notesSave, notesTrust, type OpenNote } from "../../ipc";
 import Button from "../../ui/Button.svelte";
-import Menu from "../../ui/Menu.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
 import { type AutosaveState, createAutosave } from "./autosave";
-import contentCssUrl from "./content.css?url";
-import { type Counts, countSelection, countText, noteBodyStart } from "./count";
-import { editorExtensions, editorState } from "./editor";
-import cssUrl from "./editor.css?url";
-import { editorLinkAt, editorLinkClick } from "./editor-links";
 import type { FolderGone } from "./folder-state";
 import { imageInsertion } from "./image-paste";
 import { keepInPlace } from "./keep-in-place";
-import { linkAction, linkMenuKey } from "./link-actions";
-import { notePath } from "./live-formatting";
-import NoteStats from "./NoteStats.svelte";
+import MarkdownEditor from "./MarkdownEditor.svelte";
 import type { EditStart } from "./reading-position";
-import { diskReload, rawHistory, rawText } from "./reload";
-import { learned, type Misspelling, spelling } from "./spelling";
-import { loadSpelling, spellingOn } from "./spelling-store";
 
 let {
   path,
@@ -65,93 +42,9 @@ let {
   /** Where a double click on the reading view asked to start. */
   start?: EditStart;
 } = $props();
-let host: HTMLDivElement;
-let view: EditorView | undefined;
+
+let core = $state<MarkdownEditor>();
 let raw = untrack(() => note.text);
-let total = $state<Counts | null>(null);
-let selected = $state<Counts | null>(null);
-let pendingSelection: Counts | null = null;
-let bodyStart = 0;
-let countTimer: ReturnType<typeof setTimeout> | undefined;
-
-function followLink(event: MouseEvent, view: EditorView) {
-  if (linkAction(event, false) !== "external") return false;
-  const url = editorLinkClick(view, event, bodyStart);
-  if (!url) return false;
-  // Keep mouse-down from selecting text or starting middle-button autoscroll.
-  if (event.type !== "mousedown") onlinkexternal(url);
-  return true;
-}
-const linkHandlers = Prec.high(
-  EditorView.domEventHandlers({
-    mousedown: followLink,
-    click: followLink,
-    auxclick: followLink,
-    contextmenu(event, view) {
-      const url = editorLinkClick(view, event, bodyStart);
-      if (!url) return false;
-      onlinkmenu(event, url.href, view.contentDOM);
-      return true;
-    },
-    keydown(event, view) {
-      if (event.isComposing || !linkMenuKey(event)) return false;
-      const { head } = view.state.selection.main;
-      if (head < bodyStart) return false;
-      const url = editorLinkAt(view.state, head, 1) ?? editorLinkAt(view.state, head, -1);
-      const rect = url && view.coordsAtPos(head);
-      if (!url || !rect) return false;
-      onlinkmenu(event, url.href, view.contentDOM, { x: rect.left, y: rect.bottom });
-      return true;
-    },
-  }),
-);
-
-const editable = new Compartment();
-const location = new Compartment();
-const checker = new Compartment();
-const spellingExtension = spelling(spellingCheck, (target) => void suggest(target));
-let spellMenu: Menu;
-/** The misspelled word the suggestions menu is for. */
-let misspelling = $state<(Misspelling & { suggestions: string[]; doc: Text }) | null>(null);
-/**
- * The text the menu was opened for, still editable: an edit, an image paste (read-only meanwhile) or
- * a closed editor makes its positions stale, and a fix would replace other text.
- */
-function current(doc: Text) {
-  return !disposed && view !== undefined && view.state.doc === doc && !view.state.readOnly;
-}
-async function suggest(target: Misspelling) {
-  const doc = view?.state.doc;
-  if (!doc) return;
-  const suggestions = await spellingSuggest(target.word).catch(() => []);
-  if (!current(doc)) return;
-  misspelling = { ...target, suggestions, doc };
-  // Rendered first, so the menu measures its items.
-  await tick();
-  if (view && current(doc) && view.hasFocus)
-    spellMenu.show({ at: { x: target.x, y: target.y }, from: view.contentDOM });
-}
-function correct(replacement: string) {
-  const target = misspelling;
-  if (!view || !target || !current(target.doc)) return;
-  view.dispatch({
-    changes: { from: target.from, to: target.to, insert: replacement },
-    selection: { anchor: target.from + replacement.length },
-    // Its own undo step: typing right after must not join it.
-    annotations: isolateHistory.of("full"),
-    userEvent: "input.spelling",
-  });
-}
-async function addWord() {
-  const target = misspelling;
-  if (!view || !target) return;
-  try {
-    await spellingAdd(target.word);
-    if (!disposed) learned(view, target.word);
-  } catch (e) {
-    error = errorText(e);
-  }
-}
 let revision = 0;
 export function snapshot() {
   return revision;
@@ -179,7 +72,6 @@ const goneCodes: Record<string, FolderGone> = {
   folderMissing: "missing",
   folderUnrecognized: "unrecognized",
 };
-let replacing = false;
 /** Text changed in this editor, rather than only reloaded from disk. */
 let typed = false;
 /** The text being edited, saved or not. */
@@ -187,11 +79,11 @@ export function text() {
   return raw;
 }
 export function focus() {
-  view?.focus();
+  core?.focus();
 }
 export function moved(next: string) {
   path = next;
-  view?.dispatch({ effects: location.reconfigure(notePath.of(next)) });
+  core?.setNotePath(next);
   deleted = false;
   revision++;
 }
@@ -272,6 +164,7 @@ function drop(event: DragEvent) {
     (file) =>
       file.type.startsWith("image/") || (!file.type && /\.(gif|jpe?g|png|webp)$/i.test(file.name)),
   );
+  const view = core?.getView();
   if (view && images.length) insertImages(view, images);
 }
 
@@ -280,7 +173,7 @@ function insertImages(editor: EditorView, files: File[]) {
   const selection = editor.state.selection;
   revision++;
   error = "";
-  editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
+  core?.setReadOnly(true);
   pasting = (async () => {
     try {
       const attachments: string[] = [];
@@ -316,11 +209,12 @@ function insertImages(editor: EditorView, files: File[]) {
       pasting = undefined;
       if (!disposed) {
         revision++;
-        editor.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(resolving)) });
+        core?.setReadOnly(resolving);
       }
     }
   })();
 }
+
 function autosave(version: string) {
   status = "saved";
   onstatus(status);
@@ -344,72 +238,6 @@ function autosave(version: string) {
   });
 }
 let saving = autosave(untrack(() => note.version));
-/**
- * The cursor keeps about three lines from the top and bottom of what shows when it moves, never
- * under the editing card's header, which stays stuck at the top of the list.
- */
-function scrollRoom() {
-  // The editor's line: `--font-size-md` (in rem) times `--line-height`.
-  const tokens = getComputedStyle(host);
-  const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-  const line =
-    Number.parseFloat(tokens.getPropertyValue("--font-size-md")) *
-    rem *
-    Number.parseFloat(tokens.getPropertyValue("--line-height"));
-  return [
-    EditorView.cursorScrollMargin.of({ x: 5, y: Math.round(3 * line) || 5 }),
-    EditorView.scrollMargins.of(() => {
-      const header = host.closest(".card")?.querySelector<HTMLElement>(":scope > header");
-      return { top: header?.offsetHeight ?? 0 };
-    }),
-  ];
-}
-const extensions = () => [
-  rawText.init(() => raw),
-  rawHistory,
-  scrollRoom(),
-  EditorView.updateListener.of(({ state, docChanged, selectionSet }) => {
-    if (docChanged) {
-      bodyStart = noteBodyStart(state.doc);
-      clearTimeout(countTimer);
-      const from = bodyStart;
-      countTimer = setTimeout(() => {
-        total = countText(state.sliceDoc(from));
-        selected = pendingSelection;
-        countTimer = undefined;
-      }, 150);
-    }
-    if (docChanged || selectionSet) {
-      pendingSelection = countSelection(state.doc, state.selection, bodyStart);
-      if (countTimer === undefined) selected = pendingSelection;
-    }
-  }),
-  EditorView.updateListener.of((update) => {
-    const next = update.state.field(rawText);
-    if (next === raw || replacing) return;
-    raw = next;
-    typed = true;
-    updated = false;
-    revision++;
-    saving.edit(raw);
-  }),
-  editable.of(EditorState.readOnly.of(false)),
-  location.of(notePath.of(path)),
-  checker.of([]),
-  linkHandlers,
-  EditorView.domEventHandlers({ paste }),
-  privateCut(clipboardWrite),
-  ...editorExtensions(
-    onleave,
-    (focused) => {
-      // Deferred: moving the card in the DOM blurs the editor during a Svelte update, where changing
-      // state throws and would leave the save half started.
-      if (!focused) queueMicrotask(() => void saving.flush());
-    },
-    t("editor.label"),
-    tags,
-  ),
-];
 
 let holding: Promise<void> | null = null;
 /**
@@ -429,7 +257,7 @@ export async function rename(
 ): Promise<boolean> {
   if (resolving || pasting || deleted || holding) return false;
   const next = change(raw);
-  if (view && next !== null && next !== raw) view.dispatch(diskReload(view.state, next));
+  if (next !== null && next !== raw) core?.applyEdit(next);
   if ((await saving.flush()) !== "saved" || holding || pasting) return false;
   let release = () => {};
   holding = new Promise((resolve) => {
@@ -439,8 +267,8 @@ export async function rename(
     const disk = await notesOpen(path);
     await move(disk.version, next !== null, (later) => {
       const text = later(raw);
-      if (!view || text === null || text === raw) return false;
-      view.dispatch(diskReload(view.state, text));
+      if (!core?.getView() || text === null || text === raw) return false;
+      core.applyEdit(text);
       return true;
     });
     return true;
@@ -453,9 +281,9 @@ export async function rename(
 export async function finish(change?: (text: string) => string): Promise<OpenNote | null> {
   if (resolving) return null;
   resolving = true;
-  view?.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(true)) });
+  core?.setReadOnly(true);
   // Blur while this Esc press is still being handled, as TextField does.
-  view?.contentDOM.blur();
+  core?.blur();
   try {
     await pasting;
     // Read after the await with editing locked: never replace text still being typed or pasted.
@@ -463,7 +291,7 @@ export async function finish(change?: (text: string) => string): Promise<OpenNot
     // overwrite one changed outside it that the watcher has not reloaded yet.
     // `note` follows the editor's own saves, so it cannot tell whether anything was typed.
     const next = deleted || !typed ? undefined : change?.(raw);
-    if (view && next !== undefined && next !== raw) view.dispatch(diskReload(view.state, next));
+    if (next !== undefined && next !== raw) core?.applyEdit(next);
     if ((await saving.flush()) !== "saved") return null;
     if (deleted) return { ...note, text: raw };
     return await notesOpen(path);
@@ -472,7 +300,7 @@ export async function finish(change?: (text: string) => string): Promise<OpenNot
     return null;
   } finally {
     resolving = false;
-    view?.dispatch({ effects: editable.reconfigure(EditorState.readOnly.of(false)) });
+    core?.setReadOnly(false);
   }
 }
 
@@ -481,12 +309,7 @@ function replace(next: OpenNote) {
   saving.stop();
   saving = autosave(next.version);
   deleted = false;
-  replacing = true;
-  try {
-    if (view && next.text !== raw) view.dispatch(diskReload(view.state, next.text));
-  } finally {
-    replacing = false;
-  }
+  core?.reloadText(next.text);
   raw = next.text;
 }
 
@@ -526,29 +349,7 @@ function discardAndLeave() {
   ondiscard();
 }
 
-onMount(() => {
-  // The CSP blocks runtime <style> tags. CodeMirror's style-mod (4.1.4) uses an adopted stylesheet
-  // only in a root without `head`, so the editor lives in a shadow root; external links load the
-  // editor and content CSS inside it, with `:host` specificity above CodeMirror's base styles.
-  const root = host.attachShadow({ mode: "open" });
-  const css = document.createElement("link");
-  css.rel = "stylesheet";
-  css.href = cssUrl;
-  const contentCss = document.createElement("link");
-  contentCss.rel = "stylesheet";
-  contentCss.href = contentCssUrl;
-  const styled = Promise.all(
-    [contentCss, css].map(
-      (link) =>
-        new Promise((resolve) => {
-          link.onload = link.onerror = resolve;
-        }),
-    ),
-  );
-  root.append(contentCss, css);
-  view = new EditorView({ root, parent: root, state: editorState(raw, extensions()) });
-  bodyStart = noteBodyStart(view.state.doc);
-  total = countText(view.state.sliceDoc(bodyStart));
+function prepareStart(view: EditorView, styled: Promise<unknown>) {
   const at = untrack(() => start);
   // Positions from the reading view apply only to the text it showed.
   if (at && at.text === raw && at.from <= view.state.doc.length) {
@@ -560,23 +361,18 @@ onMount(() => {
     view.dispatch({ selection: range });
     // Laid out with its styles, the word goes back where it was clicked.
     void styled.then(() => {
-      if (view && !disposed) keepInPlace(view, range.from, at.top);
+      if (!disposed && view.dom.isConnected) keepInPlace(view, range.from, at.top);
     });
   }
   // A note created with only frontmatter (tags from the search) takes typing after it, not inside.
   else if (/^---\r?\n[\s\S]*\r?\n---\r?\n?$/.test(raw))
     view.dispatch({ selection: { anchor: view.state.doc.length } });
-  view.focus();
-  const stopSpelling = spellingOn.subscribe((on) => {
-    view?.dispatch({ effects: checker.reconfigure(on ? spellingExtension : []) });
-  });
-  loadSpelling().catch(() => {});
+}
+
+onMount(() => {
   return () => {
-    stopSpelling();
-    clearTimeout(countTimer);
     disposed = true;
     saving.stop();
-    view?.destroy();
   };
 });
 </script>
@@ -587,7 +383,7 @@ onMount(() => {
   {:else if updated}
     <div class="notice" role="status">
       {t("editor.updated")}
-      <button class="discard" onclick={() => { if (view) { undo(view); view.focus(); } }}>{t("editor.undo")}</button>
+      <button class="discard" onclick={() => core?.undo()}>{t("editor.undo")}</button>
     </div>
   {/if}
   {#if status === "conflict"}
@@ -620,19 +416,31 @@ onMount(() => {
       {/if}
     </div>
   {/if}
-  <div class="surface" role="presentation" bind:this={host} ondragover={dragOver} ondropcapture={drop}></div>
-  {#if total}
-    <NoteStats {total} {selected} />
-  {/if}
-  <Menu bind:this={spellMenu} label={t("editor.spelling")} ontoggle={(open) => { if (!open) misspelling = null; }}>
-    {#each misspelling?.suggestions ?? [] as suggestion}
-      <button role="menuitem" onclick={() => correct(suggestion)}>{suggestion}</button>
-    {:else}
-      <p>{t("editor.spellingNone")}</p>
-    {/each}
-    <hr />
-    <button role="menuitem" onclick={addWord}>{t("editor.spellingAdd")}</button>
-  </Menu>
+  <MarkdownEditor
+    bind:this={core}
+    initialText={note.text}
+    label={t("editor.label")}
+    {path}
+    {tags}
+    {onleave}
+    onblur={() => queueMicrotask(() => void saving.flush())}
+    onchange={(next) => {
+      raw = next;
+      typed = true;
+      updated = false;
+      revision++;
+      saving.edit(raw);
+    }}
+    {onlinkexternal}
+    {onlinkmenu}
+    onpaste={paste}
+    ondragover={dragOver}
+    ondropcapture={drop}
+    onspellerror={(e) => {
+      error = errorText(e);
+    }}
+    onready={prepareStart}
+  />
 </div>
 
 <style>

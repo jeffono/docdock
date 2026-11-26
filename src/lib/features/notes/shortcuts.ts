@@ -3,7 +3,7 @@ import { formattingShortcuts } from "./formatting";
 
 /** The activation shortcut is not here: it can change; see `activation.svelte.ts`. */
 export const panelShortcuts: [string, MessageKey][] = [
-  ["Ctrl+Tab", "shortcut.mode"],
+  ["Ctrl+Tab / Ctrl+Shift+Tab", "shortcut.mode"],
   ["Ctrl+,", "shortcut.preferences"],
   ["Ctrl+Shift+D", "shortcut.panelPin"],
   ["Ctrl+/", "shortcut.sheet"],

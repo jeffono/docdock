@@ -65,6 +65,9 @@ struct Settings {
     /// Side preview for unpinned closed notes: off, hover (default) or alt+hover.
     #[serde(default, deserialize_with = "lenient")]
     note_preview: NotePreviewMode,
+    /// Top-bar mouse-wheel tab switching: off, modifier (Shift+wheel, default) or on.
+    #[serde(default, deserialize_with = "lenient")]
+    tab_wheel: TabWheelMode,
     /// Spell checking is on unless turned off.
     #[serde(default, deserialize_with = "lenient")]
     spelling_off: bool,
@@ -230,6 +233,20 @@ pub fn set_note_preview(
     update(app, |settings| settings.note_preview = mode)?;
     let _ = requests.send(Request::SetNotePreview(mode));
     Ok(())
+}
+#[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabWheelMode {
+    Off,
+    #[default]
+    Modifier,
+    On,
+}
+pub fn tab_wheel(app: &AppHandle) -> Result<TabWheelMode, Error> {
+    Ok(load(&config(app)?).tab_wheel)
+}
+pub fn set_tab_wheel(app: &AppHandle, mode: TabWheelMode) -> Result<(), Error> {
+    update(app, |settings| settings.tab_wheel = mode)
 }
 pub fn spelling(app: &AppHandle) -> Result<bool, Error> {
     Ok(!load(&config(app)?).spelling_off)
@@ -2291,6 +2308,148 @@ fn update_collapsed(root: &Path, change: impl FnOnce(&mut BTreeSet<String>)) -> 
     )?;
     Ok(())
 }
+/// In `DERIVED`: the floating scratchpad/draft file inside the notes folder, kept out of the note
+/// listing while sharing vault encryption, atomic saves and conflict checks (`0009`).
+const SCRATCHPAD_FILE: &str = "scratchpad.md";
+
+/// Whether `path` inside `root` is `.docdock/scratchpad.md`, ignoring case.
+pub fn scratchpad_change(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let mut components = relative.components();
+    let (Some(Component::Normal(dir)), Some(Component::Normal(file)), None) =
+        (components.next(), components.next(), components.next())
+    else {
+        return false;
+    };
+    dir.eq_ignore_ascii_case(DERIVED) && file.eq_ignore_ascii_case(SCRATCHPAD_FILE)
+}
+
+fn scratchpad_open_at(root: &Path) -> Result<OpenNote, Error> {
+    let real = root.canonicalize()?;
+    let derived = real.join(DERIVED);
+    match fs::symlink_metadata(&derived) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(OpenNote {
+                text: String::new(),
+                version: String::new(),
+            });
+        }
+        Err(error) => return Err(error.into()),
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
+            return Err(Error::OutsideFolder);
+        }
+        Ok(_) => {}
+    }
+    let _held_derived = platform::hold_directory(&derived).map_err(|_| Error::OutsideFolder)?;
+    let derived_real = derived.canonicalize()?;
+    if !derived_real.starts_with(&real) {
+        return Err(Error::OutsideFolder);
+    }
+    let candidate = derived_real.join(SCRATCHPAD_FILE);
+    match fs::symlink_metadata(&candidate) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(OpenNote {
+                text: String::new(),
+                version: String::new(),
+            });
+        }
+        Err(error) => return Err(error.into()),
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+            return Err(Error::OutsideFolder);
+        }
+        Ok(_) => {}
+    }
+    let target = candidate.canonicalize()?;
+    if !target.starts_with(&derived_real) || !target.is_file() {
+        return Err(Error::OutsideFolder);
+    }
+    let mut file = platform::open_plain_file(&target)?;
+    if platform::final_path(&file)? != target {
+        return Err(Error::OutsideFolder);
+    }
+    too_large(file.metadata()?.len())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let text = String::from_utf8(bytes).map_err(|_| Error::NotUtf8)?;
+    Ok(OpenNote {
+        version: version(text.as_bytes()),
+        text,
+    })
+}
+
+pub fn scratchpad_open(app: &AppHandle) -> Result<OpenNote, Error> {
+    scratchpad_open_at(&root(app)?.real()?)
+}
+
+fn scratchpad_save_in(root: &Path, content: &str, base: &str) -> Result<Saved, Error> {
+    too_large(content.len() as u64)?;
+    let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let real_root = root.canonicalize()?;
+    if content.is_empty()
+        && base.is_empty()
+        && !exists(&real_root.join(DERIVED).join(SCRATCHPAD_FILE))
+    {
+        return Ok(Saved::Saved {
+            version: String::new(),
+        });
+    }
+    let (dir, _held) = held_derived_dir(&real_root)?;
+    let real_dir = dir.canonicalize()?;
+    if !real_dir.starts_with(&real_root) {
+        return Err(Error::OutsideFolder);
+    }
+    let target = real_dir.join(SCRATCHPAD_FILE);
+    let create_new = |path: &Path| -> Result<Saved, Error> {
+        let temp = write_temp(path, content.as_bytes())?;
+        if let Err(error) = platform::move_new(&temp, path) {
+            let _ = fs::remove_file(&temp);
+            return if exists(path) {
+                Ok(Saved::Conflict)
+            } else {
+                Err(error.into())
+            };
+        }
+        Ok(Saved::Saved {
+            version: version(content.as_bytes()),
+        })
+    };
+    match fs::symlink_metadata(&target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return create_new(&target),
+        Err(error) => return Err(error.into()),
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_file() => {
+            return Err(Error::OutsideFolder);
+        }
+        Ok(_) => {}
+    }
+    let real_target = target.canonicalize()?;
+    if !real_target.starts_with(&real_dir) || !real_target.is_file() {
+        return Err(Error::OutsideFolder);
+    }
+    if base.is_empty() {
+        return Ok(Saved::Conflict);
+    }
+    let current = match read_bytes(&real_target) {
+        Ok(current) => current,
+        Err(_) if !exists(&real_target) => return create_new(&real_target),
+        Err(error) => return Err(error),
+    };
+    if current == content.as_bytes() {
+        return Ok(Saved::Saved {
+            version: version(&current),
+        });
+    }
+    if version(&current) != base {
+        return Ok(Saved::Conflict);
+    }
+    replace_note(&real_target, content.as_bytes(), base)
+}
+
+pub fn scratchpad_save(app: &AppHandle, content: &str, base: &str) -> Result<Saved, Error> {
+    scratchpad_save_in(&root(app)?.real()?, content, base)
+}
+
 /// The floating windows open on the notes folder (`floats.rs`), derived from it like the rest of
 /// `DERIVED`: their image paths stay inside the folder, a vault included.
 const FLOATING_FILE: &str = "floating.json";
@@ -6374,5 +6533,161 @@ otes",
         );
         assert!(remembered_reach(folder, |_| None));
         assert!(!remembered_reach(folder, |_| Some(false)));
+    }
+
+    #[test]
+    fn scratchpad_open_missing_returns_empty_without_creating_files() {
+        let t = Temp::new();
+        let opened = scratchpad_open_at(&t.0).unwrap();
+        assert_eq!(opened.text, "");
+        assert_eq!(opened.version, "");
+        assert!(!t.0.join(DERIVED).exists());
+        assert_eq!(
+            scratchpad_save_in(&t.0, "", "").unwrap(),
+            Saved::Saved {
+                version: String::new()
+            }
+        );
+        assert!(!t.0.join(DERIVED).exists());
+    }
+
+    #[test]
+    fn scratchpad_save_creates_and_preserves_exact_bytes() {
+        let t = Temp::new();
+        let first = "draft line 1\r\ndraft line 2\n";
+        let Saved::Saved { version: v1 } = scratchpad_save_in(&t.0, first, "").unwrap() else {
+            panic!("expected initial scratchpad save");
+        };
+        assert_eq!(
+            fs::read_to_string(t.0.join(DERIVED).join(SCRATCHPAD_FILE)).unwrap(),
+            first
+        );
+        let opened = scratchpad_open_at(&t.0).unwrap();
+        assert_eq!(opened.text, first);
+        assert_eq!(opened.version, v1);
+    }
+
+    #[test]
+    fn scratchpad_save_updates_version_and_keeps_file_when_cleared() {
+        let t = Temp::new();
+        let Saved::Saved { version: v1 } = scratchpad_save_in(&t.0, "first\r\n", "").unwrap()
+        else {
+            panic!("expected initial scratchpad save");
+        };
+        let Saved::Saved { version: v2 } = scratchpad_save_in(&t.0, "updated\r\n", &v1).unwrap()
+        else {
+            panic!("expected scratchpad update");
+        };
+        assert_ne!(v1, v2);
+        assert_eq!(
+            fs::read_to_string(t.0.join(DERIVED).join(SCRATCHPAD_FILE)).unwrap(),
+            "updated\r\n"
+        );
+        // Clearing saves an empty file rather than deleting, keeping a valid non-empty version.
+        let Saved::Saved { version: v3 } = scratchpad_save_in(&t.0, "", &v2).unwrap() else {
+            panic!("expected scratchpad clear");
+        };
+        assert!(!v3.is_empty());
+        let reopened = scratchpad_open_at(&t.0).unwrap();
+        assert_eq!(reopened.text, "");
+        assert_eq!(reopened.version, v3);
+    }
+
+    #[test]
+    fn scratchpad_save_detects_conflict_and_keeps_external_content() {
+        let t = Temp::new();
+        let Saved::Saved { version: v1 } = scratchpad_save_in(&t.0, "one", "").unwrap() else {
+            panic!("expected initial save");
+        };
+        let path = t.0.join(DERIVED).join(SCRATCHPAD_FILE);
+        fs::write(&path, "external").unwrap();
+        assert_eq!(
+            scratchpad_save_in(&t.0, "mine", &v1).unwrap(),
+            Saved::Conflict
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+
+    #[test]
+    fn scratchpad_save_with_empty_base_conflicts_when_file_exists() {
+        let t = Temp::new();
+        let dir = t.0.join(DERIVED);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(SCRATCHPAD_FILE);
+        fs::write(&path, "created outside").unwrap();
+        assert_eq!(
+            scratchpad_save_in(&t.0, "mine", "").unwrap(),
+            Saved::Conflict
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "created outside");
+    }
+
+    #[test]
+    fn scratchpad_refuses_unavailable_missing_and_unrecognized_folders() {
+        let t = Temp::new();
+        let missing = t.0.join("vault").join("notes");
+        assert!(scratchpad_open_at(&missing).is_err());
+        assert!(scratchpad_save_in(&missing, "secret", "").is_err());
+        assert!(!t.0.join("vault").exists());
+
+        let notes = t.0.join("notes");
+        fs::create_dir(&notes).unwrap();
+        let settings = earlier_settings(&t, serde_json::json!({ "folder": notes }));
+        assert_eq!(root_in(&settings).err(), Some(Error::FolderUnrecognized));
+        assert!(!notes.join(DERIVED).exists());
+    }
+
+    #[test]
+    fn scratchpad_change_only_matches_scratchpad_md() {
+        let root = Path::new(r"C:\notes");
+        assert!(scratchpad_change(
+            root,
+            &root.join(".docdock").join("scratchpad.md")
+        ));
+        assert!(scratchpad_change(
+            root,
+            &root.join(".DOCDOCK").join("Scratchpad.MD")
+        ));
+        assert!(!scratchpad_change(root, &root.join("scratchpad.md")));
+        assert!(!scratchpad_change(
+            root,
+            &root.join(".docdock").join("floating.json")
+        ));
+        assert!(!scratchpad_change(
+            root,
+            &root.join(".docdock").join("scratchpad.md.1-0.docdock-tmp")
+        ));
+        assert!(!scratchpad_change(
+            root,
+            &root.join(".docdock").join("sub").join("scratchpad.md")
+        ));
+    }
+
+    #[test]
+    fn tab_wheel_setting_defaults_to_modifier_and_reads_leniently() {
+        assert_eq!(Settings::default().tab_wheel, TabWheelMode::Modifier);
+        let parsed: Settings = serde_json::from_str(r#"{"tab_wheel":"bogus"}"#).unwrap();
+        assert_eq!(parsed.tab_wheel, TabWheelMode::Modifier);
+        let on: Settings = serde_json::from_str(r#"{"tab_wheel":"on"}"#).unwrap();
+        assert_eq!(on.tab_wheel, TabWheelMode::On);
+        let off: Settings = serde_json::from_str(r#"{"tab_wheel":"off"}"#).unwrap();
+        assert_eq!(off.tab_wheel, TabWheelMode::Off);
+    }
+
+    #[test]
+    fn scratchpad_refuses_junctions() {
+        let t = Temp::new();
+        let notes = t.0.join("notes");
+        let outside = t.0.join("outside");
+        fs::create_dir_all(&notes).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join(SCRATCHPAD_FILE), "secret").unwrap();
+        assert!(mklink(&["/J"], &notes.join(DERIVED), &outside));
+        assert!(scratchpad_open_at(&notes).is_err());
+        assert!(scratchpad_save_in(&notes, "mine", "").is_err());
+        assert_eq!(
+            fs::read_to_string(outside.join(SCRATCHPAD_FILE)).unwrap(),
+            "secret"
+        );
     }
 }

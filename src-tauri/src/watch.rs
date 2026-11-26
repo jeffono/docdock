@@ -19,6 +19,7 @@ struct Changes {
 }
 
 pub const EVENT: &str = "notes-changed";
+pub const SCRATCHPAD_EVENT: &str = "scratchpad-changed";
 
 /// A burst of events, such as a save or a sync, becomes one notice after this much quiet.
 const QUIET: Duration = Duration::from_millis(200);
@@ -57,6 +58,11 @@ fn emit(app: &AppHandle, changes: Changes, root: Option<&Path>) {
         eprintln!("[watch] failed to notify the UI: {error}");
     }
 }
+fn emit_scratchpad(app: &AppHandle) {
+    if let Err(error) = app.emit_to("main", SCRATCHPAD_EVENT, ()) {
+        eprintln!("[watch] failed to notify the scratchpad UI: {error}");
+    }
+}
 
 /// Stops watching, so the next `ensure` starts again even for the same path: a folder that went away
 /// and came back needs a new watch.
@@ -90,6 +96,7 @@ pub fn monitor(app: AppHandle) {
                     crate::floating::folder_returned(&app);
                 }
                 notify(&app);
+                emit_scratchpad(&app);
             }
             last = now;
         }
@@ -105,6 +112,7 @@ fn start(app: AppHandle, root: &Path) -> notify::Result<RecommendedWatcher> {
         let mut from: Option<(PathBuf, Option<usize>)> = None;
         while let Ok(first) = events.recv() {
             let mut changed = matters(&root, &first);
+            let mut scratchpad = scratchpad_matters(&root, &first);
             let mut payload = Changes::default();
             collect_renames(&root, &first, &mut from, &mut payload);
             let started = Instant::now();
@@ -112,6 +120,7 @@ fn start(app: AppHandle, root: &Path) -> notify::Result<RecommendedWatcher> {
                 match events.recv_timeout(QUIET) {
                     Ok(event) => {
                         changed |= matters(&root, &event);
+                        scratchpad |= scratchpad_matters(&root, &event);
                         collect_renames(&root, &event, &mut from, &mut payload);
                     }
                     Err(RecvTimeoutError::Timeout) => break,
@@ -120,6 +129,9 @@ fn start(app: AppHandle, root: &Path) -> notify::Result<RecommendedWatcher> {
             }
             if changed {
                 emit(&app, payload, Some(&root));
+            }
+            if scratchpad {
+                emit_scratchpad(&app);
             }
         }
     });
@@ -137,6 +149,18 @@ fn matters(root: &Path, event: &notify::Result<notify::Event>) -> bool {
                 .paths
                 .iter()
                 .any(|path| crate::notes::shown_change(root, path)))
+}
+
+fn scratchpad_matters(root: &Path, event: &notify::Result<notify::Event>) -> bool {
+    let Ok(event) = event else {
+        return true;
+    };
+    !matches!(event.kind, EventKind::Access(_))
+        && (event.paths.is_empty()
+            || event
+                .paths
+                .iter()
+                .any(|path| crate::notes::scratchpad_change(root, path)))
 }
 
 fn collect_renames(
@@ -251,5 +275,50 @@ mod tests {
                 ("sub/b.md".into(), "c.MD".into())
             ]
         );
+    }
+
+    #[test]
+    fn scratchpad_events_notify_only_scratchpad() {
+        let root = Path::new(r"C:\notes");
+        let make = |paths: &[&str]| {
+            let mut event = notify::Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )));
+            for path in paths {
+                event = event.add_path(root.join(path));
+            }
+            Ok(event)
+        };
+        let scratch = make(&[".docdock/scratchpad.md"]);
+        assert!(scratchpad_matters(root, &scratch));
+        assert!(!matters(root, &scratch));
+
+        let temp = make(&[".docdock/scratchpad.md.1-0.docdock-tmp"]);
+        assert!(!scratchpad_matters(root, &temp));
+        assert!(!matters(root, &temp));
+
+        let note = make(&["note.md"]);
+        assert!(matters(root, &note));
+        assert!(!scratchpad_matters(root, &note));
+    }
+
+    #[test]
+    fn watcher_ignores_access_events_and_notifies_both_on_errors_or_empty_paths() {
+        let root = Path::new(r"C:\notes");
+        let access = Ok(
+            notify::Event::new(EventKind::Access(notify::event::AccessKind::Read))
+                .add_path(root.join(".docdock/scratchpad.md"))
+                .add_path(root.join("note.md")),
+        );
+        assert!(!matters(root, &access));
+        assert!(!scratchpad_matters(root, &access));
+
+        let empty = Ok(notify::Event::new(EventKind::Any));
+        assert!(matters(root, &empty));
+        assert!(scratchpad_matters(root, &empty));
+
+        let failed: notify::Result<notify::Event> = Err(notify::Error::generic("lost"));
+        assert!(matters(root, &failed));
+        assert!(scratchpad_matters(root, &failed));
     }
 }

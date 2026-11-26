@@ -116,10 +116,13 @@ The CSP forbids inline styles, so no component depends on a `style` attribute.
 
 ## Top bars
 
-- **Top bar:** subtle Notes and Browser tabs, then, in Browser, back/forward and the Reader view
-  toggle (an open book, pressed while reading), then the Preferences gear (Ctrl+,) and the panel pin
+- **Top bar:** subtle Notes, Scratchpad and Browser tabs (`Notes | Scratchpad | Browser`; `"Scratchpad"`
+  keeps its English name in pt-BR), then, in Browser, back/forward and the Reader view toggle (an
+  open book, pressed while reading), then the Preferences gear (Ctrl+,) and the panel pin
   (Ctrl+Shift+D), filled when active and 12% smaller than other icons. No app name or page title.
-  Ctrl+Tab switches Notes/Browser anywhere in the panel, including the editor and the page.
+  Ctrl+Tab / Ctrl+Shift+Tab cycle tabs anywhere in the panel, including editors and the web page.
+  When enabled in Preferences, rolling the mouse wheel over the top bar switches tabs even while
+  the panel is unfocused (without taking focus).
 - **Second bar:** the same search field and "+" action in both modes. In Browser a quiet shield sits
   left of the address field, its icon at the bar's content edge.
 - **Shield:** shield means content blocking on, shield-off allowed. One click toggles the whole
@@ -320,6 +323,7 @@ notes differ only in section and starting state.
 
 | Shortcut                  | Action                                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Ctrl+Tab / Ctrl+Shift+Tab | Cycle Notes / Scratchpad / Browser                                                                     |
 | ↑ / ↓                     | Select a card, folder label or row; on a long expanded card, first scroll about three lines to its end |
 | Alt+↑ / Alt+↓             | Select the previous / next item directly                                                               |
 | Alt+Shift+↑ / Alt+Shift+↓ | Move the selected pinned item up / down                                                                |
@@ -451,6 +455,22 @@ notes differ only in section and starting state.
 - **Spelling:** misspelled words have a wavy danger underline, waiting until the cursor leaves the
   word. A right click on one, outside links, offers up to six suggestions (or "No suggestions") and Add
   to dictionary; other text keeps the native menu.
+
+## Scratchpad
+
+A dedicated tab for drafting prompts and messages before pasting elsewhere, backed by
+`.docdock/scratchpad.md` inside the notes folder (excluded from the note list, with atomic saves,
+conflict handling, exit gate and vault protection).
+
+- **Action bar:** quiet `Copy all` (switches briefly to `Copied`; writes through private clipboard),
+  `Clear` (one undoable edit that leaves focus in the editor so Ctrl+Z restores it) and `Promote to
+  note` (saves a new note named from the text without overwriting, clears Scratchpad as one undoable
+  edit and opens the new note in the Notes editor), plus `Saving…` / `Saved` at the right.
+- **Editor:** full-height `MarkdownEditor` framed in a `--color-surface` card inside the panel's
+  content column (1 px `--color-line` border, `--radius-sm`, keeping `--color-bg` continuous into
+  the edge tab), with live Markdown formatting, slash commands, find and replace, spelling,
+  `NoteStats` and text transforms, without frontmatter folding or metadata commands. Esc flushes
+  and closes/unfocuses the panel once saved.
 
 ## Rendered content
 
@@ -600,8 +620,10 @@ tab label.
   also works unfocused),
   "Web suggestions while searching notes" (off by default, with a hint that typed searches go to the
   provider), "Check spelling" (on by default, with the languages found and where Windows adds more),
-  panel side and "Start with Windows". Side and startup mirror the tray, also while open; startup is
-  read from Windows, disabled until read, and keeps showing the actual state after a failure.
+  panel side, "Switch tabs with the mouse wheel" (`Off`, `Shift + wheel` default, or `On`; works over
+  the top bar even when unfocused) and "Start with Windows". Side and startup mirror the tray, also
+  while open; startup is read from Windows, disabled until read, and keeps showing the actual state
+  after a failure.
 - **Vault file:** its path, or a short optional hint, with Choose file (filtered to `.cryptomator`) and
   Clear. Unlock opens it in its app, where Cryptomator handles authentication, including Windows
   Hello. A missing file shows a nearby error asking to choose it again. The folder returns without

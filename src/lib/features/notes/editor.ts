@@ -19,12 +19,12 @@ import {
 import { syntaxHighlighting } from "@codemirror/language";
 import { searchPanelOpen } from "@codemirror/search";
 import { type ChangeSet, EditorState } from "@codemirror/state";
-import { drawSelection, EditorView, keymap, tooltips } from "@codemirror/view";
+import { drawSelection, EditorView, keymap, placeholder, tooltips } from "@codemirror/view";
 import { panelColumns } from "../../ui/place";
 import { codeHighlighter, codeLanguage } from "./code-colors";
 import { formattingKeymap, inList } from "./formatting";
 import { formattingBar } from "./formatting-bar";
-import { liveFormatting } from "./live-formatting";
+import { frontmatterEnabled, liveFormatting } from "./live-formatting";
 import { markdownExtensions } from "./markdown";
 import { noteSearch, noteSearchKeymap } from "./note-search";
 import { addPropertyShortcut, propertyCompletion } from "./properties";
@@ -57,15 +57,25 @@ export function applyTextChanges(raw: string, changes: ChangeSet): string {
   return result;
 }
 
+export type EditorOptions = {
+  frontmatter?: boolean;
+  leaveOnCtrlE?: boolean;
+  placeholder?: string;
+};
+
 export function editorExtensions(
   onLeave: () => void,
   onFocus: (focused: boolean) => void,
   label: string,
   tags: () => string[] = () => [],
+  options: EditorOptions = {},
 ) {
+  const frontmatter = options.frontmatter ?? true;
+  const leaveOnCtrlE = options.leaveOnCtrlE ?? true;
   return [
+    frontmatterEnabled.of(frontmatter),
     autocompletion({
-      override: [propertyCompletion(tags), slashCompletion],
+      override: frontmatter ? [propertyCompletion(tags), slashCompletion] : [slashCompletion],
       icons: false,
       // Commands read as interface text; property keys and tags stay monospace like the YAML.
       optionClass: (completion) => (completion.type === "command" ? "cm-command-option" : ""),
@@ -80,7 +90,7 @@ export function editorExtensions(
     syntaxHighlighting(codeHighlighter),
     history(),
     noteSearch(),
-    formattingBar(),
+    formattingBar(frontmatter),
     // Several cursors: Alt+click adds one, Ctrl+D the next occurrence.
     EditorState.allowMultipleSelections.of(true),
     EditorView.clickAddsSelectionRange.of((event) => event.altKey),
@@ -96,14 +106,18 @@ export function editorExtensions(
           return true;
         },
       },
-      {
-        key: "Ctrl-e",
-        run: () => {
-          onLeave();
-          return true;
-        },
-      },
-      addPropertyShortcut,
+      ...(leaveOnCtrlE
+        ? [
+            {
+              key: "Ctrl-e",
+              run: () => {
+                onLeave();
+                return true;
+              },
+            },
+          ]
+        : []),
+      ...(frontmatter ? [addPropertyShortcut] : []),
       { key: "Enter", run: insertNewlineContinueMarkup },
       // Empty pairs first; otherwise let Markdown remove list/quote markup.
       ...closeBracketsKeymap,
@@ -116,8 +130,9 @@ export function editorExtensions(
     ]),
     EditorView.lineWrapping,
     EditorView.contentAttributes.of({ "aria-label": label, class: "note-content" }),
+    ...(options.placeholder ? [placeholder(options.placeholder)] : []),
     liveFormatting(),
-    tagDiagnostics,
+    ...(frontmatter ? [tagDiagnostics] : []),
     EditorView.domEventHandlers({
       focus: () => {
         onFocus(true);

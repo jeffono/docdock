@@ -214,8 +214,9 @@ export const onWebState = (handler: (state: PageState | null) => void) =>
 export const onWebVisible = (handler: (visible: boolean) => void) =>
   listen<boolean>("web-visible", (event) => handler(event.payload));
 
-/** Ctrl+Tab typed while the page window had focus, filtered natively before the page sees it. */
-export const onToggleMode = (handler: () => void) => listen("panel-toggle-mode", () => handler());
+/** Ctrl+Tab / Ctrl+Shift+Tab typed while the page window had focus, filtered natively before the page sees it. */
+export const onToggleMode = (handler: (step: 1 | -1) => void) =>
+  listen<number>("panel-toggle-mode", (event) => handler(event.payload < 0 ? -1 : 1));
 
 /**
  * `unavailable`: its drive, share or a folder above it is gone, as for a locked vault. `missing`: the
@@ -636,6 +637,16 @@ export type NotePreviewMode = (typeof notePreviewModes)[number];
 export const notesPreviewMode = () => invoke<NotePreviewMode>("notes_preview_mode");
 export const notesSetPreviewMode = (mode: NotePreviewMode) =>
   invoke<void>("notes_set_preview_mode", { mode });
+export const tabWheelModes = ["off", "modifier", "on"] as const;
+export type TabWheelMode = (typeof tabWheelModes)[number];
+export const panelTabWheel = () => invoke<TabWheelMode>("panel_tab_wheel");
+export const panelSetTabWheel = (mode: TabWheelMode) =>
+  invoke<void>("panel_set_tab_wheel", { mode });
+export const scratchpadOpen = () => invoke<OpenNote>("scratchpad_open");
+export const scratchpadSave = (content: string, base: string) =>
+  invoke<SaveResult>("scratchpad_save", { content, base });
+export const onScratchpadChanged = (handler: () => void): Promise<UnlistenFn> =>
+  listen("scratchpad-changed", () => handler());
 export const onPanelAlt = (handler: (held: boolean) => void): Promise<UnlistenFn> =>
   listen<boolean>("panel-alt", (event) => handler(event.payload));
 
