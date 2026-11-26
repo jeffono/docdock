@@ -501,42 +501,42 @@ onMount(() => {
         <small class="status" role="status">{saveText}</small>
       {/if}
     </div>
-    {#if updated}
-      <div class="notice" role="status">
-        {t("editor.updated")}
-        <button class="discard" onclick={() => editorCore?.undo()}>{t("editor.undo")}</button>
-      </div>
-    {/if}
-    {#if status === "conflict"}
-      <div class="notice" role="status">
-        <p>{t("scratchpad.conflict")}</p>
-        <div class="actions" hidden={folderGone !== null}>
-          <Button onclick={() => resolve(true)} disabled={resolving}>{t("editor.keep")}</Button>
-          <button class="discard" onclick={() => resolve(false)} disabled={resolving}>{t("editor.discard")}</button>
+    <div class="editor-shell">
+      {#if updated}
+        <div class="notice" role="status">
+          {t("editor.updated")}
+          <button class="discard" onclick={() => editorCore?.undo()}>{t("editor.undo")}</button>
         </div>
-      </div>
-    {/if}
-    {#if folderGone}
-      <div class="notice" role="status">
-        <p>{t(goneText[folderGone])}</p>
-        <div class="actions">
-          <UnlockVault />
-          {#if folderGone === "unrecognized"}<Button onclick={trustFolder}>{t("notes.trust")}</Button>{/if}
-          <button class="discard" onclick={discardChanges}>{t("editor.discard")}</button>
+      {/if}
+      {#if status === "conflict"}
+        <div class="notice" role="status">
+          <p>{t("scratchpad.conflict")}</p>
+          <div class="actions" hidden={folderGone !== null}>
+            <Button onclick={() => resolve(true)} disabled={resolving}>{t("editor.keep")}</Button>
+            <button class="discard" onclick={() => resolve(false)} disabled={resolving}>{t("editor.discard")}</button>
+          </div>
         </div>
-      </div>
-    {/if}
-    {#if error}
-      <div class="notice">
-        <p class="error" role="alert">{error}</p>
-        {#if status !== "conflict"}
+      {/if}
+      {#if folderGone}
+        <div class="notice" role="status">
+          <p>{t(goneText[folderGone])}</p>
           <div class="actions">
+            <UnlockVault />
+            {#if folderGone === "unrecognized"}<Button onclick={trustFolder}>{t("notes.trust")}</Button>{/if}
             <button class="discard" onclick={discardChanges}>{t("editor.discard")}</button>
           </div>
-        {/if}
-      </div>
-    {/if}
-    <div class="editor-shell">
+        </div>
+      {/if}
+      {#if error}
+        <div class="notice">
+          <p class="error" role="alert">{error}</p>
+          {#if status !== "conflict"}
+            <div class="actions">
+              <button class="discard" onclick={discardChanges}>{t("editor.discard")}</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
       <MarkdownEditor
         bind:this={editorCore}
         initialText={opened.text}
@@ -597,7 +597,6 @@ onMount(() => {
     box-sizing: border-box;
     min-height: var(--size-bar);
     padding: var(--space-1) var(--panel-inset-right) var(--space-1) var(--panel-inset-left);
-    border-bottom: 1px solid var(--color-line);
     background: var(--color-bg);
   }
 
@@ -642,7 +641,7 @@ onMount(() => {
 
   .notice {
     flex: none;
-    padding: var(--space-2) var(--panel-inset-right) var(--space-2) var(--panel-inset-left);
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--color-line);
     font-size: var(--font-size-sm);
   }
@@ -684,11 +683,14 @@ onMount(() => {
     flex: 1;
     flex-direction: column;
     min-height: 0;
+    margin: 0 var(--panel-inset-right) var(--space-3) var(--panel-inset-left);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
     background: var(--color-surface);
     --editor-pad-top: var(--space-3);
-    --editor-pad-right: var(--panel-inset-right);
-    --editor-pad-bottom: var(--space-4);
-    --editor-pad-left: var(--panel-inset-left);
+    --editor-pad-right: var(--space-3);
+    --editor-pad-bottom: var(--space-3);
+    --editor-pad-left: var(--space-3);
   }
 
   .empty {

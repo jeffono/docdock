@@ -466,9 +466,11 @@ conflict handling, exit gate and vault protection).
   `Clear` (one undoable edit that leaves focus in the editor so Ctrl+Z restores it) and `Promote to
   note` (saves a new note named from the text without overwriting, clears Scratchpad as one undoable
   edit and opens the new note in the Notes editor), plus `Saving…` / `Saved` at the right.
-- **Editor:** full-height `MarkdownEditor` keeping live Markdown formatting, slash commands, find and
-  replace, spelling, `NoteStats` and text transforms, without frontmatter folding or metadata
-  commands. Esc flushes and closes/unfocuses the panel once saved.
+- **Editor:** full-height `MarkdownEditor` framed in a `--color-surface` card inside the panel's
+  content column (1 px `--color-line` border, `--radius-sm`, keeping `--color-bg` continuous into
+  the edge tab), with live Markdown formatting, slash commands, find and replace, spelling,
+  `NoteStats` and text transforms, without frontmatter folding or metadata commands. Esc flushes
+  and closes/unfocuses the panel once saved.
 
 ## Rendered content
 
