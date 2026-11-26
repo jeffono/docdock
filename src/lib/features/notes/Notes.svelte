@@ -170,7 +170,6 @@ import {
 import { datePresets } from "./query-date";
 import type { EditStart } from "./reading-position";
 import { noteName } from "./render";
-import ShortcutSheet from "./ShortcutSheet.svelte";
 import {
   FolderIndex,
   folderTags,
@@ -186,19 +185,23 @@ let {
   pageUrl = "",
   inactive = false,
   article = $bindable(null),
+  beforeChoose,
+  afterChoose,
+  onfolderchange,
+  shortcutOpen,
 }: {
   browser?: boolean;
   pageUrl?: string;
   inactive?: boolean;
   /** The reader view's article, shown instead of the page while set. */
   article?: PageArticle | null;
+  beforeChoose?: () => Promise<boolean>;
+  afterChoose?: () => void;
+  onfolderchange?: () => void | Promise<void>;
+  shortcutOpen?: () => boolean;
 } = $props();
 
-let shortcutSheet: ShortcutSheet;
 let movePicker: MovePicker;
-$effect(() => {
-  if (inactive || browser) shortcutSheet?.close();
-});
 
 let folder = $state<NotesFolder | null>(null);
 /** The folder can be read; otherwise the list holds no note, except an editor's unsaved text. */
@@ -838,6 +841,7 @@ async function trust() {
   try {
     error = "";
     await refresh(await notesTrust());
+    await onfolderchange?.();
   } catch (e) {
     error = errorText(e);
   }
@@ -846,16 +850,70 @@ export async function choose() {
   // A pending save or capture writes into the folder it started in.
   if (choosing || savingPage || capturing || creating) return;
   choosing = true;
+  let locked = false;
   try {
     error = "";
     if (!(await leaveEditor())) return;
+    if (beforeChoose) {
+      if (!(await beforeChoose())) return;
+      locked = true;
+    }
     await refresh(await notesChoose());
+    await onfolderchange?.();
   } catch (e) {
     error = errorText(e);
     return error;
   } finally {
+    if (locked) afterChoose?.();
     choosing = false;
   }
+}
+
+export function isEditing(): boolean {
+  return editing;
+}
+export function isMovePickerOpen(): boolean {
+  return movePicker?.isOpen() ?? false;
+}
+export async function reloadFolderState() {
+  await refresh(await notesFolder());
+}
+export async function openUrl(url: string) {
+  await openPage(url);
+}
+/** Saves `content` from Scratchpad as a new note without overwriting any existing note. */
+export async function promoteNote(
+  content: string,
+): Promise<{ path: string } | { error: string } | { blocked: true }> {
+  if (creating || capturing || choosing || savingPage) return { error: t("notes.exitBusy") };
+  if (!ready) {
+    return {
+      error: t(
+        folder && folder.state !== "available" ? folderNotice(folder.state) : "notes.chooseHint",
+      ),
+    };
+  }
+  creating = true;
+  try {
+    error = "";
+    if (!(await leaveEditor())) return { blocked: true };
+    const title = noteName(content)?.title ?? "";
+    const max = nameRoom(MADE_NAME, folder?.path ?? "");
+    const name = await createNamed(title, (candidate) => notesSave(candidate, content, ""), max);
+    if (!name) return { error: error || errorText({ code: "saveFailed", detail: title }) };
+    await relist();
+    return { path: name };
+  } catch (e) {
+    const message = errorText(e);
+    error = message;
+    return { error: message };
+  } finally {
+    creating = false;
+  }
+}
+export async function openPromoted(path: string) {
+  await openInEditor(path);
+  reveal(path);
 }
 
 /**
@@ -2626,7 +2684,7 @@ function inField(event: Event): boolean {
 function shortcut(event: KeyboardEvent) {
   if (
     inactive ||
-    shortcutSheet?.isOpen() ||
+    shortcutOpen?.() ||
     movePicker?.isOpen() ||
     event.defaultPrevented ||
     event.isComposing
@@ -2767,7 +2825,6 @@ onMount(() => {
     dragIn = false;
     dropZone = null;
     noteSearchTyped = false;
-    shortcutSheet.close();
     filterMenu?.close();
     closeLinkMenu();
     closeImageMenu();
@@ -2794,7 +2851,6 @@ onMount(() => {
   // the bar already focused, it closes the panel.
   const search = onPanelSearch((toggle) => {
     if (inactive) return;
-    shortcutSheet.close();
     const input = bar();
     if (toggle && (!input || document.activeElement === input)) {
       void closePanel();
@@ -2828,9 +2884,8 @@ onMount(() => {
 {/snippet}
 
 <svelte:document onpaste={pasteImage} />
-<svelte:window ondragenter={dragOverPanel} ondragover={dragOverPanel} ondragleave={dragLeavePanel} ondrop={dropOnPanel} onkeydowncapture={(event) => { if (!inactive && !browser && !movePicker.isOpen()) shortcutSheet.shortcut(event); }} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); preview.selectNote(null); }} />
+<svelte:window ondragenter={dragOverPanel} ondragover={dragOverPanel} ondragleave={dragLeavePanel} ondrop={dropOnPanel} onkeydown={shortcut} onpointermove={noticeBack} onfocus={noticeBack} onblur={() => { addressEditing = false; showingHistory = false; stopScrolling(); preview.selectNote(null); }} />
 
-<ShortcutSheet bind:this={shortcutSheet} />
 <MovePicker bind:this={movePicker} />
 <Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
   <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>

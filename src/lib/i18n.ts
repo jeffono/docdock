@@ -14,6 +14,12 @@ const en = {
   "preferences.notePreview.alt": "Alt + hover or focus",
   "preferences.notePreviewHint":
     "Shows a side preview when hovering or focusing any closed note. Alt + hover also works when the panel is unfocused.",
+  "preferences.tabWheel": "Switch tabs with the mouse wheel",
+  "preferences.tabWheel.off": "Off",
+  "preferences.tabWheel.modifier": "Shift + wheel",
+  "preferences.tabWheel.on": "On",
+  "preferences.tabWheelHint":
+    "Scroll over the top bar to switch tabs, even when the panel is unfocused.",
   "preferences.spellingLanguages":
     "Languages: {languages}. Windows Settings > Time & language > Language adds more.",
   "preferences.spellingNone":
@@ -116,7 +122,7 @@ const en = {
   "notice.activationNone":
     "{failed} is unavailable, probably taken by another app, and no shortcut opens the panel. Choose another in Preferences > Shortcuts.",
   "shortcut.global": "Open panel and focus search; press again in search to close",
-  "shortcut.mode": "Switch Notes / Browser",
+  "shortcut.mode": "Switch Notes / Scratchpad / Browser",
   "shortcut.preferences": "Open / close Preferences",
   "shortcut.panelPin": "Pin / unpin panel",
   "shortcut.sheet": "Open / close shortcut sheet",
@@ -334,8 +340,18 @@ const en = {
   "web.empty": "Type an address or search the web above.",
   "notes.create": "New note (Ctrl+Enter)",
   "web.notesShortcut": "Notes (Ctrl+Tab)",
+  "web.scratchpad": "Scratchpad",
+  "web.scratchpadShortcut": "Scratchpad (Ctrl+Tab)",
   "web.browserShortcut": "Browser (Ctrl+Tab)",
   "web.notes": "Notes",
+  "scratchpad.label": "Scratchpad",
+  "scratchpad.placeholder": "Draft a prompt or message…",
+  "scratchpad.copyAll": "Copy all",
+  "scratchpad.copied": "Copied",
+  "scratchpad.clear": "Clear",
+  "scratchpad.promote": "Promote to note",
+  "scratchpad.conflict": "The scratchpad changed outside the app. Your edits are kept here.",
+  "scratchpad.exitBusy": "Wait for the scratchpad operation to finish, then try quitting again.",
   "web.saveNote": "Save as note",
   "capture.clipped": "The page is too long for one image, so only its start was captured.",
   "capture.saved": "The capture was saved as the note “{title}”.",
@@ -451,6 +467,12 @@ const ptBR: Record<MessageKey, string> = {
   "preferences.notePreview.alt": "Alt + mouse ou foco",
   "preferences.notePreviewHint":
     "Exibe um preview lateral ao passar o mouse ou focar qualquer nota fechada. Alt + mouse também funciona com o painel sem foco.",
+  "preferences.tabWheel": "Trocar abas com a roda do mouse",
+  "preferences.tabWheel.off": "Desativado",
+  "preferences.tabWheel.modifier": "Shift + roda",
+  "preferences.tabWheel.on": "Ativado",
+  "preferences.tabWheelHint":
+    "Role sobre a barra superior para trocar de aba, mesmo com o painel sem foco.",
   "preferences.spellingLanguages":
     "Idiomas: {languages}. Adicione outros em Configurações do Windows > Hora e idioma > Idioma.",
   "preferences.spellingNone":
@@ -554,7 +576,7 @@ const ptBR: Record<MessageKey, string> = {
   "notice.activationNone":
     "{failed} está indisponível, provavelmente em uso por outro app, e nenhum atalho abre o painel. Escolha outro em Preferências > Atalhos.",
   "shortcut.global": "Abrir painel e focar busca; pressionar na busca para fechar",
-  "shortcut.mode": "Alternar Notas / Navegador",
+  "shortcut.mode": "Alternar Notas / Scratchpad / Navegador",
   "shortcut.preferences": "Abrir / fechar Preferências",
   "shortcut.panelPin": "Fixar / desafixar painel",
   "shortcut.sheet": "Abrir / fechar lista de atalhos",
@@ -774,8 +796,18 @@ const ptBR: Record<MessageKey, string> = {
   "web.empty": "Digite um endereço ou busque na web acima.",
   "notes.create": "Nova nota (Ctrl+Enter)",
   "web.notesShortcut": "Notas (Ctrl+Tab)",
+  "web.scratchpad": "Scratchpad",
+  "web.scratchpadShortcut": "Scratchpad (Ctrl+Tab)",
   "web.browserShortcut": "Navegador (Ctrl+Tab)",
   "web.notes": "Notas",
+  "scratchpad.label": "Scratchpad",
+  "scratchpad.placeholder": "Escreva um rascunho ou mensagem…",
+  "scratchpad.copyAll": "Copiar tudo",
+  "scratchpad.copied": "Copiado",
+  "scratchpad.clear": "Limpar",
+  "scratchpad.promote": "Promover para nota",
+  "scratchpad.conflict": "O Scratchpad mudou fora do app. Suas edições estão mantidas aqui.",
+  "scratchpad.exitBusy": "Aguarde a operação no Scratchpad terminar e tente sair novamente.",
   "web.saveNote": "Salvar como nota",
   "capture.clipped": "A página é longa demais para uma imagem, então só o início foi capturado.",
   "capture.saved": "A captura foi salva como a nota “{title}”.",

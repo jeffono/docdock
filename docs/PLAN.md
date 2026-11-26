@@ -6,6 +6,8 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
+M18 — Scratchpad and top-bar wheel switching (`scratchpad` branch).
+
 ## Next
 
 M18 — Scratchpad (standard, S–M): a dedicated top-bar tab for drafting prompts and messages before

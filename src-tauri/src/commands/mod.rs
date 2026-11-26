@@ -845,6 +845,26 @@ pub fn notes_set_preview_mode(
     crate::notes::set_note_preview(&app, &requests, mode)
 }
 #[tauri::command]
+pub fn panel_tab_wheel(app: AppHandle) -> Result<crate::notes::TabWheelMode, Error> {
+    crate::notes::tab_wheel(&app)
+}
+#[tauri::command]
+pub fn panel_set_tab_wheel(app: AppHandle, mode: crate::notes::TabWheelMode) -> Result<(), Error> {
+    crate::notes::set_tab_wheel(&app, mode)
+}
+#[tauri::command(async)]
+pub fn scratchpad_open(app: AppHandle) -> Result<crate::notes::OpenNote, Error> {
+    crate::notes::scratchpad_open(&app)
+}
+#[tauri::command(async)]
+pub fn scratchpad_save(
+    app: AppHandle,
+    content: String,
+    base: String,
+) -> Result<crate::notes::Saved, Error> {
+    crate::notes::scratchpad_save(&app, &content, &base)
+}
+#[tauri::command]
 pub fn spelling_enabled(app: AppHandle) -> Result<bool, Error> {
     crate::notes::spelling(&app)
 }

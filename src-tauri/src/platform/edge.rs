@@ -52,7 +52,7 @@ enum Decision {
     /// The key still reaches the content as a plain key event, so the UI's editor sees Ctrl+J.
     Content,
     /// An app shortcut typed while the page has focus; the page never sees it.
-    ToggleMode,
+    CycleMode { back: bool },
 }
 
 fn decide(owner: Owner, keys: Keys) -> Decision {
@@ -62,8 +62,8 @@ fn decide(owner: Owner, keys: Keys) -> Decision {
         shift,
         alt,
     } = keys;
-    if owner == Owner::Page && key == VK_TAB && ctrl && !shift && !alt {
-        return Decision::ToggleMode;
+    if owner == Owner::Page && key == VK_TAB && ctrl && !alt {
+        return Decision::CycleMode { back: shift };
     }
     let digit_zero = VIRTUAL_KEY(u16::from(b'0'));
     let letter = |c: u8| key == VIRTUAL_KEY(u16::from(c));
@@ -296,9 +296,9 @@ pub fn filter(
                 // Runtimes before 120 lack the per-key switch: consume the key rather than let
                 // its browser action run (fail closed; the content then misses it too).
                 Decision::Content => disable_browser_accelerator(&args),
-                Decision::ToggleMode => {
+                Decision::CycleMode { back } => {
                     args.SetHandled(true)?;
-                    let _ = app.emit_to("main", "panel-toggle-mode", ());
+                    let _ = app.emit_to("main", "panel-toggle-mode", if back { -1i8 } else { 1i8 });
                     Ok(())
                 }
             }
@@ -484,8 +484,16 @@ mod tests {
             key: VK_TAB,
             ..ctrl(0)
         };
-        assert_eq!(decide(Owner::Page, tab), Decision::ToggleMode);
+        assert_eq!(
+            decide(Owner::Page, tab),
+            Decision::CycleMode { back: false }
+        );
         let back = Keys { shift: true, ..tab };
-        assert_eq!(decide(Owner::Page, back), Decision::Content);
+        assert_eq!(
+            decide(Owner::Page, back),
+            Decision::CycleMode { back: true }
+        );
+        let alt_tab = Keys { alt: true, ..tab };
+        assert_eq!(decide(Owner::Page, alt_tab), Decision::Content);
     }
 }

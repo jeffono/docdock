@@ -11,6 +11,7 @@ import { type MessageKey, t } from "../../i18n";
 import type { EditorCommand } from "./command";
 import { noteBodyStart } from "./count";
 import { formattingShortcuts } from "./formatting";
+import { frontmatterEnabled } from "./live-formatting";
 import { addPropertyShortcut } from "./properties";
 import { textTransforms } from "./transforms";
 
@@ -94,7 +95,8 @@ export function slashCompletion(context: CompletionContext): CompletionResult | 
   const from = line.from + offset;
   const query = normalize(before.slice(offset + 1));
   if (/^\s/.test(query)) return null;
-  const frontmatter = from < noteBodyStart(state.doc);
+  const allowFrontmatter = state.facet(frontmatterEnabled);
+  const frontmatter = allowFrontmatter && from < noteBodyStart(state.doc);
   if (!frontmatter) {
     const tree = ensureSyntaxTree(state, pos);
     if (!tree) return null;
@@ -104,6 +106,7 @@ export function slashCompletion(context: CompletionContext): CompletionResult | 
   }
 
   const options = slashCommands.flatMap(({ id, label, detail, level, run }) => {
+    if (!allowFrontmatter && id === "add-property") return [];
     if (frontmatter && !inFrontmatter.has(id)) return [];
     const display = t(label, { level });
     if (!normalize(display).includes(query) && !id.includes(query)) return [];

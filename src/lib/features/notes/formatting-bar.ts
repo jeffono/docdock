@@ -140,7 +140,7 @@ function addTransforms(dom: HTMLElement, view: EditorView) {
   return close;
 }
 
-function createBar(view: EditorView) {
+function createBar(view: EditorView, frontmatter = true) {
   const dom = document.createElement("div");
   dom.className = "formatting-bar";
   // Keep editor focus and selection while using pointer controls.
@@ -151,7 +151,7 @@ function createBar(view: EditorView) {
         shortcut.description in icons &&
         (shortcut.description !== "shortcut.heading" || shortcut.level === 1),
     ),
-    addPropertyShortcut,
+    ...(frontmatter ? [addPropertyShortcut] : []),
   ];
   for (const shortcut of commands) {
     const key = shortcut.key
@@ -180,24 +180,32 @@ const interactionState = StateField.define({
   },
 });
 
-const selectionTooltip = StateField.define<Tooltip | null>({
-  create: () => null,
-  update(value, transaction) {
-    const state = transaction.state;
-    const { focused, dragging } = state.field(interactionState);
-    const { from, to, empty } = state.selection.main;
-    if (!focused || dragging || state.readOnly || empty || state.selection.ranges.length !== 1)
-      return null;
-    if (value?.pos === from && value.end === to) return value;
-    return { pos: from, end: to, above: true, strictSide: true, create: createBar };
-  },
-  provide: (field) => showTooltip.from(field),
-});
+function selectionTooltip(frontmatter: boolean) {
+  return StateField.define<Tooltip | null>({
+    create: () => null,
+    update(value, transaction) {
+      const state = transaction.state;
+      const { focused, dragging } = state.field(interactionState);
+      const { from, to, empty } = state.selection.main;
+      if (!focused || dragging || state.readOnly || empty || state.selection.ranges.length !== 1)
+        return null;
+      if (value?.pos === from && value.end === to) return value;
+      return {
+        pos: from,
+        end: to,
+        above: true,
+        strictSide: true,
+        create: (view) => createBar(view, frontmatter),
+      };
+    },
+    provide: (field) => showTooltip.from(field),
+  });
+}
 
-export function formattingBar() {
+export function formattingBar(frontmatter = true) {
   return [
     interactionState,
-    selectionTooltip,
+    selectionTooltip(frontmatter),
     // The open menu handles Esc before completion, find, or leaving the editor.
     Prec.highest(
       EditorView.domEventHandlers({

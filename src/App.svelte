@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
 import Notes from "./lib/features/notes/Notes.svelte";
+import ShortcutSheet from "./lib/features/notes/ShortcutSheet.svelte";
 import {
   activation,
   dismissActivationNotice,
@@ -8,6 +9,8 @@ import {
   watchActivation,
 } from "./lib/features/preferences/activation.svelte";
 import Preferences from "./lib/features/preferences/Preferences.svelte";
+import { loadTabWheelMode, tabWheelMode } from "./lib/features/preferences/tab-wheel-store";
+import Scratchpad from "./lib/features/scratchpad/Scratchpad.svelte";
 import EdgeTab from "./lib/features/tab/EdgeTab.svelte";
 import { errorText, t } from "./lib/i18n";
 import {
@@ -17,6 +20,7 @@ import {
   onExitRequested,
   onPanelEditNote,
   onPanelFocus,
+  onPanelHidden,
   onPanelPinned,
   onPanelSearch,
   onPanelTabShape,
@@ -36,19 +40,22 @@ import {
   webReader,
   webSetVisible,
 } from "./lib/ipc";
-
+import { createWheelStepper, type PanelTab, stepTab, wheelTabDelta } from "./lib/panel-tabs";
 import IconButton from "./lib/ui/IconButton.svelte";
 import Notice from "./lib/ui/Notice.svelte";
 
 let notes: Notes;
+let scratchpad: Scratchpad;
+let shortcutSheet: ShortcutSheet;
+let headerBar: HTMLElement;
 /** The edge tab, drawn beside the panel once Rust gives its shape. */
 let tab = $state<TabShape | null>(null);
 /** The panel's own width, without the strip beside it where the tab shows. */
 let width = $state(0);
 let pinned = $state(false);
-let web = $state(false);
+let activeTab = $state<PanelTab>("notes");
+let previousTab: PanelTab = "notes";
 let preferences = $state(false);
-let previousWeb = false;
 let page = $state<PageState | null>(null);
 /** The reader view's article: the page window stays hidden while it is shown. */
 let article = $state<PageArticle | null>(null);
@@ -62,8 +69,9 @@ function closeReader() {
   readerTurn++;
 }
 let extracting = $state(false);
+let exiting = false;
 let error = $state("");
-async function action(work: Promise<void>) {
+async function action(work: Promise<unknown>) {
   try {
     error = "";
     await work;
@@ -73,6 +81,34 @@ async function action(work: Promise<void>) {
 }
 /** Rust reports it: polling also sees the page window, which DOM focus events cannot. */
 let focus = $state<PanelFocus>({ focused: false, side: "right" });
+
+$effect(() => {
+  if (preferences || activeTab === "browser") shortcutSheet?.close();
+});
+
+let switching = false;
+let targetTab: PanelTab | null = null;
+let pendingSwitch: { next: PanelTab; shouldFocus: boolean } | null = null;
+function stepCurrentTab(step: 1 | -1, shouldFocus: boolean) {
+  const base = pendingSwitch?.next ?? targetTab ?? activeTab;
+  void action(switchTab(stepTab(base, step), { shouldFocus }));
+}
+
+const wheelStepper = createWheelStepper();
+function headerWheel(event: WheelEvent) {
+  if (
+    activation.recording ||
+    exiting ||
+    document.querySelector("dialog[open], [popover]:popover-open")
+  )
+    return;
+  const delta = wheelTabDelta($tabWheelMode ?? "modifier", event);
+  if (!delta) return;
+  event.preventDefault();
+  const step = wheelStepper.step(delta);
+  if (!step) return;
+  stepCurrentTab(step, focus.focused);
+}
 
 onMount(() => {
   let disposeDev: (() => void) | undefined;
@@ -88,6 +124,8 @@ onMount(() => {
     error = t("error.clipboard");
   };
   window.addEventListener("clipboard-failed", clipboardFailed);
+  // Not passive: prevented wheel over the top bar must never scroll inner content.
+  headerBar.addEventListener("wheel", headerWheel, { passive: false });
   // The tab is drawn at the size Rust shaped the window to, never ahead of it. Listening starts
   // before the query, and a size reported meanwhile wins over the query's older answer.
   let reported: TabSize | undefined;
@@ -104,7 +142,7 @@ onMount(() => {
     .catch(() => {});
   const activationChanged = watchActivation();
   void action(loadActivation());
-  let exiting = false;
+  void loadTabWheelMode().catch(() => {});
   const cancelled = onExitCancelled(() => {
     exiting = false;
     document.body.inert = false;
@@ -116,7 +154,15 @@ onMount(() => {
     void (async () => {
       let saved = false;
       try {
-        saved = await notes.prepareExit();
+        const notesSaved = await notes.prepareExit();
+        const scratchpadSaved = notesSaved ? await scratchpad.prepareExit() : false;
+        if (notesSaved && !scratchpadSaved) {
+          closeReader();
+          await webSetVisible(false);
+          activeTab = "scratchpad";
+          preferences = false;
+        }
+        saved = notesSaved && scratchpadSaved;
         await exitReady(id, saved);
       } catch (e) {
         saved = false;
@@ -148,29 +194,45 @@ onMount(() => {
     if (!value && article) return;
     // A page opened from the bar or a link replaces the reader view.
     closeReader();
-    web = value;
-    if (value) preferences = false;
+    if (value) {
+      activeTab = "browser";
+      preferences = false;
+    } else if (activeTab === "browser") {
+      activeTab = "notes";
+    }
   });
-  const toggle = onToggleMode(() => void action(switchMode(!web)));
+  const toggle = onToggleMode((step) => stepCurrentTab(step, true));
   // A post-it asked to edit its note; the panel already took focus. One from a folder no longer
   // chosen leaves the panel as it is.
   const editNote = onPanelEditNote((request) => {
     void action(
       floatingEditCurrent(request.epoch).then(async (current) => {
         if (!current) return;
-        if (web || preferences || article) await switchMode(false);
+        if (activeTab !== "notes" || preferences || article)
+          await switchTab("notes", { shouldFocus: true });
         await tick();
         await notes.editNote(request);
       }),
     );
   });
-  const search = onPanelSearch(() => {
-    if (preferences)
+  const hidden = onPanelHidden(() => {
+    shortcutSheet?.close();
+    wheelStepper.reset();
+  });
+  const search = onPanelSearch((toggle) => {
+    shortcutSheet?.close();
+    if (preferences) {
       void action(
-        switchMode(false)
+        switchTab("notes", { shouldFocus: true })
           .then(() => tick())
           .then(() => notes.focusSearch()),
       );
+      return;
+    }
+    if (activeTab === "scratchpad") {
+      if (toggle && scratchpad.containsFocus()) void action(scratchpad.handleEscape());
+      else scratchpad.focus();
+    }
   });
   const shortcut = (event: KeyboardEvent) => {
     if (activation.recording) return;
@@ -213,26 +275,29 @@ onMount(() => {
     ) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      void action(switchMode(previousWeb));
+      void action(switchTab(previousTab, { shouldFocus: true }));
       return;
     }
     if (
       event.isComposing ||
       !event.ctrlKey ||
       event.altKey ||
-      event.shiftKey ||
       event.metaKey ||
-      event.key !== "Tab"
+      event.key !== "Tab" ||
+      document.querySelector("dialog[open]")
     )
       return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) void action(switchMode(!web));
+    if (!event.repeat) {
+      stepCurrentTab(event.shiftKey ? -1 : 1, true);
+    }
   };
   window.addEventListener("keydown", shortcut, true);
   return () => {
     disposed = true;
     disposeDev?.();
+    headerBar.removeEventListener("wheel", headerWheel);
     window.removeEventListener("clipboard-failed", clipboardFailed);
     window.removeEventListener("keydown", shortcut, true);
     for (const listener of [
@@ -241,6 +306,7 @@ onMount(() => {
       state,
       visible,
       toggle,
+      hidden,
       search,
       editNote,
       exit,
@@ -252,23 +318,72 @@ onMount(() => {
   };
 });
 
-async function switchMode(value: boolean) {
-  if (!(await notes.leaveEditor())) return;
-  closeReader();
-  await webSetVisible(value);
-  web = value;
-  preferences = false;
-  if (value) notes.focusSearch();
+async function switchTab(next: PanelTab, { shouldFocus = true }: { shouldFocus?: boolean } = {}) {
+  if (switching) {
+    pendingSwitch = { next, shouldFocus };
+    return true;
+  }
+  switching = true;
+  try {
+    let current: { next: PanelTab; shouldFocus: boolean } | null = { next, shouldFocus };
+    while (current) {
+      pendingSwitch = null;
+      const { next: target, shouldFocus: focusTarget } = current;
+      targetTab = target;
+      if (activeTab === "notes" && target !== "notes" && !(await notes.leaveEditor())) {
+        pendingSwitch = null;
+        return false;
+      }
+      if (activeTab === "scratchpad" && target !== "scratchpad") void scratchpad.flush();
+      closeReader();
+      const prev = activeTab;
+      activeTab = target;
+      preferences = false;
+      if (target === "browser" || prev === "browser") await webSetVisible(target === "browser");
+      await tick();
+      if (!pendingSwitch) {
+        if (focusTarget) {
+          if (target === "browser") notes.focusSearch();
+          else if (target === "scratchpad") scratchpad.focus();
+        } else if (target === "scratchpad") {
+          scratchpad.measure();
+        }
+      }
+      current = pendingSwitch;
+    }
+    return true;
+  } finally {
+    targetTab = null;
+    switching = false;
+  }
 }
+
 async function togglePreferences() {
-  if (preferences) return switchMode(previousWeb);
-  if (!(await notes.leaveEditor())) return;
-  previousWeb = web;
+  if (preferences) return switchTab(previousTab, { shouldFocus: true });
+  if (activeTab === "notes" && !(await notes.leaveEditor())) return false;
+  if (activeTab === "scratchpad") void scratchpad.flush();
+  previousTab = activeTab;
   closeReader();
   await webSetVisible(false);
-  web = false;
   preferences = true;
+  return true;
 }
+
+async function promoteFromScratchpad(
+  content: string,
+  afterCreate: () => Promise<void>,
+): Promise<string | undefined> {
+  const result = await notes.promoteNote(content);
+  if ("blocked" in result) {
+    await switchTab("notes", { shouldFocus: true });
+    return;
+  }
+  if ("error" in result) return result.error;
+  await afterCreate();
+  await switchTab("notes", { shouldFocus: false });
+  await notes.openPromoted(result.path);
+}
+
 /** Back and forward show the page they reach, leaving the reader view. */
 async function history(back: boolean) {
   if (article) {
@@ -343,7 +458,16 @@ function togglePin() {
 }
 </script>
 
-<svelte:window onpointerdown={panelActivate} onblur={() => resizeEnd()} />
+<svelte:window
+  onpointerdown={panelActivate}
+  onblur={() => resizeEnd()}
+  onkeydowncapture={(event) => {
+    if (!preferences && activeTab !== "browser" && !notes?.isMovePickerOpen())
+      shortcutSheet?.shortcut(event);
+  }}
+/>
+
+<ShortcutSheet bind:this={shortcutSheet} />
 
 {#if tab}<EdgeTab shape={tab} side={focus.side} focused={focus.focused} {pinned} />{/if}
 <main
@@ -368,12 +492,13 @@ function togglePin() {
     ondblclick={() => action(panelResize(null, true))}
     onkeydown={resizeKey}
   ></div>
-  <header>
+  <header bind:this={headerBar}>
     <nav aria-label={t("app.mode")}>
-      <button class:active={!web && !preferences} aria-pressed={!web && !preferences} title={t("web.notesShortcut")} onclick={() => action(switchMode(false))}>{t("web.notes")}</button>
-      <button class:active={web} aria-pressed={web} title={t("web.browserShortcut")} onclick={() => action(switchMode(true))}>{t("web.browser")}</button>
+      <button class:active={activeTab === "notes" && !preferences} aria-pressed={activeTab === "notes" && !preferences} title={t("web.notesShortcut")} onclick={() => action(switchTab("notes"))}>{t("web.notes")}</button>
+      <button class:active={activeTab === "scratchpad" && !preferences} aria-pressed={activeTab === "scratchpad" && !preferences} title={t("web.scratchpadShortcut")} onclick={() => action(switchTab("scratchpad"))}>{t("web.scratchpad")}</button>
+      <button class:active={activeTab === "browser" && !preferences} aria-pressed={activeTab === "browser" && !preferences} title={t("web.browserShortcut")} onclick={() => action(switchTab("browser"))}>{t("web.browser")}</button>
     </nav>
-    {#if web}
+    {#if activeTab === "browser" && !preferences}
       <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(history(true))} />
       <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(history(false))} />
       <IconButton quiet icon="reader" label={t("web.reader")} pressed={article !== null} disabled={!page?.url || extracting} onclick={() => action(toggleReader())} />
@@ -390,7 +515,34 @@ function togglePin() {
     </Notice>
   {/if}
   {#if preferences}<Preferences side={focus.side} {width} choose={() => notes.choose()} />{/if}
-  <Notes bind:this={notes} bind:article browser={web} inactive={preferences} pageUrl={page?.url ?? ""} />
+  <Scratchpad
+    bind:this={scratchpad}
+    active={!preferences && activeTab === "scratchpad"}
+    choose={() => notes.choose()}
+    onfoldertrusted={() => notes.reloadFolderState()}
+    onpromote={promoteFromScratchpad}
+    onopenpage={(url) => notes.openUrl(url)}
+  />
+  <Notes
+    bind:this={notes}
+    bind:article
+    browser={activeTab === "browser"}
+    inactive={preferences || activeTab === "scratchpad"}
+    pageUrl={page?.url ?? ""}
+    shortcutOpen={() => shortcutSheet?.isOpen() ?? false}
+    beforeChoose={async () => {
+      const ok = await scratchpad.prepareFolderSwitch();
+      if (!ok) {
+        closeReader();
+        await webSetVisible(false);
+        activeTab = "scratchpad";
+        preferences = false;
+      }
+      return ok;
+    }}
+    afterChoose={() => scratchpad.finishFolderSwitch()}
+    onfolderchange={() => scratchpad.reloadFolder()}
+  />
 </main>
 
 <style>

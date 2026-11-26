@@ -25,6 +25,7 @@ import {
   type SitePermission,
   spellingLanguages,
   type TrashItem,
+  tabWheelModes,
   type UnusedImages,
   type UpdateStatus,
   updateCheck,
@@ -56,6 +57,7 @@ import { loadSpelling, setSpelling, spellingOn } from "../notes/spelling-store";
 import { blockingRevision } from "../web/blocking-store";
 import ActivationShortcut from "./ActivationShortcut.svelte";
 import SearchProvider from "./SearchProvider.svelte";
+import { loadTabWheelMode, setTabWheelMode, tabWheelMode } from "./tab-wheel-store";
 import UnlockVault from "./UnlockVault.svelte";
 import { loadVault, vaultPath } from "./vault-store";
 
@@ -246,6 +248,10 @@ function resetNotePreview() {
   for (const input of document.querySelectorAll<HTMLInputElement>('input[name="note-preview"]'))
     input.checked = input.value === $notePreviewMode;
 }
+function resetTabWheel() {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="tab-wheel"]'))
+    input.checked = input.value === $tabWheelMode;
+}
 async function refreshFolder() {
   folder = await notesFolder();
 }
@@ -254,6 +260,9 @@ onMount(() => {
     error = errorText(e);
   });
   void loadNotePreviewMode().catch((e) => {
+    error = errorText(e);
+  });
+  void loadTabWheelMode().catch((e) => {
     error = errorText(e);
   });
   void action(async () => {
@@ -354,6 +363,13 @@ onMount(() => {
         {#each ["left", "right"] as value}
           <label><input type="radio" name="side" checked={side === value} onchange={() => action(() => panelSetSide(value as PanelFocus["side"]))} />{t(`preferences.${value}` as MessageKey)}</label>
         {/each}
+      </fieldset>
+      <fieldset disabled={busy || $tabWheelMode === null}>
+        <legend>{t("preferences.tabWheel")}</legend>
+        {#each tabWheelModes as mode}
+          <label><input type="radio" name="tab-wheel" value={mode} checked={$tabWheelMode === mode} onchange={() => action(() => setTabWheelMode(mode).catch((e) => { resetTabWheel(); throw e; }))} />{t(`preferences.tabWheel.${mode}`)}</label>
+        {/each}
+        <p class="hint">{t("preferences.tabWheelHint")}</p>
       </fieldset>
       <div class="setting">
         <label><input type="checkbox" checked={autostart === true} disabled={busy || autostart === null} onchange={(event) => { const enabled = event.currentTarget.checked; event.currentTarget.checked = autostart === true; void action(() => appSetAutostart(enabled)); }} />{t("preferences.autostart")}</label>

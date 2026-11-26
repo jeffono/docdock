@@ -4,6 +4,7 @@ import type { EditorView } from "@codemirror/view";
 import type { MessageKey } from "../../i18n";
 import type { CommandEdit } from "./command";
 import { noteBodyStart } from "./count";
+import { frontmatterEnabled } from "./live-formatting";
 
 type Transform = (text: string, locale: string) => string;
 
@@ -76,7 +77,9 @@ function transformSelection(transform: Transform, wholeLines = false): Transform
         const line = doc.lineAt(from);
         if (!wholeLines) return { from: line.from, to: line.to };
         if (!line.text.trim()) return null;
-        const firstBodyLine = doc.lineAt(noteBodyStart(doc)).number;
+        const firstBodyLine = state.facet(frontmatterEnabled)
+          ? doc.lineAt(noteBodyStart(doc)).number
+          : 1;
         let first = line.number;
         let last = line.number;
         while (first > firstBodyLine && doc.line(first - 1).text.trim()) first--;
