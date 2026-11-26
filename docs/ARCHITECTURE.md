@@ -13,13 +13,15 @@ src/                     UI (Svelte 5 + Vite)
   lib/i18n.ts            Interface text in English and pt-BR, and error codes to text
   lib/clipboard.ts       Copy and cut kept out of clipboard history and cloud clipboard
   lib/panel-tabs.ts      Pure tab cycle and top-bar mouse-wheel switching rules
+  lib/text-transforms.ts Pure text transforms, chaining and contextual suggestions
   lib/theme.svelte.ts    Theme setting applied as the root color scheme
-  lib/features/<name>/   Components, state and tests: notes, scratchpad, web, tab (edge tab),
+  lib/features/<name>/   Components, state and tests: notes, scratchpad, clipboard, web, tab (edge tab),
                          preferences, image-preview, floating, tweak-panel (development builds only)
   lib/ui/                Generic visual components
   lib/styles/tokens.css  Colors, spacing and typography
 src-tauri/src/           Backend (Rust)
   lib.rs                 Only assembles the app and registers modules
+  clipboard.rs           Windows Clipboard History (`Win+V`) mirror service, without persistent state
   main_window.rs         Creates app windows (`main`, the image preview, floating windows) hardened alike
   preview.rs             Side image preview: pure placement beside the panel and its commands
   floats.rs              Pure floating-window rules: `floating.json`, fitting to monitors, Alt reveal
@@ -441,7 +443,13 @@ are read during the drop event; appending reads the note once, before attaching 
 with that version: a note changed, moved or replaced meanwhile is left alone with `dropChanged`, and
 images already attached are left to the unused-image cleanup. **Copy and cut** in `main` go through
 `lib/clipboard.ts` and `platform/clipboard.rs`, which mark the text to stay out of clipboard history
-and cloud clipboard.
+and cloud clipboard. **Clipboard History (`Win+V`)** (`clipboard.rs` + `platform/clipboard.rs` +
+`features/clipboard/Clipboard.svelte`) runs on a dedicated STA thread with a message-only window
+(`HWND_MESSAGE`), pumping Windows messages while awaiting WinRT `Clipboard` async calls (because
+`IAsyncOperation::join()` deadlocks on live OLE clipboard reads in an unpumped STA), debounce-emitting
+`clipboard-changed` from `AddClipboardFormatListener` and `Clipboard::HistoryChanged` without
+requiring focus or persisting history to disk. Transformed copies write through `write_private_text`
+so `Win+V` stays clean.
 
 ### Note content on disk
 

@@ -2,7 +2,7 @@ import { invertedEffects, isolateHistory } from "@codemirror/commands";
 import { type EditorState, StateEffect, StateField } from "@codemirror/state";
 import { applyTextChanges } from "./editor";
 
-const exactText = StateEffect.define<string>();
+export const exactText = StateEffect.define<string>();
 export const rawText = StateField.define<string>({
   create: (state) => state.doc.toString(),
   update(raw, transaction) {

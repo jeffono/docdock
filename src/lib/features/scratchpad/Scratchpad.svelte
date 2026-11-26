@@ -22,6 +22,7 @@ import { type FolderGone, folderNotice } from "../notes/folder-state";
 import { systemLink } from "../notes/link-actions";
 import MarkdownEditor from "../notes/MarkdownEditor.svelte";
 import UnlockVault from "../preferences/UnlockVault.svelte";
+import { appendDraftEdit } from "./draft";
 import { scratchpadSyncAction } from "./folder-sync";
 
 let {
@@ -426,6 +427,22 @@ export function finishFolderSwitch() {
 export async function reloadFolder() {
   scheduleReload();
   while (reloading) await reloading;
+}
+
+export function appendText(addition: string): string | undefined {
+  if (resolving || promoting || folderSwitching) return t("scratchpad.exitBusy");
+  if (folderGone) return t(goneText[folderGone]);
+  if (!opened)
+    return t(
+      folder && folder.state !== "available"
+        ? folderNotice(folder.state)
+        : !folder
+          ? "error.noFolder"
+          : "scratchpad.exitBusy",
+    );
+  const edit = appendDraftEdit(raw, addition);
+  if (!edit) return undefined;
+  return editorCore?.appendText(edit) ? undefined : t("scratchpad.exitBusy");
 }
 
 export async function handleEscape() {

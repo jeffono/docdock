@@ -6,6 +6,8 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
+M19 — Clipboard manager and text transforms (`clipboard` branch).
+
 ## Next
 
 M19 — Clipboard manager and text transforms (advanced, M): a top-bar tab mirroring Windows

@@ -2,60 +2,34 @@ import { isolateHistory } from "@codemirror/commands";
 import { EditorSelection, type SelectionRange } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { MessageKey } from "../../i18n";
+import {
+  capitalizeWords,
+  cycleCase,
+  deduplicateLines,
+  normalizeWhitespace,
+  pureTransforms,
+  sentenceCase,
+  sortLines,
+  type TransformGroup,
+  type TransformId,
+} from "../../text-transforms";
 import type { CommandEdit } from "./command";
 import { noteBodyStart } from "./count";
 import { frontmatterEnabled } from "./live-formatting";
 
-type Transform = (text: string, locale: string) => string;
+export { capitalizeWords, cycleCase, deduplicateLines, sentenceCase, sortLines };
 
-const upper: Transform = (text, locale) => text.toLocaleUpperCase(locale);
-const lower: Transform = (text, locale) => text.toLocaleLowerCase(locale);
+type TransformContext = { partialStart: boolean; partialEnd: boolean };
+type Transform = (text: string, locale: string, context?: TransformContext) => string;
 
-function capitalize(text: string, locale: string) {
-  return lower(text, locale).replace(/\p{L}/u, (letter) => upper(letter, locale));
-}
-
-export const sentenceCase: Transform = (text, locale) => {
-  // Sentence segmentation treats a lowercase word after a period as a continuation.
-  // Use uppercase for boundary detection, keeping the source's UTF-16 offsets.
-  const boundaries = text.replace(/\p{Ll}/gu, (letter) => {
-    const raised = upper(letter, locale);
-    return raised.length === letter.length ? raised : letter;
-  });
-  const sentences = [
-    ...new Intl.Segmenter(locale, { granularity: "sentence" }).segment(boundaries),
-  ];
-  return sentences
-    .map(({ index, segment }) => capitalize(text.slice(index, index + segment.length), locale))
-    .join("");
-};
-
-export const capitalizeWords: Transform = (text, locale) =>
-  [...new Intl.Segmenter(locale, { granularity: "word" }).segment(text)]
-    .map(({ segment, isWordLike }) => (isWordLike ? capitalize(segment, locale) : segment))
-    .join("");
-
-export const cycleCase: Transform = (text, locale) => {
-  const lowercase = lower(text, locale);
-  const sentence = sentenceCase(text, locale);
-  const words = capitalizeWords(text, locale);
-  const uppercase = upper(text, locale);
-  const forms = [lowercase, sentence, words, uppercase];
-  // Skip equivalent forms (for example, sentence case and word case on one word).
-  const current = forms.lastIndexOf(text);
-  return forms.slice(current + 1).find((form) => form !== text) ?? lowercase;
-};
-
-export function sortLines(text: string, locale: string, direction: 1 | -1): string {
-  const { compare } = new Intl.Collator(locale, { numeric: true, sensitivity: "base" });
-  return text
-    .split("\n")
-    .sort((a, b) => direction * compare(a, b))
-    .join("\n");
-}
-
-export function deduplicateLines(text: string): string {
-  return [...new Set(text.split("\n"))].join("\n");
+function normalizeWhitespaceRun(text: string, _locale: string, context?: TransformContext): string {
+  if (!context || (!context.partialStart && !context.partialEnd) || /[\r\n]/.test(text)) {
+    return normalizeWhitespace(text);
+  }
+  let out = text.replace(/[ \t\f\v]+/g, " ");
+  if (!context.partialStart) out = out.replace(/^ /, "");
+  if (!context.partialEnd) out = out.replace(/ $/, "");
+  return out;
 }
 
 interface Span {
@@ -65,7 +39,11 @@ interface Span {
 
 type TransformRun = (view: EditorView, edit?: CommandEdit, scope?: "line-or-block") => boolean;
 
-function transformSelection(transform: Transform, wholeLines = false): TransformRun {
+function transformSelection(
+  transform: Transform,
+  wholeLines = false,
+  blockOnSlash = wholeLines,
+): TransformRun {
   return (view, edit = view, scope) => {
     const { state } = edit;
     if (state.readOnly) return false;
@@ -75,7 +53,7 @@ function transformSelection(transform: Transform, wholeLines = false): Transform
       if (empty && scope === "line-or-block") {
         const { doc } = state;
         const line = doc.lineAt(from);
-        if (!wholeLines) return { from: line.from, to: line.to };
+        if (!blockOnSlash) return { from: line.from, to: line.to };
         if (!line.text.trim()) return null;
         const firstBodyLine = state.facet(frontmatterEnabled)
           ? doc.lineAt(noteBodyStart(doc)).number
@@ -120,13 +98,19 @@ function transformSelection(transform: Transform, wholeLines = false): Transform
     const changes = state.changes(
       spans.flatMap(({ from, to }) => {
         const before = state.sliceDoc(from, to);
-        const after = transform(before, locale);
+        const partialStart = from > state.doc.lineAt(from).from;
+        const partialEnd = to < state.doc.lineAt(to).to;
+        const after = transform(before, locale, { partialStart, partialEnd });
         if (before === after) return [];
+        const beforeLines = before.split("\n");
+        const afterLines = after.split("\n");
+        if (afterLines.length > beforeLines.length) {
+          return [{ from, to, insert: after }];
+        }
         // Keep surviving separators at their original positions, even in mixed-ending notes.
         let start = from;
-        const lines = after.split("\n");
-        const changes = before.split("\n", lines.length).flatMap((line, index) => {
-          const change = { from: start, to: start + line.length, insert: lines[index] };
+        const changes = before.split("\n", afterLines.length).flatMap((line, index) => {
+          const change = { from: start, to: start + line.length, insert: afterLines[index] };
           start = change.to + 1;
           return line === change.insert ? [] : [change];
         });
@@ -155,46 +139,46 @@ function transformSelection(transform: Transform, wholeLines = false): Transform
   };
 }
 
+export const transformLabels: Record<TransformId, MessageKey> = {
+  uppercase: "transform.upper",
+  lowercase: "transform.lower",
+  "sentence-case": "transform.sentence",
+  "capitalize-words": "transform.capitalize",
+  "digits-only": "transform.digitsOnly",
+  alphanumeric: "transform.alphanumeric",
+  "normalize-whitespace": "transform.normalizeWhitespace",
+  "strip-accents": "transform.stripAccents",
+  "remove-empty-lines": "transform.removeEmptyLines",
+  "join-lines": "transform.joinLines",
+  "sort-ascending": "transform.sortAscending",
+  "sort-descending": "transform.sortDescending",
+  "deduplicate-lines": "transform.deduplicate",
+  "clean-url": "transform.cleanUrl",
+  "url-decode": "transform.urlDecode",
+  "format-json": "transform.formatJson",
+  "minify-json": "transform.minifyJson",
+};
+
+const slashBlocks = new Set<TransformId>(["normalize-whitespace", "format-json", "minify-json"]);
+
 type TransformCommand = {
-  id: string;
+  id: TransformId;
   label: MessageKey;
-  group: "case" | "lines";
+  group: TransformGroup;
   run: TransformRun;
 };
 
-export const textTransforms: readonly TransformCommand[] = [
-  { id: "uppercase", label: "transform.upper", group: "case", run: transformSelection(upper) },
-  { id: "lowercase", label: "transform.lower", group: "case", run: transformSelection(lower) },
-  {
-    id: "sentence-case",
-    label: "transform.sentence",
-    group: "case",
-    run: transformSelection(sentenceCase),
-  },
-  {
-    id: "capitalize-words",
-    label: "transform.capitalize",
-    group: "case",
-    run: transformSelection(capitalizeWords),
-  },
-  {
-    id: "sort-ascending",
-    label: "transform.sortAscending",
-    group: "lines",
-    run: transformSelection((text, locale) => sortLines(text, locale, 1), true),
-  },
-  {
-    id: "sort-descending",
-    label: "transform.sortDescending",
-    group: "lines",
-    run: transformSelection((text, locale) => sortLines(text, locale, -1), true),
-  },
-  {
-    id: "deduplicate-lines",
-    label: "transform.deduplicate",
-    group: "lines",
-    run: transformSelection(deduplicateLines, true),
-  },
-];
+export const textTransforms: readonly TransformCommand[] = pureTransforms.map(
+  ({ id, group, run }) => ({
+    id,
+    label: transformLabels[id],
+    group,
+    run: transformSelection(
+      id === "normalize-whitespace" ? normalizeWhitespaceRun : run,
+      group === "lines",
+      group === "lines" || slashBlocks.has(id),
+    ),
+  }),
+);
 
 export const cycleCaseCommand = transformSelection(cycleCase);

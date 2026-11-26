@@ -116,13 +116,13 @@ The CSP forbids inline styles, so no component depends on a `style` attribute.
 
 ## Top bars
 
-- **Top bar:** subtle Notes, Scratchpad and Browser tabs (`Notes | Scratchpad | Browser`; `"Scratchpad"`
-  keeps its English name in pt-BR), then, in Browser, back/forward and the Reader view toggle (an
-  open book, pressed while reading), then the Preferences gear (Ctrl+,) and the panel pin
-  (Ctrl+Shift+D), filled when active and 12% smaller than other icons. No app name or page title.
-  Ctrl+Tab / Ctrl+Shift+Tab cycle tabs anywhere in the panel, including editors and the web page.
-  When enabled in Preferences, rolling the mouse wheel over the top bar switches tabs even while
-  the panel is unfocused (without taking focus).
+- **Top bar:** subtle Notes, Scratchpad, Clipboard and Browser tabs (`Notes | Scratchpad | Clipboard |
+  Browser`; `"Scratchpad"` and `"Clipboard"` keep their English names in pt-BR), then, in Browser,
+  back/forward and the Reader view toggle (an open book, pressed while reading), then the
+  Preferences gear (Ctrl+,) and the panel pin (Ctrl+Shift+D), filled when active and 12% smaller
+  than other icons. No app name or page title. Ctrl+Tab / Ctrl+Shift+Tab cycle tabs anywhere in
+  the panel, including editors and the web page. When enabled in Preferences, rolling the mouse
+  wheel over the top bar switches tabs even while the panel is unfocused (without taking focus).
 - **Second bar:** the same search field and "+" action in both modes. In Browser a quiet shield sits
   left of the address field, its icon at the bar's content edge.
 - **Shield:** shield means content blocking on, shield-off allowed. One click toggles the whole
@@ -436,8 +436,11 @@ notes differ only in section and starting state.
   Home/End, Enter or Space and Esc.
 - **Transforms:** case changes use the interface locale on each selection or the word at the cursor,
   keeping Markdown punctuation; the shortcut skips equivalent styles and starts at lowercase for mixed
-  case. Line actions expand to whole lines; sorting is numeric and ignores case and accents;
-  deduplication keeps the first exact match. Each change is one undo step and selects the result.
+  case. Shared transforms also cover cleaning (digits only, letters and digits, normalize
+  whitespace, remove accents), line operations (remove empty lines, join lines, sort A–Z / Z–A,
+  deduplicate) and formatting (clean URL tracking params, URL decode, format/minify JSON). Line
+  actions expand to whole lines; sorting is numeric and ignores case and accents; deduplication
+  keeps the first exact match. Each change is one undo step and selects the result.
 - **Slash commands:** `/` at a line start or after whitespace, outside code, URLs and frontmatter,
   opens the quiet completion list, filtered by localized label or English id. Esc, moving away or no
   match closes it and keeps the text. Commands format the line, insert a code block, divider, link or
@@ -471,6 +474,21 @@ conflict handling, exit gate and vault protection).
   the edge tab), with live Markdown formatting, slash commands, find and replace, spelling,
   `NoteStats` and text transforms, without frontmatter folding or metadata commands. Esc flushes
   and closes/unfocuses the panel once saved.
+
+## Clipboard
+
+A dedicated top-bar tab mirroring Windows Clipboard History (`Win+V`) without stealing focus or
+writing history to disk.
+
+- **Search and states:** a search bar at the top filters entries (accent- and case-insensitive) with
+  match count. When Windows Clipboard History is off, the tab shows the current plain-text item if
+  any with a notice and "Open Windows Settings"; when clipboard access is denied, a notice offers
+  Retry; a quiet line notes when the current item holds non-text data (such as an image).
+- **Cards and transforms:** single-clicking an item selects/expands it (showing plain text, live
+  `NoteStats`, removable chained transform steps, up to 4 contextual quick-transform suggestions,
+  and a "More" menu with all 17 transforms); double-click or Enter copies. Actions: `Copy` /
+  `Copy transformed` (writes transformed copies out of `Win+V` history), `Send to Scratchpad`
+  (appends as one undoable edit), `Create note` and `Remove from history`.
 
 ## Rendered content
 

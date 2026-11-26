@@ -12,12 +12,14 @@ const wheel = (overrides: Partial<Parameters<typeof wheelTabDelta>[1]> = {}) => 
 });
 
 describe("panel tabs", () => {
-  it("cycles forward and backward across Notes, Scratchpad and Browser with wrap-around", () => {
+  it("cycles forward and backward across Notes, Scratchpad, Clipboard and Browser with wrap-around", () => {
     expect(stepTab("notes", 1)).toBe("scratchpad");
-    expect(stepTab("scratchpad", 1)).toBe("browser");
+    expect(stepTab("scratchpad", 1)).toBe("clipboard");
+    expect(stepTab("clipboard", 1)).toBe("browser");
     expect(stepTab("browser", 1)).toBe("notes");
     expect(stepTab("notes", -1)).toBe("browser");
-    expect(stepTab("browser", -1)).toBe("scratchpad");
+    expect(stepTab("browser", -1)).toBe("clipboard");
+    expect(stepTab("clipboard", -1)).toBe("scratchpad");
     expect(stepTab("scratchpad", -1)).toBe("notes");
   });
 
