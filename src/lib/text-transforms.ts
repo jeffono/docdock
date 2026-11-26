@@ -343,62 +343,196 @@ export const pureTransforms: readonly PureTransform[] = [
   { id: "minify-json", group: "format", run: minifyJson },
 ];
 
+export type CaseTransformId = "lowercase" | "sentence-case" | "capitalize-words" | "uppercase";
+export type JsonTransformId = "format-json" | "minify-json";
+export type LinesTransformId = "remove-empty-lines" | "join-lines";
+export type SortTransformId = "sort-ascending" | "sort-descending";
+export type ExtractTransformId = "digits-only" | "alphanumeric";
+export type ExclusiveSlot = "case" | "json" | "lines" | "sort" | "extract";
+
+export type ToggleTransformId =
+  | "clean-url"
+  | "url-decode"
+  | "normalize-whitespace"
+  | "strip-accents"
+  | "deduplicate-lines";
+
+export type TransformState = {
+  case?: CaseTransformId;
+  json?: JsonTransformId;
+  lines?: LinesTransformId;
+  sort?: SortTransformId;
+  extract?: ExtractTransformId;
+  toggles: readonly ToggleTransformId[];
+};
+
+export const EMPTY_TRANSFORM_STATE: TransformState = { toggles: [] };
+
+export type TransformControlItem =
+  | { kind: "segmented"; slot: ExclusiveSlot; options: readonly TransformId[] }
+  | { kind: "toggle"; id: ToggleTransformId };
+
+export type TransformLayout = {
+  primary: readonly TransformControlItem[];
+  secondary: readonly TransformControlItem[];
+};
+
+export const exclusiveGroups: Record<ExclusiveSlot, readonly TransformId[]> = {
+  json: ["format-json", "minify-json"],
+  lines: ["remove-empty-lines", "join-lines"],
+  sort: ["sort-ascending", "sort-descending"],
+  case: ["lowercase", "sentence-case", "capitalize-words", "uppercase"],
+  extract: ["digits-only", "alphanumeric"],
+};
+
+export const independentToggles: readonly ToggleTransformId[] = [
+  "clean-url",
+  "url-decode",
+  "normalize-whitespace",
+  "strip-accents",
+  "deduplicate-lines",
+];
+
+const slotByTransform: Partial<Record<TransformId, ExclusiveSlot>> = {
+  lowercase: "case",
+  "sentence-case": "case",
+  "capitalize-words": "case",
+  uppercase: "case",
+  "format-json": "json",
+  "minify-json": "json",
+  "remove-empty-lines": "lines",
+  "join-lines": "lines",
+  "sort-ascending": "sort",
+  "sort-descending": "sort",
+  "digits-only": "extract",
+  alphanumeric: "extract",
+};
+
 const byId = new Map(pureTransforms.map((item) => [item.id, item]));
 
-export function applyTransformChain(
-  source: string,
-  ids: readonly TransformId[],
-  locale: string,
-): string {
+export function toggleTransform(state: TransformState, id: TransformId): TransformState {
+  const slot = slotByTransform[id];
+  if (!slot) {
+    const toggle = id as ToggleTransformId;
+    const exists = state.toggles.includes(toggle);
+    return {
+      ...state,
+      toggles: exists
+        ? state.toggles.filter((item) => item !== toggle)
+        : [...state.toggles, toggle],
+    };
+  }
+  switch (slot) {
+    case "case":
+      return { ...state, case: state.case === id ? undefined : (id as CaseTransformId) };
+    case "json":
+      return { ...state, json: state.json === id ? undefined : (id as JsonTransformId) };
+    case "lines":
+      return { ...state, lines: state.lines === id ? undefined : (id as LinesTransformId) };
+    case "sort":
+      return { ...state, sort: state.sort === id ? undefined : (id as SortTransformId) };
+    case "extract":
+      return { ...state, extract: state.extract === id ? undefined : (id as ExtractTransformId) };
+  }
+}
+
+export function isTransformActive(state: TransformState, id: TransformId): boolean {
+  const slot = slotByTransform[id];
+  return slot ? state[slot] === id : state.toggles.includes(id as ToggleTransformId);
+}
+
+export function activeTransformCount(state: TransformState): number {
+  let count = state.toggles.length;
+  if (state.case) count++;
+  if (state.json) count++;
+  if (state.lines) count++;
+  if (state.sort) count++;
+  if (state.extract) count++;
+  return count;
+}
+
+export function countActiveInControls(
+  state: TransformState,
+  controls: readonly TransformControlItem[],
+): number {
+  let count = 0;
+  for (const control of controls) {
+    if (control.kind === "segmented") {
+      if (state[control.slot] !== undefined) count++;
+    } else if (state.toggles.includes(control.id)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/** Applies active transforms in fixed canonical order regardless of click order. */
+export function applyTransformState(source: string, state: TransformState, locale: string): string {
+  const ordered: TransformId[] = [];
+  const activeToggles = new Set(state.toggles);
+  if (activeToggles.has("clean-url")) ordered.push("clean-url");
+  if (activeToggles.has("url-decode")) ordered.push("url-decode");
+  if (state.json) ordered.push(state.json);
+  if (activeToggles.has("normalize-whitespace")) ordered.push("normalize-whitespace");
+  if (activeToggles.has("strip-accents")) ordered.push("strip-accents");
+  if (state.case) ordered.push(state.case);
+  if (state.lines === "remove-empty-lines") ordered.push("remove-empty-lines");
+  if (activeToggles.has("deduplicate-lines")) ordered.push("deduplicate-lines");
+  if (state.sort) ordered.push(state.sort);
+  if (state.lines === "join-lines") ordered.push("join-lines");
+  if (state.extract) ordered.push(state.extract);
+
   let current = source;
-  for (const id of ids) {
+  for (const id of ordered) {
     const transform = byId.get(id);
     if (transform) current = transform.run(current, locale);
   }
   return current;
 }
 
-export function suggestTransforms(
-  text: string,
-  locale = "en",
-  limit = 4,
-): readonly PureTransform[] {
-  const candidates: TransformId[] = [];
-  if (isStructuredJson(text)) {
-    candidates.push("format-json", "minify-json");
-  }
-  if (/https?:\/\//i.test(text)) {
-    candidates.push("clean-url", "url-decode");
-  } else if (/%[0-9A-Fa-f]{2}/.test(text)) {
-    candidates.push("url-decode");
-  }
-  const trimmed = text.trim();
-  if (!trimmed.includes("\n") && trimmed.length <= 64) {
-    const digits = (trimmed.match(/\d/g) ?? []).length;
-    if (digits >= 4 && /\D/.test(trimmed)) candidates.push("digits-only");
-    if (/[^\p{L}\p{N}\s]/u.test(trimmed) && !/\s/.test(trimmed)) candidates.push("alphanumeric");
-  }
-  if (text.includes("\n")) {
-    candidates.push("remove-empty-lines", "deduplicate-lines", "join-lines", "sort-ascending");
-  }
-  candidates.push(
-    "normalize-whitespace",
-    "strip-accents",
-    "lowercase",
-    "uppercase",
-    "sentence-case",
-    "capitalize-words",
-  );
+/**
+ * Partitions all 17 transforms into primary and secondary controls from the immutable original
+ * text so controls never jump or disappear while toggling options.
+ */
+export function classifyTransformControls(originalText: string): TransformLayout {
+  const hasJson = isStructuredJson(originalText);
+  const hasUrl = /https?:\/\//i.test(originalText);
+  const hasPercent = /%[0-9A-Fa-f]{2}/.test(originalText);
+  const hasLines = originalText.includes("\n");
+  const hasAccents = /\p{M}/u.test(originalText.normalize("NFD"));
+  const hasMessySpaces = normalizeWhitespace(originalText) !== originalText;
+  const trimmed = originalText.trim();
+  const hasLetters = /\p{L}/u.test(originalText);
+  const isShortCode =
+    !hasLines &&
+    !hasUrl &&
+    !hasJson &&
+    trimmed.length <= 64 &&
+    (((trimmed.match(/\d/g) ?? []).length >= 4 && /\D/.test(trimmed)) ||
+      (/[^\p{L}\p{N}\s]/u.test(trimmed) && !/\s/.test(trimmed)));
 
-  const chosen: PureTransform[] = [];
-  const seen = new Set<TransformId>();
-  for (const id of candidates) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const transform = byId.get(id);
-    if (!transform || transform.run(text, locale) === text) continue;
-    chosen.push(transform);
-    if (chosen.length >= limit) break;
-  }
-  return chosen;
+  const primary: TransformControlItem[] = [];
+  const secondary: TransformControlItem[] = [];
+
+  const pushSegmented = (slot: ExclusiveSlot, inPrimary: boolean) => {
+    const item: TransformControlItem = { kind: "segmented", slot, options: exclusiveGroups[slot] };
+    (inPrimary ? primary : secondary).push(item);
+  };
+  const pushToggle = (id: ToggleTransformId, inPrimary: boolean) => {
+    const item: TransformControlItem = { kind: "toggle", id };
+    (inPrimary ? primary : secondary).push(item);
+  };
+
+  pushSegmented("json", hasJson);
+  pushToggle("clean-url", hasUrl);
+  pushToggle("url-decode", hasUrl || hasPercent);
+  pushSegmented("case", !hasJson && !hasUrl && (hasLetters || (!hasLines && !isShortCode)));
+  pushSegmented("lines", hasLines && !hasJson);
+  pushSegmented("sort", hasLines && !hasJson);
+  pushToggle("deduplicate-lines", hasLines && !hasJson);
+  pushSegmented("extract", isShortCode);
+  pushToggle("normalize-whitespace", !hasJson && !hasUrl && hasMessySpaces);
+  pushToggle("strip-accents", !hasJson && !hasUrl && hasAccents);
+
+  return { primary, secondary };
 }

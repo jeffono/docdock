@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeTransformCount,
   alphanumericOnly,
-  applyTransformChain,
+  applyTransformState,
+  classifyTransformControls,
   cleanUrl,
+  countActiveInControls,
   digitsOnly,
+  EMPTY_TRANSFORM_STATE,
   formatJson,
   isStructuredJson,
+  isTransformActive,
   joinLines,
   minifyJson,
   normalizeWhitespace,
+  pureTransforms,
   removeEmptyLines,
   stripAccents,
-  suggestTransforms,
+  type TransformId,
+  toggleTransform,
   urlDecode,
 } from "./text-transforms";
 
@@ -83,20 +90,126 @@ describe("shared text transforms", () => {
     );
   });
 
-  it("chains multiple transforms sequentially", () => {
-    expect(
-      applyTransformChain("  Café — 12  ", ["strip-accents", "alphanumeric", "lowercase"], "en"),
-    ).toBe("cafe12");
+  it("replaces mutually exclusive siblings and toggles off active controls cleanly", () => {
+    let state = toggleTransform(EMPTY_TRANSFORM_STATE, "lowercase");
+    expect(state.case).toBe("lowercase");
+    expect(isTransformActive(state, "lowercase")).toBe(true);
+
+    state = toggleTransform(state, "uppercase");
+    expect(state.case).toBe("uppercase");
+    expect(isTransformActive(state, "lowercase")).toBe(false);
+    expect(activeTransformCount(state)).toBe(1);
+
+    state = toggleTransform(state, "uppercase");
+    expect(state).toEqual(EMPTY_TRANSFORM_STATE);
+    expect(activeTransformCount(state)).toBe(0);
+
+    for (const [first, second] of [
+      ["format-json", "minify-json"],
+      ["remove-empty-lines", "join-lines"],
+      ["sort-ascending", "sort-descending"],
+      ["digits-only", "alphanumeric"],
+    ] as const) {
+      let s = toggleTransform(EMPTY_TRANSFORM_STATE, first);
+      expect(isTransformActive(s, first)).toBe(true);
+      s = toggleTransform(s, second);
+      expect(isTransformActive(s, first)).toBe(false);
+      expect(isTransformActive(s, second)).toBe(true);
+      s = toggleTransform(s, second);
+      expect(activeTransformCount(s)).toBe(0);
+    }
+
+    state = toggleTransform(EMPTY_TRANSFORM_STATE, "strip-accents");
+    state = toggleTransform(state, "deduplicate-lines");
+    expect(state.toggles).toEqual(["strip-accents", "deduplicate-lines"]);
+    state = toggleTransform(state, "strip-accents");
+    expect(state.toggles).toEqual(["deduplicate-lines"]);
   });
 
-  it("prioritizes contextual suggestions and avoids alphanumeric on plain spaced phrases", () => {
-    expect(suggestTransforms('{"a":1}', "en").map((t) => t.id)).toContain("format-json");
-    expect(suggestTransforms("https://example.com/?utm_source=mail&id=9", "en")[0].id).toBe(
+  it("applies transforms in deterministic canonical order regardless of toggle order", () => {
+    const orderA = toggleTransform(
+      toggleTransform(toggleTransform(EMPTY_TRANSFORM_STATE, "join-lines"), "sort-ascending"),
+      "deduplicate-lines",
+    );
+    const orderB = toggleTransform(
+      toggleTransform(
+        toggleTransform(EMPTY_TRANSFORM_STATE, "sort-ascending"),
+        "deduplicate-lines",
+      ),
+      "join-lines",
+    );
+    const multiline = "zeta\nalpha\nzeta\nbeta";
+    expect(applyTransformState(multiline, orderA, "en")).toBe("alpha beta zeta");
+    expect(applyTransformState(multiline, orderB, "en")).toBe("alpha beta zeta");
+
+    const urlToJson = toggleTransform(
+      toggleTransform(toggleTransform(EMPTY_TRANSFORM_STATE, "format-json"), "url-decode"),
       "clean-url",
     );
-    expect(suggestTransforms("(11) 91234-5678", "en").map((t) => t.id)).toContain("digits-only");
-    expect(suggestTransforms("UPPER", "en").some((t) => t.id === "uppercase")).toBe(false);
-    expect(suggestTransforms("hello world", "en").some((t) => t.id === "alphanumeric")).toBe(false);
-    expect(suggestTransforms("AB-123/45", "en").map((t) => t.id)).toContain("alphanumeric");
+    expect(applyTransformState('{"id":1,"utm":"%20"}', urlToJson, "en")).toBe(
+      '{\n  "id": 1,\n  "utm": " "\n}',
+    );
+    expect(
+      applyTransformState(
+        "https://example.com/?utm_source=x&q=ol%C3%A1%20mundo",
+        toggleTransform(toggleTransform(EMPTY_TRANSFORM_STATE, "url-decode"), "clean-url"),
+        "en",
+      ),
+    ).toBe("https://example.com/?q=olá mundo");
+
+    const camel = toggleTransform(
+      toggleTransform(toggleTransform(EMPTY_TRANSFORM_STATE, "alphanumeric"), "capitalize-words"),
+      "strip-accents",
+    );
+    expect(applyTransformState("ação rápida 12", camel, "en")).toBe("AcaoRapida12");
+
+    const caseDedup = toggleTransform(
+      toggleTransform(EMPTY_TRANSFORM_STATE, "deduplicate-lines"),
+      "lowercase",
+    );
+    expect(applyTransformState("Hello\nhello", caseDedup, "en")).toBe("hello");
+  });
+
+  it("partitions all 17 transforms exactly once per item without duplicates", () => {
+    const collectIds = (text: string) => {
+      const layout = classifyTransformControls(text);
+      const ids: TransformId[] = [];
+      for (const item of [...layout.primary, ...layout.secondary]) {
+        if (item.kind === "segmented") ids.push(...item.options);
+        else ids.push(item.id);
+      }
+      return { layout, ids };
+    };
+
+    for (const sample of [
+      '{"a":1}',
+      "https://example.com/?utm_source=mail&id=9%200",
+      "  Café\n\ncafé  ",
+      "(11) 91234-5678",
+      "hello world",
+    ]) {
+      const { ids } = collectIds(sample);
+      expect(ids).toHaveLength(pureTransforms.length);
+      expect(new Set(ids)).toEqual(new Set(pureTransforms.map((t) => t.id)));
+    }
+
+    const jsonLayout = classifyTransformControls('{"a":1}');
+    expect(jsonLayout.primary).toEqual([
+      { kind: "segmented", slot: "json", options: ["format-json", "minify-json"] },
+    ]);
+
+    const urlLayout = classifyTransformControls("https://example.com/?utm_source=mail&id=9");
+    expect(urlLayout.primary).toEqual([
+      { kind: "toggle", id: "clean-url" },
+      { kind: "toggle", id: "url-decode" },
+    ]);
+
+    const codeLayout = classifyTransformControls("AB-123/45");
+    expect(codeLayout.primary.some((c) => c.kind === "segmented" && c.slot === "extract")).toBe(
+      true,
+    );
+
+    const state = toggleTransform(EMPTY_TRANSFORM_STATE, "format-json");
+    expect(countActiveInControls(state, urlLayout.secondary)).toBe(1);
   });
 });

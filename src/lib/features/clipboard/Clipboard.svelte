@@ -1,6 +1,6 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
-import { dateTime, errorText, t } from "../../i18n";
+import { dateTime, errorText, type MessageKey, t } from "../../i18n";
 import {
   type ClipboardEntry,
   type ClipboardSnapshot,
@@ -13,17 +13,22 @@ import {
   panelClose,
 } from "../../ipc";
 import {
-  applyTransformChain,
+  activeTransformCount,
+  applyTransformState,
+  classifyTransformControls,
+  countActiveInControls,
+  EMPTY_TRANSFORM_STATE,
+  type ExclusiveSlot,
   isStructuredJson,
-  pureTransforms,
-  suggestTransforms,
-  type TransformGroup,
+  isTransformActive,
+  type TransformControlItem,
   type TransformId,
+  type TransformState,
+  toggleTransform,
 } from "../../text-transforms";
 import Button from "../../ui/Button.svelte";
 import Icon from "../../ui/Icon.svelte";
 import IconButton from "../../ui/IconButton.svelte";
-import Menu from "../../ui/Menu.svelte";
 import Notice from "../../ui/Notice.svelte";
 import TextField from "../../ui/TextField.svelte";
 import { countText } from "../notes/count";
@@ -43,29 +48,28 @@ let {
 
 let locale = $state(document.documentElement.lang || "en");
 const numberFormat = $derived(new Intl.NumberFormat(locale));
-const groupOrder: readonly TransformGroup[] = ["case", "clean", "lines", "format"];
 
 let container: HTMLElement;
 let listElement = $state<HTMLElement>();
 let searchInput = $state<HTMLInputElement>();
-let transformsMenu: Menu;
 
 let snapshot = $state<ClipboardSnapshot | null>(null);
 let query = $state("");
 let selectedId = $state<string | null>(null);
 let expandedId = $state<string | null>(null);
-let chains = $state<Record<string, TransformId[]>>({});
+let moreOpen = $state(false);
+let transforms = $state<Record<string, TransformState>>({});
 const sources = new Map<string, string>();
 
 let copiedId = $state<string | null>(null);
 let copyTimer: ReturnType<typeof setTimeout> | undefined;
 let busy = $state(false);
 let error = $state("");
-let menuTarget = $state<{ item: ClipboardEntry; text: string } | null>(null);
 
 type ClipboardItemView = {
   item: ClipboardEntry;
-  chain: TransformId[];
+  state: TransformState;
+  activeCount: number;
   text: string;
   snippet: string;
   isJson: boolean;
@@ -74,11 +78,15 @@ type ClipboardItemView = {
 const filtered = $derived(filterClipboardEntries(snapshot?.items ?? [], query));
 const itemsView = $derived<ClipboardItemView[]>(
   filtered.map((item) => {
-    const chain = item.truncated ? [] : (chains[item.id] ?? []);
-    const text = chain.length ? applyTransformChain(item.text, chain, locale) : item.text;
+    const state = item.truncated
+      ? EMPTY_TRANSFORM_STATE
+      : (transforms[item.id] ?? EMPTY_TRANSFORM_STATE);
+    const activeCount = activeTransformCount(state);
+    const text = activeCount ? applyTransformState(item.text, state, locale) : item.text;
     return {
       item,
-      chain,
+      state,
+      activeCount,
       text,
       snippet: previewSnippet(text),
       isJson: isStructuredJson(text),
@@ -88,14 +96,57 @@ const itemsView = $derived<ClipboardItemView[]>(
 const expandedView = $derived(
   expandedId ? (itemsView.find((view) => view.item.id === expandedId) ?? null) : null,
 );
-const expandedSuggestions = $derived(
+const expandedLayout = $derived(
   expandedView && !expandedView.item.truncated
-    ? suggestTransforms(expandedView.text, locale, 4)
-    : [],
+    ? classifyTransformControls(expandedView.item.text)
+    : null,
+);
+const secondaryActiveCount = $derived(
+  expandedView && expandedLayout
+    ? countActiveInControls(expandedView.state, expandedLayout.secondary)
+    : 0,
 );
 const expandedStats = $derived(expandedView ? countText(expandedView.text) : null);
 
-function chainLabel(id: TransformId): string {
+const caseSymbols: Partial<Record<TransformId, string>> = {
+  lowercase: "aa",
+  "sentence-case": "Aa",
+  "capitalize-words": "Aa Bb",
+  uppercase: "AA",
+};
+
+const chipLabels: Partial<Record<TransformId, MessageKey>> = {
+  "remove-empty-lines": "clipboard.chip.removeEmptyLines",
+  "join-lines": "clipboard.chip.joinLines",
+  "sort-ascending": "clipboard.chip.sortAscending",
+  "sort-descending": "clipboard.chip.sortDescending",
+  "digits-only": "clipboard.chip.digitsOnly",
+  alphanumeric: "clipboard.chip.alphanumeric",
+  "clean-url": "clipboard.chip.cleanUrl",
+  "url-decode": "clipboard.chip.urlDecode",
+  "normalize-whitespace": "clipboard.chip.normalizeWhitespace",
+  "strip-accents": "clipboard.chip.stripAccents",
+  "deduplicate-lines": "clipboard.chip.deduplicate",
+  "format-json": "clipboard.chip.formatJson",
+  "minify-json": "clipboard.chip.minifyJson",
+};
+
+const groupLabels: Record<ExclusiveSlot, MessageKey> = {
+  case: "clipboard.group.case",
+  json: "clipboard.group.json",
+  lines: "clipboard.group.lines",
+  sort: "clipboard.group.sort",
+  extract: "clipboard.group.extract",
+};
+
+function shortLabel(id: TransformId): string {
+  const symbol = caseSymbols[id];
+  if (symbol) return symbol;
+  const key = chipLabels[id];
+  return t(key ?? transformLabels[id]);
+}
+
+function fullLabel(id: TransformId): string {
   return t(transformLabels[id]);
 }
 
@@ -113,20 +164,24 @@ async function refresh() {
       try {
         const next = await clipboardSnapshot();
         const nextIds = new Set(next.items.map((item) => item.id));
-        const nextChains: Record<string, TransformId[]> = {};
+        const nextTransforms: Record<string, TransformState> = {};
         for (const entry of next.items) {
           const prior = sources.get(entry.id);
-          if (prior === entry.text && chains[entry.id]?.length) {
-            nextChains[entry.id] = chains[entry.id];
+          const existing = transforms[entry.id];
+          if (prior === entry.text && existing && activeTransformCount(existing) > 0) {
+            nextTransforms[entry.id] = existing;
           }
           sources.set(entry.id, entry.text);
         }
         for (const id of [...sources.keys()]) {
           if (!nextIds.has(id)) sources.delete(id);
         }
-        chains = nextChains;
+        transforms = nextTransforms;
         snapshot = next;
-        if (expandedId && !nextIds.has(expandedId)) expandedId = null;
+        if (expandedId && !nextIds.has(expandedId)) {
+          expandedId = null;
+          moreOpen = false;
+        }
         if (selectedId && !nextIds.has(selectedId)) {
           selectedId = next.items[0]?.id ?? null;
         } else if (!selectedId && next.items.length > 0) {
@@ -147,8 +202,6 @@ $effect(() => {
     locale = document.documentElement.lang || "en";
     void refresh();
   } else {
-    transformsMenu?.close();
-    menuTarget = null;
     copiedId = null;
     clearTimeout(copyTimer);
   }
@@ -177,39 +230,27 @@ onMount(() => {
 
 function toggleExpand(item: ClipboardEntry) {
   selectedId = item.id;
-  expandedId = expandedId === item.id ? null : item.id;
+  const next = expandedId === item.id ? null : item.id;
+  if (next !== expandedId) moreOpen = false;
+  expandedId = next;
 }
 
-function addTransform(id: string, transformId: TransformId) {
+function toggleItemTransform(id: string, transformId: TransformId) {
   if (snapshot?.items.find((entry) => entry.id === id)?.truncated) return;
-  const next = [...(chains[id] ?? []), transformId];
-  chains = { ...chains, [id]: next };
-}
-
-function removeTransformStep(id: string, index: number) {
-  const current = chains[id] ?? [];
-  const next = current.filter((_, i) => i !== index);
-  if (next.length) {
-    chains = { ...chains, [id]: next };
+  const current = transforms[id] ?? EMPTY_TRANSFORM_STATE;
+  const next = toggleTransform(current, transformId);
+  if (activeTransformCount(next) > 0) {
+    transforms = { ...transforms, [id]: next };
   } else {
-    const { [id]: _, ...rest } = chains;
-    chains = rest;
+    const { [id]: _, ...rest } = transforms;
+    transforms = rest;
   }
 }
 
 function resetTransforms(id: string) {
-  if (!chains[id]) return;
-  const { [id]: _, ...rest } = chains;
-  chains = rest;
-}
-
-async function openMoreMenu(item: ClipboardEntry, currentText: string, button: HTMLElement) {
-  menuTarget = { item, text: currentText };
-  await tick();
-  if (menuTarget?.item.id === item.id && button.isConnected) {
-    const rect = button.getBoundingClientRect();
-    transformsMenu.show({ at: { x: rect.left, y: rect.bottom }, from: button });
-  }
+  if (!transforms[id]) return;
+  const { [id]: _, ...rest } = transforms;
+  transforms = rest;
 }
 
 async function copyItem(item: ClipboardEntry, text: string, transformed: boolean) {
@@ -337,7 +378,7 @@ function onSearchKeydown(event: KeyboardEvent) {
     event.preventDefault();
     const target = itemsView.find((view) => view.item.id === selectedId) ?? itemsView[0];
     selectedId = target.item.id;
-    void copyItem(target.item, target.text, target.chain.length > 0);
+    void copyItem(target.item, target.text, target.activeCount > 0);
   }
 }
 
@@ -390,7 +431,7 @@ function onSectionKeydown(event: KeyboardEvent) {
     const current = itemsView.find((view) => view.item.id === selectedId);
     if (current) {
       event.preventDefault();
-      void copyItem(current.item, current.text, current.chain.length > 0);
+      void copyItem(current.item, current.text, current.activeCount > 0);
     }
   }
 }
@@ -413,32 +454,45 @@ export function reload() {
 
 <svelte:window onkeydown={onSectionKeydown} />
 
-<Menu
-  bind:this={transformsMenu}
-  label={t("clipboard.moreTransforms")}
-  ontoggle={(open) => {
-    if (!open) menuTarget = null;
-  }}
->
-  {#if menuTarget}
-    {@const activeTarget = menuTarget}
-    {#each groupOrder as group, groupIdx}
-      {@const groupItems = pureTransforms.filter((item) => item.group === group)}
-      {#if groupIdx > 0}<hr />{/if}
-      {#each groupItems as transform (transform.id)}
-        {@const unchanged = transform.run(activeTarget.text, locale) === activeTarget.text}
-        <button
-          role="menuitem"
-          tabindex="-1"
-          disabled={unchanged}
-          onclick={() => addTransform(activeTarget.item.id, transform.id)}
-        >
-          {chainLabel(transform.id)}
-        </button>
-      {/each}
-    {/each}
-  {/if}
-</Menu>
+{#snippet renderControls(
+  itemId: string,
+  state: TransformState,
+  controls: readonly TransformControlItem[],
+)}
+  {#each controls as control (control.kind === "segmented" ? control.slot : control.id)}
+    {#if control.kind === "segmented"}
+      <div class="segment-group" role="group" aria-label={t(groupLabels[control.slot])}>
+        {#each control.options as opt (opt)}
+          {@const activeOpt = isTransformActive(state, opt)}
+          <button
+            type="button"
+            class="segment"
+            data-transform={opt}
+            aria-pressed={activeOpt}
+            aria-label={fullLabel(opt)}
+            title={fullLabel(opt)}
+            onclick={() => toggleItemTransform(itemId, opt)}
+          >
+            {shortLabel(opt)}
+          </button>
+        {/each}
+      </div>
+    {:else}
+      {@const activeToggle = isTransformActive(state, control.id)}
+      <button
+        type="button"
+        class="toggle-chip"
+        data-transform={control.id}
+        aria-pressed={activeToggle}
+        title={fullLabel(control.id)}
+        onclick={() => toggleItemTransform(itemId, control.id)}
+      >
+        <span class="dot" aria-hidden="true"></span>
+        <span>{shortLabel(control.id)}</span>
+      </button>
+    {/if}
+  {/each}
+{/snippet}
 
 <section
   bind:this={container}
@@ -520,7 +574,7 @@ export function reload() {
     {:else}
       {#each itemsView as view (view.item.id)}
         {@const item = view.item}
-        {@const chain = view.chain}
+        {@const activeCount = view.activeCount}
         {@const text = view.text}
         {@const expanded = expandedId === item.id}
         {@const selected = selectedId === item.id}
@@ -531,14 +585,14 @@ export function reload() {
               class="head-toggle"
               aria-expanded={expanded}
               onclick={() => toggleExpand(item)}
-              ondblclick={() => void copyItem(item, text, chain.length > 0)}
+              ondblclick={() => void copyItem(item, text, activeCount > 0)}
             >
               <span class="preview" class:mono={view.isJson}>
                 {view.snippet || t("clipboard.whitespaceOnly")}
               </span>
               <span class="meta">
-                {#if chain.length > 0}
-                  <span class="modified">{t("clipboard.transformedCount", { count: String(chain.length) })}</span>
+                {#if activeCount > 0}
+                  <span class="modified">{t("clipboard.transformedCount", { count: String(activeCount) })}</span>
                 {/if}
                 {#if item.timestampMs !== null}
                   <span>{dateTime(item.timestampMs)}</span>
@@ -552,7 +606,7 @@ export function reload() {
                 icon={copiedId === item.id ? "check" : "copy"}
                 label={t("clipboard.copy")}
                 pressed={copiedId === item.id}
-                onclick={() => void copyItem(item, text, chain.length > 0)}
+                onclick={() => void copyItem(item, text, activeCount > 0)}
               />
               {#if item.deletable}
                 <IconButton
@@ -571,68 +625,65 @@ export function reload() {
               {#if item.truncated}
                 <p class="truncated">{t("clipboard.truncated")}</p>
               {/if}
-              {#if expandedStats}
-                <div class="stats">
-                  <NoteStats total={{ words: expandedStats.words, chars: expandedStats.chars, images: 0 }} full={true} />
-                </div>
-              {/if}
-
-              {#if !item.truncated}
-                {#if chain.length > 0}
-                  <div class="chain" role="group" aria-label={t("clipboard.appliedTransforms")}>
-                    {#each chain as step, index (`${step}-${index}`)}
-                      <button
-                        type="button"
-                        class="chip active"
-                        title={t("clipboard.removeTransform")}
-                        onclick={() => removeTransformStep(item.id, index)}
-                      >
-                        <span>{chainLabel(step)}</span>
-                        <span aria-hidden="true">×</span>
-                      </button>
-                    {/each}
-                    <button
-                      type="button"
-                      class="chip reset"
-                      onclick={() => resetTransforms(item.id)}
-                    >
-                      {t("clipboard.resetTransforms")}
-                    </button>
-                  </div>
-                {/if}
-
-                <div class="suggestions" role="group" aria-label={t("transform.menu")}>
-                  {#each expandedSuggestions as suggestion (suggestion.id)}
-                    <button
-                      type="button"
-                      class="chip"
-                      onclick={() => addTransform(item.id, suggestion.id)}
-                    >
-                      {chainLabel(suggestion.id)}
-                    </button>
-                  {/each}
+              <div class="preview-bar">
+                {#if activeCount > 0 && !item.truncated}
                   <button
                     type="button"
-                    class="chip more"
-                    aria-haspopup="menu"
-                    aria-expanded={menuTarget?.item.id === item.id}
-                    onclick={(event) => void openMoreMenu(item, text, event.currentTarget)}
+                    class="restore-original"
+                    onclick={() => resetTransforms(item.id)}
                   >
-                    <span>{t("clipboard.moreTransforms")}</span>
-                    <Icon name="chevronDown" />
+                    <Icon name="restore" />
+                    <span>{t("clipboard.restoreOriginal")}</span>
                   </button>
+                {/if}
+                {#if expandedStats}
+                  <div class="stats">
+                    <NoteStats total={{ words: expandedStats.words, chars: expandedStats.chars, images: 0 }} full={true} />
+                  </div>
+                {/if}
+              </div>
+
+              {#if !item.truncated && expandedLayout}
+                <div class="transform-controls" role="group" aria-label={t("transform.menu")}>
+                  {@render renderControls(item.id, view.state, expandedLayout.primary)}
+                  {#if expandedLayout.secondary.length > 0}
+                    <button
+                      type="button"
+                      class="more-toggle"
+                      class:has-active={!moreOpen && secondaryActiveCount > 0}
+                      aria-expanded={moreOpen}
+                      onclick={() => {
+                        moreOpen = !moreOpen;
+                      }}
+                    >
+                      <span>
+                        {moreOpen
+                          ? t("clipboard.lessTransforms")
+                          : secondaryActiveCount > 0
+                            ? t("clipboard.moreTransformsCount", { count: String(secondaryActiveCount) })
+                            : t("clipboard.moreTransforms")}
+                      </span>
+                      <Icon name="chevronDown" />
+                    </button>
+                  {/if}
                 </div>
+
+                {#if moreOpen && expandedLayout.secondary.length > 0}
+                  <div class="transform-controls secondary">
+                    {@render renderControls(item.id, view.state, expandedLayout.secondary)}
+                  </div>
+                {/if}
               {/if}
 
               <div class="action-row">
                 <Button
                   disabled={busy}
-                  onclick={() => void copyItem(item, text, chain.length > 0)}
+                  onclick={() => void copyItem(item, text, activeCount > 0)}
                 >
                   {t(
                     copiedId === item.id
                       ? "clipboard.copied"
-                      : chain.length > 0
+                      : activeCount > 0
                         ? "clipboard.copyTransformed"
                         : "clipboard.copy",
                   )}
@@ -855,12 +906,42 @@ export function reload() {
     font-size: var(--font-size-sm);
   }
 
+  .preview-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    min-height: var(--size-control);
+  }
+
+  .stats {
+    margin-left: auto;
+  }
+
   .stats :global(.count) {
     padding: 0;
   }
 
-  .chain,
-  .suggestions,
+  .restore-original {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--size-control);
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-accent);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    transition: background-color var(--duration);
+  }
+
+  .restore-original:hover {
+    background: var(--color-selected);
+  }
+
+  .transform-controls,
   .action-row {
     display: flex;
     flex-wrap: wrap;
@@ -868,12 +949,73 @@ export function reload() {
     align-items: center;
   }
 
+  .transform-controls.secondary {
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-line);
+  }
+
   .action-row {
     gap: var(--space-2);
     padding-top: var(--space-1);
   }
 
-  .chip {
+  .segment-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    max-width: 100%;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+  }
+
+  .segment {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--size-control);
+    padding: 0 var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 400;
+    transition:
+      background-color var(--duration),
+      color var(--duration);
+  }
+
+  .segment:first-child {
+    border-top-left-radius: calc(var(--radius-sm) - 1px);
+    border-bottom-left-radius: calc(var(--radius-sm) - 1px);
+  }
+
+  .segment:last-child {
+    border-top-right-radius: calc(var(--radius-sm) - 1px);
+    border-bottom-right-radius: calc(var(--radius-sm) - 1px);
+  }
+
+  .segment + .segment {
+    border-left: 1px solid var(--color-line);
+  }
+
+  .segment:hover {
+    background: var(--color-selected);
+  }
+
+  .segment[aria-pressed="true"] {
+    background: var(--color-selected);
+    color: var(--color-accent);
+  }
+
+  .segment:focus-visible {
+    position: relative;
+    z-index: 1;
+  }
+
+  .toggle-chip,
+  .more-toggle {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
@@ -886,33 +1028,68 @@ export function reload() {
     color: var(--color-fg);
     font: inherit;
     font-size: var(--font-size-sm);
+    font-weight: 400;
     transition:
       background-color var(--duration),
-      border-color var(--duration);
+      border-color var(--duration),
+      color var(--duration);
   }
 
-  .chip:hover {
+  .toggle-chip:hover,
+  .more-toggle:hover {
     background: var(--color-selected);
     border-color: var(--color-accent);
   }
 
-  .chip.active {
+  .toggle-chip[aria-pressed="true"] {
     background: var(--color-selected);
     border-color: var(--color-accent);
     color: var(--color-accent);
   }
 
-  .chip.reset {
+  .toggle-chip .dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    flex: none;
+    box-sizing: border-box;
+    border: 1px solid var(--color-muted);
+    border-radius: var(--radius-full);
+    transition:
+      background-color var(--duration),
+      border-color var(--duration);
+  }
+
+  .toggle-chip[aria-pressed="true"] .dot {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+  }
+
+  .more-toggle {
     color: var(--color-muted);
   }
 
-  .chip.more {
-    color: var(--color-muted);
+  .more-toggle.has-active {
+    background: var(--color-selected);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .more-toggle :global(svg) {
+    transition: transform var(--duration);
+  }
+
+  .more-toggle[aria-expanded="true"] :global(svg) {
+    transform: rotate(180deg);
   }
 
   @media (prefers-reduced-motion: reduce) {
     .card .head-actions :global(button),
-    .chip {
+    .restore-original,
+    .segment,
+    .toggle-chip,
+    .toggle-chip .dot,
+    .more-toggle,
+    .more-toggle :global(svg) {
       transition: none;
     }
   }

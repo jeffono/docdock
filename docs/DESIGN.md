@@ -484,11 +484,16 @@ writing history to disk.
   match count. When Windows Clipboard History is off, the tab shows the current plain-text item if
   any with a notice and "Open Windows Settings"; when clipboard access is denied, a notice offers
   Retry; a quiet line notes when the current item holds non-text data (such as an image).
-- **Cards and transforms:** single-clicking an item selects/expands it (showing plain text, live
-  `NoteStats`, removable chained transform steps, up to 4 contextual quick-transform suggestions,
-  and a "More" menu with all 17 transforms); double-click or Enter copies. Actions: `Copy` /
-  `Copy transformed` (writes transformed copies out of `Win+V` history), `Send to Scratchpad`
-  (appends as one undoable edit), `Create note` and `Remove from history`.
+- **Cards and transforms:** single-clicking an item selects/expands it, showing plain text, a preview
+  bar with `Restore original` beside live `NoteStats`, and in-place transform controls classified
+  once from the original text so controls never shift when toggled: connected segmented tracks for
+  mutually exclusive groups (case with compact symbols and tooltips, line breaks, sort direction,
+  JSON formatting and extraction; clicking the active segment restores that group), independent
+  toggle chips (`Clean URL`, `URL decode`, `Normalize spaces`, `Remove accents`, `Deduplicate`), and
+  an inline `More` disclosure for secondary transforms (all running in deterministic canonical order);
+  double-click or Enter copies. Actions: `Copy` / `Copy transformed` (writes transformed copies out
+  of `Win+V` history), `Send to Scratchpad` (appends as one undoable edit), `Create note` and `Remove
+  from history`.
 
 ## Rendered content
 
