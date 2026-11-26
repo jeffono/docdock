@@ -6,30 +6,22 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-M18 — Scratchpad and top-bar wheel switching (`scratchpad` branch).
-
 ## Next
 
-M18 — Scratchpad (standard, S–M): a dedicated top-bar tab for drafting prompts and messages before
-pasting elsewhere, backed by `.docdock/scratchpad.md` inside the notes folder (atomic save, versioned
-conflict handling, exit gate and vault protection per `0009`). Decouples the CodeMirror editor core
-from `Card.svelte` so floating notes can reuse it, keeping spell checking, `NoteStats` and text
-transforms. Actions: Copy all, Clear (as an undoable edit) and Promote to note. Also adds optional
-wheel switching over the top bar even without focus (Preferences: on, with modifier, or off).
+M19 — Clipboard manager and text transforms (advanced, M): a top-bar tab mirroring Windows
+Clipboard History (`Win+V`) through WinRT `Clipboard::GetHistoryItemsAsync` (start with a short
+spike confirming unpackaged behavior and focus rules; when history is off, show the current item
+with a notice and link to Windows Settings). Expands the shared pure transforms (`transforms.ts`,
+used across Clipboard, Scratchpad and notes): digits only, strip punctuation/whitespace
+(alphanumeric), normalize whitespace/line breaks, strip accents, remove empty lines, join lines,
+clean tracking parameters from URLs, URL decode and format/minify JSON, with contextual top
+suggestions, chaining/preview, and transformed copies written out of history so `Win+V` stays
+clean. Includes bar search, counts, deleting history items, Send to Scratchpad and Create note.
 
 ## Later
 
 In this order:
 
-- M19 — Clipboard manager and text transforms (advanced, M): a top-bar tab mirroring Windows
-  Clipboard History (`Win+V`) through WinRT `Clipboard::GetHistoryItemsAsync` (start with a short
-  spike confirming unpackaged behavior and focus rules; when history is off, show the current item
-  with a notice and link to Windows Settings). Expands the shared pure transforms (`transforms.ts`,
-  used across Clipboard, Scratchpad and notes): digits only, strip punctuation/whitespace
-  (alphanumeric), normalize whitespace/line breaks, strip accents, remove empty lines, join lines,
-  clean tracking parameters from URLs, URL decode and format/minify JSON, with contextual top
-  suggestions, chaining/preview, and transformed copies written out of history so `Win+V` stays
-  clean. Includes bar search, counts, deleting history items, Send to Scratchpad and Create note.
 - M20 — Editable floating notes and title-bar collapse (advanced, M–L): adds a quiet title bar to
   post-its (keeping floating images frameless) as a drag handle and a collapse/expand ("window
   shade") toggle, remembering collapsed state and expanded height in `floating.json` with vertical
