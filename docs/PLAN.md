@@ -6,37 +6,7 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20: steps 1-8 done (collapse, title bar with opacity popover, edit lease with save generations,
-  `float_save_note`, parking, finish handshake, inline post-it editing with `edit-state.ts`); step 9
-  (Notes.svelte coordination) in progress separately; then step 10. Inline editing still needs the
-  manual Windows check of focus and activation.
-
 ## Next
-
-M20 — Editable floating notes and title-bar collapse (advanced, M–L). Branch `floating-notes-edit`.
-Decided with the user: the post-it bar shows the note's title and takes the pill's controls (images
-stay frameless); a double click on the bar or its chevron collapses/expands; asking to edit a note
-already edited elsewhere moves the edit there (the other place saves and returns to reading);
-floating the Scratchpad is deferred. Steps, one commit each:
-
-1. `floats.rs`: optional `collapsed` in `floating.json` entries, no version bump (`height` stays the
-   expanded height); pure collapsed/expand/fit rects and a vertical lock in `constrain_free`.
-2. `floating.rs`: `float_set_collapsed`, sizing hook lock, saving the expanded height, restore.
-3. UI: post-it title bar (title, chevron, controls), edges limited while collapsed. Screenshot for
-   approval.
-4. Rust edit lease in the floating registry (one editor per note across panel and post-its),
-   `float_begin_edit`/`float_end_edit`, on-demand activation (`WS_EX_NOACTIVATE` cleared while
-   editing, foreground given back on leaving), `dock::track_focus` ignoring floating windows.
-5. `float_save_note` with no path argument: the label's registered path read under `SAVING`, in the
-   folder identity it opened on, with base-version conflicts and `ReplaceFileW`.
-6. Vault lock or folder change parks editing post-its (content hidden, text kept) instead of
-   destroying them; the returning folder adopts them.
-7. Finish handshake (fail-closed with timeout) for exit gate, folder switch, closes and edit
-   transfer between panel and post-its.
-8. Post-it inline editing with `MarkdownEditor` (lazy, no spelling, private copy via a write-only
-   secondary command), pure edit-state machine with tests; Esc leaves, focus loss saves.
-9. Notes.svelte coordination (claim, transfer, "Editing in a floating window") and "Open in panel".
-10. Docs (`0014` extended, ARCHITECTURE, DESIGN), test review, cross-provider review, CI.
 
 ## Later
 
@@ -66,6 +36,8 @@ In this order:
 
 Reassess later, without a stage:
 
+- Optionally float the Scratchpad (standard, M), with its own window kind and save command, and an
+  edit lease shared between the tab and the floating window.
 - Privacy deterrents (former M18): Windows Hello lock after inactivity (advanced, M; high friction
   against the quick-reference hover flow, and Cryptomator already covers real encryption and
   biometrics; `floating::hide_all` and `show_all` remain in place if revisited) and optional

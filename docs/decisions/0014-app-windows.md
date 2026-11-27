@@ -25,11 +25,25 @@ as `main`'s `notes-changed` with note paths, and `allow-unlisten` removes other 
   caller's label. Only `image-preview` and the live `float-<n>` labels Rust registered count as
   secondary (`is_secondary_window`); any other window, `web` and `tweak` included, reaches no app
   command. Rust registers a floating window's label before building it and removes it when the
-  window closes or is destroyed, and from every window before destroying them when the notes folder
-  leaves or another is chosen; labels are numbered per run and never reused, apart from the ids
-  saved in `floating.json`. A `float_*` command acts only on its caller, the window named by its own
+  window closes or is destroyed. Folder revocation removes labels before destroying their windows,
+  with the parked-edit exception below. Labels are numbered per run and never reused, apart from the
+  ids saved in `floating.json`. A `float_*` command acts only on its caller, the window named by its own
   label, never by an argument, and only while the registry holds it, so the preview reaches none of
   them and a floating window reaches no other.
+- **Post-it commands:** `float_set_collapsed`, `float_begin_edit`, `float_end_edit`,
+  `float_save_note`, `float_finished` and `float_clipboard_write` apply only to the calling
+  post-it. Save and clipboard write require an active edit. `float_save_note` accepts no path.
+  Under `SAVING`, Rust checks the opening folder's identity with `root_matching` and looks up the
+  label's registered note path again using the granted edit lease generation. It checks the base
+  version and uses `ReplaceFileW` as described in
+  [Writing without losing content](../ARCHITECTURE.md#writing-without-losing-content).
+  A missing note can be recreated only through an explicit "Keep mine".
+- **Edit lease:** Rust grants one editor per note across the panel and post-its. A transfer first
+  asks the current editor to finish. Finish requests fail closed on a save failure, a parked
+  editor or a timeout.
+- **Folder revocation:** editing post-its keep their labels and park with their note content
+  hidden ([0009](0009-note-privacy.md)); access to the note stays bound to its opening folder
+  identity. A parked window is destroyed once its edit is clean or discarded.
 - **Images:** `note-asset` answers only `main`, `image-preview` and registered live `float-<n>`
   windows (`main_window::reads_images`); any other label, `web`, `tweak` and an unregistered
   `float-*` included, gets 403.
@@ -53,7 +67,13 @@ as `main`'s `notes-changed` with note paths, and `allow-unlisten` removes other 
   fetch command. A path is far below that.
 - The image preview never takes focus or clicks: Rust shows it without activating and it stays
   disabled and click-through, so the panel's hover and focus rules ignore it.
-- Floating windows take clicks but never activate (`WS_EX_NOACTIVATE`, enabled), so they move,
-  resize and close through their own commands (Tauri's `start_dragging` and
-  `start_resize_dragging` run in Rust, needing no `core:window` permission) while the user's app
-  keeps the foreground. Their state reaches them over their channels, each with its own version.
+- Floating windows take clicks with `WS_EX_NOACTIVATE` set. On the user's double-click in a
+  post-it's body or click on its pencil, Rust clears that flag for the edit and requests activation.
+  On leaving, Rust restores the flag and gives the foreground back if the post-it still owns it.
+  The panel's focus tracking ignores the app's own windows. Dragging and resizing still run in
+  Rust through the caller's commands.
+- The [path-based write gap](../ARCHITECTURE.md#folder-and-its-availability) between path resolution and
+  `ReplaceFileW` also applies to `float_save_note`: a junction swap in that interval can affect
+  the write. An external rename can leave a pending save pointing at the old name before the
+  watcher pairs the rename. If a replacement at that name has identical base bytes, it can receive
+  the save. A different base version yields a conflict.

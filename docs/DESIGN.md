@@ -164,7 +164,8 @@ notes differ only in section and starting state.
   separate note view. Opening grows the card from its top while the entries below slide (translation
   only); a card whose end falls below scrolls into view in twice `--duration`, never pushing its top
   out. Hiding the panel or losing focus keeps the expanded card, the search and the scroll; returning
-  to the search bar does not scroll the list.
+  to the search bar does not scroll the list. A card whose note is being edited in a post-it shows
+  "Editing in a floating window" and disables Rename, Move and Delete.
 - **Mouse:** the header and the chevron toggle line and open; the preview body and "Show all" expand
   the card; an expanded pinned card ends with "Show less". Links work in reading. Outside editing,
   middle-clicking a closed `.md` note or any `.md` note's header toggles its floating post-it, and
@@ -533,9 +534,9 @@ writing history to disk.
   where the preview would show it, each later window 24
   logical px lower and away from the panel (left of a panel on the right, right of one on the
   left), staying in the room beside the panel; at most 8 at once ("Up to 8 floating windows can be
-  open; close one first." in the danger color otherwise). A floating window is borderless, topmost
-  and excluded from capture; clicking or dragging it never takes focus from the app in use, and the
-  panel stays as it was. The window keeps the image's proportions, so the image fills it, with a
+  open; close one first." in the danger color otherwise). Floating images are borderless and have
+  no title bar. They are topmost and excluded from capture. Clicking or dragging them keeps focus
+  in the app in use. The window keeps the image's proportions, so the image fills it, with a
   transparent `--space-2` gutter all around. While hovered, a hairline (`--color-float-ring`) and a
   soft shadow (`--color-float-shadow`) trace the image's own edges, or a transparent image's
   outline: the identity's one shadow, since the window has no frame to show where it ends. A pill
@@ -571,19 +572,20 @@ writing history to disk.
 - **Floating notes (post-its):** a note card's menu has "Open as floating window", outside editing a
   middle click on a closed card or any note's header toggles it, and dragging a note's header out of
   the panel opens a new post-it at the cursor (or moves and raises an already open one there). It opens
-  the note read-only beside its card (or at the drop cursor), 300 by 320 logical px, cascading and limited
-  to 8 together with floating images; while one shows the note, the item reads "Close floating
-  window" and the card's header actions add a filled `pictureInPicture` that closes it. The window
-  behaves as a floating image's (topmost, never taking focus, excluded from capture, transparent
-  `--space-2` gutter, hover hairline and shadow, opacity, click-through with Alt, tray items,
-  reopening and the vault), on a sheet of `--color-surface` with a 1 px `--color-line` border and
-  `--radius-sm`, the note rendered as in the panel, title included, inside `--space-2` by
+  the note for reading beside its card (or at the drop cursor), 300 by 320 logical px, cascading
+  and limited to 8 together with floating images. While one shows the note, the item reads "Close
+  floating window" and the card's header actions add a filled `pictureInPicture` that closes it.
+  The window shares the floating image's topmost placement, capture exclusion, transparent
+  `--space-2` gutter, hover hairline and shadow, opacity, click-through with Alt, tray items and
+  reopening behavior. The sheet uses `--color-surface`, a 1 px `--color-line` border and
+  `--radius-sm`. The note renders as in the panel, title included, inside `--space-2` by
   `--space-3` padding, which the text keeps from both edges even while it scrolls, scrolling with
   the wheel. The title bar shows the note name. On window hover or keyboard focus, the name slides
   right to reveal the collapse chevron on its left, using the note list's transform and opacity
   transitions. While collapsed, the right-pointing chevron stays visible for expanding the note.
-  On hover, edit, "Open in panel", opacity, "Let clicks through" and Close appear on the right. Double-clicking the
-  bar also collapses or expands it.
+  On hover, the pencil, "Open in panel", opacity, "Let clicks through" and Close appear on the
+  right. Double-clicking the bar background also collapses or expands it. A collapsed post-it
+  shows only the bar and resizes horizontally.
   The opacity button opens a slider below the bar, expanding a collapsed note to make room. The
   slider goes from 15% to 100% in 5% steps. Pressing Esc, pressing outside the slider and its
   button, or moving the pointer off the window dismisses it. The wheel over the controls and
