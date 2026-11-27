@@ -17,6 +17,7 @@ let {
   path,
   note,
   onleave,
+  ontrusted,
   ondiscard,
   onstatus,
   onlinkexternal,
@@ -27,6 +28,8 @@ let {
   path: string;
   note: OpenNote;
   onleave: () => void;
+  /** Reclaims the edit after trusting the folder, before retrying the draft. */
+  ontrusted: () => Promise<boolean>;
   /** Leaves without saving, after the user chose to drop edits that cannot be saved. */
   ondiscard: () => void;
   onstatus: (state: AutosaveState) => void;
@@ -123,7 +126,7 @@ export function resume() {
 async function trustFolder() {
   try {
     await notesTrust();
-    resume();
+    if (await ontrusted()) resume();
   } catch (cause) {
     error = errorText(cause);
   }

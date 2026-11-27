@@ -1,7 +1,6 @@
 <script lang="ts">
-// The pill of controls a floating window shows in its top right corner: what comes `before` (an
-// image's zoom), the opacity slider, any `actions`, then letting clicks through and closing. It
-// stays opaque while the window fades, and keeps the class `bar`, which the window's wheel reads.
+// Floating controls: an image's pill or the inline actions of a post-it title bar. They stay opaque
+// while the content fades and keep the class `bar`, which the window's wheel reads.
 import type { Snippet } from "svelte";
 import { t } from "../../i18n";
 import { floatClose, floatSetClickThrough } from "../../ipc";
@@ -17,6 +16,11 @@ let {
   onopacity,
   before,
   actions,
+  inline = false,
+  opacityOpen = false,
+  ontoggleopacity,
+  canClickThrough = true,
+  onclose = () => void floatClose().catch(() => {}),
 }: {
   shown: boolean;
   opacity: number;
@@ -27,9 +31,16 @@ let {
   onopacity: (value: number) => void;
   before?: Snippet;
   actions?: Snippet;
+  inline?: boolean;
+  opacityOpen?: boolean;
+  ontoggleopacity?: () => void;
+  /** Hidden while a post-it edits: a click-through window could not take its typing. */
+  canClickThrough?: boolean;
+  /** An editing post-it saves before it closes. */
+  onclose?: () => void;
 } = $props();
 
-let range: HTMLInputElement;
+let range = $state<HTMLInputElement>();
 const labels = $derived.by(() => {
   void locale;
   return {
@@ -41,39 +52,62 @@ const labels = $derived.by(() => {
 // The slider's filled part, through the CSSOM: the CSP forbids style attributes.
 $effect(() => {
   const filled = ((opacity - MIN_OPACITY) / (1 - MIN_OPACITY)) * 100;
-  range.style.setProperty("--fill", `${filled}%`);
+  range?.style.setProperty("--fill", `${filled}%`);
 });
 </script>
 
-
-<div class="bar" class:shown>
-  {#if before}{@render before()}{/if}
-  <span class="opacity" class:apart={!!before}>
-    <Icon name="blend" />
-    <input
-      bind:this={range}
-      type="range"
-      min={MIN_OPACITY * 100}
-      max="100"
-      step={OPACITY_STEP * 100}
-      value={Math.round(opacity * 100)}
-      aria-label={labels.opacity}
-      title={`${labels.opacity}: ${Math.round(opacity * 100)}%`}
-      aria-valuetext={`${Math.round(opacity * 100)}%`}
-      tabindex="-1"
-      oninput={(event) => onopacity(Number(event.currentTarget.value) / 100)}
-    />
-  </span>
-  {#if actions}{@render actions()}{/if}
-  <IconButton
-    icon="clickThrough"
-    quiet
-    label={labels.clickThrough}
-    pressed={clickThrough}
-    tabindex={-1}
-    onclick={() => void floatSetClickThrough(!clickThrough).catch(() => {})}
+{#snippet slider()}
+  <input
+    bind:this={range}
+    type="range"
+    min={MIN_OPACITY * 100}
+    max="100"
+    step={OPACITY_STEP * 100}
+    value={Math.round(opacity * 100)}
+    aria-label={labels.opacity}
+    title={`${labels.opacity}: ${Math.round(opacity * 100)}%`}
+    aria-valuetext={`${Math.round(opacity * 100)}%`}
+    tabindex="-1"
+    oninput={(event) => onopacity(Number(event.currentTarget.value) / 100)}
   />
-  <IconButton icon="x" quiet label={labels.close} tabindex={-1} onclick={() => void floatClose().catch(() => {})} />
+{/snippet}
+
+<div class="bar" class:shown class:inline>
+  {#if before}{@render before()}{/if}
+  {#if actions}{@render actions()}{/if}
+  {#if inline}
+    <div class="opacity-control">
+      <IconButton
+        icon="blend"
+        quiet
+        label={labels.opacity}
+        expanded={opacityOpen}
+        tabindex={-1}
+        onclick={() => ontoggleopacity?.()}
+      />
+      {#if opacityOpen}
+        <div class="opacity-popover">
+          {@render slider()}
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <span class="opacity" class:apart={!!before}>
+      <Icon name="blend" />
+      {@render slider()}
+    </span>
+  {/if}
+  {#if canClickThrough}
+    <IconButton
+      icon="clickThrough"
+      quiet
+      label={labels.clickThrough}
+      pressed={clickThrough}
+      tabindex={-1}
+      onclick={() => void floatSetClickThrough(!clickThrough).catch(() => {})}
+    />
+  {/if}
+  <IconButton icon="x" quiet label={labels.close} tabindex={-1} onclick={onclose} />
 </div>
 
 <style>
@@ -98,6 +132,29 @@ $effect(() => {
   .bar.shown {
     visibility: visible;
     opacity: 1;
+  }
+
+  .bar.inline {
+    position: static;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .opacity-control :global(svg) {
+    width: calc(0.875 * var(--size-icon));
+    height: calc(0.875 * var(--size-icon));
+  }
+
+  .opacity-popover {
+    position: absolute;
+    top: 100%;
+    right: var(--space-2);
+    display: flex;
+    padding: var(--space-1);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
   }
 
   /* The opacity's own group, an icon and its slider, set apart from what comes before by a line
@@ -129,6 +186,10 @@ $effect(() => {
     background: transparent;
   }
 
+  .opacity-popover input {
+    width: calc(2.5 * var(--size-control));
+  }
+
   input[type="range"]::-webkit-slider-runnable-track {
     height: calc(var(--space-1) / 2);
     border-radius: var(--radius-full);
@@ -153,6 +214,12 @@ $effect(() => {
   @media (max-width: 12rem) {
     .opacity {
       display: none;
+    }
+  }
+
+  @media (max-width: 10rem) {
+    .bar.inline :global(button) {
+      width: calc(var(--size-icon) + var(--space-1) / 2);
     }
   }
 

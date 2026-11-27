@@ -34,10 +34,11 @@ pub use self::memory::set_memory_low;
 pub use self::recycle::{recyclable, recycle, shell_addresses};
 pub use self::source::{SourceWindow, clipboard_owner, window as source_window};
 pub use self::windows::{
-    Activation, Monitor, OverlayWindow, PanelWindow, Point, Rect, Sizing, SizingEdge, alt_held,
-    constrain_sizing, cursor_pos, drag_tolerance, escape_pressed, foreground_window, hide_window,
-    monitors, move_window, place_windows, prepare_floating, primary_button_down, restore_focus,
-    secondary_button_pressed, set_click_through, show_topmost, slide_windows, suppress_key_menu,
+    Activation, Monitor, OverlayWindow, PanelWindow, Point, Rect, Sizing, SizingEdge, activate,
+    alt_held, constrain_sizing, cursor_pos, drag_tolerance, escape_pressed, foreground_window,
+    hide_window, is_foreground, is_own_window, monitors, move_window, place_windows,
+    prepare_floating, primary_button_down, restore_focus, secondary_button_pressed,
+    set_activatable, set_click_through, show_topmost, slide_windows, suppress_key_menu,
     ui_language, wait_frame, window_rect,
 };
 

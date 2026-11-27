@@ -636,10 +636,50 @@ pub fn floating_edit_current(epoch: u64) -> bool {
     crate::floating::edit_current(epoch)
 }
 
+/// The panel edits the note `path`, or none (`null`): whether it may. A post-it editing it saves
+/// and returns to reading first; waits for it, off the main thread.
+#[tauri::command(async)]
+pub fn floating_panel_edit(app: AppHandle, path: Option<String>) -> bool {
+    crate::floating::panel_edit(&app, path)
+}
+
+/// The panel answers `floating-release-panel-edit` number `request`: it left its editor, saved,
+/// or could not.
+#[tauri::command(async)]
+pub fn floating_panel_released(request: u64, path: String, released: bool) {
+    crate::floating::panel_released(request, &path, released);
+}
+
+/// Before exiting (`exit`) or choosing another folder: holds new edits and has every post-it
+/// editing save and return to reading. Whether all did; waits for them, off the main thread.
+#[tauri::command(async)]
+pub fn floating_finish_edits(exit: bool) -> bool {
+    crate::floating::finish_edits(hold(exit))
+}
+
+/// Edits may begin again: the exit or folder choice did not happen.
+#[tauri::command(async)]
+pub fn floating_release_edits(exit: bool) {
+    crate::floating::release_edits(hold(exit));
+}
+fn hold(exit: bool) -> crate::floating::Hold {
+    if exit {
+        crate::floating::Hold::Exit
+    } else {
+        crate::floating::Hold::Choice
+    }
+}
+
 /// The images and notes the open floating windows show, so the notes mark them.
 #[tauri::command(async)]
 pub fn floating_list() -> Vec<String> {
     crate::floating::paths()
+}
+
+/// The notes post-its edit now, so a reloaded panel marks them before the next change.
+#[tauri::command(async)]
+pub fn floating_editing() -> Vec<String> {
+    crate::floating::editing_paths()
 }
 /// Closes the floating windows showing `path`, as their own close button would.
 #[tauri::command(async)]
@@ -677,8 +717,7 @@ pub fn float_close(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), E
     if !crate::floating::is_live(window.label()) {
         return Err(Error::unexpected("command restricted to floating windows"));
     }
-    crate::floating::close(&app, window.label());
-    Ok(())
+    crate::floating::close_own(&app, window.label())
 }
 /// Grows or shrinks the window so its image is `width` CSS pixels wide, keeping its proportions.
 #[tauri::command(async)]
@@ -693,14 +732,74 @@ pub fn float_zoom(
 pub fn float_natural(window: tauri::WebviewWindow, width: u32, height: u32) -> Result<(), Error> {
     crate::floating::natural(window.label(), width, height)
 }
-/// The note the post-it shows, read now; `null` once it is gone.
+/// The note the post-it shows, with its version, read now; `null` once it is gone.
 #[tauri::command(async)]
-pub fn float_note(app: AppHandle, window: tauri::WebviewWindow) -> Result<Option<String>, Error> {
+pub fn float_note(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<crate::notes::OpenNote>, Error> {
     crate::floating::note(&app, window.label())
+}
+/// The post-it begins editing its note, which nobody else edits, and takes focus: the note with
+/// its version and the edit granted, or `null` if it may not edit now.
+#[tauri::command(async)]
+pub fn float_begin_edit(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<crate::floating::Granted>, Error> {
+    crate::floating::begin_edit(&app, window.label())
+}
+/// Saves the note the post-it edits, never a path it names, if it still holds `base` and the edit
+/// `lease` lasts.
+#[tauri::command(async)]
+pub fn float_save_note(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    content: String,
+    base: String,
+    lease: u64,
+    recreate: bool,
+) -> Result<crate::notes::Saved, Error> {
+    crate::floating::save_note(&app, window.label(), &content, &base, lease, recreate)
+}
+/// The post-it answers Rust's request number `request` to finish its edit: it saved, which also
+/// ends the edit, or could not.
+#[tauri::command(async)]
+pub fn float_finished(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    request: u64,
+    saved: bool,
+) -> Result<(), Error> {
+    crate::floating::finished(&app, window.label(), request, saved)
+}
+/// Writes `text` to the clipboard as `clipboard_write` does, kept out of clipboard history, only
+/// for a post-it editing its note: its editor's copies and cuts.
+#[tauri::command]
+pub async fn float_clipboard_write(
+    window: tauri::WebviewWindow,
+    text: String,
+) -> Result<(), Error> {
+    crate::floating::copies(window.label())?;
+    clipboard_write(window, text).await
+}
+/// The post-it stops editing and gives focus back, unless it `hand_off` the note to the panel.
+#[tauri::command(async)]
+pub fn float_end_edit(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    hand_off: bool,
+) -> Result<(), Error> {
+    crate::floating::end_edit(&app, window.label(), hand_off)
 }
 #[tauri::command(async)]
 pub fn float_set_text_scale(window: tauri::WebviewWindow, scale: f64) -> Result<(), Error> {
     crate::floating::set_text_scale(window.label(), scale)
+}
+/// Collapses the post-it to its title bar, or expands it back.
+#[tauri::command(async)]
+pub fn float_set_collapsed(window: tauri::WebviewWindow, collapsed: bool) -> Result<(), Error> {
+    crate::floating::set_collapsed(window.label(), collapsed)
 }
 /// Opens the post-it's note in the panel for editing.
 #[tauri::command(async)]

@@ -25,6 +25,9 @@ const CASCADE: u32 = 24;
 /// Transparent gutter around the image on every side, in logical pixels, where the hover shadow
 /// shows and the resize strips sit: `--space-2` in `FloatWindow.svelte`.
 pub const SHADOW_PAD: u32 = 8;
+/// A post-it's title bar height, in logical pixels, all a collapsed post-it shows: must match the
+/// bar's CSS height in the post-it window, as `SHADOW_PAD` matches `--space-2`.
+pub const TITLE_HEIGHT: u32 = 28;
 /// The most of a monitor's work area an image grows to by zooming, in percent of its width and
 /// height: the side preview's share of the room beside the panel.
 const MAX_WIDTH: u32 = 72;
@@ -98,6 +101,10 @@ pub struct Entry {
     /// A post-it's text size against the panel's; absent for images and at the panel's own size.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_scale: Option<f64>,
+    /// A post-it shows only its title bar; `height` stays its expanded height. Absent when
+    /// expanded, so older builds read the same file, and open it expanded.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed: bool,
 }
 
 impl Entry {
@@ -235,15 +242,26 @@ impl Store {
         self.slots.push(Slot::Known(entry));
     }
 
-    /// Moves or fades the window `id`, or sizes its text, if it is still saved: a window closed
-    /// meanwhile stays gone.
-    pub fn update(&mut self, id: &str, rect: Rect, opacity: f64, text_scale: Option<f64>) {
+    /// Moves or fades the window `id`, sizes its text or collapses it (post-its only, `None` for
+    /// images), if it is still saved: a window closed meanwhile stays gone. `rect` is a collapsed
+    /// post-it's expanded rectangle (`saved_rect`).
+    pub fn update(
+        &mut self,
+        id: &str,
+        rect: Rect,
+        opacity: f64,
+        text_scale: Option<f64>,
+        collapsed: Option<bool>,
+    ) {
         if let Some(entry) = self.entry_mut(id) {
             entry.set_rect(rect);
             entry.opacity = clamp_opacity(opacity);
             entry.text_scale = text_scale
                 .map(clamp_text_scale)
                 .filter(|&scale| scale != 1.0);
+            if let Some(collapsed) = collapsed {
+                entry.collapsed = collapsed;
+            }
         }
     }
 
@@ -514,8 +532,16 @@ pub fn constrain_sizing(
 
 /// What a resize from `edge` may make of a post-it's window `rect`: any proportions, the edge or
 /// corner opposite the one dragged staying, each side of the post-it (`pad` inside the window) at
-/// least `min`, and the window within `work`, which wins over `min`.
-pub fn constrain_free(rect: Rect, edge: SizingEdge, pad: i32, min: i32, work: Rect) -> Rect {
+/// least `min`, and the window within `work`, which wins over `min`. A collapsed post-it keeps its
+/// window `collapsed` pixels tall (`collapsed_height`) whatever is dragged; only its width changes.
+pub fn constrain_free(
+    rect: Rect,
+    edge: SizingEdge,
+    pad: i32,
+    min: i32,
+    work: Rect,
+    collapsed: Option<i32>,
+) -> Rect {
     use SizingEdge::*;
     let leftward = matches!(edge, Left | TopLeft | BottomLeft);
     let upward = matches!(edge, Top | TopLeft | TopRight);
@@ -526,12 +552,94 @@ pub fn constrain_free(rect: Rect, edge: SizingEdge, pad: i32, min: i32, work: Re
     } else {
         rect.right = rect.right.max(rect.left + least).min(work.right);
     }
-    if upward {
-        rect.top = rect.top.min(rect.bottom - least).max(work.top);
-    } else {
-        rect.bottom = rect.bottom.max(rect.top + least).min(work.bottom);
+    match (collapsed, upward) {
+        (Some(height), true) => rect.top = rect.bottom - height,
+        (Some(height), false) => rect.bottom = rect.top + height,
+        (None, true) => rect.top = rect.top.min(rect.bottom - least).max(work.top),
+        (None, false) => rect.bottom = rect.bottom.max(rect.top + least).min(work.bottom),
     }
     rect
+}
+
+/// The height of a collapsed post-it's window on a monitor of `dpi`: its title bar, with the
+/// gutter `pad` above and below.
+pub fn collapsed_height(dpi: u32, pad: i32) -> i32 {
+    scale_dpi(dpi, TITLE_HEIGHT) + 2 * pad
+}
+
+/// The window of the post-it `expanded` collapsed to its title bar: same left, top and width.
+pub fn collapsed_rect(expanded: Rect, dpi: u32, pad: i32) -> Rect {
+    Rect {
+        bottom: expanded.top + collapsed_height(dpi, pad),
+        ..expanded
+    }
+}
+
+/// Where the saved expanded rectangle of a collapsed post-it goes on the monitors there are now,
+/// judged by its title bar, all that shows: on the monitor that shows most of the bar, or the
+/// nearest, sized as `fit_to_monitors` would, and moved only as far as the whole bar needs to lie
+/// on the work area. The expanded rectangle may reach past it, as expanding moves it back
+/// (`expand_rect`).
+pub fn fit_collapsed(expanded: Rect, monitors: &[Monitor]) -> Rect {
+    let bar_height =
+        |monitor: &Monitor| collapsed_height(monitor.dpi, scale_dpi(monitor.dpi, SHADOW_PAD));
+    let bar = |monitor: &Monitor| Rect {
+        bottom: expanded.top.saturating_add(bar_height(monitor)),
+        ..expanded
+    };
+    let most = monitors
+        .iter()
+        .map(|monitor| (monitor, area(intersection(bar(monitor), monitor.work))))
+        .filter(|(_, shown)| *shown > 0)
+        .max_by_key(|(_, shown)| *shown)
+        .map(|(monitor, _)| monitor);
+    let nearest = || {
+        monitors
+            .iter()
+            .min_by_key(|monitor| distance(bar(monitor), monitor.work))
+    };
+    let Some(monitor) = most.or_else(nearest) else {
+        return expanded;
+    };
+    let work = monitor.work;
+    let fitted = sized(expanded, work, monitor.dpi);
+    let (width, height) = (fitted.right - fitted.left, fitted.bottom - fitted.top);
+    let left = fitted.left.min(work.right - width).max(work.left);
+    let top = fitted
+        .top
+        .min(work.bottom - bar_height(monitor))
+        .max(work.top);
+    Rect {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+    }
+}
+
+/// The window of the collapsed post-it `bar` expanded to `expanded_height` pixels: growing down
+/// from the bar, moved up as far as needed to stay within `work`, and no taller than it.
+pub fn expand_rect(bar: Rect, expanded_height: i32, work: Rect) -> Rect {
+    let height = expanded_height.clamp(1, (work.bottom - work.top).max(1));
+    let top = bar.top.min(work.bottom - height).max(work.top);
+    Rect {
+        top,
+        bottom: top + height,
+        ..bar
+    }
+}
+
+/// The rectangle saved for a window at `window`: a collapsed post-it's is its expanded one,
+/// `expanded_height` pixels tall from the bar's top.
+pub fn saved_rect(window: Rect, collapsed: bool, expanded_height: i32) -> Rect {
+    if collapsed {
+        Rect {
+            bottom: window.top + expanded_height,
+            ..window
+        }
+    } else {
+        window
+    }
 }
 
 /// The largest an image may grow to by zooming on a monitor with this work area.
@@ -676,6 +784,7 @@ mod tests {
             height: 200,
             opacity: 0.6,
             text_scale: None,
+            collapsed: false,
         }
     }
 
@@ -787,8 +896,8 @@ mod tests {
     fn updates_reach_only_saved_windows() {
         let mut store = Store::default();
         store.add(entry(ID, "a.png"));
-        store.update(ID, rect(-50, 5, 400, 300), 0.3, None);
-        store.update(&"b".repeat(32), rect(0, 0, 1, 1), 1.0, None);
+        store.update(ID, rect(-50, 5, 400, 300), 0.3, None, None);
+        store.update(&"b".repeat(32), rect(0, 0, 1, 1), 1.0, None, None);
         let saved: Vec<_> = store.entries().cloned().collect();
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].rect(), rect(-50, 5, 400, 300));
@@ -803,14 +912,54 @@ mod tests {
             kind: Kind::Note,
             ..entry(ID, "a.md")
         });
-        store.update(ID, rect(0, 0, 300, 300), 1.0, Some(1.25));
+        store.update(ID, rect(0, 0, 300, 300), 1.0, Some(1.25), None);
         let saved = parse(&store.to_bytes()).unwrap();
         assert_eq!(saved.entries().next().unwrap().text_scale, Some(1.25));
-        store.update(ID, rect(0, 0, 300, 300), 1.0, Some(1.0));
+        store.update(ID, rect(0, 0, 300, 300), 1.0, Some(1.0), None);
         let bytes = store.to_bytes();
         assert!(!String::from_utf8(bytes).unwrap().contains("textScale"));
         assert_eq!(clamp_text_scale(9.0), MAX_TEXT_SCALE);
         assert_eq!(clamp_text_scale(f64::NAN), 1.0);
+    }
+
+    fn note(id: &str) -> Entry {
+        Entry {
+            kind: Kind::Note,
+            ..entry(id, "a.md")
+        }
+    }
+
+    // Catches a file an older build wrote opening its post-its collapsed, or unreadable.
+    #[test]
+    fn an_entry_without_collapsed_reads_expanded() {
+        let mut old = serde_json::to_value(note(ID)).unwrap();
+        old.as_object_mut().unwrap().remove("collapsed");
+        let file = serde_json::json!({ "version": 1, "entries": [old] });
+        let store = parse(&serde_json::to_vec(&file).unwrap()).unwrap();
+        assert!(!store.entries().next().unwrap().collapsed);
+    }
+
+    // Catches a collapsed post-it reopening expanded, or at its title bar's height once expanded.
+    #[test]
+    fn a_collapsed_post_it_round_trips_with_its_expanded_height() {
+        let mut store = Store::default();
+        store.add(note(ID));
+        store.update(ID, rect(10, 20, 300, 340), 1.0, None, Some(true));
+        let saved = parse(&store.to_bytes()).unwrap();
+        let entry = saved.entries().next().unwrap();
+        assert!(entry.collapsed);
+        assert_eq!(entry.rect(), rect(10, 20, 300, 340));
+    }
+
+    // Catches expanded post-its writing a key older builds would see, changing every saved file.
+    #[test]
+    fn an_expanded_post_it_writes_no_collapsed_key() {
+        let mut store = Store::default();
+        store.add(note(ID));
+        store.update(ID, rect(10, 20, 300, 340), 1.0, None, Some(true));
+        store.update(ID, rect(10, 20, 300, 340), 1.0, None, Some(false));
+        let bytes = store.to_bytes();
+        assert!(!String::from_utf8(bytes).unwrap().contains("collapsed"));
     }
 
     // Catches a renamed note's new path landing on an image's window, or on another post-it.
@@ -1090,7 +1239,7 @@ mod tests {
             ..start
         };
         assert_eq!(
-            constrain_free(wide, SizingEdge::BottomRight, 8, 96, work),
+            constrain_free(wide, SizingEdge::BottomRight, 8, 96, work, None),
             Rect {
                 right: 900,
                 bottom: 100 + 96 + 16,
@@ -1103,7 +1252,7 @@ mod tests {
             ..start
         };
         assert_eq!(
-            constrain_free(past, SizingEdge::TopLeft, 8, 96, work),
+            constrain_free(past, SizingEdge::TopLeft, 8, 96, work, None),
             Rect {
                 left: 0,
                 top: 0,
@@ -1115,9 +1264,79 @@ mod tests {
             ..start
         };
         assert_eq!(
-            constrain_free(tiny, SizingEdge::Left, 8, 96, work).left,
+            constrain_free(tiny, SizingEdge::Left, 8, 96, work, None).left,
             start.right - 96 - 16
         );
+    }
+
+    // Catches a collapsed post-it's edges opening its window past the title bar, which showed
+    // the hidden content or left an empty strip.
+    #[test]
+    fn a_collapsed_post_it_keeps_its_bar_height_from_every_edge() {
+        use SizingEdge::*;
+        let work = rect(0, 0, 1000, 800);
+        let bar = collapsed_height(96, 8);
+        let start = rect(100, 100, 316, bar);
+        for edge in [
+            Left,
+            Right,
+            Top,
+            Bottom,
+            TopLeft,
+            TopRight,
+            BottomLeft,
+            BottomRight,
+        ] {
+            let pulled = Rect {
+                left: start.left - 50,
+                top: start.top - 50,
+                right: start.right + 50,
+                bottom: start.bottom + 50,
+            };
+            let sized = constrain_free(pulled, edge, 8, 96, work, Some(bar));
+            assert_eq!(sized.bottom - sized.top, bar, "{edge:?}");
+            let kept = if matches!(edge, Top | TopLeft | TopRight) {
+                sized.bottom == pulled.bottom
+            } else {
+                sized.top == pulled.top
+            };
+            assert!(kept, "{edge:?}: {sized:?}");
+        }
+    }
+
+    // Catches a collapsed post-it saved with its bar above the screen reopening out of reach,
+    // its expanded rectangle alone being visible enough.
+    #[test]
+    fn a_collapsed_post_it_above_the_work_area_comes_back_on_screen() {
+        let monitors = [monitor(0, 1920, 96)];
+        let fitted = fit_collapsed(rect(100, -200, 300, 340), &monitors);
+        assert_eq!(fitted, rect(100, 0, 300, 340));
+    }
+
+    // Catches a post-it collapsed at the bottom of the screen jumping up on every start, judged by
+    // its expanded rectangle, mostly off the work area.
+    #[test]
+    fn a_collapsed_post_it_at_the_bottom_stays_where_it_was() {
+        let monitors = [monitor(0, 1920, 96)];
+        let saved = rect(100, 1040 - 44, 300, 340);
+        assert_eq!(fit_collapsed(saved, &monitors), saved);
+    }
+
+    // Catches a collapsed post-it saving its bar's height, which reopens it expanded to nothing.
+    #[test]
+    fn a_collapsed_post_it_saves_its_expanded_height() {
+        let window = rect(100, 100, 316, 44);
+        assert_eq!(saved_rect(window, true, 340), rect(100, 100, 316, 340));
+        assert_eq!(saved_rect(window, false, 340), window);
+    }
+
+    // Catches expanding a post-it collapsed near the bottom growing it off the screen.
+    #[test]
+    fn a_post_it_expanded_near_the_bottom_stays_in_the_work_area() {
+        let work = rect(0, 0, 1920, 1040);
+        let bar = collapsed_rect(rect(100, 1000, 316, 340), 96, 8);
+        assert_eq!(expand_rect(bar, 340, work), rect(100, 700, 316, 340));
+        assert_eq!(expand_rect(bar, 5000, work), rect(100, 0, 316, 1040));
     }
 
     #[test]

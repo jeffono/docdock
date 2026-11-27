@@ -10,8 +10,13 @@ import {
   floatingDragEnd,
   floatingDragStart,
   floatingEditCurrent,
+  floatingEditing,
+  floatingFinishEdits,
   floatingList,
   floatingOpenNote,
+  floatingPanelEdit,
+  floatingPanelReleased,
+  floatingReleaseEdits,
   type Leftover,
   type Listing,
   type Note,
@@ -40,7 +45,9 @@ import {
   notesTrust,
   notesUndoDelete,
   type OpenNote,
+  onFloatingEditing,
   onFloatingPaths,
+  onFloatingReleasePanelEdit,
   onNotesChanged,
   onPanelDragCancel,
   onPanelHidden,
@@ -405,6 +412,30 @@ let opened = $state<OpenNote | null>(null);
 let saveStatus = $state<AutosaveState>("saved");
 let editor = $state<Editor>();
 let leaving: Promise<boolean> | null = null;
+/** A claim or release must finish before a later one can replace it. */
+let panelClaim = Promise.resolve(true);
+function claimPanelEdit(path: string | null) {
+  panelClaim = panelClaim.catch(() => false).then(() => floatingPanelEdit(path));
+  return panelClaim;
+}
+async function releasePanelEdit() {
+  try {
+    await claimPanelEdit(null);
+  } catch (e) {
+    error = errorText(e);
+  }
+}
+async function reclaimPanelEdit(path: string): Promise<boolean> {
+  try {
+    const claimed = await claimPanelEdit(path);
+    if (!editing || selected !== path) return false;
+    if (!claimed) error = t("floating.transferFailed");
+    return claimed;
+  } catch (e) {
+    if (editing && selected === path) error = errorText(e);
+    return false;
+  }
+}
 /** The note the editor last left, under the name it left with: leaving may rename it. */
 let leftPath = "";
 /** Refuse exit during content operations; the user can retry after they finish. */
@@ -425,8 +456,11 @@ export async function prepareExit(): Promise<boolean> {
   return leaveEditor();
 }
 export function leaveEditor(): Promise<boolean> {
-  if (!editing) return Promise.resolve(true);
   if (leaving) return leaving;
+  if (!editing) {
+    if (opening) opening.cancelled = true;
+    return Promise.resolve(true);
+  }
   leaving = (async () => {
     // An editor that never mounted, as when Browser came back while the note was read, holds no
     // edits: leaving must not depend on it.
@@ -434,6 +468,7 @@ export function leaveEditor(): Promise<boolean> {
       leftPath = selected;
       selected = "";
       editing = false;
+      await releasePanelEdit();
       return true;
     }
     // A title being typed is renamed first, while the editor still holds the note.
@@ -451,29 +486,48 @@ export function leaveEditor(): Promise<boolean> {
     opened = note;
     version = note.version;
     editing = false;
+    await releasePanelEdit();
     return true;
   })().finally(() => {
     leaving = null;
   });
   return leaving;
 }
-/** Note whose editor read is in flight; a rename of it cancels the open. */
-let opening: string | null = null;
+/** Keep a cancelled open in flight until it has released the claim. */
+let opening: { path: string; cancelled: boolean } | null = null;
+let releaseRequests = 0;
 /** Where the next editor starts, from a double click on the reading view. */
 let editStartAt = $state<EditStart>();
 /** `since`: the `generation` the request was made on, if before; a newer one drops it. */
 async function edit(path: string, start?: EditStart, since = generation) {
   // A note going to the Recycle Bin must not take edits that neither it nor Undo would keep.
-  if (editing || choosing || path === deletingPath || path === movingPath || inDeletingFolder(path))
+  if (
+    editing ||
+    opening ||
+    leaving ||
+    releaseRequests ||
+    choosing ||
+    since !== generation ||
+    path === deletingPath ||
+    path === movingPath ||
+    inDeletingFolder(path)
+  )
     return;
-  const current = since;
-  opening = path;
+  const pending = { path, cancelled: false };
+  opening = pending;
+  const stale = () => pending.cancelled || choosing || since !== generation;
+  let kept = false;
   try {
     error = "";
+    if (!(await claimPanelEdit(path))) {
+      if (!stale()) error = t("floating.transferFailed");
+      return;
+    }
+    if (stale()) return;
     const note = await notesOpen(path);
     // A folder change or rename since the read: the note may belong to another folder now, or
     // saving under the old path would bring the renamed file back.
-    if (editing || choosing || current !== generation || opening !== path) return;
+    if (stale()) return;
     contents[path] = note;
     opened = note;
     version = note.version;
@@ -481,11 +535,13 @@ async function edit(path: string, start?: EditStart, since = generation) {
     expanded = path;
     editStartAt = start;
     editing = true;
+    kept = true;
     noteSearchTyped = false;
   } catch (e) {
-    error = errorText(e);
+    if (!stale()) error = errorText(e);
   } finally {
-    if (opening === path) opening = null;
+    if (!kept) await releasePanelEdit();
+    opening = null;
   }
 }
 /**
@@ -840,10 +896,17 @@ let choosing = $state(false);
 async function trust() {
   try {
     error = "";
+    // As choosing: the folder's identity may change, so post-its editing save first.
+    if (!(await floatingFinishEdits(false))) {
+      error = t("floating.unsaved");
+      return;
+    }
     await refresh(await notesTrust());
     await onfolderchange?.();
   } catch (e) {
     error = errorText(e);
+  } finally {
+    void floatingReleaseEdits(false).catch(() => {});
   }
 }
 export async function choose() {
@@ -851,9 +914,17 @@ export async function choose() {
   if (choosing || savingPage || capturing || creating) return;
   choosing = true;
   let locked = false;
+  let held = false;
   try {
     error = "";
     if (!(await leaveEditor())) return;
+    // Post-its editing save first, and none begins until the choice ends: their notes belong to
+    // the folder before. Released below, also when the picker is cancelled.
+    held = true;
+    if (!(await floatingFinishEdits(false))) {
+      error = t("floating.unsaved");
+      return error;
+    }
     if (beforeChoose) {
       if (!(await beforeChoose())) return;
       locked = true;
@@ -865,6 +936,7 @@ export async function choose() {
     return error;
   } finally {
     if (locked) afterChoose?.();
+    if (held) void floatingReleaseEdits(false).catch(() => {});
     choosing = false;
   }
 }
@@ -1364,6 +1436,8 @@ async function appendTo(path: string, content: Dropped) {
     for (const image of content.images)
       links.push(await notesPasteImage(path, new Uint8Array(await image.arrayBuffer())));
   const text = appended(note.text, "text" in content ? content.text : imagesBlock(links));
+  // A post-it began editing it meanwhile: its next save would meet a conflict.
+  if (editingInFloat(path)) throw { code: "dropChanged" };
   const saved = await notesRewrite(path, text, note.version);
   if (saved.status !== "saved") throw { code: "dropChanged" };
   contents[path] = { text, version: saved.version };
@@ -1382,8 +1456,8 @@ function dropTarget(event: DragEvent): string | null {
   if (element?.closest(".new-note-drop")) return "new";
   const card = element?.closest<HTMLElement>(".card[data-path]");
   const path = card?.dataset.path;
-  // An editing note takes drops in its own editor; a pinned web page is no note.
-  if (!path || card.classList.contains("editing")) return null;
+  // An editing note takes drops in its own editor, or its post-it's; a pinned web page is no note.
+  if (!path || card.classList.contains("editing") || editingInFloat(path)) return null;
   return notes.some((note) => note.path === path) ? path : null;
 }
 function dragFromApp(event: DragEvent): boolean {
@@ -1443,10 +1517,13 @@ function dropOnPanel(event: DragEvent) {
 
 /** F2: the title field of the note's editor, opening it if needed, with the title selected. */
 async function editTitle(path: string) {
+  if (blockFloatingChange(path)) return;
   if (!(editing && selected === path)) {
     if (!(await leaveEditor())) return;
+    if (blockFloatingChange(path)) return;
     await edit(path);
   }
+  if (!editing || selected !== path) return;
   await tick();
   const input = list?.querySelector<HTMLInputElement>(".card.editing .rename input");
   input?.focus();
@@ -1848,7 +1925,7 @@ function removedText(item: NonNullable<typeof removed>): string {
  * moves to the next item, else the previous.
  */
 async function deleteNote(card: Card) {
-  if (deleting || card.url) return;
+  if (deleting || card.url || blockFloatingChange(card.hit.path)) return;
   deleting = true;
   try {
     const title = card.hit.title;
@@ -1859,9 +1936,10 @@ async function deleteNote(card: Card) {
       if (!(await leaveEditor())) return;
       path = leftPath;
     }
+    if (blockFloatingChange(path)) return;
     deletingPath = path;
     // An editor open that started before is dropped when it answers.
-    if (opening === path) opening = null;
+    if (opening?.path === path) opening.cancelled = true;
     const session = panelSession;
     const at = keys.indexOf(path);
     const next = keys[at + 1] ?? keys[at - 1] ?? "";
@@ -1928,7 +2006,7 @@ let movingPath = "";
  * editor as an edit it saves, otherwise as a save that only applies to the moved text.
  */
 async function moveNote(card: Card) {
-  if (moving || card.url) return;
+  if (moving || card.url || blockFloatingChange(card.hit.path)) return;
   moving = true;
   const from = card.hit.path;
   try {
@@ -1941,6 +2019,7 @@ async function moveNote(card: Card) {
       list,
     );
     if (!choice || !notes.some((note) => note.path === from)) return;
+    if (blockFloatingChange(from)) return;
     error = "";
     if (choice.create) await notesCreateFolder(choice.folder);
     const go = async (version: string): Promise<string> => {
@@ -1965,6 +2044,7 @@ async function moveNote(card: Card) {
       throw { code: "saveFailed", detail: from };
     };
     await renamingTask;
+    if (blockFloatingChange(from)) return;
     if (editing && selected === from && editor) {
       const current = editor;
       // Registered as a rename: leaving the editor waits for the move and its link rewrite, so the
@@ -1994,7 +2074,7 @@ async function moveNote(card: Card) {
     }
     movingPath = from;
     // An editor open that started before is dropped when it answers.
-    if (opening === from) opening = null;
+    if (opening?.path === from) opening.cancelled = true;
     const to = await go((await notesOpen(from)).version);
     movingPath = to;
     const note = await notesOpen(to);
@@ -2016,6 +2096,8 @@ let folderTarget: HTMLElement | null = null;
 let deletingFolder = "";
 const inDeletingFolder = (path: string) =>
   deletingFolder !== "" && path.toLowerCase().startsWith(`${deletingFolder.toLowerCase()}/`);
+const folderHasFloatingEdit = (path: string) =>
+  [...floatingEdits].some((note) => note.startsWith(`${normalizePath(path)}/`));
 function openFolderMenu(
   event: MouseEvent | KeyboardEvent,
   path: string,
@@ -2051,7 +2133,11 @@ async function deleteFolder() {
     warning = "";
     await renamingTask;
     if (editing && inDeletingFolder(selected) && !(await leaveEditor())) return;
-    if (opening && inDeletingFolder(opening)) opening = null;
+    if (folderHasFloatingEdit(path)) {
+      error = t("floating.editing");
+      return;
+    }
+    if (opening && inDeletingFolder(opening.path)) opening.cancelled = true;
     // Only a folder with notes says where it went; an empty one is just gone.
     const hadNotes = notes.some((note) => inDeletingFolder(note.path));
     const { trash, problem } = await removal(notesDeleteFolder(path));
@@ -2144,18 +2230,28 @@ async function reload() {
       editing = false;
       selected = "";
       opened = null;
+      void releasePanelEdit();
       return refresh(value);
     case "open":
       return refresh(value);
-    case "resume":
+    case "resume": {
+      // Locking the vault cleared the claim in Rust. Recover it before retrying the draft.
+      const draft = selected;
+      const claimed = await reclaimPanelEdit(draft);
+      if (stale()) return;
+      // Refused: the draft waits under its notice, and the folder still shows unavailable, so
+      // the next refresh claims it again. An editor that closed or moved on meanwhile leaves
+      // nothing to wait for.
+      if (!claimed && editing && selected === draft) return;
       folder = value;
-      editor?.resume();
+      if (claimed) editor?.resume();
       notesLeftovers().then(
         (found) => {
           if (current === generation) leftovers = found;
         },
         () => {},
       );
+    }
   }
   await relist(stale);
   if (stale()) return;
@@ -2197,7 +2293,7 @@ function changed(changes: NotesChanges) {
       .then(() => indexVersion++);
   }
   for (const [from, to] of changes.renames) {
-    if (opening === from) opening = null;
+    if (opening?.path === from) opening.cancelled = true;
     renamedAway.add(from);
     renamedAway.delete(to);
     if (from in contents) {
@@ -2209,6 +2305,7 @@ function changed(changes: NotesChanges) {
     if (selected !== from) continue;
     selected = to;
     editor?.moved(to);
+    if (editing) void reclaimPanelEdit(to);
     generation++;
   }
   if (reloading) {
@@ -2330,6 +2427,13 @@ function floatImage(image: HTMLElement) {
 }
 /** The images open floating windows show, normalized as Rust compares them. */
 let floatingPaths = $state<ReadonlySet<string>>(new Set());
+let floatingEdits = $state<ReadonlySet<string>>(new Set());
+const editingInFloat = (path: string) => floatingEdits.has(normalizePath(path));
+function blockFloatingChange(path: string) {
+  if (!editingInFloat(path)) return false;
+  error = t("floating.editing");
+  return true;
+}
 const showFloating = (paths: string[]) => {
   floatingPaths = new Set(paths.map(normalizePath));
 };
@@ -2374,7 +2478,7 @@ function toggleNoteFloating(card: Card) {
  * taken before asking: a folder chosen after the answer bumps it, and `edit` drops the note.
  */
 export async function editNote({ path, epoch }: EditNoteRequest) {
-  if (editing && selected === path) {
+  if (editing && normalizePath(selected) === normalizePath(path)) {
     editor?.focus();
     return;
   }
@@ -2815,6 +2919,32 @@ onMount(() => {
     .then(showFloating)
     .catch(() => {});
   const floatingChanged = onFloatingPaths(showFloating);
+  const showEditing = (paths: string[]) => {
+    floatingEdits = new Set(paths.map(normalizePath));
+  };
+  void floatingEditing()
+    .then(showEditing)
+    .catch(() => {});
+  const floatingEditingChanged = onFloatingEditing(showEditing);
+  // A post-it asks to edit the note edited here: the edit moves there once this editor saved.
+  const releaseAsked = onFloatingReleasePanelEdit(async ({ request, path }) => {
+    releaseRequests++;
+    const target = normalizePath(path);
+    if (opening && normalizePath(opening.path) === target) opening.cancelled = true;
+    try {
+      const matches = editing && normalizePath(selected) === target;
+      const left = !matches || (await leaveEditor().catch(() => false));
+      await floatingPanelReleased(request, path, left);
+    } catch (e) {
+      error = errorText(e);
+    } finally {
+      releaseRequests--;
+    }
+  });
+  panelClaim = releaseAsked.then(() => floatingPanelEdit(null));
+  void panelClaim.catch((e) => {
+    error = errorText(e);
+  });
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
@@ -2874,6 +3004,8 @@ onMount(() => {
     void search.then((stop) => stop());
     void captureChosen.then((stop) => stop());
     void floatingChanged.then((stop) => stop());
+    void floatingEditingChanged.then((stop) => stop());
+    void releaseAsked.then((stop) => stop());
   };
 });
 </script>
@@ -2888,7 +3020,8 @@ onMount(() => {
 
 <MovePicker bind:this={movePicker} />
 <Menu bind:this={folderMenu} label={t("deleteFolder.menu")} ontoggle={(open) => { if (!open) menuFolder = ""; }}>
-  <button role="menuitem" tabindex="-1" onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
+  {@const blocked = folderHasFloatingEdit(menuFolder)}
+  <button role="menuitem" tabindex="-1" disabled={blocked} title={blocked ? t("floating.editing") : undefined} onclick={deleteFolder}>{t("deleteFolder.menu")}</button>
 </Menu>
 <!-- Closing forgets the card: it holds the note's title, tags and snippet. -->
 <Menu bind:this={linkMenu} label={t("link.menu")} ontoggle={(open) => { if (!open) menuLink = undefined; }}>
@@ -2912,12 +3045,14 @@ onMount(() => {
 <Menu bind:this={cardMenu} label={t("menu.label")} ontoggle={(open) => { if (!open) menuCard = null; }}>
   {#if menuCard}
     {@const card = menuCard}
-    <button role="menuitem" tabindex="-1" onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>
+    {@const blocked = editingInFloat(card.hit.path)}
+    {#if blocked}<p>{t("floating.editing")}</p>{/if}
+    <button role="menuitem" tabindex="-1" disabled={blocked} onclick={() => editTitle(card.hit.path)}>{t("menu.rename")}<kbd>F2</kbd></button>
     <button role="menuitem" tabindex="-1" onclick={() => pinOrUnpin(card)}>{t(card.pinned ? "menu.unpin" : "menu.pin")}<kbd>Ctrl+D</kbd></button>
-    <button role="menuitem" tabindex="-1" onclick={() => moveNote(card)}>{t("menu.move")}<kbd>Ctrl+M</kbd></button>
+    <button role="menuitem" tabindex="-1" disabled={blocked} onclick={() => moveNote(card)}>{t("menu.move")}<kbd>Ctrl+M</kbd></button>
     <button role="menuitem" tabindex="-1" onclick={() => toggleNoteFloating(card)}>{t(noteFloats(card) ? "float.unfloat" : "float.open")}</button>
     <hr />
-    <button role="menuitem" tabindex="-1" onclick={() => deleteNote(card)}>{t("menu.delete")}<kbd>Ctrl+Delete</kbd></button>
+    <button role="menuitem" tabindex="-1" disabled={blocked} onclick={() => deleteNote(card)}>{t("menu.delete")}<kbd>Ctrl+Delete</kbd></button>
   {/if}
 </Menu>
 
@@ -2972,6 +3107,7 @@ onMount(() => {
         saveStatus = state;
       }}
       onleave={() => void leaveByKeyboard()}
+      ontrusted={() => reclaimPanelEdit(selected)}
       onlinkexternal={openSystemLink}
       onlinkmenu={openLinkMenu}
       tags={() => [...folderIndex.index.values()].flatMap((entry) => entry.tags)}
@@ -2979,6 +3115,7 @@ onMount(() => {
         const path = selected;
         selected = "";
         editing = false;
+        void releasePanelEdit();
         // Without its folder, the note is not read again, and the list forgets it.
         if (ready) void load(path);
         else void refresh(folder);
@@ -3236,6 +3373,7 @@ onMount(() => {
             floating={floatingPaths}
             onpage={(url) => { void openPage(url).catch((e) => { error = errorText(e); }); }}
             editing={edited}
+            editingInFloat={editingInFloat(card.hit.path)}
             status={edited ? saveText : ""}
             editor={edited ? noteEditor : undefined}
             deleting={deletingShown === card.hit.path}

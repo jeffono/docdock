@@ -170,18 +170,17 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   window hears carries a separate version, which changes only with the target shown. The window
   decodes the next image before swapping and drops any image or rendered note DOM when it hides.
 - **Floating windows** ([0014](decisions/0014-app-windows.md)): up to 8 `float-<n>` windows, of
-  two kinds: images and post-its (notes shown read-only). `floating_open` validates the image, reserves a label in the registry,
+  two kinds: images and post-its. `floating_open` validates the image, reserves a registry label,
   asks the dock thread where the preview would show the image (`Request::PlaceFloat`, through
   `preview::place` and `preview::image_rect`) and builds a hidden secondary window, a tool window
-  that never activates but stays enabled (`platform::prepare_floating`). Under `SAVING` it checks
-  that the folder, the image, the epoch and the window are all still there and saves the entry;
+  prepared with `WS_EX_NOACTIVATE` and enabled (`platform::prepare_floating`). Under `SAVING` it
+  checks that the folder, the image, the epoch and the window are all still there and saves the entry;
   only then does it show the window topmost with `SetWindowPos` (never Tauri's `show` or
   `set_focus`), and only if no close or folder change came meanwhile (`floating::save_and_show`).
   A close after the save removes the entry itself, and a folder change after it destroys the window
   but keeps the entry, rightly saved in the folder it opened on, so nothing is rolled back across
-  folders. Unlike the
-  preview, it is not the dock's: it never slides, and clicking or dragging it changes no
-  foreground, so the panel's hover and focus rules are unaffected. Dragging and resizing go
+  folders. Floating windows stay in place when the dock slides. For the post-it edit activation
+  exception, see [0014](decisions/0014-app-windows.md). Dragging and resizing go
   through Tauri's `start_dragging` and `start_resize_dragging`, from the window's own commands.
   The window is the image plus a transparent `floats::SHADOW_PAD` gutter on every side, and keeps
   the image's aspect ratio: from the natural size on opening, from the saved size on restoring,
@@ -205,14 +204,21 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   `Kind::PostIt` via `preview::begin_post_it` or grabbing an open `Existing` post-it window, tracked
   on `wait_frame()` by `dock.rs::step_note_drag`, keeping the panel held open outside the edge and
   cancelling on Esc / secondary button via `panel-drag-cancel`, then spawning at `rect` and hiding
-  the ghost seamlessly once `PostIt` calls `float_ready`) at `floats::NOTE_SIZE`, resizes
-  freely (`floats::constrain_free`) and never zooms; Ctrl+wheel sizes
-  its text, saved as the entry's `textScale`. It reads its note through `float_note`, only from the
-  folder it opened on (`notes::floating_note`), and again whenever Rust raises its `revision`:
+  the ghost seamlessly once `PostIt` calls `float_ready`) at `floats::NOTE_SIZE`. The title bar
+  collapses via `float_set_collapsed`: Rust derives a bar-height rectangle with `collapsed_rect`
+  and restores the expanded height on reopening the body, fitting it to the work area.
+  The sizing hook uses `constrain_free` with the post-it minimum and locks the height while
+  collapsed, so only the width can change. Persisted geometry always uses the expanded height.
+  Ctrl+wheel sizes its text, saved as the entry's `textScale`. It reads its note through `float_note`
+  from the folder it opened on (`notes::floating_note`) whenever Rust raises its `revision`:
   `watch.rs` hands every change it reports to the worker (`floating::notes_changed_requested`),
   which first moves the post-its of the folder it watched, live and saved by id, along the renames
-  it saw there, in their order; a read that a rename or folder change overtook is dropped. `float_edit` asks the dock
-  thread for `Request::EditNote`, which summons the panel as the shortcut does and emits
+  it saw there, in their order; a read that a rename or folder change overtook is dropped.
+  Inline editing uses the shared `MarkdownEditor` and the `edit-state.ts` state machine.
+  The panel and post-its coordinate through the Rust edit lease, and the inline editor saves
+  through `float_save_note` ([0014](decisions/0014-app-windows.md)).
+  For "Open in panel", `float_edit` asks the dock thread for `Request::EditNote`, which summons
+  the panel as the shortcut does and emits
   `panel-edit-note` to `main` with the post-it's epoch; the panel opens the note only while
   `floating_edit_current` finds that epoch current and no folder was chosen in the panel since it
   asked, so a request overtaken by a folder change is dropped. Commands of one kind refuse windows of the other.
@@ -226,11 +232,13 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   only for the lookup.
 - **Floating windows and the notes folder:** each window belongs to the folder it opened on, by
   path and marker id (`notes::FolderIdentity`), and to the registry's epoch. A folder leaving
-  (`watch.rs`) starts a new epoch: every label leaves the live set first, so its commands and
-  images stop at once, then every window is destroyed without touching the file
-  ([0009](decisions/0009-note-privacy.md)). Choosing or trusting a folder does the same before the
-  settings change (`floating::begin_switch`), holds every opening and restore off until it ends,
-  then starts another epoch and reopens the configured folder's windows. Work started on an
+  (`watch.rs`) starts a new epoch. Rust parks editing post-its as described in
+  [0014](decisions/0014-app-windows.md) and destroys the other windows without touching the file.
+  When the same folder returns, the registry adopts its parked post-its into the current epoch
+  and rereads their notes instead of opening duplicate windows. Choosing or trusting a folder
+  first finishes the editors, then revokes the windows before changing settings
+  (`floating::begin_switch`). It holds opening and restore until the switch ends, then starts
+  another epoch and reopens the configured folder's windows. Work started on an
   earlier epoch never registers or shows a window, nor saves a move or a pruned entry. A close
   marks its window first and forgets its entry before destroying it; a revocation that overtakes
   it forgets the entry itself, while the folder is still configured, so a closed window never
@@ -240,12 +248,13 @@ Hidden → Summoned (by shortcut) → Dismissed (cursor still at edge) → Hidde
   attachment cleanup holds it, that the folder is still the identity it started on, and fails with
   `FolderChanged` against any other, including one chosen at the same path. Lock order: `SAVING`,
   then the floating registry. The file (`floats.rs`, version 1) keeps each window's id, kind
-  (`image` or `note`), path, physical rectangle, opacity and a post-it's text size, and entries of
-  unknown kinds as they are; a file of another version is
-  neither opened nor overwritten, and a corrupt one reads as empty. Startup and the folder's return
-  reopen windows unlocked, sized to and then kept on the monitors there are now
-  (`floats::fit_to_monitors`), dropping entries whose image or note is gone and keeping those that
-  cannot be checked. Closing a window forgets its entry; a window destroyed otherwise keeps it.
+  (`image` or `note`), path, physical rectangle, opacity and a post-it's text size and optional
+  `collapsed` flag (absent means expanded, with no version bump). It preserves entries of
+  unknown kinds and leaves files of other versions alone. A corrupt file reads as empty. Startup
+  and the folder's return reopen windows unlocked and fit them to the current monitors
+  (`floats::fit_to_monitors`, or `fit_collapsed` for collapsed post-its). The restore drops
+  entries for missing images and notes and keeps entries it cannot check. Closing a window
+  forgets its entry; a window destroyed otherwise keeps it.
 - **Tweak window** (development builds only, `dev.rs`): a `tweak` window on the same UI page with
   event permissions only; app commands still reject it. It sends its state to the panel as
   `tweak-state`, and `dock.rs` reads the live tuning, or the constants in release builds, once per
@@ -264,9 +273,10 @@ instance exits.
 
 `updates.rs` checks at production startup, every six hours and on Windows resume; development builds
 disable updates. Triggers share one check or download, and Rust verifies the download and keeps it in
-memory. Quit and update share a native exit gate: an event asks the UI to freeze input and finish both
-the note editor and the Scratchpad through their save guards, and only its acknowledgement allows exit;
-busy operations, save errors and conflicts keep the process open ([0008](decisions/0008-distribution.md)).
+memory. Quit and update share a native exit gate. An event asks the UI to freeze input and finish
+the panel note and Scratchpad edits through their save guards, then finish post-it edits through
+the Rust handshake. Exit requires a successful acknowledgement
+([0008](decisions/0008-distribution.md)).
 Windows NSIS relaunches after installing.
 
 To cut a release, align package, Cargo and Tauri versions and `Cargo.lock`, commit, push through normal
@@ -308,8 +318,9 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
 - `watch::monitor` checks the state every 2 s and emits `notes-changed` and `scratchpad-changed` on a
   change. On leaving, the UI (`folderAction` in `features/notes/folder-state.ts`) forgets every note's
   text, name and tag, and Scratchpad forgets clean text as well; Rust forgets what it keeps for Undo and
-  closes the image preview and the floating windows, which reopen on return. The one exception is an
-  editor with unsaved text, which stays in memory until saved on return or discarded.
+  closes the image preview and revokes the floating windows as described in
+  [0014](decisions/0014-app-windows.md). Editors keep unsaved text in memory until saved on return
+  or discarded.
 
 ### Writing without losing content
 
@@ -325,10 +336,10 @@ would write plaintext under a vault's mount point ([0009](decisions/0009-note-pr
   against rename and checked for links while writing.
 - **Leftovers:** a save interrupted between its renames leaves a `.docdock-bak`. Opening a folder lists
   them and offers to restore each under a free name; nothing is overwritten or deleted.
-- **Autosave** (`features/notes/autosave.ts`): one save in flight, the latest edit queued; a conflict
-  stops saving and keeps the text. Every way out of editing goes through one guarded leave that
-  flushes and refuses on conflict or error, including hiding the panel, choosing a folder, Quit and
-  updating.
+- **Autosave** (`features/notes/autosave.ts`): the panel note, Scratchpad and post-it editors each
+  allow one save in flight and queue the latest edit. A conflict stops saving and keeps the text.
+  A guarded leave flushes pending changes and refuses on conflict or error. For post-its it
+  covers closing and lease transfers as well as folder choices, Quit and updating.
 - **Scratchpad** (`features/scratchpad/Scratchpad.svelte`): backed by `.docdock/scratchpad.md`
   inside the notes folder (`scratchpad_open`, `scratchpad_save`), sharing `ReplaceFileW` conflict
   handling, vault protection (`0009`: missing files create nothing until non-empty content is

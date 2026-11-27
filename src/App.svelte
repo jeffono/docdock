@@ -17,6 +17,8 @@ import { errorText, t } from "./lib/i18n";
 import {
   exitReady,
   floatingEditCurrent,
+  floatingFinishEdits,
+  floatingReleaseEdits,
   onExitCancelled,
   onExitRequested,
   onPanelEditNote,
@@ -147,6 +149,7 @@ onMount(() => {
   void action(loadActivation());
   void loadTabWheelMode().catch(() => {});
   const cancelled = onExitCancelled(() => {
+    void floatingReleaseEdits(true).catch(() => {});
     exiting = false;
     document.body.inert = false;
   });
@@ -165,7 +168,11 @@ onMount(() => {
           activeTab = "scratchpad";
           preferences = false;
         }
-        saved = notesSaved && scratchpadSaved;
+        // Post-its editing save last, and no edit begins in them afterwards; one that cannot
+        // keeps the app open. A failed exit lets edits begin again (`exit_ready`).
+        const floatingSaved = notesSaved && scratchpadSaved && (await floatingFinishEdits(true));
+        if (notesSaved && scratchpadSaved && !floatingSaved) error = t("floating.unsaved");
+        saved = floatingSaved;
         await exitReady(id, saved);
       } catch (e) {
         saved = false;

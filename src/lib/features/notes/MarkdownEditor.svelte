@@ -28,6 +28,9 @@ let {
   placeholder,
   fill = false,
   autofocus = true,
+  spelling: checksSpelling = true,
+  stats = true,
+  copy = clipboardWrite,
   tags = () => [],
   onleave = () => {},
   onblur,
@@ -48,6 +51,11 @@ let {
   placeholder?: string;
   fill?: boolean;
   autofocus?: boolean;
+  /** Off where the spelling commands are out of reach, as in a post-it. */
+  spelling?: boolean;
+  stats?: boolean;
+  /** Writes a copy or cut privately; a post-it has its own command. */
+  copy?: (text: string) => Promise<void>;
   /** The folder's tags, offered while typing them in the frontmatter. */
   tags?: () => string[];
   onleave?: () => void;
@@ -225,7 +233,7 @@ function extensions() {
     ...(onpaste
       ? [EditorView.domEventHandlers({ paste: (event, editorView) => onpaste(event, editorView) })]
       : []),
-    privateCut(clipboardWrite),
+    privateCut(untrack(() => copy)),
     ...editorExtensions(
       onleave,
       (focused) => {
@@ -350,10 +358,12 @@ onMount(() => {
   total = countText(view.state.sliceDoc(bodyStart));
   onready?.(view, styled);
   if (untrack(() => autofocus)) view.focus();
-  const stopSpelling = spellingOn.subscribe((on) => {
-    view?.dispatch({ effects: checker.reconfigure(on ? spellingExtension : []) });
-  });
-  loadSpelling().catch(() => {});
+  const stopSpelling = untrack(() => checksSpelling)
+    ? spellingOn.subscribe((on) => {
+        view?.dispatch({ effects: checker.reconfigure(on ? spellingExtension : []) });
+      })
+    : () => {};
+  if (untrack(() => checksSpelling)) loadSpelling().catch(() => {});
   return () => {
     stopSpelling();
     clearTimeout(countTimer);
@@ -373,7 +383,7 @@ onMount(() => {
     {ondragover}
     {ondropcapture}
   ></div>
-  {#if total}
+  {#if stats && total}
     <div class="stats">
       <NoteStats {total} {selected} />
     </div>

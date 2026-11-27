@@ -16,12 +16,12 @@ use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindow
 use windows::Win32::UI::WindowsAndMessaging::{
     BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GWL_EXSTYLE, GetCursorPos,
     GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
-    HWND_TOPMOST, IsIconic, IsWindow, SC_KEYMENU, SM_CXDRAG, SM_CYDRAG, SM_SWAPBUTTON, SW_HIDE,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_NCDESTROY, WM_SIZING,
-    WM_SYSCOMMAND, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT, WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP,
-    WMSZ_TOPLEFT, WMSZ_TOPRIGHT, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    GetWindowThreadProcessId, HWND_TOPMOST, IsIconic, IsWindow, SC_KEYMENU, SM_CXDRAG, SM_CYDRAG,
+    SM_SWAPBUTTON, SW_HIDE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, WM_NCDESTROY, WM_SIZING, WM_SYSCOMMAND, WMSZ_BOTTOM, WMSZ_BOTTOMLEFT,
+    WMSZ_BOTTOMRIGHT, WMSZ_LEFT, WMSZ_RIGHT, WMSZ_TOP, WMSZ_TOPLEFT, WMSZ_TOPRIGHT,
+    WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 use windows::core::BOOL;
 
@@ -397,6 +397,41 @@ pub fn prepare_floating(raw: isize) {
         let style = (style | WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) & !WS_EX_APPWINDOW.0;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
     }
+}
+
+/// Lets the floating window `raw` activate, as while its note is edited, or keeps it from ever
+/// activating again, as `prepare_floating` made it. The frame change makes Windows read the style.
+pub fn set_activatable(raw: isize, activatable: bool) {
+    unsafe {
+        let hwnd = HWND(raw as *mut _);
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let style = if activatable {
+            style & !WS_EX_NOACTIVATE.0
+        } else {
+            style | WS_EX_NOACTIVATE.0
+        };
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+        let flags = SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        log_failure("SetWindowPos", SetWindowPos(hwnd, None, 0, 0, 0, 0, flags));
+    }
+}
+
+/// Whether Windows agreed to give the window `raw` focus, as [`PanelWindow::activate`].
+pub fn activate(raw: isize) -> bool {
+    let activated = unsafe { SetForegroundWindow(HWND(raw as *mut _)) }.as_bool();
+    eprintln!("[floating] activate: ok={activated}");
+    activated
+}
+
+pub fn is_foreground(raw: isize) -> bool {
+    unsafe { GetForegroundWindow() }.0 as isize == raw
+}
+
+/// The window `raw` belongs to this app: the panel, its page, a floating window or a dialog.
+pub fn is_own_window(raw: isize) -> bool {
+    let mut process = 0;
+    unsafe { GetWindowThreadProcessId(HWND(raw as *mut _), Some(&mut process)) };
+    process == std::process::id()
 }
 
 /// Shows the window at `rect`, above other windows, without activating it: Tauri's `show` and
