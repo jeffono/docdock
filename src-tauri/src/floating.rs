@@ -479,7 +479,7 @@ impl Worker {
                     return Err(Error::FolderChanged);
                 }
                 for (id, dirty) in current {
-                    store.update(id, dirty.rect, dirty.opacity, dirty.text_scale);
+                    store.update(id, dirty.rect, dirty.opacity, dirty.text_scale, None);
                 }
                 Ok(())
             });
@@ -634,7 +634,7 @@ fn build(app: &AppHandle, label: &str, kind: Kind, aspect: f64) -> Result<(), Er
             let min = scale_dpi(dpi, floats::MIN_SIDE);
             match kind {
                 Kind::Image => floats::constrain_sizing(rect, edge, hooked.get(), pad, min, work),
-                Kind::Note => floats::constrain_free(rect, edge, pad, min, work),
+                Kind::Note => floats::constrain_free(rect, edge, pad, min, work, None),
             }
         });
         if let Err(error) = platform::constrain_sizing(raw, sizing) {
@@ -792,6 +792,7 @@ fn open_with_rect(
         height: 0,
         opacity: 1.0,
         text_scale: None,
+        collapsed: false,
     };
     let (label, open) = reserve(epoch, &entry, &folder)?;
     on_reserved(&label);
@@ -1541,6 +1542,7 @@ pub(crate) fn register_for_tests(folder: &FolderIdentity) -> String {
         height: 10,
         opacity: 1.0,
         text_scale: None,
+        collapsed: false,
     };
     reserve(epoch, &entry, folder).unwrap().0
 }
@@ -1660,6 +1662,7 @@ mod tests {
                     height: 10,
                     opacity: 1.0,
                     text_scale: None,
+                    collapsed: false,
                 });
                 // Still under `SAVING`: a close's own removal waits for it, so it lands after this.
                 if after_save {
@@ -1784,6 +1787,7 @@ mod tests {
                 height: 10,
                 opacity: 1.0,
                 text_scale: None,
+                collapsed: false,
             });
         }
         let label = registry.live[0].label.clone();
@@ -1812,6 +1816,7 @@ mod tests {
             height: 10,
             opacity: 1.0,
             text_scale: None,
+            collapsed: false,
         }
     }
 

@@ -6,7 +6,7 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20 step 1 (collapsed state in `floats.rs`).
+- M20 step 2 (`float_set_collapsed` and saving in `floating.rs`).
 
 ## Next
 

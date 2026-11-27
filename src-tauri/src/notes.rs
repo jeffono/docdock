@@ -5231,6 +5231,7 @@ mod tests {
             height: 100,
             opacity: 1.0,
             text_scale: None,
+            collapsed: false,
         }
     }
     /// A chosen notes folder holding `attachments/a.png`, its settings and its identity.
