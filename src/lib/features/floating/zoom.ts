@@ -1,6 +1,6 @@
 // Zooming a floating window's image with Ctrl+wheel and panning it with Ctrl+drag: pure rules
-// whose effects `FloatWindow.svelte` runs. The window grows first, up to the side preview's share
-// of the monitor (Rust decides it); past that the image zooms inside it.
+// whose effects `FloatWindow.svelte` runs. The window grows first, up to the monitor's work area
+// (Rust decides it). Past that the image zooms inside it.
 
 /** One wheel notch. */
 export const ZOOM_STEP = 1.15;

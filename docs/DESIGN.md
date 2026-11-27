@@ -550,11 +550,11 @@ writing history to disk.
   `IconButton` whose pointer icon is outlined when off and filled when on; and Close. Only the
   image fades: the pill stays opaque. Alt+wheel anywhere, or the wheel over the pill, changes the
   opacity. Ctrl+wheel zooms: the window grows or shrinks around its center, stopping at the image's
-  natural size (1:1) on the way, up to the side preview's share of the monitor (72% of its work
-  area's width, 76% of its height); past that the image zooms inside the window, toward the
-  pointer, up to 8×, and zooming out returns to no inner zoom before the window shrinks. While
-  zoomed inside, Ctrl+drag pans the image, never past its edges and settling on the center within
-  6 px; Ctrl+double-click returns to the whole image at its natural size where it fits, and a
+  natural size (1:1) on the way. The window, including its gutter, can grow to the edges of the
+  monitor's work area. Past that the image zooms inside the window, toward the pointer, up to 8×,
+  and zooming out returns to no inner zoom before the window shrinks. While zoomed inside,
+  Ctrl+drag pans the image, never past its edges and settling on the center within 6 px;
+  Ctrl+double-click returns to the whole image at its natural size where it fits, and a
   Ctrl+drag never moves the window. Ctrl and
   Alt together (AltGr) do none of these. Dragging
   the image or the pill's background moves the window; invisible strips 6 px either side of the

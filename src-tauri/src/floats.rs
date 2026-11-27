@@ -28,10 +28,6 @@ pub const SHADOW_PAD: u32 = 8;
 /// A post-it's title bar height, in logical pixels, all a collapsed post-it shows: must match the
 /// bar's CSS height in the post-it window, as `SHADOW_PAD` matches `--space-2`.
 pub const TITLE_HEIGHT: u32 = 28;
-/// The most of a monitor's work area an image grows to by zooming, in percent of its width and
-/// height: the side preview's share of the room beside the panel.
-const MAX_WIDTH: u32 = 72;
-const MAX_HEIGHT: u32 = 76;
 const LABEL_PREFIX: &str = "float-";
 /// The size a post-it opens at, in logical pixels, without its gutter.
 pub const NOTE_SIZE: (u32, u32) = (300, 320);
@@ -642,18 +638,9 @@ pub fn saved_rect(window: Rect, collapsed: bool, expanded_height: i32) -> Rect {
     }
 }
 
-/// The largest an image may grow to by zooming on a monitor with this work area.
-pub fn max_image_size(work: Rect) -> (i32, i32) {
-    let percent = |length: i32, share: u32| length * share as i32 / 100;
-    (
-        percent(work.right - work.left, MAX_WIDTH),
-        percent(work.bottom - work.top, MAX_HEIGHT),
-    )
-}
-
 /// The window `window` zoomed so its image of `aspect`, `pad` inside it, is `width` pixels wide:
-/// between `min` for its shorter side and `max_image_size`, around the same center, moved into
-/// `work`. Also answers whether the image reached its largest size.
+/// at least `min` on its shorter side as long as the window fits in `work`, around the same
+/// center and moved into `work`. Also answers whether the image reached its largest size.
 pub fn zoom_rect(
     window: Rect,
     width: f64,
@@ -662,7 +649,8 @@ pub fn zoom_rect(
     min: i32,
     work: Rect,
 ) -> (Rect, bool) {
-    let (max_width, max_height) = max_image_size(work);
+    let room = inset(work, pad);
+    let (max_width, max_height) = (room.right - room.left, room.bottom - room.top);
     let widest = fit_width(max_width, max_height, aspect);
     let narrowest = min_width(aspect, min).min(widest);
     let width = if width.is_finite() { width } else { widest };
@@ -1394,7 +1382,8 @@ mod tests {
     fn a_skinny_image_stays_within_the_largest_size() {
         let aspect = 1.0 / 2000.0;
         let (zoomed, at_max) = zoom_rect(window(800, 100, 1, 500), 5000.0, aspect, PAD, 96, WORK);
-        assert_eq!(size(zoomed), (1 + 2 * PAD, 790 + 2 * PAD));
+        assert_eq!(size(zoomed), (1 + 2 * PAD, 1040));
+        assert_eq!((zoomed.top, zoomed.bottom), (WORK.top, WORK.bottom));
         assert!(at_max);
         let fitted = contain(window(0, 0, 400, 300), aspect, PAD);
         assert_eq!(size(fitted), (1 + 2 * PAD, 300 + 2 * PAD));
@@ -1413,7 +1402,7 @@ mod tests {
     }
 
     #[test]
-    fn zooming_stays_between_the_minimum_and_the_preview_share() {
+    fn zooming_stays_between_the_minimum_and_the_work_area() {
         let start = window(800, 400, 400, 200);
         let (zoomed, at_max) = zoom_rect(start, 600.0, 2.0, PAD, 96, WORK);
         assert_eq!(size(zoomed), (616, 316));
@@ -1421,9 +1410,10 @@ mod tests {
         // Around the same center.
         let center = |r: Rect| ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
         assert_eq!(center(zoomed), center(start));
-        // 72% of 1920 is 1382; 76% of 1040 is 790, which allows 1580 at 2:1.
+        // With 8 pixels of gutter on each side, the 2:1 image fits at 1904 by 952.
         let (zoomed, at_max) = zoom_rect(start, 5000.0, 2.0, PAD, 96, WORK);
-        assert_eq!(size(zoomed), (1382 + 16, 691 + 16));
+        assert_eq!(size(zoomed), (1920, 952 + 2 * PAD));
+        assert_eq!((zoomed.left, zoomed.right), (WORK.left, WORK.right));
         assert!(at_max);
         let (zoomed, at_max) = zoom_rect(start, 1.0, 2.0, PAD, 96, WORK);
         assert_eq!(size(zoomed), (192 + 16, 96 + 16));
@@ -1440,8 +1430,12 @@ mod tests {
     }
 
     #[test]
-    fn the_largest_image_takes_the_preview_share_of_the_work_area() {
-        assert_eq!(max_image_size(WORK), (1382, 790));
+    fn a_zoomed_window_can_fill_the_work_area() {
+        let work = rect(-1024, 40, 1024, 1024);
+        let start = window(-400, 700, 200, 200);
+        let (zoomed, at_max) = zoom_rect(start, 5000.0, 1.0, PAD, 96, work);
+        assert_eq!(zoomed, work);
+        assert!(at_max);
     }
 
     #[test]
