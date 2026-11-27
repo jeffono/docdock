@@ -3,6 +3,8 @@
 // it resizes: Rust decides what each resize may make of the window.
 import { floatResize, type ResizeDirection } from "../../ipc";
 
+let { horizontalOnly = false }: { horizontalOnly?: boolean } = $props();
+
 const edges: [string, ResizeDirection][] = [
   ["n", "North"],
   ["s", "South"],
@@ -21,7 +23,7 @@ function resize(event: PointerEvent, direction: ResizeDirection) {
 }
 </script>
 
-{#each edges as [edge, direction] (edge)}
+{#each edges.filter(([, direction]) => !horizontalOnly || direction === "East" || direction === "West") as [edge, direction] (edge)}
   <div class="edge {edge}" aria-hidden="true" onpointerdown={(event) => resize(event, direction)}></div>
 {/each}
 

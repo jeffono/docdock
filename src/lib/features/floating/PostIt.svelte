@@ -14,20 +14,21 @@ import {
   floatEdit,
   floatNote,
   floatReady,
+  floatSetCollapsed,
   floatSetOpacity,
   floatSetTextScale,
 } from "../../ipc";
-import IconButton from "../../ui/IconButton.svelte";
 import { renderNote } from "../notes/render";
 import "../notes/content.css";
-import FloatBar from "./FloatBar.svelte";
 import FloatEdges from "./FloatEdges.svelte";
 import { latestSender, stepOpacity } from "./opacity";
 import type { FloatSession } from "./session";
+import TitleBar from "./TitleBar.svelte";
 import { stepTextScale } from "./text-scale";
 
 let { session }: { session: FloatSession } = $props();
 
+let windowRoot: HTMLElement;
 let sheet: HTMLElement;
 let body: HTMLElement;
 let scroller: HTMLElement;
@@ -37,13 +38,14 @@ let opacity = $state(1);
 let textScale = $state(1);
 let clickThrough = $state(false);
 let revealed = $state(false);
+let collapsed = $state(false);
 let hovered = $state(false);
 /** The note is gone, as after a rename the post-it did not see: only that shows, until it returns. */
 let gone = $state(false);
 const controls = $derived(revealed || (hovered && !clickThrough));
 const labels = $derived.by(() => {
   void locale;
-  return { window: t("postIt.label"), edit: t("postIt.edit"), gone: t("postIt.gone") };
+  return { window: t("postIt.label"), gone: t("postIt.gone") };
 });
 const name = $derived(path?.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "") ?? "");
 
@@ -61,6 +63,7 @@ function apply(update: FloatUpdate) {
   if (update.clickThrough !== clickThrough) hovered = false;
   clickThrough = update.clickThrough;
   revealed = update.revealed;
+  collapsed = update.collapsed;
   if (update.revision !== revision) {
     revision = update.revision;
     void read();
@@ -113,7 +116,7 @@ async function read() {
 
 // Through the CSSOM: the CSP forbids style attributes.
 $effect(() => {
-  sheet.style.opacity = String(opacity);
+  windowRoot.style.setProperty("--sheet-opacity", String(opacity));
 });
 $effect(() => {
   body.style.zoom = String(textScale);
@@ -149,10 +152,10 @@ function wheel(event: WheelEvent) {
   }
 }
 
-/** Over the controls, the resize strips or the note's scrollbar, a press is theirs. */
+/** Over the title bar, resize strips or scrollbar, the body leaves the press alone. */
 function theirs(event: MouseEvent) {
   const target = event.target as Element;
-  if (target.closest("button, input, .edge")) return true;
+  if (collapsed || target.closest("button, input, .title-bar, .edge")) return true;
   const box = scroller.getBoundingClientRect();
   return event.clientX >= box.left + scroller.clientWidth && event.clientX < box.right;
 }
@@ -211,13 +214,10 @@ onMount(() => {
 });
 </script>
 
-{#snippet editAction()}
-  <IconButton icon="pencil" quiet label={labels.edit} tabindex={-1} onclick={() => void floatEdit().catch(() => {})} />
-{/snippet}
-
 <div
   class="float"
   class:active={controls}
+  bind:this={windowRoot}
   role="group"
   aria-label={labels.window}
   onpointerenter={() => { hovered = true; }}
@@ -228,22 +228,25 @@ onMount(() => {
   onpointerdown={pointerdown}
   ondblclick={doubleClick}
 >
-  <div class="sheet" bind:this={sheet}>
-    <div class="scroller" bind:this={scroller}>
+  <div class="sheet" class:collapsed bind:this={sheet}>
+    <div class="scroller" hidden={collapsed} bind:this={scroller}>
       {#if gone}<p class="gone" role="status">{labels.gone}</p>{/if}
       <!-- Built from the editor's parser as DOM nodes; note text never becomes HTML. -->
       <div class="body note-content" hidden={gone} bind:this={body} aria-label={name}></div>
     </div>
   </div>
-  <FloatBar
+  <TitleBar
+    {name}
     shown={controls}
     {opacity}
     {clickThrough}
     {locale}
+    {collapsed}
+    {gone}
     onopacity={setOpacity}
-    actions={gone ? undefined : editAction}
+    ontoggle={() => void floatSetCollapsed(!collapsed).catch(() => {})}
   />
-  {#if !clickThrough || revealed}<FloatEdges />{/if}
+  {#if !clickThrough || revealed}<FloatEdges horizontalOnly={collapsed} />{/if}
 </div>
 
 <style>
@@ -254,22 +257,28 @@ onMount(() => {
   /* `--pad` is the transparent gutter around the sheet, `SHADOW_PAD` in `floats.rs`. */
   .float {
     --pad: var(--space-2);
+    /* Matches floats::TITLE_HEIGHT (28 logical px), including the top border. */
+    --title-height: var(--size-control);
     position: fixed;
     inset: 0;
   }
 
-  /* The vertical padding is the sheet's, so the text scrolls clipped as far from the bottom edge as
-     from the top, scrolled or not. */
+  /* The scroller stays inset from both the title bar and the sheet's bottom edge. */
   .sheet {
     position: absolute;
     inset: var(--pad);
     overflow: hidden;
-    padding: var(--space-2) 0;
+    padding: calc(var(--title-height) + var(--space-2) - 1px) 0 var(--space-2);
     border: 1px solid var(--color-line);
     border-radius: var(--radius-sm);
     background: var(--color-surface);
     color: var(--color-fg);
+    opacity: var(--sheet-opacity);
     transition: filter var(--duration);
+  }
+
+  .sheet.collapsed {
+    padding: 0;
   }
 
   /* As a floating image's: the hairline and soft shadow show where the window ends. */

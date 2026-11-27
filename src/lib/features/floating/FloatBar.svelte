@@ -1,7 +1,6 @@
 <script lang="ts">
-// The pill of controls a floating window shows in its top right corner: what comes `before` (an
-// image's zoom), the opacity slider, any `actions`, then letting clicks through and closing. It
-// stays opaque while the window fades, and keeps the class `bar`, which the window's wheel reads.
+// Floating controls: an image's pill or the inline actions of a post-it title bar. They stay opaque
+// while the content fades and keep the class `bar`, which the window's wheel reads.
 import type { Snippet } from "svelte";
 import { t } from "../../i18n";
 import { floatClose, floatSetClickThrough } from "../../ipc";
@@ -17,6 +16,7 @@ let {
   onopacity,
   before,
   actions,
+  inline = false,
 }: {
   shown: boolean;
   opacity: number;
@@ -27,6 +27,7 @@ let {
   onopacity: (value: number) => void;
   before?: Snippet;
   actions?: Snippet;
+  inline?: boolean;
 } = $props();
 
 let range: HTMLInputElement;
@@ -46,7 +47,7 @@ $effect(() => {
 </script>
 
 
-<div class="bar" class:shown>
+<div class="bar" class:shown class:inline>
   {#if before}{@render before()}{/if}
   <span class="opacity" class:apart={!!before}>
     <Icon name="blend" />
@@ -98,6 +99,13 @@ $effect(() => {
   .bar.shown {
     visibility: visible;
     opacity: 1;
+  }
+
+  .bar.inline {
+    position: static;
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
 
   /* The opacity's own group, an icon and its slider, set apart from what comes before by a line
@@ -153,6 +161,12 @@ $effect(() => {
   @media (max-width: 12rem) {
     .opacity {
       display: none;
+    }
+  }
+
+  @media (max-width: 10rem) {
+    .bar.inline :global(button) {
+      width: calc(var(--size-icon) + var(--space-1) / 2);
     }
   }
 
