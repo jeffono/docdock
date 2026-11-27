@@ -42,17 +42,48 @@ describe("panel tabs", () => {
 
   it("accumulates small touchpad deltas across the switch threshold", () => {
     const stepper = createWheelStepper(50, 200);
-    expect(stepper.step(20, 100)).toBeNull();
-    expect(stepper.step(20, 120)).toBeNull();
-    expect(stepper.step(20, 140)).toBe(1);
+    expect(stepper.step("notes", 20, 100)).toBeNull();
+    expect(stepper.step("notes", 20, 120)).toBeNull();
+    expect(stepper.step("notes", 20, 140)).toBe("scratchpad");
   });
 
   it("resets partial accumulation on direction reversal or idle gap", () => {
     const stepper = createWheelStepper(50, 200);
-    expect(stepper.step(30, 200)).toBeNull();
-    expect(stepper.step(-30, 210)).toBeNull();
-    expect(stepper.step(-30, 220)).toBe(-1);
-    expect(stepper.step(40, 300)).toBeNull();
-    expect(stepper.step(20, 600)).toBeNull();
+    expect(stepper.step("scratchpad", 30, 200)).toBeNull();
+    expect(stepper.step("scratchpad", -30, 210)).toBeNull();
+    expect(stepper.step("scratchpad", -30, 220)).toBe("notes");
+    expect(stepper.step("notes", 40, 300)).toBeNull();
+    expect(stepper.step("notes", 20, 600)).toBeNull();
+  });
+
+  it.each([
+    ["clipboard", 60],
+    ["notes", -60],
+  ] as const)("stops at %s before entering Browser in the same gesture", (stop, delta) => {
+    const stepper = createWheelStepper();
+    expect(stepper.step("scratchpad", delta, 0)).toBe(stop);
+    expect(stepper.step(stop, delta, 249)).toBeNull();
+  });
+
+  it("allows entry to Browser after 250 ms since the last blocked event", () => {
+    const stepper = createWheelStepper();
+    expect(stepper.step("scratchpad", 60, 0)).toBe("clipboard");
+    expect(stepper.step("clipboard", 60, 100)).toBeNull();
+    expect(stepper.step("clipboard", 60, 349)).toBeNull();
+    expect(stepper.step("clipboard", 30, 599)).toBeNull();
+    expect(stepper.step("clipboard", 20, 620)).toBe("browser");
+  });
+
+  it("allows entry to Browser as the first tab step of a gesture", () => {
+    const stepper = createWheelStepper();
+    expect(stepper.step("notes", -25, 0)).toBeNull();
+    expect(stepper.step("notes", -25, 20)).toBe("browser");
+  });
+
+  it("allows consecutive steps that do not enter Browser", () => {
+    const stepper = createWheelStepper();
+    expect(stepper.step("browser", 60, 0)).toBe("notes");
+    expect(stepper.step("notes", 60, 20)).toBe("scratchpad");
+    expect(stepper.step("scratchpad", 60, 40)).toBe("clipboard");
   });
 });

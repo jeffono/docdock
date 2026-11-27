@@ -123,6 +123,8 @@ The CSP forbids inline styles, so no component depends on a `style` attribute.
   than other icons. No app name or page title. Ctrl+Tab / Ctrl+Shift+Tab cycle tabs anywhere in
   the panel, including editors and the web page. When enabled in Preferences, rolling the mouse
   wheel over the top bar switches tabs even while the panel is unfocused (without taking focus).
+  A continuous gesture stops at Clipboard going forward and Notes going backward. Entering
+  Browser from either stop takes a new gesture after 250 ms without scrolling.
 - **Second bar:** the same search field and "+" action in both modes. In Browser a quiet shield sits
   left of the address field, its icon at the bar's content edge.
 - **Shield:** shield means content blocking on, shield-off allowed. One click toggles the whole
