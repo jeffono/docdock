@@ -1604,6 +1604,41 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<OpenNote>, Erro
     read
 }
 
+/// The notes folder of the post-it `label`, which must be editing its note.
+fn editing_folder(label: &str) -> Result<FolderIdentity, Error> {
+    with_live(label, |live| match live.kind {
+        Kind::Image => Err(Error::unexpected("command restricted to post-its")),
+        Kind::Note if !live.editing => Err(Error::unexpected("post-it not editing")),
+        Kind::Note => Ok(live.folder.clone()),
+    })?
+}
+
+/// The note the post-it `label` edits now, after any rename; refused once it stopped editing or
+/// went.
+fn editing_path(label: &str) -> Result<String, Error> {
+    with_live(label, |live| match live.kind {
+        Kind::Note if live.editing && !live.closing => Ok(live.path.clone()),
+        _ => Err(Error::unexpected("post-it not editing")),
+    })?
+}
+
+/// Saves `content` as the note the post-it `label` edits, if it still holds `base`. Never names a
+/// path: only the note Rust registered for the window, read under `SAVING` so a rename or close in
+/// between is seen, and only in the notes folder it opened on. A missing note answers `Conflict`
+/// unless `recreate`.
+pub fn save_note(
+    app: &AppHandle,
+    label: &str,
+    content: &str,
+    base: &str,
+    recreate: bool,
+) -> Result<crate::notes::Saved, Error> {
+    let folder = editing_folder(label)?;
+    crate::notes::floating_save(app, &folder, content, base, recreate, || {
+        editing_path(label)
+    })
+}
+
 /// The post-it `label` stops editing and never activates again; if it still has focus, focus goes
 /// back to the window that had it before, or the one the panel last opened over, never to a
 /// window of the app. If the user went to another window meanwhile, focus stays there.
@@ -2410,6 +2445,25 @@ mod tests {
         assert!(begins(&mut registry, "float-2"));
         assert!(!blocked(&registry, "float-1"));
         assert_eq!(registry.editing_paths(), ["a.md", "b.md"]);
+    }
+
+    // Catches a post-it saving a note it does not edit, a floating image saving one, or a window
+    // Rust never registered reaching the save.
+    #[test]
+    fn only_a_post_it_editing_its_note_saves_it() {
+        let picture = register_for_tests(&folder());
+        let epoch = registry().epoch;
+        let (post_it, _) = reserve(epoch, &note("a.md"), &folder()).unwrap();
+        for label in [picture.as_str(), post_it.as_str(), "float-424242", "main"] {
+            assert!(editing_folder(label).is_err(), "{label}");
+            assert!(editing_path(label).is_err(), "{label}");
+        }
+        with_live(&post_it, |live| live.editing = true).unwrap();
+        assert_eq!(editing_folder(&post_it), Ok(folder()));
+        assert_eq!(editing_path(&post_it), Ok("a.md".into()));
+        take(&picture);
+        take(&post_it);
+        assert!(editing_path(&post_it).is_err());
     }
 
     // Catches a post-it taking focus to edit while clicks go through it, or before it shows.

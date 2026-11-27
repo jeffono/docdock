@@ -6,8 +6,8 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20 step 3 (post-it title bar UI; Rust collapse in place). Step 4 (edit lease) in Rust on branch
-  `floating-notes-lease`.
+- M20 step 3 (post-it title bar UI; Rust collapse in place). Steps 4 (edit lease) and 5
+  (`float_save_note`) done in Rust on branch `floating-notes-lease`; no UI uses them yet.
 
 ## Next
 

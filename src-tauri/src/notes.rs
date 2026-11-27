@@ -1081,6 +1081,16 @@ fn write_note_in(
 ) -> Result<Saved, Error> {
     too_large(content.len() as u64)?;
     let _guard = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    write_note_locked(root, relative, content, base, recreate)
+}
+/// `write_note_in` for a caller already holding `SAVING`.
+fn write_note_locked(
+    root: &Path,
+    relative: &str,
+    content: &str,
+    base: &str,
+    recreate: bool,
+) -> Result<Saved, Error> {
     if reserved(root, relative) {
         return Ok(Saved::Conflict);
     }
@@ -2546,6 +2556,41 @@ fn floating_note_in(real: &Path, path: &str) -> Result<Option<OpenNote>, Error> 
         version: version(text.as_bytes()),
         text,
     }))
+}
+/// Saves the note a post-it edits, as `write_note_in` does, only into the notes folder `identity`
+/// while it is still the configured one, at the path `current_path` names under `SAVING`, which may
+/// refuse: the post-it's note now, after any rename, while it still edits it. Lock order: `SAVING`,
+/// then the floating registry. A missing note answers `Conflict` unless `recreate`.
+pub fn floating_save(
+    app: &AppHandle,
+    identity: &FolderIdentity,
+    content: &str,
+    base: &str,
+    recreate: bool,
+    current_path: impl FnOnce() -> Result<String, Error>,
+) -> Result<Saved, Error> {
+    floating_save_at(
+        &config(app)?,
+        identity,
+        content,
+        base,
+        recreate,
+        current_path,
+    )
+}
+fn floating_save_at(
+    config: &Path,
+    identity: &FolderIdentity,
+    content: &str,
+    base: &str,
+    recreate: bool,
+    current_path: impl FnOnce() -> Result<String, Error>,
+) -> Result<Saved, Error> {
+    too_large(content.len() as u64)?;
+    let _saving = SAVING.lock().unwrap_or_else(|e| e.into_inner());
+    let root = root_matching(config, identity)?;
+    let path = current_path()?;
+    write_note_locked(&root, &path, content, base, recreate)
 }
 /// The floating windows saved in the configured notes folder, with its identity, if it is
 /// available and the one chosen; see `load_floating`. Under `SAVING`, as every write.
@@ -5252,6 +5297,117 @@ mod tests {
         let settings = chosen(t, &root, serde_json::json!({}));
         let (identity, _) = read_floating_at(&settings).unwrap();
         (root, settings, identity)
+    }
+    /// `floating_folder_in` with the note `a.md` holding `text`, and that text's version.
+    fn floating_note_folder(t: &Temp, text: &str) -> (PathBuf, PathBuf, FolderIdentity, String) {
+        let (root, settings, identity) = floating_folder_in(t);
+        fs::write(root.join("a.md"), text).unwrap();
+        (root, settings, identity, version(text.as_bytes()))
+    }
+    /// A post-it editing `path` saves `content` over `base`.
+    fn post_it_save(
+        settings: &Path,
+        identity: &FolderIdentity,
+        path: &str,
+        (content, base): (&str, &str),
+        recreate: bool,
+    ) -> Result<Saved, Error> {
+        floating_save_at(settings, identity, content, base, recreate, || {
+            Ok(path.to_owned())
+        })
+    }
+    #[test]
+    fn a_post_it_saves_its_note() {
+        let t = Temp::new();
+        let (root, settings, identity, base) = floating_note_folder(&t, "before");
+        let saved = post_it_save(&settings, &identity, "a.md", ("after", &base), false);
+        assert_eq!(
+            saved,
+            Ok(Saved::Saved {
+                version: version(b"after")
+            })
+        );
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"after");
+    }
+    // Catches a post-it's late save landing in a folder chosen meanwhile, or in another
+    // folder that took the path, as a vault trusted anew.
+    #[test]
+    fn a_post_it_saves_only_into_the_folder_it_opened_on() {
+        let t = Temp::new();
+        let (root, settings, identity, base) = floating_note_folder(&t, "before");
+        let other = t.0.join("other");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("a.md"), "before").unwrap();
+        choose_in(&settings, other.clone()).unwrap();
+        let save = || post_it_save(&settings, &identity, "a.md", ("late", &base), true);
+        assert_eq!(save(), Err(Error::FolderChanged));
+        assert_eq!(fs::read(other.join("a.md")).unwrap(), b"before");
+        choose_in(&settings, root.clone()).unwrap();
+        fs::write(root.join(DERIVED).join(MARKER), new_folder_id()).unwrap();
+        trust_in(&settings).unwrap();
+        assert_eq!(save(), Err(Error::FolderChanged));
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"before");
+    }
+    // Catches a post-it overwriting what another app wrote since it read the note.
+    #[test]
+    fn a_post_it_save_over_a_stale_version_conflicts() {
+        let t = Temp::new();
+        let (root, settings, identity, base) = floating_note_folder(&t, "before");
+        fs::write(root.join("a.md"), "external").unwrap();
+        let saved = post_it_save(&settings, &identity, "a.md", ("mine", &base), false);
+        assert_eq!(saved, Ok(Saved::Conflict));
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"external");
+    }
+    // Catches a post-it bringing back a note deleted or renamed elsewhere unless asked to.
+    #[test]
+    fn a_post_it_recreates_a_missing_note_only_when_asked() {
+        let t = Temp::new();
+        let (root, settings, identity, base) = floating_note_folder(&t, "before");
+        fs::remove_file(root.join("a.md")).unwrap();
+        let save = |recreate| post_it_save(&settings, &identity, "a.md", ("mine", &base), recreate);
+        assert_eq!(save(false), Ok(Saved::Conflict));
+        assert!(!exists(&root.join("a.md")));
+        assert!(matches!(save(true), Ok(Saved::Saved { .. })));
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"mine");
+    }
+    // Catches a save going ahead for a post-it that stopped editing or closed while it waited.
+    #[test]
+    fn a_post_it_save_the_registry_refuses_writes_nothing() {
+        let t = Temp::new();
+        let (root, settings, identity, base) = floating_note_folder(&t, "before");
+        let saved = floating_save_at(&settings, &identity, "mine", &base, true, || {
+            Err(Error::unexpected("post-it not editing"))
+        });
+        assert!(saved.is_err());
+        assert_eq!(fs::read(root.join("a.md")).unwrap(), b"before");
+    }
+    // Catches a post-it's save recreating a note whose delete Undo can still reverse.
+    #[test]
+    fn a_post_it_never_saves_over_a_pending_delete() {
+        let _serial = deleting();
+        let t = Temp::new();
+        let (root, settings, identity, base) = floating_note_folder(&t, "before");
+        delete_to(&root, &t.0.join("bin"), "a.md");
+        let saved = post_it_save(&settings, &identity, "a.md", ("mine", &base), true);
+        assert_eq!(saved, Ok(Saved::Conflict));
+        assert!(!exists(&root.join("a.md")));
+    }
+    // Catches a post-it's registered path reaching outside the notes folder or DocDock's state.
+    #[test]
+    fn a_post_it_saves_nothing_outside_the_notes() {
+        let t = Temp::new();
+        let (root, settings, identity, _) = floating_note_folder(&t, "before");
+        fs::write(t.0.join("x.md"), "outside").unwrap();
+        fs::write(root.join(DERIVED).join("x.md"), "state").unwrap();
+        let outside = version(b"outside");
+        let state = version(b"state");
+        let derived = format!("{DERIVED}/x.md");
+        for (path, base) in [("../x.md", &outside), (derived.as_str(), &state)] {
+            let saved = post_it_save(&settings, &identity, path, ("mine", base), true);
+            assert!(saved.is_err(), "{path}");
+        }
+        assert_eq!(fs::read(t.0.join("x.md")).unwrap(), b"outside");
+        assert_eq!(fs::read(root.join(DERIVED).join("x.md")).unwrap(), b"state");
     }
     #[test]
     fn floating_windows_are_saved_in_the_notes_folder() {

@@ -716,6 +716,17 @@ pub fn float_begin_edit(
 ) -> Result<Option<crate::notes::OpenNote>, Error> {
     crate::floating::begin_edit(&app, window.label())
 }
+/// Saves the note the post-it edits, never a path it names, if it still holds `base`.
+#[tauri::command(async)]
+pub fn float_save_note(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    content: String,
+    base: String,
+    recreate: bool,
+) -> Result<crate::notes::Saved, Error> {
+    crate::floating::save_note(&app, window.label(), &content, &base, recreate)
+}
 /// The post-it stops editing and gives focus back.
 #[tauri::command(async)]
 pub fn float_end_edit(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), Error> {
