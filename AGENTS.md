@@ -107,6 +107,8 @@ Each plan task has a level; use the cheapest model that can resolve it well.
 - Review by an agent from another provider, diff only: when closing each stage and before changes to
   persistence, security or plugins. Prototypes are excluded.
 - When closing a stage, trigger the CI workflow manually; it does not run on push.
+- Every release gets brief release notes: what changed for users since the previous release, written
+  before publishing the draft (see "Tray, startup and updates" in `docs/ARCHITECTURE.md`).
 
 ## Temporary files
 

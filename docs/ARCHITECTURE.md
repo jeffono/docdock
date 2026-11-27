@@ -281,8 +281,11 @@ Windows NSIS relaunches after installing.
 
 To cut a release, align package, Cargo and Tauri versions and `Cargo.lock`, commit, push through normal
 review, then manually run Release on main; the workflow rejects mismatched versions or a stale
-`Cargo.lock` before signing. Inspect the draft's assets and publish it as a regular latest release;
-never publish an older draft as latest after a newer one. Local release builds also need
+`Cargo.lock` before signing. Before publishing, put brief release notes at the top of the draft, above
+the workflow's stability notice: user-visible changes since the previous release in English, a few
+bullets under New, Improved and Fixed (omit empty headings), without internal names, stage numbers or
+commit lists. Inspect the draft's assets and publish it as a regular latest release; never publish an
+older draft as latest after a newer one. Local release builds also need
 `TAURI_SIGNING_PRIVATE_KEY` (file path or contents) and the matching password variable. `pnpm icons`
 rebuilds the bundle icons and tray glyphs from `src-tauri/icons/source/`.
 
