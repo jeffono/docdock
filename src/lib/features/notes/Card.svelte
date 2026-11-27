@@ -38,6 +38,7 @@ let {
   floating,
   onpage,
   editing = false,
+  editingInFloat = false,
   status = "",
   editor,
   folder = false,
@@ -78,6 +79,7 @@ let {
   onpage: (url: string) => void;
   /** This card holds the one editor; the pencil stays accented. */
   editing?: boolean;
+  editingInFloat?: boolean;
   /** Saving… or Saved while editing; empty when a notice explains a problem instead. */
   status?: string;
   /** The editor, drawn in place of the content while editing. */
@@ -297,6 +299,7 @@ function middleClickFloats(event: MouseEvent): boolean {
       <IconButton tabindex={-1} quiet icon="bookmark" label={t(card.pinned ? "card.unpin" : "card.pin")} pressed={card.pinned} onclick={onpin} />
     </div>
   </header>
+  {#if editingInFloat}<p class="notice">{t("floating.editing")}</p>{/if}
   {#if card.gone}<p class="notice" role="status">{t("notes.gone")}</p>{/if}
   {#if !open && card.hit.snippet}
     <p class="match"><Highlight snippet={card.hit.snippet} /></p>
