@@ -35,6 +35,7 @@ import { countText } from "../notes/count";
 import NoteStats from "../notes/NoteStats.svelte";
 import { transformLabels } from "../notes/transforms";
 import { filterClipboardEntries, previewSnippet } from "./filter";
+import { newestNewId } from "./selection";
 
 let {
   active = false,
@@ -58,6 +59,7 @@ let query = $state("");
 let selectedId = $state<string | null>(null);
 let expandedId = $state<string | null>(null);
 let moreOpen = $state(false);
+let pendingScrollId = $state<string | null>(null);
 let transforms = $state<Record<string, TransformState>>({});
 const sources = new Map<string, string>();
 
@@ -163,6 +165,7 @@ async function refresh() {
       refreshAgain = false;
       try {
         const next = await clipboardSnapshot();
+        const newId = newestNewId(snapshot?.items ?? [], next.items);
         const nextIds = new Set(next.items.map((item) => item.id));
         const nextTransforms: Record<string, TransformState> = {};
         for (const entry of next.items) {
@@ -187,6 +190,12 @@ async function refresh() {
         } else if (!selectedId && next.items.length > 0) {
           selectedId = next.items[0].id;
         }
+        if (newId !== null && filtered[0]?.id === newId) {
+          selectedId = newId;
+          expandedId = newId;
+          moreOpen = false;
+          pendingScrollId = newId;
+        }
         error = "";
       } catch (e) {
         error = errorText(e);
@@ -204,6 +213,15 @@ $effect(() => {
   } else {
     copiedId = null;
     clearTimeout(copyTimer);
+  }
+});
+
+$effect(() => {
+  if (active && listElement && pendingScrollId !== null) {
+    if (expandedId === pendingScrollId && filtered[0]?.id === pendingScrollId) {
+      listElement.scrollTop = 0;
+    }
+    pendingScrollId = null;
   }
 });
 
