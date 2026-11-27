@@ -28,32 +28,38 @@ export function wheelTabDelta(mode: TabWheelMode, event: WheelInput): number {
   return event.deltaY !== 0 ? event.deltaY : event.deltaX;
 }
 
-/**
- * Accumulates wheel deltas until one switch threshold is crossed, preventing smooth touchpads
- * from skipping multiple tabs on one gesture while firing once per discrete mouse wheel detent.
- */
+const WHEEL_GESTURE_PAUSE_MS = 250;
+
+/** Accumulates small wheel deltas and requires a fresh gesture at the two entries to Browser. */
 export function createWheelStepper(threshold = 50, idleMs = 200) {
   let accumulated = 0;
-  let last = 0;
+  let last = -Infinity;
+  let stepped = false;
   return {
-    step(delta: number, now = Date.now()): 1 | -1 | null {
+    step(current: PanelTab, delta: number, now: number): PanelTab | null {
       if (delta === 0) return null;
-      if (
-        now - last > idleMs ||
-        (accumulated !== 0 && Math.sign(delta) !== Math.sign(accumulated))
-      ) {
+      const gap = now - last;
+      last = now;
+      if (gap >= WHEEL_GESTURE_PAUSE_MS) stepped = false;
+      const direction = delta > 0 ? 1 : -1;
+      const next = stepTab(current, direction);
+      if (stepped && next === "browser") {
+        accumulated = 0;
+        return null;
+      }
+      if (gap > idleMs || (accumulated !== 0 && direction !== Math.sign(accumulated))) {
         accumulated = 0;
       }
-      last = now;
       accumulated += delta;
       if (Math.abs(accumulated) < threshold) return null;
-      const direction = accumulated > 0 ? 1 : -1;
       accumulated = 0;
-      return direction;
+      stepped = true;
+      return next;
     },
     reset() {
       accumulated = 0;
-      last = 0;
+      last = -Infinity;
+      stepped = false;
     },
   };
 }

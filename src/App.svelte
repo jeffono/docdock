@@ -94,9 +94,12 @@ $effect(() => {
 let switching = false;
 let targetTab: PanelTab | null = null;
 let pendingSwitch: { next: PanelTab; shouldFocus: boolean } | null = null;
+function currentTab() {
+  return pendingSwitch?.next ?? targetTab ?? activeTab;
+}
+
 function stepCurrentTab(step: 1 | -1, shouldFocus: boolean) {
-  const base = pendingSwitch?.next ?? targetTab ?? activeTab;
-  void action(switchTab(stepTab(base, step), { shouldFocus }));
+  void action(switchTab(stepTab(currentTab(), step), { shouldFocus }));
 }
 
 const wheelStepper = createWheelStepper();
@@ -110,9 +113,8 @@ function headerWheel(event: WheelEvent) {
   const delta = wheelTabDelta($tabWheelMode ?? "modifier", event);
   if (!delta) return;
   event.preventDefault();
-  const step = wheelStepper.step(delta);
-  if (!step) return;
-  stepCurrentTab(step, focus.focused);
+  const next = wheelStepper.step(currentTab(), delta, event.timeStamp);
+  if (next) void action(switchTab(next, { shouldFocus: focus.focused }));
 }
 
 onMount(() => {
