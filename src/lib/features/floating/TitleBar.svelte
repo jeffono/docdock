@@ -1,6 +1,6 @@
 <script lang="ts">
 import { t } from "../../i18n";
-import { floatDrag, floatEdit } from "../../ipc";
+import { floatDrag } from "../../ipc";
 import IconButton from "../../ui/IconButton.svelte";
 import FloatBar from "./FloatBar.svelte";
 
@@ -12,10 +12,15 @@ let {
   locale,
   collapsed,
   gone,
+  editing,
+  status,
   onopacity,
   opacityOpen,
   ontoggleopacity,
   ontoggle,
+  onedit,
+  onpanel,
+  onclose,
 }: {
   name: string;
   shown: boolean;
@@ -24,16 +29,24 @@ let {
   locale: string;
   collapsed: boolean;
   gone: boolean;
+  /** The note is edited here, or on its way in or out. */
+  editing: boolean;
+  /** "Saving…" or "Saved" while editing, else empty. */
+  status: string;
   onopacity: (value: number) => void;
   opacityOpen: boolean;
   ontoggleopacity: () => void;
   ontoggle: () => void;
+  onedit: () => void;
+  onpanel: () => void;
+  onclose: () => void;
 } = $props();
 
 const labels = $derived.by(() => {
   void locale;
   return {
     edit: t("postIt.edit"),
+    panel: t("postIt.openInPanel"),
     toggle: t(collapsed ? "postIt.expand" : "postIt.collapse"),
   };
 });
@@ -73,7 +86,10 @@ function pointerdown(event: PointerEvent) {
 
 {#snippet actions()}
   {#if !gone}
-    <IconButton icon="pencil" quiet label={labels.edit} tabindex={-1} onclick={() => void floatEdit().catch(() => {})} />
+    {#if !editing}
+      <IconButton icon="pencil" quiet label={labels.edit} tabindex={-1} onclick={onedit} />
+    {/if}
+    <IconButton icon="panelRight" quiet label={labels.panel} tabindex={-1} onclick={onpanel} />
   {/if}
 {/snippet}
 
@@ -88,7 +104,20 @@ function pointerdown(event: PointerEvent) {
     />
   </div>
   <span class="title" title={name}>{name}</span>
-  <FloatBar inline {shown} {opacity} {clickThrough} {locale} {onopacity} {actions} {opacityOpen} {ontoggleopacity} />
+  {#if status}<small class="status" role="status">{status}</small>{/if}
+  <FloatBar
+    inline
+    {shown}
+    {opacity}
+    {clickThrough}
+    {locale}
+    {onopacity}
+    {actions}
+    {opacityOpen}
+    {ontoggleopacity}
+    canClickThrough={!editing}
+    {onclose}
+  />
 </div>
 
 <style>
@@ -114,6 +143,14 @@ function pointerdown(event: PointerEvent) {
     white-space: nowrap;
     transform: translateX(calc(-1 * var(--chevron-gutter)));
     transition: transform var(--duration) ease;
+  }
+
+  .status {
+    flex: none;
+    margin: 0 var(--space-1);
+    color: var(--color-muted);
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
   }
 
   /* Reserve the gutter so a long title keeps its ellipsis as it slides. */

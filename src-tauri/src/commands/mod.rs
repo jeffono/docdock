@@ -760,6 +760,16 @@ pub fn float_finished(
 ) -> Result<(), Error> {
     crate::floating::finished(&app, window.label(), request, saved)
 }
+/// Writes `text` to the clipboard as `clipboard_write` does, kept out of clipboard history, only
+/// for a post-it editing its note: its editor's copies and cuts.
+#[tauri::command]
+pub async fn float_clipboard_write(
+    window: tauri::WebviewWindow,
+    text: String,
+) -> Result<(), Error> {
+    crate::floating::copies(window.label())?;
+    clipboard_write(window, text).await
+}
 /// The post-it stops editing and gives focus back.
 #[tauri::command(async)]
 pub fn float_end_edit(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), Error> {

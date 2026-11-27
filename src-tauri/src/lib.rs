@@ -205,6 +205,7 @@ pub fn run() {
         commands::float_end_edit,
         commands::float_finished,
         commands::float_save_note,
+        commands::float_clipboard_write,
         commands::float_set_text_scale,
         commands::float_set_collapsed,
         commands::float_edit,

@@ -474,6 +474,21 @@ impl Registry {
         }
     }
 
+    /// The post-it `label` may write the clipboard: only while it edits its note and shows it, so a
+    /// reading, parked or closing post-it, or a floating image, never reaches the clipboard.
+    fn copies(&self, label: &str) -> Result<(), Error> {
+        let live = self
+            .live
+            .iter()
+            .find(|live| live.label == label)
+            .ok_or_else(|| Error::unexpected("command restricted to floating windows"))?;
+        match live.kind {
+            Kind::Image => Err(Error::unexpected("command restricted to post-its")),
+            Kind::Note if live.editing && !live.closing && !live.parked => Ok(()),
+            Kind::Note => Err(Error::unexpected("post-it not editing")),
+        }
+    }
+
     /// The panel edits the note `path`, if `may_edit` agrees, or none (`None`, always agreed).
     fn panel_edit(&mut self, path: Option<String>) -> bool {
         if let Some(path) = &path
@@ -1870,6 +1885,12 @@ pub fn save_note(
     })
 }
 
+/// Whether the post-it `label` may write the clipboard now (`Registry::copies`): its editor's
+/// copies and cuts go through Rust, as the panel's do, kept out of clipboard history.
+pub fn copies(label: &str) -> Result<(), Error> {
+    registry().copies(label)
+}
+
 /// The post-it `label` stops editing and never activates again; if it still has focus, focus goes
 /// back to the window that had it before, or the one the panel last opened over, never to a
 /// window of the app. If the user went to another window meanwhile, focus stays there. A parked
@@ -2501,6 +2522,7 @@ mod tests {
             assert!(set_collapsed(label, true).is_err(), "{label}");
             assert!(registry().begin_edit(label).is_err(), "{label}");
             assert!(registry().end_edit(label).is_err(), "{label}");
+            assert!(copies(label).is_err(), "{label}");
             assert!(!is_live(label), "{label}");
         }
         let epoch = registry().epoch;
@@ -2981,6 +3003,20 @@ mod tests {
         );
         registry.take("float-1");
         assert!(registry.editing("float-1", 1).is_err());
+    }
+
+    // Catches a reading or parked post-it, or a floating image, writing the clipboard: only an
+    // editor copies, so a page in a window that edits nothing never reaches it.
+    #[test]
+    fn only_a_post_it_editing_its_note_copies() {
+        let mut registry = post_its(&["a.md"]);
+        registry.reserve(0, &image("a.png"), &folder()).unwrap();
+        assert!(registry.copies("float-1").is_err());
+        assert!(registry.copies("float-2").is_err());
+        assert!(begins(&mut registry, "float-1"));
+        assert_eq!(registry.copies("float-1"), Ok(()));
+        registry.revoke();
+        assert!(registry.copies("float-1").is_err());
     }
 
     // Regression: a save still waiting for `SAVING` when its edit ended wrote, once a new edit of

@@ -5,6 +5,7 @@ import { setLocale } from "./lib/i18n";
 import {
   appLocale,
   clipboardWrite,
+  floatClipboardWrite,
   isFloatWindow,
   isImagePreviewWindow,
   isTweakWindow,
@@ -24,6 +25,8 @@ if (isImagePreviewWindow()) {
   const { floatSession } = await import("./lib/features/floating/session");
   // A window closing while it loads answers nothing: there is nothing to show.
   const session = await floatSession().catch(() => null);
+  // A post-it's editor copies through its own command, which Rust grants only while it edits.
+  if (session) keepCopiesPrivate(floatClipboardWrite);
   if (session?.state.kind === "note") {
     const { default: PostIt } = await import("./lib/features/floating/PostIt.svelte");
     mount(PostIt, { target: document.body, props: { session } });

@@ -19,6 +19,8 @@ let {
   inline = false,
   opacityOpen = false,
   ontoggleopacity,
+  canClickThrough = true,
+  onclose = () => void floatClose().catch(() => {}),
 }: {
   shown: boolean;
   opacity: number;
@@ -32,6 +34,10 @@ let {
   inline?: boolean;
   opacityOpen?: boolean;
   ontoggleopacity?: () => void;
+  /** Hidden while a post-it edits: a click-through window could not take its typing. */
+  canClickThrough?: boolean;
+  /** An editing post-it saves before it closes. */
+  onclose?: () => void;
 } = $props();
 
 let range = $state<HTMLInputElement>();
@@ -91,15 +97,17 @@ $effect(() => {
       {@render slider()}
     </span>
   {/if}
-  <IconButton
-    icon="clickThrough"
-    quiet
-    label={labels.clickThrough}
-    pressed={clickThrough}
-    tabindex={-1}
-    onclick={() => void floatSetClickThrough(!clickThrough).catch(() => {})}
-  />
-  <IconButton icon="x" quiet label={labels.close} tabindex={-1} onclick={() => void floatClose().catch(() => {})} />
+  {#if canClickThrough}
+    <IconButton
+      icon="clickThrough"
+      quiet
+      label={labels.clickThrough}
+      pressed={clickThrough}
+      tabindex={-1}
+      onclick={() => void floatSetClickThrough(!clickThrough).catch(() => {})}
+    />
+  {/if}
+  <IconButton icon="x" quiet label={labels.close} tabindex={-1} onclick={onclose} />
 </div>
 
 <style>

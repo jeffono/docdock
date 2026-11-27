@@ -582,7 +582,7 @@ writing history to disk.
   the wheel. The title bar shows the note name. On window hover or keyboard focus, the name slides
   right to reveal the collapse chevron on its left, using the note list's transform and opacity
   transitions. While collapsed, the right-pointing chevron stays visible for expanding the note.
-  On hover, edit, opacity, "Let clicks through" and Close appear on the right. Double-clicking the
+  On hover, edit, "Open in panel", opacity, "Let clicks through" and Close appear on the right. Double-clicking the
   bar also collapses or expands it.
   The opacity button opens a slider below the bar, expanding a collapsed note to make room. The
   slider goes from 15% to 100% in 5% steps. Pressing Esc, pressing outside the slider and its
@@ -590,10 +590,20 @@ writing history to disk.
   Alt+wheel anywhere in the window also change opacity. The sheet and its title fade while the
   controls stay opaque. Dragging the sheet more than 4 px moves the window. Its edges and corners
   resize it freely, keeping each side of the sheet at least 96 logical px. A double click in the
-  note body, or the pencil, brings the panel with focus to Notes and opens the note expanded in
-  the editor. Ctrl+wheel sizes the
+  note body, or the pencil, edits the note in place: the window takes focus and the editor (live
+  formatting, without spelling or note statistics) replaces the rendered note; a note edited
+  elsewhere moves here once saved there, and a refusal shows "This note can't be edited right
+  now." briefly. While editing, the controls stay visible with a quiet "Saving…" / "Saved" before
+  them, the pencil and "Let clicks through" hide, and only the title bar moves the window. Esc or
+  Ctrl+E saves and returns to reading, giving focus back to the previous app; losing focus only
+  saves. Close, and a close from outside, save first and stay open if that fails. "Open in panel"
+  saves, leaves and opens the note expanded in the panel's editor. A save that finds the note
+  changed shows "Changed elsewhere." with Reload and Keep mine above the editor, keeping the text
+  and staying open until one is chosen. If the notes folder goes, the editor hides at once and
+  "Waiting for the notes folder; your changes are kept." offers "Discard changes"; with nothing
+  unsaved the window just goes, as others do. Ctrl+wheel sizes the
   text in 10% steps from 50% to 300%, kept with the window, and Ctrl+double-click returns it to
-  100%. Links read as links but open nothing, and nothing in it takes focus. It follows edits and
+  100%. Links read as links but open nothing, and outside editing nothing in it takes focus. It follows edits and
   renames as they happen; a note moved or deleted outside its sight leaves only "This note was
   moved or deleted." in the middle of the sheet until it returns, and is forgotten at the next
   start.

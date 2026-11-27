@@ -614,6 +614,11 @@ export const floatSaveNote = (content: string, base: string, lease: number, recr
  * when the user discards.
  */
 export const floatEndEdit = () => invoke<void>("float_end_edit");
+/**
+ * As `clipboardWrite`, for the editor of a post-it: refused unless the post-it edits its note.
+ */
+export const floatClipboardWrite = (text: string) =>
+  invoke<void>("float_clipboard_write", { text });
 /** Answers Rust's finish request `request` (`FloatUpdate.finish`): the post-it saved, or not. */
 export const floatFinished = (request: number, saved: boolean) =>
   invoke<void>("float_finished", { request, saved });

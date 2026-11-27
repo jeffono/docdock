@@ -35,6 +35,8 @@ const paths = {
     "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1 M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2",
   /** Lucide picture-in-picture-2: detach as a floating window. */
   pictureInPicture: `${PIP_FRAME} ${PIP_WINDOW}`,
+  /** Lucide panel-right: open in the panel. */
+  panelRight: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M15 3v18",
   /** Lucide blend: transparency. */
   blend: "M16 9a7 7 0 1 1-14 0 7 7 0 0 1 14 0 M22 15a7 7 0 1 1-14 0 7 7 0 0 1 14 0",
   /** Lucide mouse-pointer-click: clicks pass through to the windows below. */

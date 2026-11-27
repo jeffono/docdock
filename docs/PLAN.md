@@ -6,9 +6,10 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20: steps 1-7 done (collapse, title bar with opacity popover, edit lease with save generations,
-  `float_save_note`, parking, finish handshake); next step 8, where the post-it honors `parked`,
-  `finish` and `closeRequested` (`FloatUpdate` in `ipc.ts`).
+- M20: steps 1-8 done (collapse, title bar with opacity popover, edit lease with save generations,
+  `float_save_note`, parking, finish handshake, inline post-it editing with `edit-state.ts`); step 9
+  (Notes.svelte coordination) in progress separately; then step 10. Inline editing still needs the
+  manual Windows check of focus and activation.
 
 ## Next
 
