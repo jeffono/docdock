@@ -217,6 +217,30 @@ pub async fn clipboard_write(window: tauri::WebviewWindow, text: String) -> Resu
         .map_err(Error::unexpected)?
         .map_err(Error::unexpected)
 }
+#[tauri::command(async)]
+pub fn clipboard_snapshot(
+    clipboard: State<'_, crate::clipboard::ClipboardService>,
+) -> Result<crate::platform::ClipboardSnapshot, Error> {
+    clipboard.snapshot()
+}
+#[tauri::command(async)]
+pub fn clipboard_restore_item(
+    clipboard: State<'_, crate::clipboard::ClipboardService>,
+    id: String,
+) -> Result<bool, Error> {
+    clipboard.restore_item(id)
+}
+#[tauri::command(async)]
+pub fn clipboard_delete_item(
+    clipboard: State<'_, crate::clipboard::ClipboardService>,
+    id: String,
+) -> Result<bool, Error> {
+    clipboard.delete_item(id)
+}
+#[tauri::command]
+pub fn clipboard_open_settings(app: AppHandle) -> Result<(), Error> {
+    crate::clipboard::open_settings(&app)
+}
 
 /// `async`: looking at an offline share can take seconds.
 #[tauri::command(async)]

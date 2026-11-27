@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount, tick } from "svelte";
+import Clipboard from "./lib/features/clipboard/Clipboard.svelte";
 import Notes from "./lib/features/notes/Notes.svelte";
 import ShortcutSheet from "./lib/features/notes/ShortcutSheet.svelte";
 import {
@@ -31,6 +32,7 @@ import {
   type PageState,
   type PanelFocus,
   panelActivate,
+  panelClose,
   panelResize,
   panelSetPinned,
   panelTabShape,
@@ -46,6 +48,7 @@ import Notice from "./lib/ui/Notice.svelte";
 
 let notes: Notes;
 let scratchpad: Scratchpad;
+let clipboard: Clipboard;
 let shortcutSheet: ShortcutSheet;
 let headerBar: HTMLElement;
 /** The edge tab, drawn beside the panel once Rust gives its shape. */
@@ -232,6 +235,9 @@ onMount(() => {
     if (activeTab === "scratchpad") {
       if (toggle && scratchpad.containsFocus()) void action(scratchpad.handleEscape());
       else scratchpad.focus();
+    } else if (activeTab === "clipboard") {
+      if (toggle && clipboard.searchFocused()) void action(panelClose());
+      else clipboard.focusSearch();
     }
   });
   const shortcut = (event: KeyboardEvent) => {
@@ -345,6 +351,7 @@ async function switchTab(next: PanelTab, { shouldFocus = true }: { shouldFocus?:
         if (focusTarget) {
           if (target === "browser") notes.focusSearch();
           else if (target === "scratchpad") scratchpad.focus();
+          else if (target === "clipboard") clipboard.focusSearch();
         } else if (target === "scratchpad") {
           scratchpad.measure();
         }
@@ -380,6 +387,23 @@ async function promoteFromScratchpad(
   }
   if ("error" in result) return result.error;
   await afterCreate();
+  await switchTab("notes", { shouldFocus: false });
+  await notes.openPromoted(result.path);
+}
+
+async function sendToScratchpad(text: string): Promise<string | undefined> {
+  const problem = scratchpad.appendText(text);
+  if (problem) return problem;
+  await switchTab("scratchpad", { shouldFocus: true });
+}
+
+async function createNoteFromClipboard(text: string): Promise<string | undefined> {
+  const result = await notes.promoteNote(text);
+  if ("blocked" in result) {
+    await switchTab("notes", { shouldFocus: true });
+    return;
+  }
+  if ("error" in result) return result.error;
   await switchTab("notes", { shouldFocus: false });
   await notes.openPromoted(result.path);
 }
@@ -496,16 +520,20 @@ function togglePin() {
     <nav aria-label={t("app.mode")}>
       <button class:active={activeTab === "notes" && !preferences} aria-pressed={activeTab === "notes" && !preferences} title={t("web.notesShortcut")} onclick={() => action(switchTab("notes"))}>{t("web.notes")}</button>
       <button class:active={activeTab === "scratchpad" && !preferences} aria-pressed={activeTab === "scratchpad" && !preferences} title={t("web.scratchpadShortcut")} onclick={() => action(switchTab("scratchpad"))}>{t("web.scratchpad")}</button>
+      <button class:active={activeTab === "clipboard" && !preferences} aria-pressed={activeTab === "clipboard" && !preferences} title={t("web.clipboardShortcut")} onclick={() => action(switchTab("clipboard"))}>{t("web.clipboard")}</button>
       <button class:active={activeTab === "browser" && !preferences} aria-pressed={activeTab === "browser" && !preferences} title={t("web.browserShortcut")} onclick={() => action(switchTab("browser"))}>{t("web.browser")}</button>
     </nav>
     {#if activeTab === "browser" && !preferences}
-      <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(history(true))} />
-      <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(history(false))} />
-      <IconButton quiet icon="reader" label={t("web.reader")} pressed={article !== null} disabled={!page?.url || extracting} onclick={() => action(toggleReader())} />
+      <div class="header-actions">
+        <IconButton quiet icon="arrowLeft" label={t("web.back")} disabled={!page?.canGoBack} onclick={() => action(history(true))} />
+        <IconButton quiet icon="arrowRight" label={t("web.forward")} disabled={!page?.canGoForward} onclick={() => action(history(false))} />
+        <IconButton quiet icon="reader" label={t("web.reader")} pressed={article !== null} disabled={!page?.url || extracting} onclick={() => action(toggleReader())} />
+      </div>
     {/if}
-    <span class="spacer"></span>
-    <IconButton quiet icon="settings" label={t("preferences.shortcutTooltip")} pressed={preferences} onclick={() => action(togglePreferences())} />
-    <IconButton quiet icon="pin" label={t(pinned ? "app.unpinShortcut" : "app.pinShortcut")} pressed={pinned} onclick={togglePin} />
+    <div class="header-actions trailing">
+      <IconButton quiet icon="settings" label={t("preferences.shortcutTooltip")} pressed={preferences} onclick={() => action(togglePreferences())} />
+      <IconButton quiet icon="pin" label={t(pinned ? "app.unpinShortcut" : "app.pinShortcut")} pressed={pinned} onclick={togglePin} />
+    </div>
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
   {#if activation.failed}
@@ -523,11 +551,17 @@ function togglePin() {
     onpromote={promoteFromScratchpad}
     onopenpage={(url) => notes.openUrl(url)}
   />
+  <Clipboard
+    bind:this={clipboard}
+    active={!preferences && activeTab === "clipboard"}
+    onsendscratchpad={sendToScratchpad}
+    oncreatenote={createNoteFromClipboard}
+  />
   <Notes
     bind:this={notes}
     bind:article
     browser={activeTab === "browser"}
-    inactive={preferences || activeTab === "scratchpad"}
+    inactive={preferences || activeTab === "scratchpad" || activeTab === "clipboard"}
     pageUrl={page?.url ?? ""}
     shortcutOpen={() => shortcutSheet?.isOpen() ?? false}
     beforeChoose={async () => {
@@ -601,7 +635,7 @@ function togglePin() {
   header {
     display: flex;
     flex: none;
-    gap: var(--space-2);
+    gap: var(--space-1);
     align-items: center;
     box-sizing: border-box;
     height: var(--size-bar);
@@ -609,21 +643,47 @@ function togglePin() {
     border-bottom: 1px solid var(--color-line);
   }
 
+  .header-actions {
+    display: flex;
+    flex: none;
+    gap: var(--space-1);
+    align-items: center;
+  }
+
+  .header-actions.trailing {
+    margin-left: auto;
+  }
+
   p {
     color: var(--color-danger);
     margin: 0 var(--space-3);
   }
 
-  nav { display: flex; gap: var(--space-1); }
+  nav {
+    display: flex;
+    flex: 0 1 auto;
+    gap: var(--space-1);
+    min-width: 0;
+  }
   nav button {
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--color-muted);
-    padding: var(--space-1) var(--space-2);
+    padding: var(--space-1);
     font: inherit;
+    font-size: var(--font-size-sm);
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  nav button.active { background: var(--color-surface); color: var(--color-fg); font-weight: 600; }
+  nav button.active {
+    background: var(--color-surface);
+    color: var(--color-fg);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
   header :global(button[aria-pressed="true"]) { background: var(--color-surface); color: var(--color-fg); }
-  .spacer { flex: 1; }
 </style>

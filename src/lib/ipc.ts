@@ -647,6 +647,27 @@ export const scratchpadSave = (content: string, base: string) =>
   invoke<SaveResult>("scratchpad_save", { content, base });
 export const onScratchpadChanged = (handler: () => void): Promise<UnlistenFn> =>
   listen("scratchpad-changed", () => handler());
+
+export type ClipboardEntry = {
+  id: string;
+  text: string;
+  truncated: boolean;
+  timestampMs: number | null;
+  deletable: boolean;
+};
+export type ClipboardSnapshot = {
+  historyEnabled: boolean;
+  accessDenied: boolean;
+  currentNonText: boolean;
+  items: ClipboardEntry[];
+};
+export const clipboardSnapshot = () => invoke<ClipboardSnapshot>("clipboard_snapshot");
+export const clipboardRestoreItem = (id: string) =>
+  invoke<boolean>("clipboard_restore_item", { id });
+export const clipboardDeleteItem = (id: string) => invoke<boolean>("clipboard_delete_item", { id });
+export const clipboardOpenSettings = () => invoke<void>("clipboard_open_settings");
+export const onClipboardChanged = (handler: () => void): Promise<UnlistenFn> =>
+  listen("clipboard-changed", () => handler());
 export const onPanelAlt = (handler: (held: boolean) => void): Promise<UnlistenFn> =>
   listen<boolean>("panel-alt", (event) => handler(event.payload));
 

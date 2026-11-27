@@ -22,7 +22,9 @@ pub mod taskbar;
 mod windows;
 
 pub use self::capture::exclude_from_capture;
-pub use self::clipboard::write_private_text;
+pub use self::clipboard::{
+    ClipboardHandle, ClipboardSnapshot, start_worker as start_clipboard_worker, write_private_text,
+};
 pub use self::files::{
     MAX_NAME, delete_on_close, final_path, fit_name, hold_ancestry, hold_directory, move_new,
     open_exclusive, open_folder, open_plain_file, replace_file,

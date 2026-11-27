@@ -92,3 +92,26 @@ it("transforms each target once when a cursor's word overlaps another selection"
     "Don't",
   ]);
 });
+
+it("expands single-line JSON across multiple lines and restores on undo", () => {
+  const raw = '{"b":1,"a":true}';
+  const view = editor(raw, EditorSelection.single(0, raw.length));
+  textTransforms.find(({ id }) => id === "format-json")?.run(view as unknown as EditorView);
+  expect(view.raw).toBe('{\n  "b": 1,\n  "a": true\n}');
+  expect(undo(view)).toBe(true);
+  expect(view.raw).toBe(raw);
+});
+
+it("preserves boundary whitespace when normalizing partial inline selections", () => {
+  const viewA = editor("hello world", EditorSelection.single(5, 11));
+  textTransforms
+    .find(({ id }) => id === "normalize-whitespace")
+    ?.run(viewA as unknown as EditorView);
+  expect(viewA.raw).toBe("hello world");
+
+  const viewB = editor("hello   world  foo", EditorSelection.single(5, 15));
+  textTransforms
+    .find(({ id }) => id === "normalize-whitespace")
+    ?.run(viewB as unknown as EditorView);
+  expect(viewB.raw).toBe("hello world foo");
+});

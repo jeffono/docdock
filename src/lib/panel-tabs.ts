@@ -1,6 +1,6 @@
 import type { TabWheelMode } from "./ipc";
 
-export const panelTabs = ["notes", "scratchpad", "browser"] as const;
+export const panelTabs = ["notes", "scratchpad", "clipboard", "browser"] as const;
 export type PanelTab = (typeof panelTabs)[number];
 
 export function stepTab(current: PanelTab, step: 1 | -1): PanelTab {

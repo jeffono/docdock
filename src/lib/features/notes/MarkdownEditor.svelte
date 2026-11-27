@@ -15,7 +15,7 @@ import { editorLinkAt, editorLinkClick } from "./editor-links";
 import { linkAction, linkMenuKey } from "./link-actions";
 import { notePath } from "./live-formatting";
 import NoteStats from "./NoteStats.svelte";
-import { diskReload, rawHistory, rawText } from "./reload";
+import { diskReload, exactText, rawHistory, rawText } from "./reload";
 import { learned, type Misspelling, spelling } from "./spelling";
 import { loadSpelling, spellingOn } from "./spelling-store";
 
@@ -304,6 +304,25 @@ export function reloadText(next: string) {
 /** Dispatches a full-document text edit that records history and triggers `onchange`. */
 export function applyEdit(next: string) {
   if (view && next !== raw) view.dispatch(diskReload(view.state, next));
+}
+
+/** Appends text at the end as one undoable edit preserving CRLF raw endings. */
+export function appendText(edit: {
+  from: number;
+  to: number;
+  insert: string;
+  nextRaw: string;
+}): boolean {
+  if (!view || view.state.readOnly) return false;
+  view.dispatch({
+    changes: { from: edit.from, to: edit.to, insert: edit.insert },
+    effects: exactText.of(edit.nextRaw),
+    selection: { anchor: edit.from + edit.insert.length },
+    annotations: isolateHistory.of("full"),
+    userEvent: "input",
+    scrollIntoView: true,
+  });
+  return true;
 }
 
 onMount(() => {

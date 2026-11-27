@@ -80,6 +80,7 @@ const slashCommands: SlashCommand[] = [
 const inFrontmatter = new Set([
   "add-property",
   "todays-date",
+  "strip-accents",
   ...textTransforms.filter(({ group }) => group === "case").map(({ id }) => id),
 ]);
 const excludedNodes = new Set(["FencedCode", "CodeBlock", "InlineCode", "URL", "Autolink"]);

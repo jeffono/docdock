@@ -2,6 +2,7 @@
 
 mod attachments;
 mod blocking;
+mod clipboard;
 mod commands;
 #[cfg(debug_assertions)]
 mod dev;
@@ -157,6 +158,10 @@ pub fn run() {
         commands::pinned_restore,
         commands::open_external,
         commands::clipboard_write,
+        commands::clipboard_snapshot,
+        commands::clipboard_restore_item,
+        commands::clipboard_delete_item,
+        commands::clipboard_open_settings,
         commands::note_search_suggestions,
         commands::note_search_set_suggestions,
         commands::notes_preview_mode,
@@ -223,6 +228,7 @@ pub fn run() {
             tray::setup(app, hwnd, locale, side, requests.clone())?;
             app.manage(locale);
             app.manage(spelling::Spelling::start());
+            app.manage(clipboard::ClipboardService::start(app.handle().clone()));
             notes::purge_trash(app.handle());
             updates::start(app.handle(), hwnd);
             blocking::start(app.handle());
