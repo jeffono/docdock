@@ -6,8 +6,8 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20 step 3 (post-it title bar UI; Rust collapse in place). Steps 4 (edit lease) and 5
-  (`float_save_note`) done in Rust on branch `floating-notes-lease`; no UI uses them yet.
+- M20: steps 1-5 done (collapse, title bar, edit lease, `float_save_note`); title bar opacity
+  moves to a popover (user); next steps 6-7 (parking, finish handshake).
 
 ## Next
 
