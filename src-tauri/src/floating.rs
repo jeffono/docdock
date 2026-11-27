@@ -113,6 +113,9 @@ struct Live {
     blocked: bool,
     /// The foreground window when editing began, which gets focus back when it ends.
     previous_focus: Option<isize>,
+    /// Counts the edits granted to the post-it: a save names the one it belongs to, so a save
+    /// still waiting when its edit ended never writes into a later one (`Registry::editing`).
+    lease: u64,
     /// Changes with what the window shows.
     version: u64,
     /// The window's channel, from its latest load.
@@ -212,11 +215,20 @@ impl Refusal {
     }
 }
 
-/// What a post-it that may begin editing reads its note from.
+/// What a post-it that may begin editing reads its note from, and the edit it was granted.
 #[derive(Debug, PartialEq)]
 struct Claim {
     path: String,
     folder: FolderIdentity,
+    lease: u64,
+}
+
+/// A note a post-it begins editing, and the edit it was granted, which its saves name.
+#[derive(Serialize)]
+pub struct Granted {
+    #[serde(flatten)]
+    note: OpenNote,
+    lease: u64,
 }
 
 /// A window the user closed, whose entry and window are on their way out.
@@ -322,16 +334,19 @@ impl Registry {
             refusal.log(&live.path);
             return Ok(None);
         }
+        let Some(live) = self.live.iter_mut().find(|live| live.label == label) else {
+            return Ok(None);
+        };
+        if !live.editing {
+            live.editing = true;
+            live.lease += 1;
+            live.changed();
+        }
         let claim = Claim {
             path: live.path.clone(),
             folder: live.folder.clone(),
+            lease: live.lease,
         };
-        if let Some(live) = self.live.iter_mut().find(|live| live.label == label)
-            && !live.editing
-        {
-            live.editing = true;
-            live.changed();
-        }
         self.refresh_blocked();
         Ok(Some(claim))
     }
@@ -355,6 +370,24 @@ impl Registry {
         let ended = (live.raw, live.previous_focus.take());
         self.refresh_blocked();
         Ok(Some(ended))
+    }
+
+    /// The note the post-it `label` edits now, after any rename, and its notes folder, while the
+    /// edit `lease` lasts; refused once that edit ended, even if another began since, or the
+    /// post-it went.
+    fn editing(&self, label: &str, lease: u64) -> Result<(String, FolderIdentity), Error> {
+        let live = self
+            .live
+            .iter()
+            .find(|live| live.label == label)
+            .ok_or_else(|| Error::unexpected("command restricted to floating windows"))?;
+        match live.kind {
+            Kind::Image => Err(Error::unexpected("command restricted to post-its")),
+            Kind::Note if live.editing && !live.closing && live.lease == lease => {
+                Ok((live.path.clone(), live.folder.clone()))
+            }
+            Kind::Note => Err(Error::unexpected("post-it not editing")),
+        }
     }
 
     /// The panel edits the note `path`, if `may_edit` agrees, or none (`None`, always agreed).
@@ -428,6 +461,7 @@ impl Registry {
             editing: false,
             blocked: false,
             previous_focus: None,
+            lease: 0,
             version: 1,
             channel: None,
         });
@@ -1586,22 +1620,30 @@ pub fn edit_current(epoch: u64) -> bool {
 }
 
 /// The post-it `label` begins editing its note, which nobody else edits (`Registry::may_edit`),
-/// and takes focus. Answers the note with its version for `save_note`; `None` if it may not edit
-/// now, as while its note is edited elsewhere (`Update::blocked`), it lets clicks through or the
-/// note is gone.
-pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<OpenNote>, Error> {
+/// and takes focus. Answers the note with its version and the edit granted, which `save_note`
+/// names; `None` if it may not edit now, as while its note is edited elsewhere (`Update::blocked`),
+/// it lets clicks through or the note is gone.
+pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error> {
     let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
     // Claimed before reading, so nobody else begins editing the note in between.
     let Some(claim) = registry().begin_edit(label)? else {
         return Ok(None);
     };
+    // The claim still stands: no rename, folder change, close or other edit came meanwhile.
+    let kept = |live: &Live| {
+        live.editing
+            && !live.closing
+            && live.lease == claim.lease
+            && live.path == claim.path
+            && live.folder == claim.folder
+    };
     let read = crate::notes::floating_note(app, &claim.folder, &claim.path);
     let raw = match &read {
         Ok(Some(_)) => {
             let foreground = platform::foreground_window();
-            // A rename or folder change while reading: what was read belongs to no window any more.
+            // What was read belongs to no window any more if the claim fell.
             with_live(label, |live| {
-                let kept = live.editing && live.path == claim.path && live.folder == claim.folder;
+                let kept = kept(live);
                 if kept && live.previous_focus.is_none() {
                     live.previous_focus = foreground.filter(|&raw| raw != live.raw);
                 }
@@ -1618,43 +1660,49 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<OpenNote>, Erro
         return read.map(|_| None);
     };
     platform::set_activatable(raw, true);
+    // A failed `SetForegroundWindow` still grants the edit: the window no longer refuses
+    // activation, so the user's next click in it activates it natively.
     platform::activate(raw);
+    // A close or folder change between reading the window and activating it: no edit stays
+    // granted on a window on its way out, and it never activates again.
+    if !with_live(label, |live| kept(live)).unwrap_or(false) {
+        platform::set_activatable(raw, false);
+        let mut registry = registry();
+        if registry
+            .live
+            .iter()
+            .any(|live| live.label == label && live.lease == claim.lease)
+        {
+            let _ = registry.end_edit(label);
+        }
+        drop(registry);
+        report(app);
+        return Ok(None);
+    }
     report(app);
-    read
+    read.map(|note| {
+        note.map(|note| Granted {
+            note,
+            lease: claim.lease,
+        })
+    })
 }
 
-/// The notes folder of the post-it `label`, which must be editing its note.
-fn editing_folder(label: &str) -> Result<FolderIdentity, Error> {
-    with_live(label, |live| match live.kind {
-        Kind::Image => Err(Error::unexpected("command restricted to post-its")),
-        Kind::Note if !live.editing => Err(Error::unexpected("post-it not editing")),
-        Kind::Note => Ok(live.folder.clone()),
-    })?
-}
-
-/// The note the post-it `label` edits now, after any rename; refused once it stopped editing or
-/// went.
-fn editing_path(label: &str) -> Result<String, Error> {
-    with_live(label, |live| match live.kind {
-        Kind::Note if live.editing && !live.closing => Ok(live.path.clone()),
-        _ => Err(Error::unexpected("post-it not editing")),
-    })?
-}
-
-/// Saves `content` as the note the post-it `label` edits, if it still holds `base`. Never names a
-/// path: only the note Rust registered for the window, read under `SAVING` so a rename or close in
-/// between is seen, and only in the notes folder it opened on. A missing note answers `Conflict`
-/// unless `recreate`.
+/// Saves `content` as the note the post-it `label` edits, if it still holds `base` and the edit
+/// `lease` it was granted lasts. Never names a path: only the note Rust registered for the window,
+/// read under `SAVING` so a rename, close or end of the edit in between is seen, and only in the
+/// notes folder it opened on. A missing note answers `Conflict` unless `recreate`.
 pub fn save_note(
     app: &AppHandle,
     label: &str,
     content: &str,
     base: &str,
+    lease: u64,
     recreate: bool,
 ) -> Result<crate::notes::Saved, Error> {
-    let folder = editing_folder(label)?;
+    let (_, folder) = registry().editing(label, lease)?;
     crate::notes::floating_save(app, &folder, content, base, recreate, || {
-        editing_path(label)
+        registry().editing(label, lease).map(|(path, _)| path)
     })
 }
 
@@ -2470,19 +2518,30 @@ mod tests {
     // Rust never registered reaching the save.
     #[test]
     fn only_a_post_it_editing_its_note_saves_it() {
-        let picture = register_for_tests(&folder());
-        let epoch = registry().epoch;
-        let (post_it, _) = reserve(epoch, &note("a.md"), &folder()).unwrap();
-        for label in [picture.as_str(), post_it.as_str(), "float-424242", "main"] {
-            assert!(editing_folder(label).is_err(), "{label}");
-            assert!(editing_path(label).is_err(), "{label}");
+        let mut registry = post_its(&["a.md"]);
+        registry.reserve(0, &image("a.png"), &folder()).unwrap();
+        for label in ["float-1", "float-2", "float-424242", "main"] {
+            assert!(registry.editing(label, 1).is_err(), "{label}");
         }
-        with_live(&post_it, |live| live.editing = true).unwrap();
-        assert_eq!(editing_folder(&post_it), Ok(folder()));
-        assert_eq!(editing_path(&post_it), Ok("a.md".into()));
-        take(&picture);
-        take(&post_it);
-        assert!(editing_path(&post_it).is_err());
+        assert!(begins(&mut registry, "float-1"));
+        assert_eq!(
+            registry.editing("float-1", 1),
+            Ok(("a.md".into(), folder()))
+        );
+        registry.take("float-1");
+        assert!(registry.editing("float-1", 1).is_err());
+    }
+
+    // Regression: a save still waiting for `SAVING` when its edit ended wrote, once a new edit of
+    // the same post-it began, the draft the user had left behind.
+    #[test]
+    fn a_save_of_an_edit_that_ended_is_refused_in_the_next() {
+        let mut registry = post_its(&["a.md"]);
+        let first = registry.begin_edit("float-1").unwrap().unwrap().lease;
+        registry.end_edit("float-1").unwrap();
+        let second = registry.begin_edit("float-1").unwrap().unwrap().lease;
+        assert!(registry.editing("float-1", first).is_err());
+        assert!(registry.editing("float-1", second).is_ok());
     }
 
     // Catches a post-it taking focus to edit while clicks go through it, or before it shows.

@@ -708,24 +708,26 @@ pub fn float_note(
     crate::floating::note(&app, window.label())
 }
 /// The post-it begins editing its note, which nobody else edits, and takes focus: the note with
-/// its version, or `null` if it may not edit now.
+/// its version and the edit granted, or `null` if it may not edit now.
 #[tauri::command(async)]
 pub fn float_begin_edit(
     app: AppHandle,
     window: tauri::WebviewWindow,
-) -> Result<Option<crate::notes::OpenNote>, Error> {
+) -> Result<Option<crate::floating::Granted>, Error> {
     crate::floating::begin_edit(&app, window.label())
 }
-/// Saves the note the post-it edits, never a path it names, if it still holds `base`.
+/// Saves the note the post-it edits, never a path it names, if it still holds `base` and the edit
+/// `lease` lasts.
 #[tauri::command(async)]
 pub fn float_save_note(
     app: AppHandle,
     window: tauri::WebviewWindow,
     content: String,
     base: String,
+    lease: u64,
     recreate: bool,
 ) -> Result<crate::notes::Saved, Error> {
-    crate::floating::save_note(&app, window.label(), &content, &base, recreate)
+    crate::floating::save_note(&app, window.label(), &content, &base, lease, recreate)
 }
 /// The post-it stops editing and gives focus back.
 #[tauri::command(async)]

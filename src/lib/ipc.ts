@@ -550,17 +550,20 @@ export const floatNatural = (width: number, height: number) =>
   invoke<void>("float_natural", { width, height });
 /** The note a post-it shows, read now; `null` once it is gone. */
 export const floatNote = () => invoke<OpenNote | null>("float_note");
+/** A note a post-it began editing, and the edit granted, which its saves name. */
+export type FloatGranted = OpenNote & { lease: number };
 /**
  * The post-it begins editing its note and takes focus: the note to edit, or `null` if it may not
  * now, as while the note is edited elsewhere (`blocked`) or clicks go through the post-it.
  */
-export const floatBeginEdit = () => invoke<OpenNote | null>("float_begin_edit");
+export const floatBeginEdit = () => invoke<FloatGranted | null>("float_begin_edit");
 /**
- * Saves the note the post-it edits, never a path it names, if it still holds `base`. A note that is
+ * Saves the note the post-it edits, never a path it names, if it still holds `base` and the edit
+ * `lease` (from `floatBeginEdit`) lasts: a save from an edit that ended is refused. A note that is
  * gone answers `conflict` unless `recreate`.
  */
-export const floatSaveNote = (content: string, base: string, recreate = false) =>
-  invoke<SaveResult>("float_save_note", { content, base, recreate });
+export const floatSaveNote = (content: string, base: string, lease: number, recreate = false) =>
+  invoke<SaveResult>("float_save_note", { content, base, lease, recreate });
 /** The post-it stops editing and gives focus back to the window that had it. */
 export const floatEndEdit = () => invoke<void>("float_end_edit");
 export const floatSetTextScale = (scale: number) => invoke<void>("float_set_text_scale", { scale });
