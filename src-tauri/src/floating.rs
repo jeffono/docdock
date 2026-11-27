@@ -14,7 +14,7 @@
 //! through, watches Alt and the cursor so holding Alt over such a window reaches its controls.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -54,6 +54,8 @@ pub struct Update {
     click_through: bool,
     /// Alt is held over the click-through window: it takes clicks and shows its controls.
     revealed: bool,
+    /// The post-it shows only its title bar.
+    collapsed: bool,
 }
 
 #[derive(Serialize)]
@@ -77,6 +79,11 @@ struct Live {
     /// The image's width over its height, which the window keeps when resized or zoomed; shared
     /// with its `WM_SIZING` hook.
     aspect: Aspect,
+    /// The post-it shows only its title bar; shared with its `WM_SIZING` hook, which then keeps the
+    /// window at the bar's height.
+    collapse: Collapse,
+    /// A collapsed post-it's height when expanded, in physical pixels, saved in its place.
+    expanded_height: i32,
     /// Saved and shown once: until then nothing but opening shows it.
     shown: bool,
     /// The notes folder it opened on, and the registry's epoch then: it is saved only there, and
@@ -108,6 +115,7 @@ impl Live {
             text_scale: self.text_scale,
             click_through: self.click_through,
             revealed: self.revealed,
+            collapsed: self.collapse.get(),
         }
     }
 
@@ -137,6 +145,24 @@ impl Aspect {
 
     fn set(&self, aspect: f64) {
         self.0.store(aspect.to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// Whether a post-it is collapsed, read by the window's thread while resizing.
+#[derive(Clone)]
+struct Collapse(Arc<AtomicBool>);
+
+impl Collapse {
+    fn new(collapsed: bool) -> Self {
+        Self(Arc::new(AtomicBool::new(collapsed)))
+    }
+
+    fn get(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    fn set(&self, collapsed: bool) {
+        self.0.store(collapsed, Ordering::Relaxed);
     }
 }
 
@@ -199,6 +225,8 @@ impl Registry {
             revision: 0,
             raw: 0,
             aspect: Aspect::new(1.0),
+            collapse: Collapse::new(entry.kind == Kind::Note && entry.collapsed),
+            expanded_height: entry.height,
             shown: false,
             folder: folder.clone(),
             epoch,
@@ -304,6 +332,8 @@ static LABELS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 static WORKER: OnceLock<Sender<Message>> = OnceLock::new();
 /// Serializes `report`.
 static REPORTING: Mutex<()> = Mutex::new(());
+/// Serializes `set_collapsed`. Never taken on the main thread nor under the registry.
+static COLLAPSING: Mutex<()> = Mutex::new(());
 /// One restore at a time, so two never open the same saved window.
 static RESTORING: Mutex<()> = Mutex::new(());
 
@@ -374,9 +404,11 @@ fn send(message: Message) {
 
 /// A move or fade waiting to be saved.
 struct Dirty {
+    /// A collapsed post-it's expanded rectangle.
     rect: Rect,
     opacity: f64,
     text_scale: Option<f64>,
+    collapsed: Option<bool>,
     folder: FolderIdentity,
     epoch: u64,
 }
@@ -424,10 +456,13 @@ impl Worker {
                     let rect = (live.raw != 0)
                         .then(|| platform::window_rect(live.raw))
                         .flatten()?;
+                    let collapsed = live.collapse.get();
+                    let note = live.kind == Kind::Note;
                     let dirty = Dirty {
-                        rect,
+                        rect: floats::saved_rect(rect, collapsed, live.expanded_height),
                         opacity: live.opacity,
-                        text_scale: (live.kind == Kind::Note).then_some(live.text_scale),
+                        text_scale: note.then_some(live.text_scale),
+                        collapsed: note.then_some(collapsed),
                         folder: live.folder.clone(),
                         epoch: live.epoch,
                     };
@@ -479,7 +514,13 @@ impl Worker {
                     return Err(Error::FolderChanged);
                 }
                 for (id, dirty) in current {
-                    store.update(id, dirty.rect, dirty.opacity, dirty.text_scale, None);
+                    store.update(
+                        id,
+                        dirty.rect,
+                        dirty.opacity,
+                        dirty.text_scale,
+                        dirty.collapsed,
+                    );
                 }
                 Ok(())
             });
@@ -604,6 +645,12 @@ fn destroy(app: &AppHandle, label: &str) {
 /// after a close or the notes folder going away.
 fn build(app: &AppHandle, label: &str, kind: Kind, aspect: f64) -> Result<(), Error> {
     let side = f64::from(floats::MIN_SIDE);
+    // A post-it collapses to its title bar, so its window may get that short.
+    let least_height = match kind {
+        Kind::Image => side,
+        Kind::Note => f64::from(floats::TITLE_HEIGHT + 2 * floats::SHADOW_PAD),
+    };
+    let collapse = with_live(label, |live| live.collapse.clone())?;
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("DocDock")
         .transparent(true)
@@ -614,7 +661,7 @@ fn build(app: &AppHandle, label: &str, kind: Kind, aspect: f64) -> Result<(), Er
         .visible(false)
         .focused(false)
         .resizable(true)
-        .min_inner_size(side, side);
+        .min_inner_size(side, least_height);
     let window = crate::main_window::secondary_window(app, builder)?;
     let raw = match window.hwnd() {
         Ok(hwnd) => hwnd.0 as isize,
@@ -634,7 +681,10 @@ fn build(app: &AppHandle, label: &str, kind: Kind, aspect: f64) -> Result<(), Er
             let min = scale_dpi(dpi, floats::MIN_SIDE);
             match kind {
                 Kind::Image => floats::constrain_sizing(rect, edge, hooked.get(), pad, min, work),
-                Kind::Note => floats::constrain_free(rect, edge, pad, min, work, None),
+                Kind::Note => {
+                    let bar = collapse.get().then(|| floats::collapsed_height(dpi, pad));
+                    floats::constrain_free(rect, edge, pad, min, work, bar)
+                }
             }
         });
         if let Err(error) = platform::constrain_sizing(raw, sizing) {
@@ -956,7 +1006,8 @@ fn place(
     placed.recv_timeout(PLACE_WAIT).map_err(Error::unexpected)
 }
 
-/// Opens a window for the saved `entry` at `rect`, for work started on `epoch`.
+/// Opens a window for the saved `entry` at `rect`, for work started on `epoch`; a collapsed
+/// post-it's `rect` is its expanded rectangle.
 fn open_saved(
     app: &AppHandle,
     entry: &Entry,
@@ -964,15 +1015,20 @@ fn open_saved(
     epoch: u64,
     folder: &FolderIdentity,
 ) -> Result<(), Error> {
-    let (label, _) = reserve(epoch, entry, folder)?;
+    // A collapsed post-it keeps the expanded height it fitted to.
+    let mut entry = entry.clone();
+    entry.set_rect(rect);
+    let (label, _) = reserve(epoch, &entry, folder)?;
     let dpi = floats::monitor_of(rect, &platform::monitors()).map_or(platform::BASE_DPI, |m| m.dpi);
     let aspect = floats::aspect_of(floats::inset(rect, scale_dpi(dpi, floats::SHADOW_PAD)));
     let pad = scale_dpi(dpi, floats::SHADOW_PAD);
     let kind = entry.kind;
+    let collapsed = kind == Kind::Note && entry.collapsed;
     // The image may have loaded and told its real proportions (`natural`) while hidden.
     let shown = build(app, &label, kind, aspect).and_then(|()| {
         let fit = |raw, aspect| match kind {
             Kind::Image => show(raw, floats::contain(rect, aspect, pad)),
+            Kind::Note if collapsed => show(raw, floats::collapsed_rect(rect, dpi, pad)),
             Kind::Note => show(raw, rect),
         };
         show_if_current(&REGISTRY, &label, epoch, fit)
@@ -1031,7 +1087,11 @@ pub fn restore(app: &AppHandle) {
         let saved = entry.rect();
         let dpi = floats::monitor_of(saved, &monitors).map_or(platform::BASE_DPI, |m| m.dpi);
         let aspect = floats::aspect_of(floats::inset(saved, scale_dpi(dpi, floats::SHADOW_PAD)));
-        let rect = fitted(saved, entry.kind, aspect, &monitors);
+        let rect = if entry.kind == Kind::Note && entry.collapsed {
+            floats::fit_collapsed(saved, &monitors)
+        } else {
+            fitted(saved, entry.kind, aspect, &monitors)
+        };
         match open_saved(app, entry, rect, epoch, &folder) {
             Ok(()) => {}
             Err(Error::FloatingLimit { .. } | Error::FolderChanged) => break,
@@ -1248,6 +1308,41 @@ pub fn set_text_scale(label: &str, scale: f64) -> Result<(), Error> {
         live.changed();
         Ok(())
     })??;
+    send(Message::Changed(label.to_owned()));
+    Ok(())
+}
+
+/// Collapses the shown post-it `label` to its title bar, keeping its top, or expands it back to
+/// its height before, within its monitor's work area. One at a time, so two quick toggles never
+/// take the bar's height for the expanded one; Win32 calls run outside the registry's lock, and the
+/// state changes so a save in between still records the expanded height (`floats::saved_rect`).
+pub fn set_collapsed(label: &str, collapsed: bool) -> Result<(), Error> {
+    let _collapsing = COLLAPSING.lock().unwrap_or_else(|e| e.into_inner());
+    let (kind, collapse, expanded_height) = with_live(label, |live| {
+        (live.kind, live.collapse.clone(), live.expanded_height)
+    })?;
+    if kind != Kind::Note {
+        return Err(Error::unexpected("command restricted to post-its"));
+    }
+    let (raw, _) = shown(label)?;
+    if collapse.get() == collapsed {
+        return Ok(());
+    }
+    let (window, monitor, pad, _) = measured(raw)?;
+    if collapsed {
+        with_live(label, |live| {
+            live.expanded_height = window.bottom - window.top;
+            live.collapse.set(true);
+        })?;
+        platform::move_window(raw, floats::collapsed_rect(window, monitor.dpi, pad));
+    } else {
+        platform::move_window(
+            raw,
+            floats::expand_rect(window, expanded_height, monitor.work),
+        );
+        with_live(label, |live| live.collapse.set(false))?;
+    }
+    with_live(label, Live::changed)?;
     send(Message::Changed(label.to_owned()));
     Ok(())
 }
@@ -1579,6 +1674,7 @@ mod tests {
             assert!(zoom(label, 400.0).is_err(), "{label}");
             assert!(natural(label, 400, 300).is_err(), "{label}");
             assert!(set_opacity(label, 0.5).is_err(), "{label}");
+            assert!(set_collapsed(label, true).is_err(), "{label}");
             assert!(!is_live(label), "{label}");
         }
         let epoch = registry().epoch;
@@ -1891,6 +1987,11 @@ mod tests {
         assert!(set_text_scale(&post_it, 1.5).is_ok());
         assert!(zoom(&post_it, 400.0).is_err());
         assert!(natural(&post_it, 400, 300).is_err());
+        with_live(&picture, |live| (live.raw, live.shown) = (7, true)).unwrap();
+        assert_eq!(
+            set_collapsed(&picture, true),
+            Err(Error::unexpected("command restricted to post-its"))
+        );
         take(&picture);
         take(&post_it);
     }

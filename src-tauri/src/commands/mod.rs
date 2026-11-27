@@ -702,6 +702,11 @@ pub fn float_note(app: AppHandle, window: tauri::WebviewWindow) -> Result<Option
 pub fn float_set_text_scale(window: tauri::WebviewWindow, scale: f64) -> Result<(), Error> {
     crate::floating::set_text_scale(window.label(), scale)
 }
+/// Collapses the post-it to its title bar, or expands it back.
+#[tauri::command(async)]
+pub fn float_set_collapsed(window: tauri::WebviewWindow, collapsed: bool) -> Result<(), Error> {
+    crate::floating::set_collapsed(window.label(), collapsed)
+}
 /// Opens the post-it's note in the panel for editing.
 #[tauri::command(async)]
 pub fn float_edit(

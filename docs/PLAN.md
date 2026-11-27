@@ -6,7 +6,7 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20 step 2 (`float_set_collapsed` and saving in `floating.rs`).
+- M20 step 3 (post-it title bar UI; Rust collapse in place).
 
 ## Next
 

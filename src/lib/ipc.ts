@@ -511,6 +511,8 @@ export type FloatUpdate = {
   clickThrough: boolean;
   /** Alt is held over the click-through window: it takes clicks and shows its controls. */
   revealed: boolean;
+  /** The post-it shows only its title bar. */
+  collapsed: boolean;
 };
 export function floatState(onUpdate: (update: FloatUpdate) => void) {
   const channel = new Channel<FloatUpdate>();
@@ -534,6 +536,9 @@ export const floatNatural = (width: number, height: number) =>
 /** The note a post-it shows, read now; `null` once it is gone. */
 export const floatNote = () => invoke<string | null>("float_note");
 export const floatSetTextScale = (scale: number) => invoke<void>("float_set_text_scale", { scale });
+/** Collapses a post-it to its title bar, keeping its top, or expands it back. */
+export const floatSetCollapsed = (collapsed: boolean) =>
+  invoke<void>("float_set_collapsed", { collapsed });
 /** Opens a post-it's note in the panel for editing. */
 export const floatEdit = () => invoke<void>("float_edit");
 /** Moves the window with the pointer; call while the primary button is down. */

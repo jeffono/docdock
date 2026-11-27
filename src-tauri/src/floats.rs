@@ -27,7 +27,6 @@ const CASCADE: u32 = 24;
 pub const SHADOW_PAD: u32 = 8;
 /// A post-it's title bar height, in logical pixels, all a collapsed post-it shows: must match the
 /// bar's CSS height in the post-it window, as `SHADOW_PAD` matches `--space-2`.
-#[cfg_attr(not(test), expect(dead_code, reason = "M20 step 2 collapses post-its"))]
 pub const TITLE_HEIGHT: u32 = 28;
 /// The most of a monitor's work area an image grows to by zooming, in percent of its width and
 /// height: the side preview's share of the room beside the panel.
@@ -564,13 +563,11 @@ pub fn constrain_free(
 
 /// The height of a collapsed post-it's window on a monitor of `dpi`: its title bar, with the
 /// gutter `pad` above and below.
-#[cfg_attr(not(test), expect(dead_code, reason = "M20 step 2 collapses post-its"))]
 pub fn collapsed_height(dpi: u32, pad: i32) -> i32 {
     scale_dpi(dpi, TITLE_HEIGHT) + 2 * pad
 }
 
 /// The window of the post-it `expanded` collapsed to its title bar: same left, top and width.
-#[cfg_attr(not(test), expect(dead_code, reason = "M20 step 2 collapses post-its"))]
 pub fn collapsed_rect(expanded: Rect, dpi: u32, pad: i32) -> Rect {
     Rect {
         bottom: expanded.top + collapsed_height(dpi, pad),
@@ -581,7 +578,6 @@ pub fn collapsed_rect(expanded: Rect, dpi: u32, pad: i32) -> Rect {
 /// Where the saved expanded rectangle of a collapsed post-it goes on the monitors there are now:
 /// as `fit_to_monitors` places it, then moved so its title bar, all that shows, lies on the work
 /// area, which the expanded rectangle alone does not ensure.
-#[cfg_attr(not(test), expect(dead_code, reason = "M20 step 2 collapses post-its"))]
 pub fn fit_collapsed(expanded: Rect, monitors: &[Monitor]) -> Rect {
     let fitted = fit_to_monitors(expanded, monitors);
     let Some(monitor) = monitor_of(fitted, monitors) else {
@@ -602,7 +598,6 @@ pub fn fit_collapsed(expanded: Rect, monitors: &[Monitor]) -> Rect {
 
 /// The window of the collapsed post-it `bar` expanded to `expanded_height` pixels: growing down
 /// from the bar, moved up as far as needed to stay within `work`, and no taller than it.
-#[cfg_attr(not(test), expect(dead_code, reason = "M20 step 2 collapses post-its"))]
 pub fn expand_rect(bar: Rect, expanded_height: i32, work: Rect) -> Rect {
     let height = expanded_height.clamp(1, (work.bottom - work.top).max(1));
     let top = bar.top.min(work.bottom - height).max(work.top);
@@ -615,7 +610,6 @@ pub fn expand_rect(bar: Rect, expanded_height: i32, work: Rect) -> Rect {
 
 /// The rectangle saved for a window at `window`: a collapsed post-it's is its expanded one,
 /// `expanded_height` pixels tall from the bar's top.
-#[cfg_attr(not(test), expect(dead_code, reason = "M20 step 2 collapses post-its"))]
 pub fn saved_rect(window: Rect, collapsed: bool, expanded_height: i32) -> Rect {
     if collapsed {
         Rect {

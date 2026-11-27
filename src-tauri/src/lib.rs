@@ -198,6 +198,7 @@ pub fn run() {
         commands::float_natural,
         commands::float_note,
         commands::float_set_text_scale,
+        commands::float_set_collapsed,
         commands::float_edit,
         commands::float_drag,
         commands::float_ready,
