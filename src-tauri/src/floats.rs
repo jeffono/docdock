@@ -575,19 +575,40 @@ pub fn collapsed_rect(expanded: Rect, dpi: u32, pad: i32) -> Rect {
     }
 }
 
-/// Where the saved expanded rectangle of a collapsed post-it goes on the monitors there are now:
-/// as `fit_to_monitors` places it, then moved so its title bar, all that shows, lies on the work
-/// area, which the expanded rectangle alone does not ensure.
+/// Where the saved expanded rectangle of a collapsed post-it goes on the monitors there are now,
+/// judged by its title bar, all that shows: on the monitor that shows most of the bar, or the
+/// nearest, sized as `fit_to_monitors` would, and moved only as far as the whole bar needs to lie
+/// on the work area. The expanded rectangle may reach past it, as expanding moves it back
+/// (`expand_rect`).
 pub fn fit_collapsed(expanded: Rect, monitors: &[Monitor]) -> Rect {
-    let fitted = fit_to_monitors(expanded, monitors);
-    let Some(monitor) = monitor_of(fitted, monitors) else {
-        return fitted;
+    let bar_height =
+        |monitor: &Monitor| collapsed_height(monitor.dpi, scale_dpi(monitor.dpi, SHADOW_PAD));
+    let bar = |monitor: &Monitor| Rect {
+        bottom: expanded.top.saturating_add(bar_height(monitor)),
+        ..expanded
+    };
+    let most = monitors
+        .iter()
+        .map(|monitor| (monitor, area(intersection(bar(monitor), monitor.work))))
+        .filter(|(_, shown)| *shown > 0)
+        .max_by_key(|(_, shown)| *shown)
+        .map(|(monitor, _)| monitor);
+    let nearest = || {
+        monitors
+            .iter()
+            .min_by_key(|monitor| distance(bar(monitor), monitor.work))
+    };
+    let Some(monitor) = most.or_else(nearest) else {
+        return expanded;
     };
     let work = monitor.work;
-    let bar = collapsed_height(monitor.dpi, scale_dpi(monitor.dpi, SHADOW_PAD));
+    let fitted = sized(expanded, work, monitor.dpi);
     let (width, height) = (fitted.right - fitted.left, fitted.bottom - fitted.top);
     let left = fitted.left.min(work.right - width).max(work.left);
-    let top = fitted.top.min(work.bottom - bar).max(work.top);
+    let top = fitted
+        .top
+        .min(work.bottom - bar_height(monitor))
+        .max(work.top);
     Rect {
         left,
         top,
@@ -1290,6 +1311,15 @@ mod tests {
         let monitors = [monitor(0, 1920, 96)];
         let fitted = fit_collapsed(rect(100, -200, 300, 340), &monitors);
         assert_eq!(fitted, rect(100, 0, 300, 340));
+    }
+
+    // Catches a post-it collapsed at the bottom of the screen jumping up on every start, judged by
+    // its expanded rectangle, mostly off the work area.
+    #[test]
+    fn a_collapsed_post_it_at_the_bottom_stays_where_it_was() {
+        let monitors = [monitor(0, 1920, 96)];
+        let saved = rect(100, 1040 - 44, 300, 340);
+        assert_eq!(fit_collapsed(saved, &monitors), saved);
     }
 
     // Catches a collapsed post-it saving its bar's height, which reopens it expanded to nothing.
