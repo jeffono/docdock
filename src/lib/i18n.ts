@@ -3,6 +3,7 @@ import type { Locale } from "./ipc";
 
 const en = {
   "notes.exitBusy": "Wait for the current operation to finish, then try quitting again.",
+  "floating.unsaved": "A floating note has unsaved changes.",
   "preferences.relativeDates": "Use relative dates",
   "preferences.spelling": "Check spelling",
   "preferences.noteSearchSuggestions": "Web suggestions while searching notes",
@@ -519,6 +520,7 @@ export type MessageKey = keyof typeof en;
 
 const ptBR: Record<MessageKey, string> = {
   "notes.exitBusy": "Aguarde a operação atual terminar e tente sair novamente.",
+  "floating.unsaved": "Uma nota flutuante tem alterações não salvas.",
   "preferences.relativeDates": "Usar datas relativas",
   "preferences.spelling": "Verificar ortografia",
   "preferences.noteSearchSuggestions": "Sugestões da web ao buscar notas",

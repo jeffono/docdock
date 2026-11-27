@@ -10,8 +10,11 @@ import {
   floatingDragEnd,
   floatingDragStart,
   floatingEditCurrent,
+  floatingFinishEdits,
   floatingList,
   floatingOpenNote,
+  floatingPanelReleased,
+  floatingReleaseEdits,
   type Leftover,
   type Listing,
   type Note,
@@ -41,6 +44,7 @@ import {
   notesUndoDelete,
   type OpenNote,
   onFloatingPaths,
+  onFloatingReleasePanelEdit,
   onNotesChanged,
   onPanelDragCancel,
   onPanelHidden,
@@ -840,10 +844,17 @@ let choosing = $state(false);
 async function trust() {
   try {
     error = "";
+    // As choosing: the folder's identity may change, so post-its editing save first.
+    if (!(await floatingFinishEdits())) {
+      error = t("floating.unsaved");
+      return;
+    }
     await refresh(await notesTrust());
     await onfolderchange?.();
   } catch (e) {
     error = errorText(e);
+  } finally {
+    void floatingReleaseEdits().catch(() => {});
   }
 }
 export async function choose() {
@@ -851,9 +862,17 @@ export async function choose() {
   if (choosing || savingPage || capturing || creating) return;
   choosing = true;
   let locked = false;
+  let held = false;
   try {
     error = "";
     if (!(await leaveEditor())) return;
+    // Post-its editing save first, and none begins until the choice ends: their notes belong to
+    // the folder before. Released below, also when the picker is cancelled.
+    held = true;
+    if (!(await floatingFinishEdits())) {
+      error = t("floating.unsaved");
+      return error;
+    }
     if (beforeChoose) {
       if (!(await beforeChoose())) return;
       locked = true;
@@ -865,6 +884,7 @@ export async function choose() {
     return error;
   } finally {
     if (locked) afterChoose?.();
+    if (held) void floatingReleaseEdits().catch(() => {});
     choosing = false;
   }
 }
@@ -2815,6 +2835,13 @@ onMount(() => {
     .then(showFloating)
     .catch(() => {});
   const floatingChanged = onFloatingPaths(showFloating);
+  // A post-it asks to edit the note edited here: the edit moves there once this editor saved.
+  const releaseAsked = onFloatingReleasePanelEdit(({ request }) => {
+    void leaveEditor()
+      .catch(() => false)
+      .then((left) => floatingPanelReleased(request, left))
+      .catch(() => {});
+  });
   // Chosen in the page's native context menu.
   const captureChosen = onWebCapture((choice) => void capturePage(choice));
   // Hiding leaves editing through its save guard, keeping search, expansion and list position.
@@ -2874,6 +2901,7 @@ onMount(() => {
     void search.then((stop) => stop());
     void captureChosen.then((stop) => stop());
     void floatingChanged.then((stop) => stop());
+    void releaseAsked.then((stop) => stop());
   };
 });
 </script>

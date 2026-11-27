@@ -636,10 +636,31 @@ pub fn floating_edit_current(epoch: u64) -> bool {
     crate::floating::edit_current(epoch)
 }
 
-/// The panel edits the note `path`, or none (`null`): whether it may, as no post-it edits it.
+/// The panel edits the note `path`, or none (`null`): whether it may. A post-it editing it saves
+/// and returns to reading first; waits for it, off the main thread.
 #[tauri::command(async)]
-pub fn floating_panel_edit(path: Option<String>) -> bool {
-    crate::floating::panel_edit(path)
+pub fn floating_panel_edit(app: AppHandle, path: Option<String>) -> bool {
+    crate::floating::panel_edit(&app, path)
+}
+
+/// The panel answers `floating-release-panel-edit` number `request`: it left its editor, saved,
+/// or could not.
+#[tauri::command(async)]
+pub fn floating_panel_released(request: u64, released: bool) {
+    crate::floating::panel_released(request, released);
+}
+
+/// Before exiting or choosing another folder: holds new edits and has every post-it editing save
+/// and return to reading. Whether all did; waits for them, off the main thread.
+#[tauri::command(async)]
+pub fn floating_finish_edits() -> bool {
+    crate::floating::finish_edits()
+}
+
+/// Edits may begin again: the exit or folder choice did not happen.
+#[tauri::command(async)]
+pub fn floating_release_edits() {
+    crate::floating::release_edits();
 }
 
 /// The images and notes the open floating windows show, so the notes mark them.
@@ -683,8 +704,7 @@ pub fn float_close(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), E
     if !crate::floating::is_live(window.label()) {
         return Err(Error::unexpected("command restricted to floating windows"));
     }
-    crate::floating::close(&app, window.label());
-    Ok(())
+    crate::floating::close_own(&app, window.label())
 }
 /// Grows or shrinks the window so its image is `width` CSS pixels wide, keeping its proportions.
 #[tauri::command(async)]
@@ -728,6 +748,17 @@ pub fn float_save_note(
     recreate: bool,
 ) -> Result<crate::notes::Saved, Error> {
     crate::floating::save_note(&app, window.label(), &content, &base, lease, recreate)
+}
+/// The post-it answers Rust's request number `request` to finish its edit: it saved, which also
+/// ends the edit, or could not.
+#[tauri::command(async)]
+pub fn float_finished(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    request: u64,
+    saved: bool,
+) -> Result<(), Error> {
+    crate::floating::finished(&app, window.label(), request, saved)
 }
 /// The post-it stops editing and gives focus back.
 #[tauri::command(async)]

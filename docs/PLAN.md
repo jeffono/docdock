@@ -6,8 +6,9 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20: steps 1-5 done (collapse, title bar with opacity popover, edit lease, `float_save_note`);
-  next steps 6-7 (parking, finish handshake).
+- M20: steps 1-7 done (collapse, title bar with opacity popover, edit lease with save generations,
+  `float_save_note`, parking, finish handshake); next step 8, where the post-it honors `parked`,
+  `finish` and `closeRequested` (`FloatUpdate` in `ipc.ts`).
 
 ## Next
 

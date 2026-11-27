@@ -18,7 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -67,6 +67,12 @@ pub struct Update {
     /// The post-it was editing when its notes folder left or another was chosen: it keeps its text
     /// but must hide it, and reach its note again only once the same folder returns.
     parked: bool,
+    /// Rust asks the editing post-it to finish (`finish_where`): each new request raises it, and
+    /// the window answers that number with `float_finished` once it saved, or could not.
+    finish: u64,
+    /// The user closed the editing post-it from outside it (Alt+F4, the panel, the tray): each
+    /// request raises it, and the window closes itself only once nothing is left to save.
+    close_requested: u64,
 }
 
 #[derive(Serialize)]
@@ -117,6 +123,10 @@ struct Live {
     /// See `Update::parked`. It keeps the folder and epoch it opened on, so none of its moves is
     /// saved, until the same folder returns and adopts it (`Registry::adopt`).
     parked: bool,
+    /// See `Update::finish`.
+    finish: u64,
+    /// See `Update::close_requested`.
+    close_requested: u64,
     /// The foreground window when editing began, which gets focus back when it ends.
     previous_focus: Option<isize>,
     /// Counts the edits granted to the post-it: a save names the one it belongs to, so a save
@@ -144,6 +154,8 @@ impl Live {
             editing: self.editing,
             blocked: self.blocked,
             parked: self.parked,
+            finish: self.finish,
+            close_requested: self.close_requested,
         }
     }
 
@@ -220,6 +232,16 @@ impl Refusal {
             }
         }
     }
+}
+
+/// What it takes for an editor to edit a note (`Registry::transfer`). Asking to edit a note edited
+/// elsewhere moves the edit: the other editor saves and returns to reading first.
+#[derive(Debug, PartialEq, Eq)]
+enum Transfer {
+    Grant,
+    Refuse,
+    /// Ask this editor to finish, then ask again.
+    Finish(Editor),
 }
 
 /// What a post-it that may begin editing reads its note from, and the edit it was granted.
@@ -305,6 +327,48 @@ impl Registry {
             Some(live) => Err(Refusal::Editing(Editor::Float(live.label.clone()))),
             None => Ok(()),
         }
+    }
+
+    /// What it takes for `editor` to edit `path` (`Transfer`): nothing if `may_edit` agrees; never
+    /// while edits are held, nor from a parked post-it, which cannot save now; otherwise its editor
+    /// finishing first.
+    fn transfer(&self, editor: &Editor, path: &str) -> Transfer {
+        match self.may_edit(editor, path) {
+            Ok(()) => Transfer::Grant,
+            Err(Refusal::Held) => Transfer::Refuse,
+            Err(Refusal::Editing(Editor::Float(label)))
+                if self
+                    .live
+                    .iter()
+                    .any(|live| live.label == label && live.parked) =>
+            {
+                Transfer::Refuse
+            }
+            Err(Refusal::Editing(holder)) => Transfer::Finish(holder),
+        }
+    }
+
+    /// What it takes for the post-it `label` to begin editing: refused, as `begin_edit` would,
+    /// before asking anyone else to finish.
+    fn begin_transfer(&self, label: &str) -> Result<Transfer, Error> {
+        let live = self
+            .live
+            .iter()
+            .find(|live| live.label == label)
+            .ok_or_else(|| Error::unexpected("command restricted to floating windows"))?;
+        if live.kind != Kind::Note {
+            return Err(Error::unexpected("command restricted to post-its"));
+        }
+        if live.raw == 0
+            || !live.shown
+            || live.closing
+            || live.click_through
+            || live.parked
+            || !self.current(live.epoch)
+        {
+            return Ok(Transfer::Refuse);
+        }
+        Ok(self.transfer(&Editor::Float(label.to_owned()), &live.path))
     }
 
     /// Tells every post-it whose note became edited elsewhere, or no longer is.
@@ -481,6 +545,8 @@ impl Registry {
             editing: false,
             blocked: false,
             parked: false,
+            finish: 0,
+            close_requested: 0,
             previous_focus: None,
             lease: 0,
             version: 1,
@@ -531,20 +597,25 @@ impl Registry {
         }
     }
 
-    /// Marks every window `picked` closed by the user; answers their labels, ids and folders.
+    /// Marks every window `picked` closed by the user; answers their labels, ids and folders. A
+    /// post-it editing is only asked to close (`Update::close_requested`), which it does itself
+    /// once nothing is left to save, so a close never loses its text.
     fn mark_closing_where(&mut self, picked: impl Fn(&Live) -> bool) -> Vec<Closing> {
-        self.live
-            .iter_mut()
-            .filter(|live| picked(live))
-            .map(|live| {
-                live.closing = true;
-                Closing {
-                    label: live.label.clone(),
-                    id: live.id.clone(),
-                    folder: live.folder.clone(),
-                }
-            })
-            .collect()
+        let mut closing = Vec::new();
+        for live in self.live.iter_mut().filter(|live| picked(live)) {
+            if live.editing {
+                live.close_requested += 1;
+                live.changed();
+                continue;
+            }
+            live.closing = true;
+            closing.push(Closing {
+                label: live.label.clone(),
+                id: live.id.clone(),
+                folder: live.folder.clone(),
+            });
+        }
+        closing
     }
 
     /// The images and notes the open windows show, as saved.
@@ -1498,7 +1569,13 @@ pub struct SwitchGuard(AppHandle);
 
 impl Drop for SwitchGuard {
     fn drop(&mut self) {
-        if registry().end_switch() {
+        let ended = {
+            let mut registry = registry();
+            // The edits `finish_edits` held for the choice may begin again.
+            registry.held = false;
+            registry.end_switch()
+        };
+        if ended {
             folder_returned(&self.0);
         }
     }
@@ -1530,10 +1607,22 @@ pub fn close(app: &AppHandle, label: &str) {
     forget_closed(app, closing);
 }
 
+/// The post-it or image `label` closes itself, from its own close button: a post-it does so only
+/// once nothing is left to save (or the user discarded it), so its edit ends first, giving focus
+/// back. A parked post-it then goes keeping its entry, which its folder, gone, cannot forget.
+pub fn close_own(app: &AppHandle, label: &str) -> Result<(), Error> {
+    if with_live(label, |live| live.editing)? {
+        end_edit(app, label)?;
+    }
+    close(app, label);
+    Ok(())
+}
+
 /// The user closes every window showing `path`, an image or a note however it is spelled, as
 /// `close` does.
 pub fn close_path(app: &AppHandle, path: &str) {
-    let closing = registry().mark_closing_where(same_path(path));
+    let same = same_path(path);
+    let closing = registry().mark_closing_where(|live| !live.parked && same(live));
     forget_closed(app, closing);
 }
 
@@ -1690,10 +1779,19 @@ pub fn edit_current(epoch: u64) -> bool {
 }
 
 /// The post-it `label` begins editing its note, which nobody else edits (`Registry::may_edit`),
-/// and takes focus. Answers the note with its version and the edit granted, which `save_note`
-/// names; `None` if it may not edit now, as while its note is edited elsewhere (`Update::blocked`),
-/// it lets clicks through or the note is gone.
+/// and takes focus; a note edited elsewhere is saved there first (`Transfer`), so this waits and
+/// never runs on the main thread. Answers the note with its version and the edit granted, which
+/// `save_note` names; `None` if it may not edit now, as while edits are held, the editor holding
+/// its note could not save, it lets clicks through or the note is gone.
 pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error> {
+    // Asking to edit a note edited elsewhere moves the edit here: the editor holding it saves and
+    // returns to reading first. Before `LEASING`, which its answer takes to end its edit.
+    let transfer = registry().begin_transfer(label)?;
+    match transfer {
+        Transfer::Refuse => return Ok(None),
+        Transfer::Finish(holder) if !finish_editor(app, &holder) => return Ok(None),
+        Transfer::Finish(_) | Transfer::Grant => {}
+    }
     let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
     // Claimed before reading, so nobody else begins editing the note in between.
     let Some(claim) = registry().begin_edit(label)? else {
@@ -1810,10 +1908,276 @@ fn leave(app: &AppHandle, label: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// The panel edits the note `path`, relative to the notes folder, if no post-it edits it; or none
-/// (`None`). Answers whether it may.
-pub fn panel_edit(path: Option<String>) -> bool {
+/// The panel edits the note `path`, relative to the notes folder, or none (`None`). A post-it
+/// editing it is asked to finish first, so the edit moves to the panel (`transfer`). Answers
+/// whether it may. Waits, so never on the main thread.
+pub fn panel_edit(app: &AppHandle, path: Option<String>) -> bool {
+    if let Some(path) = &path {
+        let transfer = registry().transfer(&Editor::Panel, path);
+        match transfer {
+            Transfer::Refuse => return false,
+            Transfer::Finish(holder) if !finish_editor(app, &holder) => return false,
+            Transfer::Finish(_) | Transfer::Grant => {}
+        }
+    }
     registry().panel_edit(path)
+}
+
+/// Asks `editor` to finish its edit and waits for it (`finish_where`, `release_panel`).
+fn finish_editor(app: &AppHandle, editor: &Editor) -> bool {
+    match editor {
+        Editor::Panel => release_panel(app),
+        Editor::Float(label) => finish_where(false, |live| live.label == *label),
+    }
+}
+
+// Finishing: Rust asks editors to save and leave their edit, and waits for their answers, failing
+// closed. Used by the exit gate and folder choices (`finish_edits`, every post-it) and by edit
+// transfers (`finish_editor`, the one editor holding the note). A request raises
+// `Update::finish` on each post-it asked, which answers with `float_finished`; the panel hears
+// `floating-release-panel-edit` and answers with `floating_panel_released`. Each request waits in
+// `FINISHES` until all answered, one failed or was parked, or `FLUSH_WAIT` passed. Never waited on
+// under the registry, nor on the main thread: the answers come through commands that take the
+// registry and `LEASING`.
+
+/// Where an editor asked to finish stands, as the registry sees it while the request waits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    Editing,
+    /// Its folder went: it cannot save now.
+    Parked,
+    /// It stopped editing, or went: nothing of it is left to wait for.
+    Done,
+}
+
+/// A request for editors to finish their edits.
+#[derive(Debug)]
+struct Finishing {
+    request: u64,
+    /// The editors still to answer: post-its by label, the panel as `PANEL`.
+    pending: BTreeSet<String>,
+    failed: bool,
+    deadline: Instant,
+}
+
+impl Finishing {
+    fn new(request: u64, editors: Vec<(String, Standing)>, deadline: Instant) -> Self {
+        let mut finishing = Self {
+            request,
+            pending: editors.iter().map(|(key, _)| key.clone()).collect(),
+            failed: false,
+            deadline,
+        };
+        for (key, standing) in editors {
+            finishing.stand(&key, standing);
+        }
+        finishing
+    }
+
+    /// The editor `key` answered request `request`. An answer to an earlier request is stale and
+    /// ignored; one to a later request covers this one, since it finished later.
+    fn answer(&mut self, request: u64, key: &str, saved: bool) {
+        if request < self.request || !self.pending.remove(key) {
+            return;
+        }
+        if !saved {
+            self.failed = true;
+        }
+    }
+
+    fn stand(&mut self, key: &str, standing: Standing) {
+        if !self.pending.contains(key) {
+            return;
+        }
+        match standing {
+            Standing::Editing => {}
+            Standing::Parked => self.failed = true,
+            Standing::Done => {
+                self.pending.remove(key);
+            }
+        }
+    }
+
+    /// Whether every editor finished, once that is known: false as soon as one could not, and once
+    /// the deadline passed.
+    fn outcome(&self, now: Instant) -> Option<bool> {
+        if self.failed {
+            Some(false)
+        } else if self.pending.is_empty() {
+            Some(true)
+        } else if now >= self.deadline {
+            Some(false)
+        } else {
+            None
+        }
+    }
+}
+
+/// The panel's key among the editors of a `Finishing`.
+const PANEL: &str = "main";
+/// Asks `main` to leave the panel's editor, with its request number and note.
+const RELEASE_PANEL: &str = "floating-release-panel-edit";
+
+#[derive(Clone, Serialize)]
+struct PanelRelease {
+    request: u64,
+    path: String,
+}
+
+/// The requests waiting. Taken under the registry, never the other way round.
+static FINISHES: Mutex<Vec<Finishing>> = Mutex::new(Vec::new());
+static FINISHED: Condvar = Condvar::new();
+static NEXT_FINISH: AtomicU64 = AtomicU64::new(0);
+
+fn finishes() -> MutexGuard<'static, Vec<Finishing>> {
+    FINISHES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// How `key` stands in `registry`.
+fn standing(registry: &Registry, key: &str) -> Standing {
+    if key == PANEL {
+        return match registry.panel_editing {
+            Some(_) => Standing::Editing,
+            None => Standing::Done,
+        };
+    }
+    match registry.live.iter().find(|live| live.label == key) {
+        Some(live) if live.editing && live.parked => Standing::Parked,
+        Some(live) if live.editing => Standing::Editing,
+        _ => Standing::Done,
+    }
+}
+
+/// Asks every post-it editing and `picked` to finish, and waits; with `hold`, no edit begins
+/// meanwhile, nor after, until `release_edits` or a folder choice ends. A parked one fails at once.
+fn finish_where(hold: bool, picked: impl Fn(&Live) -> bool) -> bool {
+    let request = NEXT_FINISH.fetch_add(1, Ordering::SeqCst) + 1;
+    {
+        let mut registry = registry();
+        if hold {
+            registry.held = true;
+        }
+        let mut editors = Vec::new();
+        for live in registry
+            .live
+            .iter_mut()
+            .filter(|live| live.editing && picked(live))
+        {
+            if live.parked {
+                editors.push((live.label.clone(), Standing::Parked));
+            } else {
+                live.finish = request;
+                live.changed();
+                editors.push((live.label.clone(), Standing::Editing));
+            }
+        }
+        // Still under the registry, so no answer arrives before its request waits.
+        finishes().push(Finishing::new(
+            request,
+            editors,
+            Instant::now() + FLUSH_WAIT,
+        ));
+    }
+    wait_finished(request)
+}
+
+/// Asks the panel to leave its editor, and waits.
+fn release_panel(app: &AppHandle) -> bool {
+    let request = NEXT_FINISH.fetch_add(1, Ordering::SeqCst) + 1;
+    let path = {
+        let registry = registry();
+        let Some(path) = registry.panel_editing.clone() else {
+            return true;
+        };
+        finishes().push(Finishing::new(
+            request,
+            vec![(PANEL.to_owned(), Standing::Editing)],
+            Instant::now() + FLUSH_WAIT,
+        ));
+        path
+    };
+    if let Err(error) = app.emit_to("main", RELEASE_PANEL, PanelRelease { request, path }) {
+        eprintln!("[floating] panel not asked to finish: {error}");
+        answer_finish(request, PANEL, false);
+    }
+    wait_finished(request)
+}
+
+/// Waits for the request `request` to end, and forgets it.
+fn wait_finished(request: u64) -> bool {
+    loop {
+        let pending: Vec<String> = match finishes().iter().find(|f| f.request == request) {
+            Some(finishing) => finishing.pending.iter().cloned().collect(),
+            None => return false,
+        };
+        // Editors that stopped editing, went or were parked without answering, read apart from
+        // `FINISHES` so neither lock waits for the other.
+        let standings: Vec<(String, Standing)> = {
+            let registry = registry();
+            pending
+                .into_iter()
+                .map(|key| {
+                    let standing = standing(&registry, &key);
+                    (key, standing)
+                })
+                .collect()
+        };
+        let mut finishes = finishes();
+        let Some(at) = finishes.iter().position(|f| f.request == request) else {
+            return false;
+        };
+        for (key, standing) in standings {
+            finishes[at].stand(&key, standing);
+        }
+        if let Some(finished) = finishes[at].outcome(Instant::now()) {
+            finishes.remove(at);
+            return finished;
+        }
+        // Woken by an answer, or after a while to read the registry again.
+        let _ = FINISHED.wait_timeout(finishes, POLL);
+    }
+}
+
+fn answer_finish(request: u64, key: &str, saved: bool) {
+    for finishing in finishes().iter_mut() {
+        finishing.answer(request, key, saved);
+    }
+    FINISHED.notify_all();
+}
+
+/// The post-it `label` answers the finish request `request`: it `saved` its note, which also ends
+/// its edit as `end_edit` does, or could not and goes on editing.
+pub fn finished(app: &AppHandle, label: &str, request: u64, saved: bool) -> Result<(), Error> {
+    if with_live(label, |live| live.kind)? != Kind::Note {
+        return Err(Error::unexpected("command restricted to post-its"));
+    }
+    if saved {
+        end_edit(app, label)?;
+    }
+    answer_finish(request, label, saved);
+    Ok(())
+}
+
+/// The panel answers the request `request` to leave its editor: it `released` it, saved, or could
+/// not and goes on editing.
+pub fn panel_released(request: u64, released: bool) {
+    if released {
+        registry().panel_edit(None);
+    }
+    answer_finish(request, PANEL, released);
+}
+
+/// Before exiting or choosing another notes folder: no edit begins until `release_edits`, or the
+/// folder choice ends, and every post-it editing saves and returns to reading. Answers whether all
+/// did; false at once for one parked, which cannot save until its folder returns. Waits, so never
+/// on the main thread.
+pub fn finish_edits() -> bool {
+    finish_where(true, |_| true)
+}
+
+/// Edits may begin again: the exit or folder choice `finish_edits` held them for did not happen.
+pub fn release_edits() {
+    registry().held = false;
 }
 
 /// Something in the notes folder changed, `renames` among it as the watcher saw them in `root`
@@ -2683,6 +3047,94 @@ mod tests {
         assert!(!registry.live[0].parked);
         assert!(registry.current(registry.live[0].epoch));
         assert_eq!(registry.live[0].revision, 1);
+    }
+
+    fn finishing(editors: &[(&str, Standing)]) -> (Finishing, Instant) {
+        let now = Instant::now();
+        let editors = editors
+            .iter()
+            .map(|(key, standing)| ((*key).to_owned(), *standing))
+            .collect();
+        (Finishing::new(5, editors, now + FLUSH_WAIT), now)
+    }
+
+    // Catches the app exiting, or another folder being chosen, over a post-it parked with text
+    // it cannot save until its folder returns.
+    #[test]
+    fn a_parked_post_it_never_finishes() {
+        let (finish, now) = finishing(&[
+            ("float-1", Standing::Editing),
+            ("float-2", Standing::Parked),
+        ]);
+        assert_eq!(finish.outcome(now), Some(false));
+    }
+
+    // Catches a post-it that never answers being taken as saved.
+    #[test]
+    fn a_post_it_that_never_answers_fails_its_finish() {
+        let (mut finish, now) = finishing(&[
+            ("float-1", Standing::Editing),
+            ("float-2", Standing::Editing),
+        ]);
+        finish.answer(5, "float-1", true);
+        assert_eq!(finish.outcome(now), None);
+        assert_eq!(finish.outcome(now + FLUSH_WAIT), Some(false));
+    }
+
+    #[test]
+    fn every_editor_saved_finishes() {
+        let (mut finish, now) =
+            finishing(&[("float-1", Standing::Editing), (PANEL, Standing::Editing)]);
+        finish.answer(5, "float-1", true);
+        // An edit ended without an answer, as discarded, leaves nothing to wait for.
+        finish.stand(PANEL, Standing::Done);
+        assert_eq!(finish.outcome(now), Some(true));
+    }
+
+    // Catches a save that failed, or a late answer to an earlier request, deciding this one.
+    #[test]
+    fn a_failed_save_fails_and_a_stale_answer_is_ignored() {
+        let (mut finish, now) = finishing(&[("float-1", Standing::Editing)]);
+        finish.answer(4, "float-1", true);
+        assert_eq!(finish.outcome(now), None);
+        finish.answer(5, "float-1", false);
+        assert_eq!(finish.outcome(now), Some(false));
+    }
+
+    // Catches asking to edit a note edited elsewhere refusing instead of moving the edit, or
+    // asking a post-it that cannot save to finish.
+    #[test]
+    fn asking_to_edit_a_note_edited_elsewhere_moves_the_edit() {
+        let mut registry = post_its(&["a.md", "a.md", "b.md"]);
+        assert_eq!(registry.begin_transfer("float-1"), Ok(Transfer::Grant));
+        assert!(begins(&mut registry, "float-1"));
+        let holder = Transfer::Finish(Editor::Float("float-1".into()));
+        assert_eq!(registry.begin_transfer("float-2"), Ok(holder));
+        let holder = Transfer::Finish(Editor::Float("float-1".into()));
+        assert_eq!(registry.transfer(&Editor::Panel, "A.md"), holder);
+        assert!(registry.panel_edit(Some("b.md".into())));
+        assert_eq!(
+            registry.begin_transfer("float-3"),
+            Ok(Transfer::Finish(Editor::Panel))
+        );
+        registry.held = true;
+        assert_eq!(registry.begin_transfer("float-2"), Ok(Transfer::Refuse));
+        registry.held = false;
+        registry.revoke();
+        assert_eq!(registry.transfer(&Editor::Panel, "a.md"), Transfer::Refuse);
+    }
+
+    // Catches a close from outside a post-it (Alt+F4, the panel, the tray) destroying its unsaved
+    // text.
+    #[test]
+    fn a_close_only_asks_an_editing_post_it_to_close() {
+        let mut registry = post_its(&["a.md", "b.md"]);
+        assert!(begins(&mut registry, "float-1"));
+        let closing = registry.mark_closing_where(|_| true);
+        let labels: Vec<_> = closing.iter().map(|closed| closed.label.as_str()).collect();
+        assert_eq!(labels, ["float-2"]);
+        assert!(!registry.live[0].closing);
+        assert_eq!(registry.live[0].close_requested, 1);
     }
 
     // Catches a post-it taking focus to edit while clicks go through it, or before it shows.

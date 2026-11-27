@@ -492,10 +492,31 @@ export const onFloatingPaths = (handler: (paths: string[]) => void): Promise<Unl
   listen<string[]>("floating-paths", (event) => handler(event.payload));
 /**
  * The panel edits the note at `path`, or none (`null`): a note is edited in one place at a time,
- * so this answers `false` while a post-it edits it.
+ * so a post-it editing it saves and returns to reading first; `false` if it could not, or while
+ * edits are held (exit, folder choice).
  */
 export const floatingPanelEdit = (path: string | null) =>
   invoke<boolean>("floating_panel_edit", { path });
+/**
+ * A post-it asks to edit the note the panel edits, `path`: the panel leaves its editor, saving,
+ * and answers `request` with `floatingPanelReleased` (`false` if it could not).
+ */
+export const onFloatingReleasePanelEdit = (
+  handler: (release: { request: number; path: string }) => void,
+): Promise<UnlistenFn> =>
+  listen<{ request: number; path: string }>("floating-release-panel-edit", (event) =>
+    handler(event.payload),
+  );
+export const floatingPanelReleased = (request: number, released: boolean) =>
+  invoke<void>("floating_panel_released", { request, released });
+/**
+ * Before exiting or choosing another notes folder: holds new edits and has every post-it editing
+ * save and return to reading. `false` if one could not, or is parked; then call
+ * `floatingReleaseEdits` unless the exit or folder choice goes on.
+ */
+export const floatingFinishEdits = () => invoke<boolean>("floating_finish_edits");
+/** Edits may begin again: the exit or folder choice `floatingFinishEdits` held them for ended. */
+export const floatingReleaseEdits = () => invoke<void>("floating_release_edits");
 /** Rust tells `main` whenever the notes post-its edit change. */
 export const onFloatingEditing = (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
   listen<string[]>("floating-editing", (event) => handler(event.payload));
@@ -535,6 +556,18 @@ export type FloatUpdate = {
    * place). Saving fails meanwhile.
    */
   parked: boolean;
+  /**
+   * Rust asks the editing post-it to finish: on each new value, save, then answer it with
+   * `floatFinished(finish, saved)`; a save ends the edit as `floatEndEdit` does, a failure (as a
+   * conflict) keeps editing. 0 before any request.
+   */
+  finish: number;
+  /**
+   * The user closed the editing post-it from outside it (Alt+F4, the panel, the tray): on each new
+   * value, close as the post-it's own close button would, saving first and staying open if that
+   * fails. 0 before any request.
+   */
+  closeRequested: number;
 };
 export function floatState(onUpdate: (update: FloatUpdate) => void) {
   const channel = new Channel<FloatUpdate>();
@@ -544,6 +577,10 @@ export function floatState(onUpdate: (update: FloatUpdate) => void) {
 export const floatSetOpacity = (opacity: number) => invoke<void>("float_set_opacity", { opacity });
 export const floatSetClickThrough = (clickThrough: boolean) =>
   invoke<void>("float_set_click_through", { clickThrough });
+/**
+ * Closes the window and forgets its place. An editing post-it calls it only once nothing is left
+ * to save (or the user discarded): its edit ends first.
+ */
 export const floatClose = () => invoke<void>("float_close");
 /** The image's size after a zoom, in CSS pixels, and whether it reached its largest. */
 export type FloatZoomed = { width: number; height: number; atMax: boolean };
@@ -571,8 +608,15 @@ export const floatBeginEdit = () => invoke<FloatGranted | null>("float_begin_edi
  */
 export const floatSaveNote = (content: string, base: string, lease: number, recreate = false) =>
   invoke<SaveResult>("float_save_note", { content, base, lease, recreate });
-/** The post-it stops editing and gives focus back to the window that had it. */
+/**
+ * The post-it stops editing and gives focus back to the window that had it. A parked post-it then
+ * closes, keeping its place for when its folder returns: call it once nothing is left to save, or
+ * when the user discards.
+ */
 export const floatEndEdit = () => invoke<void>("float_end_edit");
+/** Answers Rust's finish request `request` (`FloatUpdate.finish`): the post-it saved, or not. */
+export const floatFinished = (request: number, saved: boolean) =>
+  invoke<void>("float_finished", { request, saved });
 export const floatSetTextScale = (scale: number) => invoke<void>("float_set_text_scale", { scale });
 /** Collapses a post-it to its title bar, keeping its top, or expands it back. */
 export const floatSetCollapsed = (collapsed: boolean) =>

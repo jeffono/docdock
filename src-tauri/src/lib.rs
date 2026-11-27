@@ -185,6 +185,9 @@ pub fn run() {
         commands::floating_drag_end,
         commands::floating_edit_current,
         commands::floating_panel_edit,
+        commands::floating_panel_released,
+        commands::floating_finish_edits,
+        commands::floating_release_edits,
         commands::floating_list,
         commands::floating_close_path,
     ];
@@ -200,6 +203,7 @@ pub fn run() {
         commands::float_note,
         commands::float_begin_edit,
         commands::float_end_edit,
+        commands::float_finished,
         commands::float_save_note,
         commands::float_set_text_scale,
         commands::float_set_collapsed,
