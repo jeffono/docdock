@@ -6,33 +6,22 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-M19 — Clipboard manager and text transforms (`clipboard` branch).
-
 ## Next
 
-M19 — Clipboard manager and text transforms (advanced, M): a top-bar tab mirroring Windows
-Clipboard History (`Win+V`) through WinRT `Clipboard::GetHistoryItemsAsync` (start with a short
-spike confirming unpackaged behavior and focus rules; when history is off, show the current item
-with a notice and link to Windows Settings). Expands the shared pure transforms (`transforms.ts`,
-used across Clipboard, Scratchpad and notes): digits only, strip punctuation/whitespace
-(alphanumeric), normalize whitespace/line breaks, strip accents, remove empty lines, join lines,
-clean tracking parameters from URLs, URL decode and format/minify JSON, with contextual top
-suggestions, chaining/preview, and transformed copies written out of history so `Win+V` stays
-clean. Includes bar search, counts, deleting history items, Send to Scratchpad and Create note.
+M20 — Editable floating notes and title-bar collapse (advanced, M–L): adds a quiet title bar to
+post-its (keeping floating images frameless) as a drag handle and a collapse/expand ("window
+shade") toggle, remembering collapsed state and expanded height in `floating.json` with vertical
+resize locked while collapsed. Post-its remain read-only and non-activating by default;
+double-click or the pencil enters inline editing using M18's decoupled editor with on-demand
+activation (`Esc` returns to read-only), plus an action to open in the panel. Extends `0014` with
+`float_save_note` scoped strictly to the window's registered path and folder, coordinates editing
+so a note edits in one place at a time, and flushes editing post-its in the exit gate. Optionally
+allows floating the Scratchpad.
 
 ## Later
 
 In this order:
 
-- M20 — Editable floating notes and title-bar collapse (advanced, M–L): adds a quiet title bar to
-  post-its (keeping floating images frameless) as a drag handle and a collapse/expand ("window
-  shade") toggle, remembering collapsed state and expanded height in `floating.json` with vertical
-  resize locked while collapsed. Post-its remain read-only and non-activating by default;
-  double-click or the pencil enters inline editing using M18's decoupled editor with on-demand
-  activation (`Esc` returns to read-only), plus an action to open in the panel. Extends `0014` with
-  `float_save_note` scoped strictly to the window's registered path and folder, coordinates editing
-  so a note edits in one place at a time, and flushes editing post-its in the exit gate. Optionally
-  allows floating the Scratchpad.
 - M21 — Rich content and plugin boundary (standard to advanced, M–L):
   1. Low-cost safe Markdown and local media (standard, S–M): clickable task checkboxes in reading
      view, `==highlight==`, collapsible callouts (`<details>`), local SVG via `<img>` with a
