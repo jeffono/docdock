@@ -507,6 +507,8 @@ export const onFloatingEditing = (handler: (paths: string[]) => void): Promise<U
  */
 export const isFloatWindow = () => /^float-[1-9]\d*$/.test(getCurrentWebviewWindow().label);
 export type FloatUpdate = {
+  /** Changes on Escape over a post-it, even while another window has focus. */
+  escapeRevision: number;
   version: number;
   /** A floating image, or a post-it showing a note. */
   kind: "image" | "note";

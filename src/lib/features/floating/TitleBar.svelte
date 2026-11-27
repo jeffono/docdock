@@ -13,6 +13,8 @@ let {
   collapsed,
   gone,
   onopacity,
+  opacityOpen,
+  ontoggleopacity,
   ontoggle,
 }: {
   name: string;
@@ -23,6 +25,8 @@ let {
   collapsed: boolean;
   gone: boolean;
   onopacity: (value: number) => void;
+  opacityOpen: boolean;
+  ontoggleopacity: () => void;
   ontoggle: () => void;
 } = $props();
 
@@ -40,7 +44,11 @@ const DOUBLE_CLICK_TIME = 500;
 const DOUBLE_CLICK_DISTANCE = 4;
 let lastPress: PointerEvent | undefined;
 function pointerdown(event: PointerEvent) {
-  if (event.button !== 0 || event.ctrlKey || (event.target as Element).closest("button, input")) {
+  if (
+    event.button !== 0 ||
+    event.ctrlKey ||
+    (event.target as Element).closest("button, .opacity-control")
+  ) {
     lastPress = undefined;
     return;
   }
@@ -78,7 +86,7 @@ function pointerdown(event: PointerEvent) {
 
 <div class="title-bar" class:shown role="group" onpointerdown={pointerdown}>
   <span class="title" title={name}>{name}</span>
-  <FloatBar inline {shown} {opacity} {clickThrough} {locale} {onopacity} {actions} />
+  <FloatBar inline {shown} {opacity} {clickThrough} {locale} {onopacity} {actions} {opacityOpen} {ontoggleopacity} />
 </div>
 
 <style>
@@ -89,7 +97,6 @@ function pointerdown(event: PointerEvent) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    overflow: clip;
     padding: 0 var(--space-2);
     user-select: none;
   }
@@ -105,7 +112,17 @@ function pointerdown(event: PointerEvent) {
   }
 
   /* When the controls are hidden the title can use their space. */
+  .title-bar:not(.shown) {
+    overflow: clip;
+  }
+
   .title-bar:not(.shown) .title {
     flex: 0 0 100%;
+  }
+
+  @media (max-width: 10rem) {
+    .title-bar {
+      padding-inline: calc(var(--space-1) / 2);
+    }
   }
 </style>

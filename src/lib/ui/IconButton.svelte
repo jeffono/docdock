@@ -6,6 +6,7 @@ let {
   icon,
   label,
   pressed,
+  expanded,
   quiet = false,
   accent = false,
   onclick,
@@ -16,6 +17,8 @@ let {
   label: string;
   /** Only for toggle buttons. */
   pressed?: boolean;
+  /** Only for buttons that show or hide extra controls. */
+  expanded?: boolean;
   /** Repeated actions: neutral, borderless, with state conveyed by the icon. */
   quiet?: boolean;
   /** Accent icon without a pressed surface, for the active editor. */
@@ -26,7 +29,7 @@ let {
 } = $props();
 </script>
 
-<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} {tabindex} {disabled} {onclick}>
+<button class:quiet class:accent aria-label={label} title={label} aria-pressed={pressed} aria-expanded={expanded} {tabindex} {disabled} {onclick}>
   <Icon name={icon} filled={["bookmark", "pin", "clickThrough", "pictureInPicture"].includes(icon) && pressed === true} />
 </button>
 

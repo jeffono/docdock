@@ -31,7 +31,7 @@ use crate::error::Error;
 use crate::floats::{self, Entry, Kind, MAX_FLOATING};
 use crate::i18n::Locale;
 use crate::notes::{FolderIdentity, OpenNote};
-use crate::platform::{self, Rect, scale_dpi};
+use crate::platform::{self, Point, Rect, scale_dpi};
 
 /// How often Alt and the cursor are read while a window lets clicks through.
 const POLL: Duration = Duration::from_millis(50);
@@ -58,6 +58,8 @@ pub struct Update {
     revealed: bool,
     /// The post-it shows only its title bar.
     collapsed: bool,
+    /// Changes on Escape over a post-it, even while another window has focus.
+    escape_revision: u64,
     /// The post-it edits its note (`begin_edit`).
     editing: bool,
     /// The post-it's note is edited elsewhere, in the panel or another post-it.
@@ -104,6 +106,7 @@ struct Live {
     text_scale: f64,
     click_through: bool,
     revealed: bool,
+    escape_revision: u64,
     /// The post-it holds its note's edit lease (`Registry::may_edit`), and takes focus meanwhile.
     editing: bool,
     /// See `Update::blocked`.
@@ -128,6 +131,7 @@ impl Live {
             click_through: self.click_through,
             revealed: self.revealed,
             collapsed: self.collapse.get(),
+            escape_revision: self.escape_revision,
             editing: self.editing,
             blocked: self.blocked,
         }
@@ -420,6 +424,7 @@ impl Registry {
             text_scale: floats::clamp_text_scale(entry.text_scale.unwrap_or(1.0)),
             click_through: false,
             revealed: false,
+            escape_revision: 0,
             editing: false,
             blocked: false,
             previous_focus: None,
@@ -744,6 +749,20 @@ fn reveal() {
         if revealed != live.revealed {
             live.revealed = revealed;
             platform::set_click_through(live.raw, !revealed);
+            live.changed();
+        }
+    }
+}
+
+/// Sends Escape through the post-it's state channel without taking keyboard focus.
+pub fn escape_over_post_its(cursor: Point) {
+    for live in &mut registry().live {
+        if live.kind == Kind::Note
+            && live.shown
+            && (!live.click_through || live.revealed)
+            && platform::window_rect(live.raw).is_some_and(|rect| rect.contains(cursor))
+        {
+            live.escape_revision += 1;
             live.changed();
         }
     }

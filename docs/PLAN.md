@@ -6,8 +6,8 @@ git history (`git log --merges`) and releases in the tags.
 
 ## In progress
 
-- M20: steps 1-5 done (collapse, title bar, edit lease, `float_save_note`); title bar opacity
-  moves to a popover (user); next steps 6-7 (parking, finish handshake).
+- M20: steps 1-5 done (collapse, title bar with opacity popover, edit lease, `float_save_note`);
+  next steps 6-7 (parking, finish handshake).
 
 ## Next
 

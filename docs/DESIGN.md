@@ -579,11 +579,16 @@ writing history to disk.
   reopening and the vault), on a sheet of `--color-surface` with a 1 px `--color-line` border and
   `--radius-sm`, the note rendered as in the panel, title included, inside `--space-2` by
   `--space-3` padding, which the text keeps from both edges even while it scrolls, scrolling with
-  the wheel. Its pill has the opacity slider, a pencil ("Edit
-  in the panel (double-click)"), "Let clicks through" and Close; the whole sheet fades, never the
-  pill. Dragging the sheet more than 4 px moves the window; its edges and corners resize it to any
-  proportions, each side of the sheet at least 96 logical px. A double click, or the pencil, brings
-  the panel with focus to Notes and opens the note expanded in the editor. Ctrl+wheel sizes the
+  the wheel. The title bar shows the note name and reveals its controls on hover: edit, collapse,
+  opacity, "Let clicks through" and Close. Double-clicking the bar also collapses or expands it.
+  The opacity button opens a slider below the bar, expanding a collapsed note to make room. The
+  slider goes from 15% to 100% in 5% steps. Pressing Esc, pressing outside the slider and its
+  button, or moving the pointer off the window dismisses it. The wheel over the controls and
+  Alt+wheel anywhere in the window also change opacity. The sheet and its title fade while the
+  controls stay opaque. Dragging the sheet more than 4 px moves the window. Its edges and corners
+  resize it freely, keeping each side of the sheet at least 96 logical px. A double click in the
+  note body, or the pencil, brings the panel with focus to Notes and opens the note expanded in
+  the editor. Ctrl+wheel sizes the
   text in 10% steps from 50% to 300%, kept with the window, and Ctrl+double-click returns it to
   100%. Links read as links but open nothing, and nothing in it takes focus. It follows edits and
   renames as they happen; a note moved or deleted outside its sight leaves only "This note was

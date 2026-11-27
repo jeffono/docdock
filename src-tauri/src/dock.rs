@@ -1106,6 +1106,9 @@ impl Dock {
         let focus = self.focus();
         let page_focused = focus == Focus::Page;
         let escape = self.escape_tap();
+        if escape {
+            crate::floating::escape_over_post_its(cursor);
+        }
         if let Some(handoff) = &self.drag_handoff
             && now >= handoff.until
         {

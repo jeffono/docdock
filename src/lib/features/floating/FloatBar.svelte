@@ -17,6 +17,8 @@ let {
   before,
   actions,
   inline = false,
+  opacityOpen = false,
+  ontoggleopacity,
 }: {
   shown: boolean;
   opacity: number;
@@ -28,9 +30,11 @@ let {
   before?: Snippet;
   actions?: Snippet;
   inline?: boolean;
+  opacityOpen?: boolean;
+  ontoggleopacity?: () => void;
 } = $props();
 
-let range: HTMLInputElement;
+let range = $state<HTMLInputElement>();
 const labels = $derived.by(() => {
   void locale;
   return {
@@ -42,30 +46,51 @@ const labels = $derived.by(() => {
 // The slider's filled part, through the CSSOM: the CSP forbids style attributes.
 $effect(() => {
   const filled = ((opacity - MIN_OPACITY) / (1 - MIN_OPACITY)) * 100;
-  range.style.setProperty("--fill", `${filled}%`);
+  range?.style.setProperty("--fill", `${filled}%`);
 });
 </script>
 
+{#snippet slider()}
+  <input
+    bind:this={range}
+    type="range"
+    min={MIN_OPACITY * 100}
+    max="100"
+    step={OPACITY_STEP * 100}
+    value={Math.round(opacity * 100)}
+    aria-label={labels.opacity}
+    title={`${labels.opacity}: ${Math.round(opacity * 100)}%`}
+    aria-valuetext={`${Math.round(opacity * 100)}%`}
+    tabindex="-1"
+    oninput={(event) => onopacity(Number(event.currentTarget.value) / 100)}
+  />
+{/snippet}
 
 <div class="bar" class:shown class:inline>
   {#if before}{@render before()}{/if}
-  <span class="opacity" class:apart={!!before}>
-    <Icon name="blend" />
-    <input
-      bind:this={range}
-      type="range"
-      min={MIN_OPACITY * 100}
-      max="100"
-      step={OPACITY_STEP * 100}
-      value={Math.round(opacity * 100)}
-      aria-label={labels.opacity}
-      title={`${labels.opacity}: ${Math.round(opacity * 100)}%`}
-      aria-valuetext={`${Math.round(opacity * 100)}%`}
-      tabindex="-1"
-      oninput={(event) => onopacity(Number(event.currentTarget.value) / 100)}
-    />
-  </span>
   {#if actions}{@render actions()}{/if}
+  {#if inline}
+    <div class="opacity-control">
+      <IconButton
+        icon="blend"
+        quiet
+        label={labels.opacity}
+        expanded={opacityOpen}
+        tabindex={-1}
+        onclick={() => ontoggleopacity?.()}
+      />
+      {#if opacityOpen}
+        <div class="opacity-popover">
+          {@render slider()}
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <span class="opacity" class:apart={!!before}>
+      <Icon name="blend" />
+      {@render slider()}
+    </span>
+  {/if}
   <IconButton
     icon="clickThrough"
     quiet
@@ -108,6 +133,22 @@ $effect(() => {
     background: transparent;
   }
 
+  .opacity-control :global(svg) {
+    width: calc(0.875 * var(--size-icon));
+    height: calc(0.875 * var(--size-icon));
+  }
+
+  .opacity-popover {
+    position: absolute;
+    top: 100%;
+    right: var(--space-2);
+    display: flex;
+    padding: var(--space-1);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+  }
+
   /* The opacity's own group, an icon and its slider, set apart from what comes before by a line
      so the slider never reads as its. */
   .opacity {
@@ -135,6 +176,10 @@ $effect(() => {
     margin: 0 var(--space-1);
     appearance: none;
     background: transparent;
+  }
+
+  .opacity-popover input {
+    width: calc(2.5 * var(--size-control));
   }
 
   input[type="range"]::-webkit-slider-runnable-track {

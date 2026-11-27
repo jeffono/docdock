@@ -40,6 +40,7 @@ let clickThrough = $state(false);
 let revealed = $state(false);
 let collapsed = $state(false);
 let hovered = $state(false);
+let opacityOpen = $state(false);
 /** The note is gone, as after a rename the post-it did not see: only that shows, until it returns. */
 let gone = $state(false);
 const controls = $derived(revealed || (hovered && !clickThrough));
@@ -52,6 +53,7 @@ const name = $derived(path?.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "
 /** The answer and the channel may arrive in either order: only a newer version counts. */
 let latest = -1;
 let revision = -1;
+let escapeRevision = 0;
 function apply(update: FloatUpdate) {
   if (update.version <= latest) return;
   latest = update.version;
@@ -59,6 +61,15 @@ function apply(update: FloatUpdate) {
   // While the user is still changing them, the controls keep the latest values they chose.
   if (!opacitySending.busy()) opacity = update.opacity;
   if (!scaleSending.busy()) textScale = update.textScale;
+  if (
+    update.escapeRevision !== escapeRevision ||
+    update.clickThrough !== clickThrough ||
+    (clickThrough && !update.revealed) ||
+    (update.collapsed && !collapsed)
+  ) {
+    opacityOpen = false;
+  }
+  escapeRevision = update.escapeRevision;
   // A window that starts or stops letting clicks through waits for the pointer to come back.
   if (update.clickThrough !== clickThrough) hovered = false;
   clickThrough = update.clickThrough;
@@ -126,6 +137,25 @@ const opacitySending = latestSender(floatSetOpacity);
 function setOpacity(value: number) {
   opacity = value;
   void opacitySending.send(value);
+}
+
+function toggleOpacity() {
+  opacityOpen = !opacityOpen;
+  // A collapsed window has only the title bar's height.
+  if (opacityOpen && collapsed) {
+    void floatSetCollapsed(false).catch(() => {
+      opacityOpen = false;
+    });
+  }
+}
+
+function dismissOpacity(event: PointerEvent) {
+  if (opacityOpen && !(event.target as Element).closest(".opacity-control")) opacityOpen = false;
+}
+
+function pointerleave() {
+  hovered = false;
+  opacityOpen = false;
 }
 const scaleSending = latestSender(floatSetTextScale);
 function setTextScale(value: number) {
@@ -214,6 +244,8 @@ onMount(() => {
 });
 </script>
 
+<svelte:window onkeydown={(event) => { if (event.key === "Escape") opacityOpen = false; }} />
+
 <div
   class="float"
   class:active={controls}
@@ -224,7 +256,8 @@ onMount(() => {
   onpointermove={pointermove}
   onpointerup={pointerup}
   onpointercancel={pointerup}
-  onpointerleave={() => { hovered = false; }}
+  onpointerleave={pointerleave}
+  onpointerdowncapture={dismissOpacity}
   onpointerdown={pointerdown}
   ondblclick={doubleClick}
 >
@@ -244,6 +277,8 @@ onMount(() => {
     {collapsed}
     {gone}
     onopacity={setOpacity}
+    opacityOpen={opacityOpen && !collapsed}
+    ontoggleopacity={toggleOpacity}
     ontoggle={() => void floatSetCollapsed(!collapsed).catch(() => {})}
   />
   {#if !clickThrough || revealed}<FloatEdges horizontalOnly={collapsed} />{/if}
