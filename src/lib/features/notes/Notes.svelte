@@ -1436,6 +1436,8 @@ async function appendTo(path: string, content: Dropped) {
     for (const image of content.images)
       links.push(await notesPasteImage(path, new Uint8Array(await image.arrayBuffer())));
   const text = appended(note.text, "text" in content ? content.text : imagesBlock(links));
+  // A post-it began editing it meanwhile: its next save would meet a conflict.
+  if (editingInFloat(path)) throw { code: "dropChanged" };
   const saved = await notesRewrite(path, text, note.version);
   if (saved.status !== "saved") throw { code: "dropChanged" };
   contents[path] = { text, version: saved.version };
@@ -1454,8 +1456,8 @@ function dropTarget(event: DragEvent): string | null {
   if (element?.closest(".new-note-drop")) return "new";
   const card = element?.closest<HTMLElement>(".card[data-path]");
   const path = card?.dataset.path;
-  // An editing note takes drops in its own editor; a pinned web page is no note.
-  if (!path || card.classList.contains("editing")) return null;
+  // An editing note takes drops in its own editor, or its post-it's; a pinned web page is no note.
+  if (!path || card.classList.contains("editing") || editingInFloat(path)) return null;
   return notes.some((note) => note.path === path) ? path : null;
 }
 function dragFromApp(event: DragEvent): boolean {
@@ -2232,17 +2234,24 @@ async function reload() {
       return refresh(value);
     case "open":
       return refresh(value);
-    case "resume":
+    case "resume": {
       // Locking the vault cleared the claim in Rust. Recover it before retrying the draft.
-      if (!(await reclaimPanelEdit(selected)) || stale()) return;
+      const draft = selected;
+      const claimed = await reclaimPanelEdit(draft);
+      if (stale()) return;
+      // Refused: the draft waits under its notice, and the folder still shows unavailable, so
+      // the next refresh claims it again. An editor that closed or moved on meanwhile leaves
+      // nothing to wait for.
+      if (!claimed && editing && selected === draft) return;
       folder = value;
-      editor?.resume();
+      if (claimed) editor?.resume();
       notesLeftovers().then(
         (found) => {
           if (current === generation) leftovers = found;
         },
         () => {},
       );
+    }
   }
   await relist(stale);
   if (stale()) return;
