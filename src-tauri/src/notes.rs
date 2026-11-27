@@ -3573,6 +3573,10 @@ pub fn check_note(app: &AppHandle, path: &str) -> Result<(u64, FolderIdentity), 
     resolve(&root, path, markdown)?;
     Ok((choices, identity_of(&root)?))
 }
+/// The notes folder configured now is at `path`, as the watcher names it.
+pub fn is_configured_folder(app: &AppHandle, path: &Path) -> bool {
+    config(app).is_ok_and(|config| load(&config).folder.as_deref() == Some(path))
+}
 
 #[cfg(test)]
 mod tests {

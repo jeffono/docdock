@@ -897,7 +897,7 @@ async function trust() {
   try {
     error = "";
     // As choosing: the folder's identity may change, so post-its editing save first.
-    if (!(await floatingFinishEdits())) {
+    if (!(await floatingFinishEdits(false))) {
       error = t("floating.unsaved");
       return;
     }
@@ -906,7 +906,7 @@ async function trust() {
   } catch (e) {
     error = errorText(e);
   } finally {
-    void floatingReleaseEdits().catch(() => {});
+    void floatingReleaseEdits(false).catch(() => {});
   }
 }
 export async function choose() {
@@ -921,7 +921,7 @@ export async function choose() {
     // Post-its editing save first, and none begins until the choice ends: their notes belong to
     // the folder before. Released below, also when the picker is cancelled.
     held = true;
-    if (!(await floatingFinishEdits())) {
+    if (!(await floatingFinishEdits(false))) {
       error = t("floating.unsaved");
       return error;
     }
@@ -936,7 +936,7 @@ export async function choose() {
     return error;
   } finally {
     if (locked) afterChoose?.();
-    if (held) void floatingReleaseEdits().catch(() => {});
+    if (held) void floatingReleaseEdits(false).catch(() => {});
     choosing = false;
   }
 }

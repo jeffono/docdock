@@ -650,17 +650,24 @@ pub fn floating_panel_released(request: u64, path: String, released: bool) {
     crate::floating::panel_released(request, &path, released);
 }
 
-/// Before exiting or choosing another folder: holds new edits and has every post-it editing save
-/// and return to reading. Whether all did; waits for them, off the main thread.
+/// Before exiting (`exit`) or choosing another folder: holds new edits and has every post-it
+/// editing save and return to reading. Whether all did; waits for them, off the main thread.
 #[tauri::command(async)]
-pub fn floating_finish_edits() -> bool {
-    crate::floating::finish_edits()
+pub fn floating_finish_edits(exit: bool) -> bool {
+    crate::floating::finish_edits(hold(exit))
 }
 
 /// Edits may begin again: the exit or folder choice did not happen.
 #[tauri::command(async)]
-pub fn floating_release_edits() {
-    crate::floating::release_edits();
+pub fn floating_release_edits(exit: bool) {
+    crate::floating::release_edits(hold(exit));
+}
+fn hold(exit: bool) -> crate::floating::Hold {
+    if exit {
+        crate::floating::Hold::Exit
+    } else {
+        crate::floating::Hold::Choice
+    }
 }
 
 /// The images and notes the open floating windows show, so the notes mark them.
@@ -776,10 +783,14 @@ pub async fn float_clipboard_write(
     crate::floating::copies(window.label())?;
     clipboard_write(window, text).await
 }
-/// The post-it stops editing and gives focus back.
+/// The post-it stops editing and gives focus back, unless it `hand_off` the note to the panel.
 #[tauri::command(async)]
-pub fn float_end_edit(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), Error> {
-    crate::floating::end_edit(&app, window.label())
+pub fn float_end_edit(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    hand_off: bool,
+) -> Result<(), Error> {
+    crate::floating::end_edit(&app, window.label(), hand_off)
 }
 #[tauri::command(async)]
 pub fn float_set_text_scale(window: tauri::WebviewWindow, scale: f64) -> Result<(), Error> {

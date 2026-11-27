@@ -304,8 +304,8 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
             return;
         }
         None => {
-            // No exit: the edits `floating_finish_edits` held may begin again.
-            crate::floating::release_edits();
+            // No exit: the edits `floating_finish_edits` held for it may begin again.
+            crate::floating::release_edits(crate::floating::Hold::Exit);
             if !saved {
                 let _ = app
                     .state::<std::sync::mpsc::Sender<crate::dock::Request>>()
@@ -336,7 +336,7 @@ pub async fn exit_ready(app: AppHandle, id: u64, saved: bool) {
                 .show()
         });
     }
-    crate::floating::release_edits();
+    crate::floating::release_edits(crate::floating::Hold::Exit);
     {
         let mut state = locked(&app);
         state.exit.allowed = false;

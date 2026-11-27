@@ -252,6 +252,19 @@ struct Claim {
     lease: u64,
 }
 
+impl Claim {
+    /// The claim still stands on `live`: no rename, folder change (which parks it), close or other
+    /// edit came since it was made.
+    fn stands(&self, live: &Live) -> bool {
+        live.editing
+            && !live.closing
+            && !live.parked
+            && live.lease == self.lease
+            && live.path == self.path
+            && live.folder == self.folder
+    }
+}
+
 /// A note a post-it begins editing, and the edit it was granted, which its saves name.
 #[derive(Serialize)]
 pub struct Granted {
@@ -287,8 +300,31 @@ struct Registry {
     live: Vec<Live>,
     /// The note the panel edits, relative to the notes folder, as it spelled it.
     panel_editing: Option<String>,
-    /// No edit begins, as while the app exits or another folder is chosen.
-    held: bool,
+    /// No edit begins while the app exits (`Hold::Exit`).
+    exit_held: bool,
+    /// No edit begins while folder choices are under way, one hold each (`Hold::Choice`).
+    choices_held: usize,
+    /// The window that had focus before an edit that ended to hand its note to another editor of
+    /// the app (`Focus::HandOff`), for the post-it that takes it to give focus back to.
+    handoff_focus: Option<isize>,
+}
+
+/// Who holds new edits off (`finish_edits`); each releases only its own hold (`release_edits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    /// The exit gate: one at a time, released however many times the exit fails.
+    Exit,
+    /// A folder choice or trust from the panel: each releases once.
+    Choice,
+}
+
+/// Where focus goes when a post-it's edit ends while it has it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    /// Back to the window that had it before.
+    Restore,
+    /// Nowhere: another editor of the app takes the note, and focus, next.
+    HandOff,
 }
 
 impl Registry {
@@ -299,7 +335,23 @@ impl Registry {
             switching: 0,
             live: Vec::new(),
             panel_editing: None,
-            held: false,
+            exit_held: false,
+            choices_held: 0,
+            handoff_focus: None,
+        }
+    }
+
+    fn hold(&mut self, hold: Hold) {
+        match hold {
+            Hold::Exit => self.exit_held = true,
+            Hold::Choice => self.choices_held += 1,
+        }
+    }
+
+    fn release(&mut self, hold: Hold) {
+        match hold {
+            Hold::Exit => self.exit_held = false,
+            Hold::Choice => self.choices_held = self.choices_held.saturating_sub(1),
         }
     }
 
@@ -307,7 +359,7 @@ impl Registry {
     /// edit is held off. An editor that already edits it may go on. Answers who edits it otherwise,
     /// so it can be asked to finish.
     fn may_edit(&self, editor: &Editor, path: &str) -> Result<(), Refusal> {
-        if self.held || self.switching > 0 {
+        if self.exit_held || self.choices_held > 0 || self.switching > 0 {
             return Err(Refusal::Held);
         }
         if *editor != Editor::Panel
@@ -606,6 +658,44 @@ impl Registry {
             live.changed();
         }
         gone
+    }
+
+    /// Post-its of a note renamed in `root` follow it, and every post-it reads its note again;
+    /// answers the new paths by folder, to save by id. The panel's claim follows only `in_panel`:
+    /// `root` is the configured folder the panel edits in, not one a watcher still flushing after
+    /// a folder change saw.
+    fn follow_renames(
+        &mut self,
+        root: Option<&std::path::Path>,
+        in_panel: bool,
+        renames: &[(String, String)],
+    ) -> Vec<(FolderIdentity, Vec<(String, String)>)> {
+        let mut moved: Vec<(FolderIdentity, Vec<(String, String)>)> = Vec::new();
+        if root.is_some()
+            && in_panel
+            && let Some(to) = self
+                .panel_editing
+                .as_deref()
+                .and_then(|path| renamed(path, renames))
+        {
+            self.panel_editing = Some(to);
+        }
+        for live in self.live.iter_mut().filter(|live| live.kind == Kind::Note) {
+            // Renames another folder's watcher saw, as one still flushing after a folder change,
+            // name other notes.
+            let here = root.is_some_and(|root| live.folder.is_at(root));
+            if let Some(to) = here.then(|| renamed(&live.path, renames)).flatten() {
+                live.path = to.clone();
+                match moved.iter_mut().find(|(folder, _)| *folder == live.folder) {
+                    Some((_, ids)) => ids.push((live.id.clone(), to)),
+                    None => moved.push((live.folder.clone(), vec![(live.id.clone(), to)])),
+                }
+            }
+            live.revision += 1;
+            live.changed();
+        }
+        self.refresh_blocked();
+        moved
     }
 
     /// The notes folder `folder` returned on the current epoch: the post-its parked from it take
@@ -1601,12 +1691,8 @@ pub struct SwitchGuard(AppHandle);
 
 impl Drop for SwitchGuard {
     fn drop(&mut self) {
-        let ended = {
-            let mut registry = registry();
-            // The edits `finish_edits` held for the choice may begin again.
-            registry.held = false;
-            registry.end_switch()
-        };
+        // The hold `finish_edits` took for a choice from the panel is the panel's to release.
+        let ended = registry().end_switch();
         if ended {
             folder_returned(&self.0);
         }
@@ -1644,7 +1730,7 @@ pub fn close(app: &AppHandle, label: &str) {
 /// back. A parked post-it then goes keeping its entry, which its folder, gone, cannot forget.
 pub fn close_own(app: &AppHandle, label: &str) -> Result<(), Error> {
     if with_live(label, |live| live.editing)? {
-        end_edit(app, label)?;
+        end_edit(app, label, false)?;
     }
     close(app, label);
     Ok(())
@@ -1819,24 +1905,21 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error
     // Asking to edit a note edited elsewhere moves the edit here: the editor holding it saves and
     // returns to reading first. Before `LEASING`, which its answer takes to end its edit.
     let transfer = registry().begin_transfer(label)?;
+    // From another post-it, which left focus where it was for this one to take.
+    let handed = matches!(transfer, Transfer::Finish(Editor::Float(_)));
     match transfer {
         Transfer::Refuse => return Ok(None),
         Transfer::Finish(holder) if !finish_editor(app, &holder) => return Ok(None),
         Transfer::Finish(_) | Transfer::Grant => {}
     }
+    // Taken either way: what another edit left is never for a later one.
+    let handoff = registry().handoff_focus.take().filter(|_| handed);
     let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
     // Claimed before reading, so nobody else begins editing the note in between.
     let Some(claim) = registry().begin_edit(label)? else {
         return Ok(None);
     };
-    // The claim still stands: no rename, folder change, close or other edit came meanwhile.
-    let kept = |live: &Live| {
-        live.editing
-            && !live.closing
-            && live.lease == claim.lease
-            && live.path == claim.path
-            && live.folder == claim.folder
-    };
+    let kept = |live: &Live| claim.stands(live);
     let read = crate::notes::floating_note(app, &claim.folder, &claim.path);
     let raw = match &read {
         Ok(Some(_)) => {
@@ -1845,7 +1928,8 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error
             with_live(label, |live| {
                 let kept = kept(live);
                 if kept && live.previous_focus.is_none() {
-                    live.previous_focus = foreground.filter(|&raw| raw != live.raw);
+                    live.previous_focus =
+                        handoff.or_else(|| foreground.filter(|&raw| raw != live.raw));
                 }
                 kept.then_some(live.raw)
             })
@@ -1855,7 +1939,7 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error
         _ => None,
     };
     let Some(raw) = raw else {
-        let _ = leave(app, label);
+        let _ = leave(app, label, Focus::Restore);
         return read.map(|_| None);
     };
     platform::set_activatable(raw, true);
@@ -1871,7 +1955,7 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error
             .iter()
             .any(|live| live.label == label && live.lease == claim.lease);
         if same_edit {
-            let _ = leave(app, label);
+            let _ = leave(app, label, Focus::Restore);
         }
         return Ok(None);
     }
@@ -1912,14 +1996,21 @@ pub fn copies(label: &str) -> Result<(), Error> {
 /// back to the window that had it before, or the one the panel last opened over, never to a
 /// window of the app. If the user went to another window meanwhile, focus stays there. A parked
 /// post-it, whose folder went while it edited, goes as a revoked window does, its entry kept: the
-/// UI ends its edit once nothing is left to save, or when the user discards what was.
-pub fn end_edit(app: &AppHandle, label: &str) -> Result<(), Error> {
+/// UI ends its edit once nothing is left to save, or when the user discards what was. With
+/// `hand_off`, the panel or another post-it takes the note next: focus stays for it to take, never
+/// bouncing to another app first, which could keep it from activating.
+pub fn end_edit(app: &AppHandle, label: &str, hand_off: bool) -> Result<(), Error> {
     let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
-    leave(app, label)
+    let focus = if hand_off {
+        Focus::HandOff
+    } else {
+        Focus::Restore
+    };
+    leave(app, label, focus)
 }
 
 /// `end_edit` under `LEASING`.
-fn leave(app: &AppHandle, label: &str) -> Result<(), Error> {
+fn leave(app: &AppHandle, label: &str, focus: Focus) -> Result<(), Error> {
     let Some(Ended {
         raw,
         previous_focus: previous,
@@ -1930,8 +2021,10 @@ fn leave(app: &AppHandle, label: &str) -> Result<(), Error> {
     };
     if raw != 0 {
         platform::set_activatable(raw, false);
-        if platform::is_foreground(raw) {
-            let outside = |raw: &isize| !platform::is_own_window(*raw);
+        let outside = |raw: &isize| !platform::is_own_window(*raw);
+        if focus == Focus::HandOff {
+            registry().handoff_focus = previous.filter(outside);
+        } else if platform::is_foreground(raw) {
             let target = previous
                 .filter(outside)
                 .or_else(|| crate::dock::previous_window().filter(outside));
@@ -1965,7 +2058,7 @@ pub fn panel_edit(app: &AppHandle, path: Option<String>) -> bool {
 fn finish_editor(app: &AppHandle, editor: &Editor) -> bool {
     match editor {
         Editor::Panel => release_panel(app),
-        Editor::Float(label) => finish_where(false, |live| live.label == *label),
+        Editor::Float(label) => finish_where(None, |live| live.label == *label),
     }
 }
 
@@ -2087,13 +2180,13 @@ fn standing(registry: &Registry, key: &str) -> Standing {
 }
 
 /// Asks every post-it editing and `picked` to finish, and waits; with `hold`, no edit begins
-/// meanwhile, nor after, until `release_edits` or a folder choice ends. A parked one fails at once.
-fn finish_where(hold: bool, picked: impl Fn(&Live) -> bool) -> bool {
+/// meanwhile, nor after, until `release_edits` releases it. A parked one fails at once.
+fn finish_where(hold: Option<Hold>, picked: impl Fn(&Live) -> bool) -> bool {
     let request = NEXT_FINISH.fetch_add(1, Ordering::SeqCst) + 1;
     {
         let mut registry = registry();
-        if hold {
-            registry.held = true;
+        if let Some(hold) = hold {
+            registry.hold(hold);
         }
         let mut editors = Vec::new();
         for live in registry
@@ -2184,13 +2277,14 @@ fn answer_finish(request: u64, key: &str, saved: bool) {
 }
 
 /// The post-it `label` answers the finish request `request`: it `saved` its note, which also ends
-/// its edit as `end_edit` does, or could not and goes on editing.
+/// its edit as `end_edit` does, or could not and goes on editing. Focus stays: whoever asked, an
+/// editor taking the note, the exit or a folder choice, takes it next.
 pub fn finished(app: &AppHandle, label: &str, request: u64, saved: bool) -> Result<(), Error> {
     if with_live(label, |live| live.kind)? != Kind::Note {
         return Err(Error::unexpected("command restricted to post-its"));
     }
     if saved {
-        end_edit(app, label)?;
+        end_edit(app, label, true)?;
     }
     answer_finish(request, label, saved);
     Ok(())
@@ -2206,17 +2300,17 @@ pub fn panel_released(request: u64, path: &str, released: bool) {
     answer_finish(request, PANEL, released);
 }
 
-/// Before exiting or choosing another notes folder: no edit begins until `release_edits`, or the
-/// folder choice ends, and every post-it editing saves and returns to reading. Answers whether all
-/// did; false at once for one parked, which cannot save until its folder returns. Waits, so never
-/// on the main thread.
-pub fn finish_edits() -> bool {
-    finish_where(true, |_| true)
+/// Before exiting or choosing another notes folder: no edit begins until `release_edits(hold)`,
+/// and every post-it editing saves and returns to reading. Answers whether all did; false at once
+/// for one parked, which cannot save until its folder returns. Waits, so never on the main thread.
+pub fn finish_edits(hold: Hold) -> bool {
+    finish_where(Some(hold), |_| true)
 }
 
-/// Edits may begin again: the exit or folder choice `finish_edits` held them for did not happen.
-pub fn release_edits() {
-    registry().held = false;
+/// Edits may begin again as far as `hold` goes: the exit or folder choice `finish_edits` held them
+/// for ended. Another hold under way stays.
+pub fn release_edits(hold: Hold) {
+    registry().release(hold);
 }
 
 /// Something in the notes folder changed, `renames` among it as the watcher saw them in `root`
@@ -2238,39 +2332,11 @@ fn renamed(path: &str, renames: &[(String, String)]) -> Option<String> {
 }
 
 /// Post-its of a renamed note in `root` follow it, each saved by its id in the folder it opened
-/// on, and every post-it reads its note again.
+/// on, and every post-it reads its note again (`Registry::follow_renames`).
 fn notes_changed(app: &AppHandle, root: Option<&std::path::Path>, renames: &[(String, String)]) {
-    let mut moved: Vec<(FolderIdentity, Vec<(String, String)>)> = Vec::new();
-    {
-        let mut registry = registry();
-        if root.is_some()
-            && let Some(to) = registry
-                .panel_editing
-                .as_deref()
-                .and_then(|path| renamed(path, renames))
-        {
-            registry.panel_editing = Some(to);
-        }
-        for live in registry
-            .live
-            .iter_mut()
-            .filter(|live| live.kind == Kind::Note)
-        {
-            // Renames another folder's watcher saw, as one still flushing after a folder change,
-            // name other notes.
-            let here = root.is_some_and(|root| live.folder.is_at(root));
-            if let Some(to) = here.then(|| renamed(&live.path, renames)).flatten() {
-                live.path = to.clone();
-                match moved.iter_mut().find(|(folder, _)| *folder == live.folder) {
-                    Some((_, ids)) => ids.push((live.id.clone(), to)),
-                    None => moved.push((live.folder.clone(), vec![(live.id.clone(), to)])),
-                }
-            }
-            live.revision += 1;
-            live.changed();
-        }
-        registry.refresh_blocked();
-    }
+    // Before the registry, which is never held while reading the settings.
+    let in_panel = root.is_some_and(|root| crate::notes::is_configured_folder(app, root));
+    let moved = registry().follow_renames(root, in_panel, renames);
     for (folder, paths) in moved {
         let saved = crate::notes::update_floating(app, &folder, |store| {
             for (id, path) in &paths {
@@ -2996,13 +3062,49 @@ mod tests {
     #[test]
     fn no_edit_begins_while_edits_are_held() {
         let mut registry = post_its(&["a.md"]);
-        registry.held = true;
+        registry.hold(Hold::Exit);
         assert!(!begins(&mut registry, "float-1"));
         assert!(!registry.panel_edit(Some("b.md".into())));
-        registry.held = false;
+        registry.release(Hold::Exit);
         registry.switching = 1;
         assert!(!begins(&mut registry, "float-1"));
         assert!(!registry.panel_edit(Some("b.md".into())));
+    }
+
+    // Catches a failed exit releasing the hold of a folder choice still under way, so an edit
+    // begins on a note of the folder being left.
+    #[test]
+    fn a_folder_choice_holds_edits_until_it_releases_its_own_hold() {
+        let mut registry = post_its(&["a.md"]);
+        registry.hold(Hold::Choice);
+        registry.release(Hold::Exit);
+        assert!(!begins(&mut registry, "float-1"));
+        registry.release(Hold::Choice);
+        assert!(begins(&mut registry, "float-1"));
+    }
+
+    // Catches a post-it whose folder left while it read its note still being granted the edit,
+    // showing the note's text after a vault locked.
+    #[test]
+    fn a_claim_falls_once_its_folder_leaves() {
+        let mut registry = post_its(&["a.md"]);
+        let claim = registry.begin_edit("float-1").unwrap().unwrap();
+        assert!(claim.stands(&registry.live[0]));
+        registry.revoke();
+        assert!(!claim.stands(&registry.live[0]));
+    }
+
+    // Catches a rename another folder's watcher saw moving the panel's claim to another note.
+    #[test]
+    fn the_panel_claim_follows_only_renames_in_its_folder() {
+        let mut registry = post_its(&[]);
+        assert!(registry.panel_edit(Some("a.md".into())));
+        let renames = [("a.md".to_owned(), "b.md".to_owned())];
+        let root = std::path::Path::new("C:/old");
+        registry.follow_renames(Some(root), false, &renames);
+        assert_eq!(registry.panel_editing.as_deref(), Some("a.md"));
+        registry.follow_renames(Some(root), true, &renames);
+        assert_eq!(registry.panel_editing.as_deref(), Some("b.md"));
     }
 
     // Catches the lease of one note holding off the others.
@@ -3182,9 +3284,9 @@ mod tests {
             registry.begin_transfer("float-3"),
             Ok(Transfer::Finish(Editor::Panel))
         );
-        registry.held = true;
+        registry.hold(Hold::Choice);
         assert_eq!(registry.begin_transfer("float-2"), Ok(Transfer::Refuse));
-        registry.held = false;
+        registry.release(Hold::Choice);
         registry.revoke();
         assert_eq!(registry.transfer(&Editor::Panel, "a.md"), Transfer::Refuse);
     }

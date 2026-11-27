@@ -512,13 +512,16 @@ export const onFloatingReleasePanelEdit = (
 export const floatingPanelReleased = (request: number, path: string, released: boolean) =>
   invoke<void>("floating_panel_released", { request, path, released });
 /**
- * Before exiting or choosing another notes folder: holds new edits and has every post-it editing
- * save and return to reading. `false` if one could not, or is parked; then call
- * `floatingReleaseEdits` unless the exit or folder choice goes on.
+ * Before exiting (`exit`) or choosing another notes folder: holds new edits and has every post-it
+ * editing save and return to reading. `false` if one could not, or is parked. A folder choice
+ * releases its hold with `floatingReleaseEdits(false)` once it ends, chosen or not; the exit's
+ * goes in Rust when the exit fails.
  */
-export const floatingFinishEdits = () => invoke<boolean>("floating_finish_edits");
-/** Edits may begin again: the exit or folder choice `floatingFinishEdits` held them for ended. */
-export const floatingReleaseEdits = () => invoke<void>("floating_release_edits");
+export const floatingFinishEdits = (exit: boolean) =>
+  invoke<boolean>("floating_finish_edits", { exit });
+/** Edits may begin again as far as the exit's hold, or one folder choice's, goes. */
+export const floatingReleaseEdits = (exit: boolean) =>
+  invoke<void>("floating_release_edits", { exit });
 /** Rust tells `main` whenever the notes post-its edit change. */
 export const onFloatingEditing = (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
   listen<string[]>("floating-editing", (event) => handler(event.payload));
@@ -611,11 +614,11 @@ export const floatBeginEdit = () => invoke<FloatGranted | null>("float_begin_edi
 export const floatSaveNote = (content: string, base: string, lease: number, recreate = false) =>
   invoke<SaveResult>("float_save_note", { content, base, lease, recreate });
 /**
- * The post-it stops editing and gives focus back to the window that had it. A parked post-it then
- * closes, keeping its place for when its folder returns: call it once nothing is left to save, or
- * when the user discards.
+ * The post-it stops editing and gives focus back to the window that had it, unless `handOff`: the
+ * panel takes the note next. A parked post-it then closes, keeping its place for when its folder
+ * returns: call it once nothing is left to save, or when the user discards.
  */
-export const floatEndEdit = () => invoke<void>("float_end_edit");
+export const floatEndEdit = (handOff = false) => invoke<void>("float_end_edit", { handOff });
 /**
  * As `clipboardWrite`, for the editor of a post-it: refused unless the post-it edits its note.
  */
