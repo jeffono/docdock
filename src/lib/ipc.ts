@@ -490,6 +490,15 @@ export const floatingClosePath = (path: string) => invoke<void>("floating_close_
 /** Rust tells `main` whenever the images and notes open floating windows show change. */
 export const onFloatingPaths = (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
   listen<string[]>("floating-paths", (event) => handler(event.payload));
+/**
+ * The panel edits the note at `path`, or none (`null`): a note is edited in one place at a time,
+ * so this answers `false` while a post-it edits it.
+ */
+export const floatingPanelEdit = (path: string | null) =>
+  invoke<boolean>("floating_panel_edit", { path });
+/** Rust tells `main` whenever the notes post-its edit change. */
+export const onFloatingEditing = (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
+  listen<string[]>("floating-editing", (event) => handler(event.payload));
 
 /**
  * In a floating window itself, which has no capability: it reaches only the `float_*` commands,
@@ -513,6 +522,10 @@ export type FloatUpdate = {
   revealed: boolean;
   /** The post-it shows only its title bar. */
   collapsed: boolean;
+  /** The post-it edits its note (`floatBeginEdit`). */
+  editing: boolean;
+  /** The post-it's note is edited elsewhere, in the panel or another post-it. */
+  blocked: boolean;
 };
 export function floatState(onUpdate: (update: FloatUpdate) => void) {
   const channel = new Channel<FloatUpdate>();
@@ -534,7 +547,14 @@ export const floatZoom = (width: number) => invoke<FloatZoomed>("float_zoom", { 
 export const floatNatural = (width: number, height: number) =>
   invoke<void>("float_natural", { width, height });
 /** The note a post-it shows, read now; `null` once it is gone. */
-export const floatNote = () => invoke<string | null>("float_note");
+export const floatNote = () => invoke<OpenNote | null>("float_note");
+/**
+ * The post-it begins editing its note and takes focus: the note to edit, or `null` if it may not
+ * now, as while the note is edited elsewhere (`blocked`) or clicks go through the post-it.
+ */
+export const floatBeginEdit = () => invoke<OpenNote | null>("float_begin_edit");
+/** The post-it stops editing and gives focus back to the window that had it. */
+export const floatEndEdit = () => invoke<void>("float_end_edit");
 export const floatSetTextScale = (scale: number) => invoke<void>("float_set_text_scale", { scale });
 /** Collapses a post-it to its title bar, keeping its top, or expands it back. */
 export const floatSetCollapsed = (collapsed: boolean) =>

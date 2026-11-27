@@ -540,7 +540,7 @@ pub fn note(app: &AppHandle) -> Result<Option<String>, Error> {
     if session().preview.generation != generation {
         return Ok(None);
     }
-    Ok(text)
+    Ok(text.map(crate::notes::OpenNote::into_text))
 }
 
 /// Hides the preview at the UI's request; the UI already knows, so `main` is not told. Ignores

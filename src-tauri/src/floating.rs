@@ -1,9 +1,11 @@
 //! Floating windows: note images and notes (post-its) detached from the panel into borderless,
-//! topmost windows that never activate, with their own opacity and a click-through mode, reopened
-//! where they were from `.docdock/floating.json`. The rules are pure in `floats.rs`; this runs their effects. Each window
-//! is a secondary app window ([0014](../../docs/decisions/0014-app-windows.md)) labeled `float-<n>`
-//! for this run: it has no capability, reaches only the `float_*` commands, and only for itself,
-//! and hears what to show only through the IPC channel it hands over with `float_state`.
+//! topmost windows that never activate (but a post-it while its note is edited, which happens in
+//! one place at a time: `Registry::may_edit`), with their own opacity and a click-through mode,
+//! reopened where they were from `.docdock/floating.json`. The rules are pure in `floats.rs`; this
+//! runs their effects. Each window is a secondary app window
+//! ([0014](../../docs/decisions/0014-app-windows.md)) labeled `float-<n>` for this run: it has no
+//! capability, reaches only the `float_*` commands, and only for itself, and hears what to show
+//! only through the IPC channel it hands over with `float_state`.
 //!
 //! Every window belongs to the notes folder it opened on (`notes::FolderIdentity`, its path and
 //! marker id) and to the registry's epoch, which changes whenever that folder leaves or another is
@@ -28,7 +30,7 @@ use crate::dock::{EditNoteRequest, Request};
 use crate::error::Error;
 use crate::floats::{self, Entry, Kind, MAX_FLOATING};
 use crate::i18n::Locale;
-use crate::notes::FolderIdentity;
+use crate::notes::{FolderIdentity, OpenNote};
 use crate::platform::{self, Rect, scale_dpi};
 
 /// How often Alt and the cursor are read while a window lets clicks through.
@@ -56,6 +58,10 @@ pub struct Update {
     revealed: bool,
     /// The post-it shows only its title bar.
     collapsed: bool,
+    /// The post-it edits its note (`begin_edit`).
+    editing: bool,
+    /// The post-it's note is edited elsewhere, in the panel or another post-it.
+    blocked: bool,
 }
 
 #[derive(Serialize)]
@@ -98,6 +104,12 @@ struct Live {
     text_scale: f64,
     click_through: bool,
     revealed: bool,
+    /// The post-it holds its note's edit lease (`Registry::may_edit`), and takes focus meanwhile.
+    editing: bool,
+    /// See `Update::blocked`.
+    blocked: bool,
+    /// The foreground window when editing began, which gets focus back when it ends.
+    previous_focus: Option<isize>,
     /// Changes with what the window shows.
     version: u64,
     /// The window's channel, from its latest load.
@@ -116,6 +128,8 @@ impl Live {
             click_through: self.click_through,
             revealed: self.revealed,
             collapsed: self.collapse.get(),
+            editing: self.editing,
+            blocked: self.blocked,
         }
     }
 
@@ -166,6 +180,41 @@ impl Collapse {
     }
 }
 
+/// Where a note is edited: the panel, or the post-it of that label. One at a time per note.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Editor {
+    Panel,
+    Float(String),
+}
+
+/// Why a note may not be edited now.
+#[derive(Debug, PartialEq, Eq)]
+enum Refusal {
+    /// No edit begins now: the app is exiting or another notes folder is being chosen.
+    Held,
+    /// The note is edited there, which has to finish first.
+    Editing(Editor),
+}
+
+impl Refusal {
+    fn log(&self, path: &str) {
+        match self {
+            Self::Held => eprintln!("[floating] no edit begins now: {path}"),
+            Self::Editing(Editor::Panel) => eprintln!("[floating] edited in the panel: {path}"),
+            Self::Editing(Editor::Float(label)) => {
+                eprintln!("[floating] edited in {label}: {path}")
+            }
+        }
+    }
+}
+
+/// What a post-it that may begin editing reads its note from.
+#[derive(Debug, PartialEq)]
+struct Claim {
+    path: String,
+    folder: FolderIdentity,
+}
+
 /// A window the user closed, whose entry and window are on their way out.
 #[derive(Debug, PartialEq)]
 struct Closing {
@@ -182,6 +231,10 @@ struct Registry {
     /// Folder choices under way: nothing opens until they end.
     switching: usize,
     live: Vec<Live>,
+    /// The note the panel edits, relative to the notes folder, as it spelled it.
+    panel_editing: Option<String>,
+    /// No edit begins, as while the app exits or another folder is chosen.
+    held: bool,
 }
 
 impl Registry {
@@ -191,7 +244,139 @@ impl Registry {
             epoch: 0,
             switching: 0,
             live: Vec::new(),
+            panel_editing: None,
+            held: false,
         }
+    }
+
+    /// Whether `editor` may edit the note `path`: nobody else edits it, however spelled, and no
+    /// edit is held off. An editor that already edits it may go on. Answers who edits it otherwise,
+    /// so it can be asked to finish.
+    fn may_edit(&self, editor: &Editor, path: &str) -> Result<(), Refusal> {
+        if self.held || self.switching > 0 {
+            return Err(Refusal::Held);
+        }
+        if *editor != Editor::Panel
+            && self
+                .panel_editing
+                .as_deref()
+                .is_some_and(|editing| same(editing, path))
+        {
+            return Err(Refusal::Editing(Editor::Panel));
+        }
+        let elsewhere = self.live.iter().find(|live| {
+            live.editing
+                && same(&live.path, path)
+                && !matches!(editor, Editor::Float(label) if *label == live.label)
+        });
+        match elsewhere {
+            Some(live) => Err(Refusal::Editing(Editor::Float(live.label.clone()))),
+            None => Ok(()),
+        }
+    }
+
+    /// Tells every post-it whose note became edited elsewhere, or no longer is.
+    fn refresh_blocked(&mut self) {
+        let blocked: Vec<bool> = self
+            .live
+            .iter()
+            .map(|live| {
+                live.kind == Kind::Note
+                    && matches!(
+                        self.may_edit(&Editor::Float(live.label.clone()), &live.path),
+                        Err(Refusal::Editing(_))
+                    )
+            })
+            .collect();
+        for (live, blocked) in self.live.iter_mut().zip(blocked) {
+            if live.blocked != blocked {
+                live.blocked = blocked;
+                live.changed();
+            }
+        }
+    }
+
+    /// The post-it `label` begins editing its note, if it is shown, takes clicks, belongs to the
+    /// current epoch and `may_edit` agrees; `None` if not. Refuses floating images and windows it
+    /// does not hold.
+    fn begin_edit(&mut self, label: &str) -> Result<Option<Claim>, Error> {
+        let live = self
+            .live
+            .iter()
+            .find(|live| live.label == label)
+            .ok_or_else(|| Error::unexpected("command restricted to floating windows"))?;
+        if live.kind != Kind::Note {
+            return Err(Error::unexpected("command restricted to post-its"));
+        }
+        if live.raw == 0 || !live.shown || live.closing || live.click_through {
+            return Ok(None);
+        }
+        if !self.current(live.epoch) {
+            return Ok(None);
+        }
+        if let Err(refusal) = self.may_edit(&Editor::Float(label.to_owned()), &live.path) {
+            refusal.log(&live.path);
+            return Ok(None);
+        }
+        let claim = Claim {
+            path: live.path.clone(),
+            folder: live.folder.clone(),
+        };
+        if let Some(live) = self.live.iter_mut().find(|live| live.label == label)
+            && !live.editing
+        {
+            live.editing = true;
+            live.changed();
+        }
+        self.refresh_blocked();
+        Ok(Some(claim))
+    }
+
+    /// The post-it `label` stops editing; answers its window and the window that had focus before,
+    /// if it was editing.
+    fn end_edit(&mut self, label: &str) -> Result<Option<(isize, Option<isize>)>, Error> {
+        let live = self
+            .live
+            .iter_mut()
+            .find(|live| live.label == label)
+            .ok_or_else(|| Error::unexpected("command restricted to floating windows"))?;
+        if live.kind != Kind::Note {
+            return Err(Error::unexpected("command restricted to post-its"));
+        }
+        if !live.editing {
+            return Ok(None);
+        }
+        live.editing = false;
+        live.changed();
+        let ended = (live.raw, live.previous_focus.take());
+        self.refresh_blocked();
+        Ok(Some(ended))
+    }
+
+    /// The panel edits the note `path`, if `may_edit` agrees, or none (`None`, always agreed).
+    fn panel_edit(&mut self, path: Option<String>) -> bool {
+        if let Some(path) = &path
+            && let Err(refusal) = self.may_edit(&Editor::Panel, path)
+        {
+            refusal.log(path);
+            return false;
+        }
+        self.panel_editing = path;
+        self.refresh_blocked();
+        true
+    }
+
+    /// The notes post-its edit, as saved.
+    fn editing_paths(&self) -> Vec<String> {
+        let mut paths: Vec<_> = self
+            .live
+            .iter()
+            .filter(|live| live.editing)
+            .map(|live| live.path.clone())
+            .collect();
+        paths.sort();
+        paths.dedup();
+        paths
     }
 
     /// Work started on `epoch` may still open windows: no folder change came since, and none is
@@ -235,20 +420,27 @@ impl Registry {
             text_scale: floats::clamp_text_scale(entry.text_scale.unwrap_or(1.0)),
             click_through: false,
             revealed: false,
+            editing: false,
+            blocked: false,
+            previous_focus: None,
             version: 1,
             channel: None,
         });
         Ok((label, open))
     }
 
+    /// Takes the window `label`, and any edit it held with it.
     fn take(&mut self, label: &str) -> Option<Live> {
         let at = self.live.iter().position(|live| live.label == label)?;
-        Some(self.live.remove(at))
+        let live = self.live.remove(at);
+        self.refresh_blocked();
+        Some(live)
     }
 
-    /// Starts a new epoch and takes every window.
+    /// Starts a new epoch and takes every window. The panel's edit was of the folder that left.
     fn revoke(&mut self) -> Vec<Live> {
         self.epoch += 1;
+        self.panel_editing = None;
         std::mem::take(&mut self.live)
     }
 
@@ -334,6 +526,9 @@ static WORKER: OnceLock<Sender<Message>> = OnceLock::new();
 static REPORTING: Mutex<()> = Mutex::new(());
 /// Serializes `set_collapsed`. Never taken on the main thread nor under the registry.
 static COLLAPSING: Mutex<()> = Mutex::new(());
+/// Serializes `begin_edit` and `end_edit`, so a post-it never activates after its edit ended.
+/// Never taken on the main thread nor under the registry.
+static LEASING: Mutex<()> = Mutex::new(());
 /// One restore at a time, so two never open the same saved window.
 static RESTORING: Mutex<()> = Mutex::new(());
 
@@ -562,19 +757,25 @@ fn report(app: &AppHandle) {
     // One report at a time, each reading the registry inside: `main` and the tray never end on an
     // older state than the last change. Never taken on the main thread nor under the registry.
     let _reporting = REPORTING.lock().unwrap_or_else(|e| e.into_inner());
-    let (through, open, paths) = {
+    let (through, open, paths, editing) = {
         let registry = registry();
         let through = registry.live.iter().any(|live| live.click_through);
-        (through, !registry.live.is_empty(), registry.paths())
+        let open = !registry.live.is_empty();
+        (through, open, registry.paths(), registry.editing_paths())
     };
     crate::tray::set_floating_items(app, through, open);
     if let Err(error) = app.emit_to("main", PATHS, paths) {
         eprintln!("[floating] open images not reported: {error}");
     }
+    if let Err(error) = app.emit_to("main", EDITING, editing) {
+        eprintln!("[floating] edited notes not reported: {error}");
+    }
 }
 
 /// Tells `main` which images floating windows show.
 const PATHS: &str = "floating-paths";
+/// Tells `main` which notes post-its edit.
+const EDITING: &str = "floating-editing";
 
 /// The images and notes the open floating windows show, relative to the notes folder.
 pub fn paths() -> Vec<String> {
@@ -1280,9 +1481,9 @@ pub fn state(label: &str, channel: Channel<Update>, locale: Locale) -> Result<St
     })
 }
 
-/// The note the post-it `label` shows, read now from the folder it opened on; `None` once the note
-/// is gone.
-pub fn note(app: &AppHandle, label: &str) -> Result<Option<String>, Error> {
+/// The note the post-it `label` shows, with its version, read now from the folder it opened on;
+/// `None` once the note is gone.
+pub fn note(app: &AppHandle, label: &str) -> Result<Option<OpenNote>, Error> {
     let (kind, path, folder) = with_live(label, |live| {
         (live.kind, live.path.clone(), live.folder.clone())
     })?;
@@ -1365,6 +1566,72 @@ pub fn edit_current(epoch: u64) -> bool {
     registry().current(epoch)
 }
 
+/// The post-it `label` begins editing its note, which nobody else edits (`Registry::may_edit`),
+/// and takes focus. Answers the note with its version for `save_note`; `None` if it may not edit
+/// now, as while its note is edited elsewhere (`Update::blocked`), it lets clicks through or the
+/// note is gone.
+pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<OpenNote>, Error> {
+    let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
+    // Claimed before reading, so nobody else begins editing the note in between.
+    let Some(claim) = registry().begin_edit(label)? else {
+        return Ok(None);
+    };
+    let read = crate::notes::floating_note(app, &claim.folder, &claim.path);
+    let raw = match &read {
+        Ok(Some(_)) => {
+            let foreground = platform::foreground_window();
+            // A rename or folder change while reading: what was read belongs to no window any more.
+            with_live(label, |live| {
+                let kept = live.editing && live.path == claim.path && live.folder == claim.folder;
+                if kept && live.previous_focus.is_none() {
+                    live.previous_focus = foreground.filter(|&raw| raw != live.raw);
+                }
+                kept.then_some(live.raw)
+            })
+            .ok()
+            .flatten()
+        }
+        _ => None,
+    };
+    let Some(raw) = raw else {
+        let _ = registry().end_edit(label);
+        report(app);
+        return read.map(|_| None);
+    };
+    platform::set_activatable(raw, true);
+    platform::activate(raw);
+    report(app);
+    read
+}
+
+/// The post-it `label` stops editing and never activates again; if it still has focus, focus goes
+/// back to the window that had it before, or the one the panel last opened over, never to a
+/// window of the app. If the user went to another window meanwhile, focus stays there.
+pub fn end_edit(app: &AppHandle, label: &str) -> Result<(), Error> {
+    let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((raw, previous)) = registry().end_edit(label)? else {
+        return Ok(());
+    };
+    if raw != 0 {
+        platform::set_activatable(raw, false);
+        if platform::is_foreground(raw) {
+            let outside = |raw: &isize| !platform::is_own_window(*raw);
+            let target = previous
+                .filter(outside)
+                .or_else(|| crate::dock::previous_window().filter(outside));
+            platform::restore_focus(target);
+        }
+    }
+    report(app);
+    Ok(())
+}
+
+/// The panel edits the note `path`, relative to the notes folder, if no post-it edits it; or none
+/// (`None`). Answers whether it may.
+pub fn panel_edit(path: Option<String>) -> bool {
+    registry().panel_edit(path)
+}
+
 /// Something in the notes folder changed, `renames` among it as the watcher saw them in `root`
 /// (`None` for the app's own notices): tells the worker, since this may run on the main thread.
 pub fn notes_changed_requested(root: Option<std::path::PathBuf>, renames: Vec<(String, String)>) {
@@ -1389,6 +1656,14 @@ fn notes_changed(app: &AppHandle, root: Option<&std::path::Path>, renames: &[(St
     let mut moved: Vec<(FolderIdentity, Vec<(String, String)>)> = Vec::new();
     {
         let mut registry = registry();
+        if root.is_some()
+            && let Some(to) = registry
+                .panel_editing
+                .as_deref()
+                .and_then(|path| renamed(path, renames))
+        {
+            registry.panel_editing = Some(to);
+        }
         for live in registry
             .live
             .iter_mut()
@@ -1407,6 +1682,7 @@ fn notes_changed(app: &AppHandle, root: Option<&std::path::Path>, renames: &[(St
             live.revision += 1;
             live.changed();
         }
+        registry.refresh_blocked();
     }
     for (folder, paths) in moved {
         let saved = crate::notes::update_floating(app, &folder, |store| {
@@ -1675,6 +1951,8 @@ mod tests {
             assert!(natural(label, 400, 300).is_err(), "{label}");
             assert!(set_opacity(label, 0.5).is_err(), "{label}");
             assert!(set_collapsed(label, true).is_err(), "{label}");
+            assert!(registry().begin_edit(label).is_err(), "{label}");
+            assert!(registry().end_edit(label).is_err(), "{label}");
             assert!(!is_live(label), "{label}");
         }
         let epoch = registry().epoch;
@@ -1992,6 +2270,9 @@ mod tests {
             set_collapsed(&picture, true),
             Err(Error::unexpected("command restricted to post-its"))
         );
+        let refused = Err(Error::unexpected("command restricted to post-its"));
+        assert_eq!(registry().begin_edit(&picture), refused);
+        assert_eq!(registry().end_edit(&picture), refused.map(|_| None));
         take(&picture);
         take(&post_it);
     }
@@ -2027,5 +2308,119 @@ mod tests {
         assert!(set_opacity(&first, 0.2).is_err());
         assert_eq!(state(&second), Ok((1.0, false)));
         take(&second);
+    }
+    fn note(path: &str) -> Entry {
+        Entry {
+            kind: Kind::Note,
+            ..image(path)
+        }
+    }
+
+    /// A registry holding a shown post-it for each of `paths`, labeled from `float-1`.
+    fn post_its(paths: &[&str]) -> Registry {
+        let mut registry = Registry::new();
+        for path in paths {
+            registry.reserve(0, &note(path), &folder()).unwrap();
+        }
+        for live in &mut registry.live {
+            (live.raw, live.shown) = (7, true);
+        }
+        registry
+    }
+
+    fn begins(registry: &mut Registry, label: &str) -> bool {
+        registry.begin_edit(label).unwrap().is_some()
+    }
+
+    fn blocked(registry: &Registry, label: &str) -> bool {
+        registry
+            .live
+            .iter()
+            .any(|live| live.label == label && live.blocked)
+    }
+
+    // Catches a post-it editing the note the panel edits, written however the panel spelled it,
+    // so two editors overwrite each other.
+    #[test]
+    fn a_note_the_panel_edits_is_never_edited_in_a_post_it() {
+        let mut registry = post_its(&["Inbox/a.md"]);
+        assert!(registry.panel_edit(Some("inbox//A.md".into())));
+        assert!(!begins(&mut registry, "float-1"));
+        assert!(blocked(&registry, "float-1"));
+        assert!(registry.panel_edit(None));
+        assert!(!blocked(&registry, "float-1"));
+        assert!(begins(&mut registry, "float-1"));
+    }
+
+    // Catches the panel editing a note a post-it edits, and the transfer losing who to ask.
+    #[test]
+    fn a_note_a_post_it_edits_is_never_edited_in_the_panel() {
+        let mut registry = post_its(&["Inbox/a.md"]);
+        assert!(begins(&mut registry, "float-1"));
+        assert!(!registry.panel_edit(Some("./Inbox/a.md".into())));
+        assert_eq!(
+            registry.may_edit(&Editor::Panel, "Inbox/a.md"),
+            Err(Refusal::Editing(Editor::Float("float-1".into())))
+        );
+        assert_eq!(registry.editing_paths(), ["Inbox/a.md"]);
+    }
+
+    // Catches two post-its of one note both editing it.
+    #[test]
+    fn a_note_is_edited_in_one_post_it_at_a_time() {
+        let mut registry = post_its(&["a.md", "A.md"]);
+        assert!(begins(&mut registry, "float-1"));
+        assert!(!begins(&mut registry, "float-2"));
+        assert!(blocked(&registry, "float-2"));
+        assert!(!blocked(&registry, "float-1"));
+    }
+
+    // Catches an edit that ended, or whose post-it went, still holding its note.
+    #[test]
+    fn ending_an_edit_releases_its_note() {
+        let mut registry = post_its(&["a.md", "a.md"]);
+        assert!(begins(&mut registry, "float-1"));
+        assert_eq!(registry.end_edit("float-1"), Ok(Some((7, None))));
+        assert_eq!(registry.end_edit("float-1"), Ok(None));
+        assert!(begins(&mut registry, "float-2"));
+        registry.take("float-2");
+        assert!(!blocked(&registry, "float-1"));
+        assert!(registry.panel_edit(Some("a.md".into())));
+    }
+
+    // Catches an edit beginning while the app exits or another notes folder is chosen.
+    #[test]
+    fn no_edit_begins_while_edits_are_held() {
+        let mut registry = post_its(&["a.md"]);
+        registry.held = true;
+        assert!(!begins(&mut registry, "float-1"));
+        assert!(!registry.panel_edit(Some("b.md".into())));
+        registry.held = false;
+        registry.switching = 1;
+        assert!(!begins(&mut registry, "float-1"));
+        assert!(!registry.panel_edit(Some("b.md".into())));
+    }
+
+    // Catches the lease of one note holding off the others.
+    #[test]
+    fn different_notes_are_edited_independently() {
+        let mut registry = post_its(&["a.md", "b.md"]);
+        assert!(registry.panel_edit(Some("c.md".into())));
+        assert!(begins(&mut registry, "float-1"));
+        assert!(begins(&mut registry, "float-2"));
+        assert!(!blocked(&registry, "float-1"));
+        assert_eq!(registry.editing_paths(), ["a.md", "b.md"]);
+    }
+
+    // Catches a post-it taking focus to edit while clicks go through it, or before it shows.
+    #[test]
+    fn only_a_shown_post_it_taking_clicks_begins_editing() {
+        let mut registry = post_its(&["a.md"]);
+        registry.live[0].click_through = true;
+        assert!(!begins(&mut registry, "float-1"));
+        registry.live[0].click_through = false;
+        registry.live[0].shown = false;
+        assert!(!begins(&mut registry, "float-1"));
+        assert!(registry.panel_edit(Some("a.md".into())));
     }
 }

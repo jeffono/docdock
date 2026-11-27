@@ -636,6 +636,12 @@ pub fn floating_edit_current(epoch: u64) -> bool {
     crate::floating::edit_current(epoch)
 }
 
+/// The panel edits the note `path`, or none (`null`): whether it may, as no post-it edits it.
+#[tauri::command(async)]
+pub fn floating_panel_edit(path: Option<String>) -> bool {
+    crate::floating::panel_edit(path)
+}
+
 /// The images and notes the open floating windows show, so the notes mark them.
 #[tauri::command(async)]
 pub fn floating_list() -> Vec<String> {
@@ -693,10 +699,27 @@ pub fn float_zoom(
 pub fn float_natural(window: tauri::WebviewWindow, width: u32, height: u32) -> Result<(), Error> {
     crate::floating::natural(window.label(), width, height)
 }
-/// The note the post-it shows, read now; `null` once it is gone.
+/// The note the post-it shows, with its version, read now; `null` once it is gone.
 #[tauri::command(async)]
-pub fn float_note(app: AppHandle, window: tauri::WebviewWindow) -> Result<Option<String>, Error> {
+pub fn float_note(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<crate::notes::OpenNote>, Error> {
     crate::floating::note(&app, window.label())
+}
+/// The post-it begins editing its note, which nobody else edits, and takes focus: the note with
+/// its version, or `null` if it may not edit now.
+#[tauri::command(async)]
+pub fn float_begin_edit(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<Option<crate::notes::OpenNote>, Error> {
+    crate::floating::begin_edit(&app, window.label())
+}
+/// The post-it stops editing and gives focus back.
+#[tauri::command(async)]
+pub fn float_end_edit(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), Error> {
+    crate::floating::end_edit(&app, window.label())
 }
 #[tauri::command(async)]
 pub fn float_set_text_scale(window: tauri::WebviewWindow, scale: f64) -> Result<(), Error> {

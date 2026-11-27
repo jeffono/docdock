@@ -1226,7 +1226,10 @@ impl Dock {
     fn track_focus(&mut self) {
         // The native picker belongs to the panel and disappears on close; focus must not return to it.
         if !self.dialog && !self.is_foreground() {
-            self.previous_focus = platform::foreground_window().or(self.previous_focus);
+            // Nor to a post-it activated while its note is edited, nor any other window of the app.
+            let foreground =
+                platform::foreground_window().filter(|&raw| !platform::is_own_window(raw));
+            self.previous_focus = foreground.or(self.previous_focus);
             PREVIOUS_FOCUS.store(
                 self.previous_focus.unwrap_or(0),
                 std::sync::atomic::Ordering::Relaxed,

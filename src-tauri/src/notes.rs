@@ -503,6 +503,11 @@ pub struct OpenNote {
     text: String,
     version: String,
 }
+impl OpenNote {
+    pub fn into_text(self) -> String {
+        self.text
+    }
+}
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Saved {
@@ -2521,21 +2526,26 @@ pub fn floating_folder(
     resolve(&root, path, floating_kind(kind))?;
     identity_of(&root)
 }
-/// The note a post-it shows, from the notes folder `identity` only while it is still the configured
-/// one; `None` once the note is gone, as after a rename the post-it did not follow.
+/// The note a post-it shows, with its version for `floating_save`, from the notes folder
+/// `identity` only while it is still the configured one; `None` once the note is gone, as after a
+/// rename the post-it did not follow.
 pub fn floating_note(
     app: &AppHandle,
     identity: &FolderIdentity,
     path: &str,
-) -> Result<Option<String>, Error> {
+) -> Result<Option<OpenNote>, Error> {
     floating_note_in(&root_matching(&config(app)?, identity)?.real()?, path)
 }
 /// `real`: the folder's real path (`Root::real`).
-fn floating_note_in(real: &Path, path: &str) -> Result<Option<String>, Error> {
+fn floating_note_in(real: &Path, path: &str) -> Result<Option<OpenNote>, Error> {
     if !present_in(real, path, markdown)? {
         return Ok(None);
     }
-    read_resolved_note(real, path).map(Some)
+    let text = read_resolved_note(real, path)?;
+    Ok(Some(OpenNote {
+        version: version(text.as_bytes()),
+        text,
+    }))
 }
 /// The floating windows saved in the configured notes folder, with its identity, if it is
 /// available and the one chosen; see `load_floating`. Under `SAVING`, as every write.
@@ -5399,13 +5409,11 @@ mod tests {
         let root = folder_with(&t, &[("attachments/a.png", b"a"), ("Inbox/a.md", b"# A")])
             .canonicalize()
             .unwrap();
-        assert_eq!(
-            floating_note_in(&root, "Inbox/a.md"),
-            Ok(Some("# A".into()))
-        );
-        assert_eq!(floating_note_in(&root, "Inbox/b.md"), Ok(None));
-        assert_eq!(floating_note_in(&root, "attachments/a.png"), Ok(None));
-        assert_eq!(floating_note_in(&root, "../a.md"), Ok(None));
+        let text = |path| floating_note_in(&root, path).map(|note| note.map(|note| note.text));
+        assert_eq!(text("Inbox/a.md"), Ok(Some("# A".into())));
+        assert_eq!(text("Inbox/b.md"), Ok(None));
+        assert_eq!(text("attachments/a.png"), Ok(None));
+        assert_eq!(text("../a.md"), Ok(None));
         fs::create_dir_all(root.join(DERIVED)).unwrap();
         fs::write(root.join(DERIVED).join("x.md"), b"x").unwrap();
         let derived = format!("{DERIVED}/x.md");

@@ -88,7 +88,7 @@ async function read() {
   const current = ++reads;
   let text: string | null;
   try {
-    text = await floatNote();
+    text = (await floatNote())?.text ?? null;
   } catch {
     // A window closing, or its folder leaving, meanwhile.
     return;
