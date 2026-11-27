@@ -494,7 +494,8 @@ writing history to disk.
   an inline `More` disclosure for secondary transforms (all running in deterministic canonical order);
   double-click or Enter copies. Actions: `Copy` / `Copy transformed` (writes transformed copies out
   of `Win+V` history), `Send to Scratchpad` (appends as one undoable edit), `Create note` and `Remove
-  from history`.
+  from history`. The first snapshot and any later snapshot with a new top item select, expand and
+  scroll to that item when it matches the search.
 
 ## Rendered content
 
