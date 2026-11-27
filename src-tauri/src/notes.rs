@@ -2504,6 +2504,14 @@ impl FolderIdentity {
     pub fn is_at(&self, path: &Path) -> bool {
         self.path == path
     }
+    /// The folder of marker `id` at `path`.
+    #[cfg(test)]
+    pub(crate) fn for_tests(path: &str, id: &str) -> Self {
+        Self {
+            path: path.into(),
+            id: id.to_owned(),
+        }
+    }
 }
 fn identity_of(root: &Root) -> Result<FolderIdentity, Error> {
     Ok(FolderIdentity {

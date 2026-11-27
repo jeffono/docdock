@@ -64,6 +64,9 @@ pub struct Update {
     editing: bool,
     /// The post-it's note is edited elsewhere, in the panel or another post-it.
     blocked: bool,
+    /// The post-it was editing when its notes folder left or another was chosen: it keeps its text
+    /// but must hide it, and reach its note again only once the same folder returns.
+    parked: bool,
 }
 
 #[derive(Serialize)]
@@ -111,6 +114,9 @@ struct Live {
     editing: bool,
     /// See `Update::blocked`.
     blocked: bool,
+    /// See `Update::parked`. It keeps the folder and epoch it opened on, so none of its moves is
+    /// saved, until the same folder returns and adopts it (`Registry::adopt`).
+    parked: bool,
     /// The foreground window when editing began, which gets focus back when it ends.
     previous_focus: Option<isize>,
     /// Counts the edits granted to the post-it: a save names the one it belongs to, so a save
@@ -137,6 +143,7 @@ impl Live {
             escape_revision: self.escape_revision,
             editing: self.editing,
             blocked: self.blocked,
+            parked: self.parked,
         }
     }
 
@@ -229,6 +236,15 @@ pub struct Granted {
     #[serde(flatten)]
     note: OpenNote,
     lease: u64,
+}
+
+/// An edit that ended: the post-it's window, the window that had focus before, and whether the
+/// post-it was parked, which then goes.
+#[derive(Debug, PartialEq)]
+struct Ended {
+    raw: isize,
+    previous_focus: Option<isize>,
+    parked: bool,
 }
 
 /// A window the user closed, whose entry and window are on their way out.
@@ -324,7 +340,7 @@ impl Registry {
         if live.kind != Kind::Note {
             return Err(Error::unexpected("command restricted to post-its"));
         }
-        if live.raw == 0 || !live.shown || live.closing || live.click_through {
+        if live.raw == 0 || !live.shown || live.closing || live.click_through || live.parked {
             return Ok(None);
         }
         if !self.current(live.epoch) {
@@ -351,9 +367,9 @@ impl Registry {
         Ok(Some(claim))
     }
 
-    /// The post-it `label` stops editing; answers its window and the window that had focus before,
-    /// if it was editing.
-    fn end_edit(&mut self, label: &str) -> Result<Option<(isize, Option<isize>)>, Error> {
+    /// The post-it `label` stops editing; answers its window, the window that had focus before and
+    /// whether it was parked, if it was editing.
+    fn end_edit(&mut self, label: &str) -> Result<Option<Ended>, Error> {
         let live = self
             .live
             .iter_mut()
@@ -367,7 +383,11 @@ impl Registry {
         }
         live.editing = false;
         live.changed();
-        let ended = (live.raw, live.previous_focus.take());
+        let ended = Ended {
+            raw: live.raw,
+            previous_focus: live.previous_focus.take(),
+            parked: live.parked,
+        };
         self.refresh_blocked();
         Ok(Some(ended))
     }
@@ -460,6 +480,7 @@ impl Registry {
             escape_revision: 0,
             editing: false,
             blocked: false,
+            parked: false,
             previous_focus: None,
             lease: 0,
             version: 1,
@@ -476,11 +497,38 @@ impl Registry {
         Some(live)
     }
 
-    /// Starts a new epoch and takes every window. The panel's edit was of the folder that left.
+    /// Starts a new epoch and takes every window but the post-its editing, which it parks instead:
+    /// they keep their text, hidden, and their label, folder and epoch, so they reach their note
+    /// again only in that folder and none of their moves is saved meanwhile. They still hold their
+    /// note's lease, by path. The panel's edit was of the folder that left.
     fn revoke(&mut self) -> Vec<Live> {
         self.epoch += 1;
         self.panel_editing = None;
-        std::mem::take(&mut self.live)
+        let (kept, gone) = std::mem::take(&mut self.live)
+            .into_iter()
+            .partition(|live| live.editing);
+        self.live = kept;
+        for live in self.live.iter_mut().filter(|live| !live.parked) {
+            live.parked = true;
+            live.changed();
+        }
+        gone
+    }
+
+    /// The notes folder `folder` returned on the current epoch: the post-its parked from it take
+    /// that epoch and read their note again. Those of another folder stay parked until discarded.
+    fn adopt(&mut self, folder: &FolderIdentity) {
+        let epoch = self.epoch;
+        for live in self
+            .live
+            .iter_mut()
+            .filter(|live| live.parked && live.folder == *folder)
+        {
+            live.parked = false;
+            live.epoch = epoch;
+            live.revision += 1;
+            live.changed();
+        }
     }
 
     /// Marks every window `picked` closed by the user; answers their labels, ids and folders.
@@ -504,7 +552,7 @@ impl Registry {
         let mut paths: Vec<_> = self
             .live
             .iter()
-            .filter(|live| !live.closing)
+            .filter(|live| !live.closing && !live.parked)
             .map(|live| live.path.clone())
             .collect();
         paths.sort();
@@ -512,7 +560,8 @@ impl Registry {
         paths
     }
 
-    /// A folder choice begins: as `revoke`, and nothing opens until it ends.
+    /// A folder choice begins: as `revoke`, and nothing opens until it ends. The post-its still
+    /// editing are parked: a choice from the panel finishes their edits first (`finish_edits`).
     fn begin_switch(&mut self) -> Vec<Live> {
         self.switching += 1;
         self.revoke()
@@ -1135,7 +1184,11 @@ pub fn start_drag_note(
             .live
             .iter()
             .find(|live| {
-                live.kind == Kind::Note && !live.closing && live.raw != 0 && same(&live.path, &path)
+                live.kind == Kind::Note
+                    && !live.closing
+                    && !live.parked
+                    && live.raw != 0
+                    && same(&live.path, &path)
             })
             .map(|live| (live.label.clone(), live.raw));
         if existing.is_none() && registry.live.len() >= MAX_FLOATING {
@@ -1310,12 +1363,23 @@ pub fn restore(app: &AppHandle) {
         registry.epoch
     };
     let (folder, store) = match crate::notes::read_floating(app) {
-        Ok((folder, Some(store))) => (folder, store),
-        Ok((_, None)) => return,
+        Ok(read) => read,
         Err(error) => {
             eprintln!("[floating] saved windows not read: {error:?}");
             return;
         }
+    };
+    {
+        let mut registry = registry();
+        if !registry.current(epoch) {
+            return;
+        }
+        registry.adopt(&folder);
+        registry.refresh_blocked();
+    }
+    let Some(store) = store else {
+        report(app);
+        return;
     };
     let monitors = platform::monitors();
     let mut gone = Vec::new();
@@ -1325,7 +1389,11 @@ pub fn restore(app: &AppHandle) {
             if !registry.current(epoch) {
                 return;
             }
-            registry.live.iter().any(|live| live.id == entry.id)
+            // A post-it parked from this folder and just adopted is open already.
+            registry
+                .live
+                .iter()
+                .any(|live| live.id == entry.id && live.folder == folder)
         };
         if open {
             continue;
@@ -1369,7 +1437,9 @@ pub fn restore(app: &AppHandle) {
 /// The notes folder went away, such as a vault that locked, or another is about to be chosen: a
 /// new epoch starts, every window stops reaching its commands and images at once, then goes; its
 /// saved entry stays for when the folder returns
-/// ([0009](../../docs/decisions/0009-note-privacy.md)). Openings still on their way give up.
+/// ([0009](../../docs/decisions/0009-note-privacy.md)). Openings still on their way give up. A
+/// post-it editing its note is parked instead (`Registry::revoke`): it hides its text, and its
+/// commands reach the note and its images only in the folder it opened on, by identity.
 pub fn folder_left(app: &AppHandle) {
     revoke_all(app, Registry::revoke);
 }
@@ -1655,8 +1725,7 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error
         _ => None,
     };
     let Some(raw) = raw else {
-        let _ = registry().end_edit(label);
-        report(app);
+        let _ = leave(app, label);
         return read.map(|_| None);
     };
     platform::set_activatable(raw, true);
@@ -1667,16 +1736,13 @@ pub fn begin_edit(app: &AppHandle, label: &str) -> Result<Option<Granted>, Error
     // granted on a window on its way out, and it never activates again.
     if !with_live(label, |live| kept(live)).unwrap_or(false) {
         platform::set_activatable(raw, false);
-        let mut registry = registry();
-        if registry
+        let same_edit = registry()
             .live
             .iter()
-            .any(|live| live.label == label && live.lease == claim.lease)
-        {
-            let _ = registry.end_edit(label);
+            .any(|live| live.label == label && live.lease == claim.lease);
+        if same_edit {
+            let _ = leave(app, label);
         }
-        drop(registry);
-        report(app);
         return Ok(None);
     }
     report(app);
@@ -1708,10 +1774,22 @@ pub fn save_note(
 
 /// The post-it `label` stops editing and never activates again; if it still has focus, focus goes
 /// back to the window that had it before, or the one the panel last opened over, never to a
-/// window of the app. If the user went to another window meanwhile, focus stays there.
+/// window of the app. If the user went to another window meanwhile, focus stays there. A parked
+/// post-it, whose folder went while it edited, goes as a revoked window does, its entry kept: the
+/// UI ends its edit once nothing is left to save, or when the user discards what was.
 pub fn end_edit(app: &AppHandle, label: &str) -> Result<(), Error> {
     let _leasing = LEASING.lock().unwrap_or_else(|e| e.into_inner());
-    let Some((raw, previous)) = registry().end_edit(label)? else {
+    leave(app, label)
+}
+
+/// `end_edit` under `LEASING`.
+fn leave(app: &AppHandle, label: &str) -> Result<(), Error> {
+    let Some(Ended {
+        raw,
+        previous_focus: previous,
+        parked,
+    }) = registry().end_edit(label)?
+    else {
         return Ok(());
     };
     if raw != 0 {
@@ -1723,6 +1801,10 @@ pub fn end_edit(app: &AppHandle, label: &str) -> Result<(), Error> {
                 .or_else(|| crate::dock::previous_window().filter(outside));
             platform::restore_focus(target);
         }
+    }
+    if parked {
+        take(label);
+        destroy(app, label);
     }
     report(app);
     Ok(())
@@ -2482,7 +2564,12 @@ mod tests {
     fn ending_an_edit_releases_its_note() {
         let mut registry = post_its(&["a.md", "a.md"]);
         assert!(begins(&mut registry, "float-1"));
-        assert_eq!(registry.end_edit("float-1"), Ok(Some((7, None))));
+        let ended = Ended {
+            raw: 7,
+            previous_focus: None,
+            parked: false,
+        };
+        assert_eq!(registry.end_edit("float-1"), Ok(Some(ended)));
         assert_eq!(registry.end_edit("float-1"), Ok(None));
         assert!(begins(&mut registry, "float-2"));
         registry.take("float-2");
@@ -2542,6 +2629,60 @@ mod tests {
         let second = registry.begin_edit("float-1").unwrap().unwrap().lease;
         assert!(registry.editing("float-1", first).is_err());
         assert!(registry.editing("float-1", second).is_ok());
+    }
+
+    // Catches a vault that locks destroying a post-it with unsaved text, or leaving a post-it that
+    // was only read showing its note.
+    #[test]
+    fn a_folder_change_parks_the_post_its_editing_and_takes_the_rest() {
+        let mut registry = post_its(&["a.md", "b.md"]);
+        registry.reserve(0, &image("c.png"), &folder()).unwrap();
+        assert!(begins(&mut registry, "float-1"));
+        let gone: Vec<_> = registry
+            .revoke()
+            .into_iter()
+            .map(|live| live.label)
+            .collect();
+        assert_eq!(gone, ["float-2", "float-3"]);
+        assert_eq!(registry.live.len(), 1);
+        assert!(registry.live[0].parked && registry.live[0].editing);
+        assert!(registry.begin_switch().is_empty());
+        assert!(registry.live[0].parked);
+        assert!(registry.paths().is_empty());
+        // Ending its edit, once saved or discarded, lets it go as a revoked window.
+        let ended = registry.end_edit("float-1").unwrap().unwrap();
+        assert!(ended.parked);
+    }
+
+    // Catches a parked post-it's moves being saved into the folder that came back, or another.
+    #[test]
+    fn a_parked_post_it_saves_no_moves() {
+        let mut registry = post_its(&["a.md"]);
+        assert!(begins(&mut registry, "float-1"));
+        registry.revoke();
+        let epoch = registry.live[0].epoch;
+        // The worker saves a move only on the registry's epoch.
+        assert_ne!(epoch, registry.epoch);
+        assert!(!registry.current(epoch));
+    }
+
+    // Catches a parked post-it reaching, or showing, a folder that came back as another one.
+    #[test]
+    fn only_the_same_folder_adopts_a_parked_post_it() {
+        let mut registry = Registry::new();
+        let vault = FolderIdentity::for_tests("V:/notes", "1");
+        let other = FolderIdentity::for_tests("V:/notes", "2");
+        registry.reserve(0, &note("a.md"), &vault).unwrap();
+        (registry.live[0].raw, registry.live[0].shown) = (7, true);
+        assert!(begins(&mut registry, "float-1"));
+        registry.revoke();
+        registry.adopt(&other);
+        assert!(registry.live[0].parked);
+        assert!(!begins(&mut registry, "float-1"));
+        registry.adopt(&vault);
+        assert!(!registry.live[0].parked);
+        assert!(registry.current(registry.live[0].epoch));
+        assert_eq!(registry.live[0].revision, 1);
     }
 
     // Catches a post-it taking focus to edit while clicks go through it, or before it shows.

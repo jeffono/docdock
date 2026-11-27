@@ -528,6 +528,13 @@ export type FloatUpdate = {
   editing: boolean;
   /** The post-it's note is edited elsewhere, in the panel or another post-it. */
   blocked: boolean;
+  /**
+   * The notes folder left, or another was chosen, while the post-it edited: it must hide the note
+   * at once but keep its text, until the same folder returns (`false` again, with a new
+   * `revision`) or the user discards it (`floatEndEdit`, which closes the window keeping its
+   * place). Saving fails meanwhile.
+   */
+  parked: boolean;
 };
 export function floatState(onUpdate: (update: FloatUpdate) => void) {
   const channel = new Channel<FloatUpdate>();
