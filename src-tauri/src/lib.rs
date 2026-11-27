@@ -186,6 +186,7 @@ pub fn run() {
         commands::floating_edit_current,
         commands::floating_panel_edit,
         commands::floating_panel_released,
+        commands::floating_editing,
         commands::floating_finish_edits,
         commands::floating_release_edits,
         commands::floating_list,

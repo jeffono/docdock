@@ -485,6 +485,8 @@ export const floatingEditCurrent = (epoch: number) =>
 
 /** The images and notes open floating windows show, relative to the notes folder. */
 export const floatingList = () => invoke<string[]>("floating_list");
+/** The notes post-its edit now; `onFloatingEditing` reports later changes. */
+export const floatingEditing = () => invoke<string[]>("floating_editing");
 /** Closes the floating windows showing `path`, an image or a note. */
 export const floatingClosePath = (path: string) => invoke<void>("floating_close_path", { path });
 /** Rust tells `main` whenever the images and notes open floating windows show change. */
@@ -507,8 +509,8 @@ export const onFloatingReleasePanelEdit = (
   listen<{ request: number; path: string }>("floating-release-panel-edit", (event) =>
     handler(event.payload),
   );
-export const floatingPanelReleased = (request: number, released: boolean) =>
-  invoke<void>("floating_panel_released", { request, released });
+export const floatingPanelReleased = (request: number, path: string, released: boolean) =>
+  invoke<void>("floating_panel_released", { request, path, released });
 /**
  * Before exiting or choosing another notes folder: holds new edits and has every post-it editing
  * save and return to reading. `false` if one could not, or is parked; then call

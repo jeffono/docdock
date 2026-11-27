@@ -502,6 +502,18 @@ impl Registry {
         true
     }
 
+    /// The panel no longer edits `path`; a claim on another note stays.
+    fn release_panel(&mut self, path: &str) {
+        if self
+            .panel_editing
+            .as_deref()
+            .is_some_and(|editing| same(editing, path))
+        {
+            self.panel_editing = None;
+            self.refresh_blocked();
+        }
+    }
+
     /// The notes post-its edit, as saved.
     fn editing_paths(&self) -> Vec<String> {
         let mut paths: Vec<_> = self
@@ -968,6 +980,11 @@ const EDITING: &str = "floating-editing";
 /// The images and notes the open floating windows show, relative to the notes folder.
 pub fn paths() -> Vec<String> {
     registry().paths()
+}
+
+/// The notes post-its edit, for a panel that loaded after `floating-editing` was last sent.
+pub fn editing_paths() -> Vec<String> {
+    registry().editing_paths()
 }
 
 fn unlock(app: &AppHandle) {
@@ -2179,11 +2196,12 @@ pub fn finished(app: &AppHandle, label: &str, request: u64, saved: bool) -> Resu
     Ok(())
 }
 
-/// The panel answers the request `request` to leave its editor: it `released` it, saved, or could
-/// not and goes on editing.
-pub fn panel_released(request: u64, released: bool) {
+/// The panel answers the request `request` to leave its edit of `path`: it `released` it, saved, or
+/// could not and goes on editing. Clears the panel's claim only while it is still on `path`: a late
+/// answer, or one from a panel editing another note, must not drop a newer claim.
+pub fn panel_released(request: u64, path: &str, released: bool) {
     if released {
-        registry().panel_edit(None);
+        registry().release_panel(path);
     }
     answer_finish(request, PANEL, released);
 }
@@ -2920,6 +2938,17 @@ mod tests {
         assert!(registry.panel_edit(None));
         assert!(!blocked(&registry, "float-1"));
         assert!(begins(&mut registry, "float-1"));
+    }
+
+    // Catches a late release answer, or one about another note, dropping the panel's newer claim.
+    #[test]
+    fn releasing_one_note_keeps_the_panel_claim_on_another() {
+        let mut registry = post_its(&["Inbox/a.md", "Inbox/b.md"]);
+        assert!(registry.panel_edit(Some("Inbox/b.md".into())));
+        registry.release_panel("Inbox/a.md");
+        assert!(!begins(&mut registry, "float-2"));
+        registry.release_panel("inbox/B.md");
+        assert!(begins(&mut registry, "float-2"));
     }
 
     // Catches the panel editing a note a post-it edits, and the transfer losing who to ask.

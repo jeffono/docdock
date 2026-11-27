@@ -10,6 +10,7 @@ import {
   floatingDragEnd,
   floatingDragStart,
   floatingEditCurrent,
+  floatingEditing,
   floatingFinishEdits,
   floatingList,
   floatingOpenNote,
@@ -2909,9 +2910,13 @@ onMount(() => {
     .then(showFloating)
     .catch(() => {});
   const floatingChanged = onFloatingPaths(showFloating);
-  const floatingEditing = onFloatingEditing((paths) => {
+  const showEditing = (paths: string[]) => {
     floatingEdits = new Set(paths.map(normalizePath));
-  });
+  };
+  void floatingEditing()
+    .then(showEditing)
+    .catch(() => {});
+  const floatingEditingChanged = onFloatingEditing(showEditing);
   // A post-it asks to edit the note edited here: the edit moves there once this editor saved.
   const releaseAsked = onFloatingReleasePanelEdit(async ({ request, path }) => {
     releaseRequests++;
@@ -2920,7 +2925,7 @@ onMount(() => {
     try {
       const matches = editing && normalizePath(selected) === target;
       const left = !matches || (await leaveEditor().catch(() => false));
-      await floatingPanelReleased(request, left);
+      await floatingPanelReleased(request, path, left);
     } catch (e) {
       error = errorText(e);
     } finally {
@@ -2990,7 +2995,7 @@ onMount(() => {
     void search.then((stop) => stop());
     void captureChosen.then((stop) => stop());
     void floatingChanged.then((stop) => stop());
-    void floatingEditing.then((stop) => stop());
+    void floatingEditingChanged.then((stop) => stop());
     void releaseAsked.then((stop) => stop());
   };
 });

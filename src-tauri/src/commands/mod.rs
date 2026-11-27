@@ -646,8 +646,8 @@ pub fn floating_panel_edit(app: AppHandle, path: Option<String>) -> bool {
 /// The panel answers `floating-release-panel-edit` number `request`: it left its editor, saved,
 /// or could not.
 #[tauri::command(async)]
-pub fn floating_panel_released(request: u64, released: bool) {
-    crate::floating::panel_released(request, released);
+pub fn floating_panel_released(request: u64, path: String, released: bool) {
+    crate::floating::panel_released(request, &path, released);
 }
 
 /// Before exiting or choosing another folder: holds new edits and has every post-it editing save
@@ -667,6 +667,12 @@ pub fn floating_release_edits() {
 #[tauri::command(async)]
 pub fn floating_list() -> Vec<String> {
     crate::floating::paths()
+}
+
+/// The notes post-its edit now, so a reloaded panel marks them before the next change.
+#[tauri::command(async)]
+pub fn floating_editing() -> Vec<String> {
+    crate::floating::editing_paths()
 }
 /// Closes the floating windows showing `path`, as their own close button would.
 #[tauri::command(async)]
