@@ -9,7 +9,7 @@ import type { AutosaveState } from "../notes/autosave";
  * - `editing`: the editor shows and saves as the user types.
  * - `leaving`: saving everything before leaving; the editor stays until the save lands.
  * - `conflict`: the note changed elsewhere; nothing saves until the user decides, and nothing
- *   leaves, so the text stays.
+ *   leaves, so the text stays. It lasts until what they chose lands.
  * - `parked`: the notes folder went; the editor hides with its text and nothing saves until the
  *   folder returns or the user discards.
  */
@@ -28,7 +28,8 @@ export type EditState = {
 
 export type EditEvent =
   | { type: "begin" }
-  | { type: "granted" }
+  /** Rust granted the edit; `parked` if the folder went meanwhile, which leaves nothing to show. */
+  | { type: "granted"; parked: boolean }
   | { type: "refused" }
   /** Esc, Ctrl+E, the close button, "Open in panel" or a close from outside. */
   | { type: "leave"; after: After }
@@ -45,6 +46,8 @@ export type EditEvent =
   | { type: "checked"; same: boolean }
   /** The user chose in a conflict: the text on disk, or theirs. */
   | { type: "resolve"; keep: boolean }
+  /** What the user chose landed: the editor holds the note on disk, or the note theirs. */
+  | { type: "resolved" }
   | { type: "parked"; dirty: boolean }
   | { type: "unparked" }
   /** The user discards the parked text. */
@@ -56,14 +59,18 @@ export type Effect =
   | { type: "flush" }
   /** Drops the editor and draws the note again. */
   | { type: "unmount" }
-  | { type: "end" }
+  /** Ends the edit in Rust; with `handOff`, focus stays for the panel, which takes the note. */
+  | { type: "end"; handOff?: true }
   | { type: "answer"; request: number; saved: boolean }
   | { type: "close" }
   | { type: "panel" }
   | { type: "render" }
-  /** The editor takes the note from disk; unless `force`, only if it is still clean then. */
+  /**
+   * The editor takes the note from disk; unless `force`, only if it is still clean then. `force`
+   * answers `resolved` once it did.
+   */
   | { type: "reload"; force: boolean }
-  /** Saves the editor's text over what is on disk now. */
+  /** Saves the editor's text over what is on disk now; answers `resolved` once it did. */
   | { type: "keep" }
   /** Reads the note again to see whether the conflict still stands. */
   | { type: "check" }
@@ -87,6 +94,7 @@ function left({ after, finish }: EditState): Effect[] {
   const effects: Effect[] = [{ type: "unmount" }];
   if (finish !== null) effects.push(...answer(finish, true));
   // The window's own close ends its edit first.
+  else if (after === "panel") effects.push({ type: "end", handOff: true });
   else if (after !== "close") effects.push({ type: "end" });
   if (after === "close") effects.push({ type: "close" });
   if (after === "panel") effects.push({ type: "panel" });
@@ -99,7 +107,9 @@ export function step(state: EditState, event: EditEvent): Step {
     case "begin":
       return mode === "read" ? to("entering", [{ type: "begin" }]) : stay(state);
     case "granted":
-      return mode === "entering" ? to("editing") : stay(state);
+      if (mode !== "entering") return stay(state);
+      // Nothing was shown nor typed: the edit ends, and the window with its folder.
+      return event.parked ? to("read", [{ type: "end" }]) : to("editing");
     case "refused":
       return mode === "entering" ? to("read", [{ type: "refused" }]) : stay(state);
     case "leave":
@@ -112,7 +122,14 @@ export function step(state: EditState, event: EditEvent): Step {
           effects: [{ type: "flush" }],
         };
       }
-      if (mode === "leaving") return stay({ ...state, after: event.after });
+      if (mode === "leaving") {
+        // A close always stands; the panel replaces only a plain leave, and not once Rust asked
+        // to finish, which the panel must not undo by taking the note back.
+        const replaces =
+          event.after === "close" ||
+          (event.after === "panel" && state.after === "read" && state.finish === null);
+        return replaces ? stay({ ...state, after: event.after }) : stay(state);
+      }
       // A conflict or a parked edit keeps its text: only the user's choice leaves.
       return stay(state);
     case "blur":
@@ -125,8 +142,10 @@ export function step(state: EditState, event: EditEvent): Step {
         };
       }
       if (mode === "leaving") {
-        // Rust ignores the earlier request's answer once it asks again.
-        return stay({ ...state, finish: event.request });
+        // Rust ignores the earlier request's answer once it asks again. Whoever asked takes the
+        // note, or exits: the panel no longer does.
+        const after = state.after === "panel" ? "read" : state.after;
+        return stay({ ...state, after, finish: event.request });
       }
       // Nothing to save while reading; anything else could not save now.
       return stay(state, answer(event.request, mode === "read"));
@@ -154,8 +173,11 @@ export function step(state: EditState, event: EditEvent): Step {
     case "checked":
       return mode === "conflict" && event.same ? to("editing", [{ type: "resume" }]) : stay(state);
     case "resolve":
+      // Still a conflict until the choice lands: one that fails can be chosen again.
       if (mode !== "conflict") return stay(state);
-      return to("editing", [event.keep ? { type: "keep" } : { type: "reload", force: true }]);
+      return stay(state, [event.keep ? { type: "keep" } : { type: "reload", force: true }]);
+    case "resolved":
+      return mode === "conflict" ? to("editing") : stay(state);
     case "parked":
       if (mode !== "editing" && mode !== "leaving" && mode !== "conflict") return stay(state);
       // Nothing to keep: the edit ends, and the window with it.

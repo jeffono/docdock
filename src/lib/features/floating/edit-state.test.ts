@@ -12,7 +12,7 @@ function run(state: EditState, ...events: EditEvent[]) {
   return { state, effects };
 }
 
-const editing = run(reading, { type: "begin" }, { type: "granted" }).state;
+const editing = run(reading, { type: "begin" }, { type: "granted", parked: false }).state;
 const conflict = run(editing, { type: "conflict" }).state;
 const parked = run(editing, { type: "parked", dirty: true }).state;
 const types = (effects: Effect[]) => effects.map((effect) => effect.type);
@@ -108,5 +108,48 @@ describe("post-it edit state", () => {
       { type: "flushed", result: "saved" },
     );
     expect(types(closing.effects)).toEqual(["flush", "unmount", "close"]);
+  });
+
+  // Catches a vault locking while an edit began mounting the editor with the note's text.
+  it("ends an edit granted after its folder went without showing it", () => {
+    const { state, effects } = run(
+      reading,
+      { type: "begin" },
+      { type: "parked", dirty: false },
+      { type: "granted", parked: true },
+    );
+    expect(state.mode).toBe("read");
+    expect(types(effects)).toEqual(["begin", "end"]);
+  });
+
+  // Catches a choice in a conflict that failed to land leaving the editor typing into nothing.
+  it("stays in a conflict until the user's choice lands", () => {
+    const chosen = run(conflict, { type: "resolve", keep: true });
+    expect(chosen.state.mode).toBe("conflict");
+    expect(chosen.effects).toEqual([{ type: "keep" }]);
+    expect(run(chosen.state, { type: "resolved" }).state.mode).toBe("editing");
+  });
+
+  // Catches an exit or folder choice that finishes an edit on its way to the panel opening it there.
+  it("drops the panel from a leave that Rust asks to finish", () => {
+    const { effects } = run(
+      editing,
+      { type: "leave", after: "panel" },
+      { type: "finish", request: 6 },
+      { type: "flushed", result: "saved" },
+    );
+    expect(types(effects)).toEqual(["flush", "unmount", "answer"]);
+  });
+
+  // Catches Esc during a close's save cancelling the close.
+  it("keeps a close asked while leaving", () => {
+    const { effects } = run(
+      editing,
+      { type: "leave", after: "close" },
+      { type: "leave", after: "read" },
+      { type: "leave", after: "panel" },
+      { type: "flushed", result: "saved" },
+    );
+    expect(types(effects)).toEqual(["flush", "unmount", "close"]);
   });
 });

@@ -185,7 +185,7 @@ function run(effect: Effect) {
       unmount();
       break;
     case "end":
-      call(floatEndEdit);
+      call(() => floatEndEdit(effect.handOff ?? false));
       break;
     case "answer":
       call(() => floatFinished(effect.request, effect.saved));
@@ -226,13 +226,18 @@ async function begin() {
     dispatch({ type: "refused" });
     return;
   }
+  busy = false;
+  // The folder went while Rust granted it: the note's text never reaches the editor.
+  if (parked) {
+    dispatch({ type: "granted", parked: true });
+    return;
+  }
   lease = granted.lease;
   recreate = false;
   raw = granted.text;
   opened = granted.text;
   setupAutosave(granted.version);
-  busy = false;
-  dispatch({ type: "granted" });
+  dispatch({ type: "granted", parked: false });
 }
 
 function setupAutosave(base: string) {
@@ -261,7 +266,10 @@ function setupAutosave(base: string) {
 }
 
 async function flush() {
-  dispatch({ type: "flushed", result: saving ? await saving.flush() : "saved" });
+  const current = saving;
+  const result = current ? await current.flush() : "saved";
+  // A save the editor no longer runs, as one before a pause in a parked folder, reports nothing.
+  if (current === saving) dispatch({ type: "flushed", result });
 }
 
 function unmount() {
@@ -274,16 +282,23 @@ function unmount() {
   void read();
 }
 
-/** The editor takes the note from disk: always after "Reload", otherwise only while clean. */
+/**
+ * The editor takes the note from disk: always after "Reload" in a conflict, otherwise only while
+ * clean. Only if the editor is still the one asked for, in the same mode.
+ */
 async function reload(force: boolean) {
   const at = edits;
+  const current = saving;
+  const mode = force ? "conflict" : "editing";
   let note: Awaited<ReturnType<typeof floatNote>>;
   try {
     note = await floatNote();
-  } catch {
+  } catch (e) {
+    // The conflict stays, to choose again.
+    if (force && current === saving && edit.mode === mode) saveError = errorText(e);
     return;
   }
-  if (!editorCore || edit.mode !== "editing") return;
+  if (!editorCore || edit.mode !== mode || current !== saving) return;
   if (!force && (at !== edits || dirty())) return;
   if (!note) {
     // Nothing left to reload: the edit ends, and the post-it says the note went.
@@ -297,21 +312,33 @@ async function reload(force: boolean) {
   setupAutosave(note.version);
   editorCore.reloadText(note.text);
   raw = note.text;
+  if (force) dispatch({ type: "resolved" });
 }
 
-/** As the Scratchpad's "Keep my version": the editor's text saved over the note on disk now. */
+/**
+ * As the Scratchpad's "Keep my version": the editor's text saved over the note on disk now. The
+ * conflict ends once that save lands; otherwise it stays, to choose again.
+ */
 async function keepMine() {
+  const current = saving;
+  const stale = () => current !== saving || edit.mode !== "conflict";
   let note: Awaited<ReturnType<typeof floatNote>>;
   try {
     note = await floatNote();
   } catch (e) {
-    saveError = errorText(e);
+    if (!stale()) saveError = errorText(e);
     return;
   }
+  // Discarded, parked, or another choice already under way meanwhile.
+  if (stale()) return;
   recreate = note === null;
   setupAutosave(note?.version ?? version);
-  saving?.edit(raw);
-  await flush();
+  const keeping = saving;
+  keeping?.edit(raw);
+  const result = keeping ? await keeping.flush() : "saved";
+  if (keeping === saving && edit.mode === "conflict" && result === "saved") {
+    dispatch({ type: "resolved" });
+  }
 }
 
 async function check() {
@@ -487,6 +514,12 @@ $effect(() => {
   if (editorBox) editorBox.style.zoom = String(textScale);
 });
 
+// An edit, and its notices, never hide behind the bar: the post-it expands, and stays so until
+// reading again (the toggle is off meanwhile).
+$effect(() => {
+  if (collapsed && edit.mode !== "read") void floatSetCollapsed(false).catch(() => {});
+});
+
 onMount(() => {
   locale = session.state.locale;
   setLocale(session.state.locale);
@@ -556,6 +589,7 @@ onMount(() => {
                 <Button onclick={() => dispatch({ type: "resolve", keep: true })}>{labels.keepMine}</Button>
               {/snippet}
             </Notice>
+            {#if saveError}<Notice icon="alert">{saveError}</Notice>{/if}
           </div>
         {:else if saveError}
           <div class="notices"><Notice icon="alert">{saveError}</Notice></div>
@@ -596,7 +630,10 @@ onMount(() => {
     onopacity={setOpacity}
     opacityOpen={opacityOpen && !collapsed}
     ontoggleopacity={toggleOpacity}
-    ontoggle={() => void floatSetCollapsed(!collapsed).catch(() => {})}
+    canCollapse={edit.mode === "read"}
+    ontoggle={() => {
+      if (edit.mode === "read") void floatSetCollapsed(!collapsed).catch(() => {});
+    }}
     onedit={() => dispatch({ type: "begin" })}
     onpanel={() => dispatch({ type: "leave", after: "panel" })}
     onclose={() => dispatch({ type: "leave", after: "close" })}

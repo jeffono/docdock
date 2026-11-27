@@ -596,12 +596,14 @@ writing history to disk.
   formatting, without spelling or note statistics) replaces the rendered note; a note edited
   elsewhere moves here once saved there, and a refusal shows "This note can't be edited right
   now." briefly. While editing, the controls stay visible with a quiet "Saving…" / "Saved" before
-  them, the pencil and "Let clicks through" hide, and only the title bar moves the window. Esc or
-  Ctrl+E saves and returns to reading, giving focus back to the previous app; losing focus only
-  saves. Close, and a close from outside, save first and stay open if that fails. "Open in panel"
-  saves, leaves and opens the note expanded in the panel's editor. A save that finds the note
-  changed shows "Changed elsewhere." with Reload and Keep mine above the editor, keeping the text
-  and staying open until one is chosen. If the notes folder goes, the editor hides at once and
+  them, the pencil and "Let clicks through" hide, and only the title bar moves the window. A
+  collapsed post-it expands to edit and stays expanded until reading again: the chevron is disabled
+  and a bar double-click does nothing meanwhile. Esc or Ctrl+E saves and returns to reading, giving
+  focus back to the previous app; losing focus only saves. Close, and a close from outside, save
+  first and stay open if that fails. "Open in panel" saves, leaves and opens the note expanded in
+  the panel's editor. A save that finds the note changed shows "Changed elsewhere." with Reload and
+  Keep mine above the editor, keeping the text and staying open until the choice succeeds; a
+  failure shows its error below, to choose again. If the notes folder goes, the editor hides at once and
   "Waiting for the notes folder; your changes are kept." offers "Discard changes"; with nothing
   unsaved the window just goes, as others do. Ctrl+wheel sizes the
   text in 10% steps from 50% to 300%, kept with the window, and Ctrl+double-click returns it to

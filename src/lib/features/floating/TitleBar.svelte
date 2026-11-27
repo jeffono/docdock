@@ -14,6 +14,7 @@ let {
   gone,
   editing,
   status,
+  canCollapse,
   onopacity,
   opacityOpen,
   ontoggleopacity,
@@ -33,6 +34,8 @@ let {
   editing: boolean;
   /** "Saving…" or "Saved" while editing, else empty. */
   status: string;
+  /** Only while reading: an edit keeps the post-it expanded. */
+  canCollapse: boolean;
   onopacity: (value: number) => void;
   opacityOpen: boolean;
   ontoggleopacity: () => void;
@@ -76,7 +79,7 @@ function pointerdown(event: PointerEvent) {
       DOUBLE_CLICK_DISTANCE
   ) {
     lastPress = undefined;
-    ontoggle();
+    if (canCollapse) ontoggle();
     return;
   }
   lastPress = event;
@@ -100,6 +103,7 @@ function pointerdown(event: PointerEvent) {
       quiet
       label={labels.toggle}
       expanded={!collapsed}
+      disabled={!canCollapse}
       onclick={ontoggle}
     />
   </div>
