@@ -8,24 +8,26 @@ git history (`git log --merges`) and releases in the tags.
 
 ## Next
 
+M21 — Rich content and plugin boundary (standard to advanced, M–L):
+
+1. Low-cost safe Markdown and local media (standard, S–M): clickable task checkboxes in reading
+   view, `==highlight==`, collapsible callouts (`<details>`), local SVG via `<img>` with a
+   `sandbox` CSP on `note-asset`, local audio/video (HTTP `Range` in `note-asset`, `media-src`,
+   unused-attachment tracking), local CSV tables, MathML equations with Temml, and PDF embeds
+   (system-open card first, or on-demand `pdf.js` canvas preview).
+2. Sandboxed renderers and incremental plugin model (advanced, M–L): Mermaid diagrams inside a
+   sandboxed iframe with its own CSP without loosening `main`. Record the plugin decision before
+   plugin work: lock only the two hard-to-reverse invariants — never in-process JS in `main`
+   (protecting `0004` and `0009`), and all sensitive effects (allowlisted network, note access,
+   local CLI execution) mediated by Rust through explicit manifest permissions. Start with an
+   experimental `v0` contract and add extension points only as needed: code-fence renderers
+   (Mermaid), text actions (translation, AI writing assistance) and isolated widgets/tabs (stock
+   tickers, AI usage monitors, task sync connectors).
+
 ## Later
 
 In this order:
 
-- M21 — Rich content and plugin boundary (standard to advanced, M–L):
-  1. Low-cost safe Markdown and local media (standard, S–M): clickable task checkboxes in reading
-     view, `==highlight==`, collapsible callouts (`<details>`), local SVG via `<img>` with a
-     `sandbox` CSP on `note-asset`, local audio/video (HTTP `Range` in `note-asset`, `media-src`,
-     unused-attachment tracking), local CSV tables, MathML equations with Temml, and PDF embeds
-     (system-open card first, or on-demand `pdf.js` canvas preview).
-  2. Sandboxed renderers and incremental plugin model (advanced, M–L): Mermaid diagrams inside a
-     sandboxed iframe with its own CSP without loosening `main`. Record the plugin decision before
-     plugin work: lock only the two hard-to-reverse invariants — never in-process JS in `main`
-     (protecting `0004` and `0009`), and all sensitive effects (allowlisted network, note access,
-     local CLI execution) mediated by Rust through explicit manifest permissions. Start with an
-     experimental `v0` contract and add extension points only as needed: code-fence renderers
-     (Mermaid), text actions (translation, AI writing assistance) and isolated widgets/tabs (stock
-     tickers, AI usage monitors, task sync connectors).
 - M22 — Tasks (advanced, M for local; L–XL if adding native sync): split into two layers, since
   Microsoft To Do retires on 2027-06-30 with no personal-account replacement. First, local Markdown
   tasks (Obsidian Tasks-compatible dates and recurrence), gathered, filtered, toggled and
