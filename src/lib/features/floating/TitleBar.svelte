@@ -75,33 +75,36 @@ function pointerdown(event: PointerEvent) {
   {#if !gone}
     <IconButton icon="pencil" quiet label={labels.edit} tabindex={-1} onclick={() => void floatEdit().catch(() => {})} />
   {/if}
-  <IconButton
-    icon={collapsed ? "chevronRight" : "chevronDown"}
-    quiet
-    label={labels.toggle}
-    tabindex={-1}
-    onclick={ontoggle}
-  />
 {/snippet}
 
-<div class="title-bar" class:shown role="group" onpointerdown={pointerdown}>
+<div class="title-bar" class:shown class:collapsed role="group" onpointerdown={pointerdown}>
+  <div class="collapse-toggle">
+    <IconButton
+      icon={collapsed ? "chevronRight" : "chevronDown"}
+      quiet
+      label={labels.toggle}
+      expanded={!collapsed}
+      onclick={ontoggle}
+    />
+  </div>
   <span class="title" title={name}>{name}</span>
   <FloatBar inline {shown} {opacity} {clickThrough} {locale} {onopacity} {actions} {opacityOpen} {ontoggleopacity} />
 </div>
 
 <style>
   .title-bar {
+    --chevron-gutter: var(--size-control);
     position: absolute;
     inset: var(--pad) var(--pad) auto;
     height: var(--title-height);
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 0 var(--space-2);
     user-select: none;
   }
 
   .title {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     color: var(--color-muted);
@@ -109,20 +112,42 @@ function pointerdown(event: PointerEvent) {
     opacity: var(--sheet-opacity);
     text-overflow: ellipsis;
     white-space: nowrap;
+    transform: translateX(calc(-1 * var(--chevron-gutter)));
+    transition: transform var(--duration) ease;
   }
 
-  /* When the controls are hidden the title can use their space. */
-  .title-bar:not(.shown) {
-    overflow: clip;
+  /* Reserve the gutter so a long title keeps its ellipsis as it slides. */
+  .collapse-toggle {
+    flex: none;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration);
   }
 
-  .title-bar:not(.shown) .title {
-    flex: 0 0 100%;
+  .title-bar:is(.shown, .collapsed, :has(:global(:focus-visible))) .collapse-toggle {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .title-bar:is(.shown, .collapsed, :has(:global(:focus-visible))) .title {
+    transform: none;
   }
 
   @media (max-width: 10rem) {
     .title-bar {
+      --chevron-gutter: calc(var(--size-icon) + var(--space-1) / 2);
       padding-inline: calc(var(--space-1) / 2);
+    }
+
+    .collapse-toggle :global(button) {
+      width: var(--chevron-gutter);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .title,
+    .collapse-toggle {
+      transition: none;
     }
   }
 </style>

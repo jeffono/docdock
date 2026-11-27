@@ -175,7 +175,7 @@ function wheel(event: WheelEvent) {
     setTextScale(stepTextScale(textScale, up));
     return;
   }
-  const overBar = controls && (event.target as Element).closest(".bar") !== null;
+  const overBar = controls && (event.target as Element).closest(".bar, .collapse-toggle") !== null;
   if ((event.altKey && !event.ctrlKey) || overBar) {
     event.preventDefault();
     setOpacity(stepOpacity(opacity, up));

@@ -579,8 +579,11 @@ writing history to disk.
   reopening and the vault), on a sheet of `--color-surface` with a 1 px `--color-line` border and
   `--radius-sm`, the note rendered as in the panel, title included, inside `--space-2` by
   `--space-3` padding, which the text keeps from both edges even while it scrolls, scrolling with
-  the wheel. The title bar shows the note name and reveals its controls on hover: edit, collapse,
-  opacity, "Let clicks through" and Close. Double-clicking the bar also collapses or expands it.
+  the wheel. The title bar shows the note name. On window hover or keyboard focus, the name slides
+  right to reveal the collapse chevron on its left, using the note list's transform and opacity
+  transitions. While collapsed, the right-pointing chevron stays visible for expanding the note.
+  On hover, edit, opacity, "Let clicks through" and Close appear on the right. Double-clicking the
+  bar also collapses or expands it.
   The opacity button opens a slider below the bar, expanding a collapsed note to make room. The
   slider goes from 15% to 100% in 5% steps. Pressing Esc, pressing outside the slider and its
   button, or moving the pointer off the window dismisses it. The wheel over the controls and
